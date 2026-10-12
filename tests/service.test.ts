@@ -35,3 +35,33 @@ test('copia completa, rechazo de corrupción y restauración atómica', async ()
 test('identidad, correo autorizado y delegación caducada', async () => { const { repo, s } = await setup(); assert.equal((await principal(repo, null, 'owner@example.test')).role, 'viewer'); assert.equal((await principal(repo, { provider: 'chatgpt', subject: 'owner', email: 'OWNER@example.test' }, 'owner@example.test')).role, 'superadmin'); await s.configureUser({ subject: 'delegate', role: 'team_admin', teams: ['C'], version: 0 }); const p = await principal(repo, { provider: 'chatgpt', subject: 'delegate', email: 'nobody@example.test' }, 'owner@example.test'); assert.ok(canWrite(p, 'C')); assert.ok(!canWrite(p, 'A')); await repo.batch([{ sql: "UPDATE grants SET expires_at='2000-01-01'" }]); assert.ok(!canWrite(await principal(repo, { provider: 'chatgpt', subject: 'delegate', email: 'nobody@example.test' }, ''), 'C')); });
 test('cálculo antiguo no puede publicarse tras una edición', async () => { const { s, cid } = await setup(); let d = await s.view(cid); d = await s.mutate(cid, { action: 'calculate', version: d.campaign.version }); const runId = d.runs[0].id; d = await s.mutate(cid, { action: 'request', version: d.campaign.version, memberId: d.members[0].id, slot: 1, date: d.result.cycles[0].date }); await assert.rejects(s.mutate(cid, { action: 'publish', version: d.campaign.version, runId }), /actuales/); });
 
+
+test('reinicio reversible conserva plantilla, configuración, publicación y otros equipos',async()=>{
+ const {s,repo,cid}=await setup();let d=await s.view(cid);const memberId=d.members[0].id,date=d.result.cycles[0].date;
+ d=await s.mutate(cid,{action:'request',version:d.campaign.version,memberId,slot:1,date});
+ d=await s.mutate(cid,{action:'award',version:d.campaign.version,memberId,date});
+ d=await s.mutate(cid,{action:'calculate',version:d.campaign.version});d=await s.mutate(cid,{action:'publish',version:d.campaign.version,runId:d.runs[0].id});d=await s.mutate(cid,{action:'reopen',version:d.campaign.version});
+ const baseline=await s.load(cid),other=(await s.list()).campaigns.find(c=>c.team_id==='A'),otherBefore=await s.load(other.id);
+ await assert.rejects(s.mutate(cid,{action:'reset_vacations',version:d.campaign.version,confirmation:'A-2026'}),/Confirma/);
+ await assert.rejects(new Service(repo,{id:null,role:'viewer',teams:[]}).mutate(cid,{action:'reset_vacations',version:d.campaign.version,confirmation:'C-2026'}),/permiso/);
+ d=await s.mutate(cid,{action:'reset_vacations',version:d.campaign.version,confirmation:'C-2026'});assert.equal(d.requests.length,0);assert.equal(d.awards.length,0);assert.equal(d.undo.action,'reset_vacations');assert.deepEqual(d.members,baseline.members);assert.deepEqual(d.config,baseline.config);assert.deepEqual(await s.load(other.id),otherBefore);
+ const publicView=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.awards.length,1);assert.equal('undo' in publicView,false);
+ const undoId=d.undo.id;d=await s.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId});assert.deepEqual(d.requests,baseline.requests);assert.deepEqual(d.awards,baseline.awards);assert.equal(d.undo,null);await assert.rejects(s.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId}),/deshacer/);
+});
+test('deshacer edición y eliminación restaura valores; una operación posterior invalida la opción',async()=>{
+ const {s,cid}=await setup();let d=await s.view(cid);const memberId=d.members[0].id,date=d.result.cycles[0].date;
+ d=await s.mutate(cid,{action:'request',version:d.campaign.version,memberId,slot:1,date});const initial=d.requests;
+ d=await s.mutate(cid,{action:'request',version:d.campaign.version,memberId,slot:1,date:d.result.cycles[1].date});d=await s.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId:d.undo.id});assert.deepEqual(d.requests,initial);
+ d=await s.mutate(cid,{action:'delete_request',version:d.campaign.version,id:d.requests[0].id});d=await s.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId:d.undo.id});assert.deepEqual(d.requests,initial);
+ d=await s.mutate(cid,{action:'request',version:d.campaign.version,memberId,slot:1,date:d.result.cycles[1].date});const undoId=d.undo.id;d=await s.mutate(cid,{action:'calculate',version:d.campaign.version});assert.equal(d.undo,null);await assert.rejects(s.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId}),/deshacer/);
+});
+test('undo y redo alternan el reinicio y una edición nueva descarta redo',async()=>{
+ const {s,cid}=await setup();let d=await s.view(cid);const memberId=d.members[0].id,date=d.result.cycles[0].date;
+ d=await s.mutate(cid,{action:'request',version:d.campaign.version,memberId,slot:1,date});const original=d.requests;
+ d=await s.mutate(cid,{action:'reset_vacations',version:d.campaign.version,confirmation:'C-2026'});const stale=d.undo.id;
+ d=await s.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId:d.undo.id});assert.deepEqual(d.requests,original);assert.ok(d.redo);assert.equal(d.undo,null);
+ await assert.rejects(s.mutate(cid,{action:'redo_vacations',version:d.campaign.version,undoId:stale}),/deshacer/);
+ d=await s.mutate(cid,{action:'redo_vacations',version:d.campaign.version,undoId:d.redo.id});assert.equal(d.requests.length,0);assert.ok(d.undo);assert.equal(d.redo,null);
+ d=await s.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId:d.undo.id});assert.deepEqual(d.requests,original);const redoId=d.redo.id;
+ d=await s.mutate(cid,{action:'request',version:d.campaign.version,memberId,slot:2,date:d.result.cycles[1].date});assert.equal(d.redo,null);await assert.rejects(s.mutate(cid,{action:'redo_vacations',version:d.campaign.version,undoId:redoId}),/deshacer/);assert.equal(d.requests.length,2);
+});

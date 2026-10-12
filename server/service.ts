@@ -20,8 +20,12 @@ export class Service {
     async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
     async view(cid: string) { const d = await this.load(cid); const editable = this.actor.role === 'superadmin' || this.actor.role === 'team_admin' && this.actor.teams.includes(d.campaign.team_id); if (editable)
-        return { ...d, result: calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, d.requests, d.awards), runs: d.runs.map((r: any) => ({ ...r, result_json: undefined })), editable: true }; const pub = d.campaign.published_run_id ? d.runs.find((r: any) => r.id === d.campaign.published_run_id) || (await this.repo.all('SELECT * FROM runs WHERE id=? AND campaign_id=?', [d.campaign.published_run_id, cid]))[0] : null; if (!pub)
+        return { ...d, undo: await this.vacationUndo(cid,d.campaign.version).then(e=>e&&e.action!=='undo_vacations'?{id:e.id,action:e.action}:null), redo: await this.vacationUndo(cid,d.campaign.version).then(e=>e?.action==='undo_vacations'?{id:e.id}:null), result: calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, d.requests, d.awards), runs: d.runs.map((r: any) => ({ ...r, result_json: undefined })), editable: true }; const pub = d.campaign.published_run_id ? d.runs.find((r: any) => r.id === d.campaign.published_run_id) || (await this.repo.all('SELECT * FROM runs WHERE id=? AND campaign_id=?', [d.campaign.published_run_id, cid]))[0] : null; if (!pub)
         return { campaign: { id: cid, year: d.campaign.year, team_id: d.campaign.team_id, status: d.campaign.status }, members: [], requests: [], awards: [], config: null, result: null, runs: [], editable: false }; const s = JSON.parse(pub.result_json); return { campaign: { id: cid, year: d.campaign.year, team_id: d.campaign.team_id, status: 'published' }, members: s.members.map((m: any) => ({ id: m.id, code: m.code })), requests: s.requests, awards: s.awards, result: { ...s.result, ordering: s.result.ordering.map((m: any) => ({ id: m.id, code: m.code, score: m.score })) }, config: null, runs: [], editable: false }; }
+    async vacationUndo(cid:string,version:number) {
+        const entries=await this.repo.all('SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30',[cid]);
+        return entries.find(e=>{const before=e.before_json?JSON.parse(e.before_json):null,after=JSON.parse(e.after_json);return before?.format==='vacations-undo-v1'&&after.version===version;})??null;
+    }
     audit(action: string, c: any, before: any, after: any): Statement { return { sql: 'INSERT INTO audit(id,actor,action,team_id,campaign_id,before_json,after_json,created_at) VALUES(?,?,?,?,?,?,?,?)', args: [id(), this.actor.id, action, c?.team_id ?? null, c?.id ?? null, before === null ? null : JSON.stringify(before), JSON.stringify(after), now()] }; }
     async commit(statements: Statement[]) { try {
         return await this.repo.batch([...statements, { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" }]);
@@ -79,7 +83,22 @@ export class Service {
             throw new ApiError('La campaña está cerrada. Un superadministrador puede reabrirla.');
         const ops = cas(cid, body.version);
         let before: any = null, after: any = body;
-        if (action === 'config') {
+        if (action === 'reset_vacations') {
+            requireSuper(this.actor);
+            if(body.confirmation!==`${c.team_id}-${c.year}`)throw new ApiError('Confirma el equipo y ejercicio antes de empezar de cero');
+            ops.push({sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]});
+            after={requests:0,awards:0};
+        }
+        else if(action==='undo_vacations'||action==='redo_vacations'){
+            const entry=await this.vacationUndo(cid,c.version);
+            if(!entry||entry.id!==body.undoId||(action==='redo_vacations')!==(entry.action==='undo_vacations'))throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.',409);
+            const snapshot=JSON.parse(entry.before_json);
+            ops.push({sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]});
+            for(const r of snapshot.requests)ops.push({sql:'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,?)',args:[r.id,cid,r.member_id,r.slot,r.cycle_date,r.version]});
+            for(const a of snapshot.awards)ops.push({sql:'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,?)',args:[a.id,cid,a.member_id,a.cycle_date,a.version]});
+            after={undone:entry.id};
+        }
+        else if (action === 'config') {
             requireSuper(this.actor);
             const cfg = checkedConfig(body.config, c.year);
             const dates = new Set(calendar(c.year, c.team_id, cfg).map(s => s.date));
@@ -216,6 +235,10 @@ export class Service {
         }
         else
             throw new ApiError('Operación no válida');
+        if(['request','award','delete_request','delete_award','reset_vacations','undo_vacations','redo_vacations'].includes(action)){
+            before={format:'vacations-undo-v1',requests:d.requests,awards:d.awards};
+            after={...after,version:c.version+1};
+        }
         ops.push(this.audit(action, c, before, after));
         await this.commit(ops);
         return this.view(cid);
@@ -270,6 +293,8 @@ export class Service {
     }
 }
 async function digest(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
+
+
 
 
 

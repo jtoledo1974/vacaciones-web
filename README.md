@@ -60,3 +60,5 @@ No se ha contratado ningún servicio de pago. No existe prueba de gratuidad perm
 La administración de plantillas permite nombres, nicks Unicode y fechas de antigüedad opcionales en una tabla conjunta; pegado por columnas y archivo de importación preparado desde el Excel. Los nombres son exclusivos de administración. No se generan fechas de antigüedad para celdas vacías. El código se conserva también en el repositorio privado https://github.com/jtoledo1974/vacaciones-web; las importaciones y copias de datos quedan excluidas.
 
 
+
+En todas las vistas de administración hay Deshacer y Rehacer para el último cambio en solicitudes/adjudicaciones. Se conserva entre recargas y funciona también con el reinicio. Otra operación invalida el paso anterior para evitar sobrescribir trabajo posterior. En Administración, Empezar de cero las vacaciones exige escribir equipo-año; borra solo solicitudes y adjudicaciones del borrador y conserva plantilla, parámetros y publicaciones. Los cambios anteriores a esta versión no tienen undo retroactivo.
