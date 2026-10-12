@@ -19,7 +19,7 @@
 | HTTP con D1 local | Persistencia tras nueva petición; 401 sin sesión, 403 sin Origin, 409 con versión obsoleta; copia completa. |
 | Interfaz | Guardado de solicitud ficticia en navegador; comprobación de calendario/escritorio y formulario/móvil (390 px), sin desbordamiento horizontal. |
 
-25 pruebas automatizadas pasan. TypeScript de la aplicación pasa y el build Worker compila. Pruebas SQL críticas usan SQLite real con claves foráneas, además de pruebas HTTP sobre D1/Miniflare local. No equivalen por sí solas a verificación de la base alojada.
+28 pruebas automatizadas del motor y servicio pasan. TypeScript de la aplicación pasa y el build Worker compila. Pruebas SQL críticas usan SQLite real con claves foráneas, además de pruebas HTTP sobre D1/Miniflare local. No equivalen por sí solas a verificación de la base alojada.
 
 ## Correspondencia con el original y decisiones explícitas
 
@@ -37,7 +37,7 @@
 
 ## Pendientes y límites
 
-La carga de datos originales fue autorizada expresamente después del primer despliegue. El fichero original conservado y la copia de Descargas tienen el mismo SHA-256 y contienen una única plantilla de 16 personas del equipo C. No se han encontrado las plantillas de los otros siete equipos. La importación local verifica 16 nombres, 81 selecciones/adjudicaciones y las 16 puntuaciones guardadas. Los nombres quedan en D1 y en copias privadas, fuera del código y de GitHub. Antes de uso operativo faltan validación de campañas adicionales frente a Excel/Sheets recalculados (incluido un bisiesto y distribución real de extracupos), aceptación de responsables y contraste de festivos aplicables. La equivalencia probada no cubre todas las fórmulas de Cuenta horas/Tosto turnero ni los informes de horas trabajadas: son superficies fuera del MVP de vacaciones.
+La carga de datos originales fue autorizada expresamente después del primer despliegue. El fichero original conservado y la copia de Descargas tienen el mismo SHA-256 y contienen una única plantilla de 16 personas del equipo C. No se han encontrado las plantillas de los otros siete equipos. La importación local y la comprobación alojada verifican 16 nombres, 81 selecciones/adjudicaciones y las 16 puntuaciones guardadas. Los nombres quedan en D1 y en copias privadas, fuera del código y de GitHub. Antes de uso operativo faltan validación de campañas adicionales frente a Excel/Sheets recalculados (incluido un bisiesto y distribución real de extracupos), aceptación de responsables y contraste de festivos aplicables. La equivalencia probada no cubre todas las fórmulas de Cuenta horas/Tosto turnero ni los informes de horas trabajadas: son superficies fuera del MVP de vacaciones.
 
 Firebase/Google, envío de correo, comparación visual entre simulaciones, copias externas automáticas y migración a PostgreSQL no están implementados. La estructura admite proveedor de identidad, permisos temporales y varias revisiones, pero no se afirma que esas integraciones hayan sido probadas.
 
@@ -48,4 +48,5 @@ Sites provee DB y encabezados de identidad, y mantiene una lista de visitantes i
 La exportación JSON cubre todos los datos; CSV cubre adjudicaciones del equipo. Las copias se descargan manualmente. El límite del importador es 5 MB y 25.000 registros; la restauración debe mantenerse dentro de los límites de lote/consultas de D1 del entorno. La gratuidad permanente no está garantizada por una prueba técnica y no se ha activado ningún servicio facturable.
 
 Ver [README.md](README.md) para uso, despliegue, Firebase y migración a Cloudflare. La prueba del Site alojado y su URL se registran en [DESPLIEGUE.md](DESPLIEGUE.md).
+
 

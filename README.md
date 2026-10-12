@@ -62,3 +62,6 @@ La administración de plantillas permite nombres, nicks Unicode y fechas de anti
 
 
 En todas las vistas de administración hay Deshacer y Rehacer para el último cambio en solicitudes/adjudicaciones. Se conserva entre recargas y funciona también con el reinicio. Otra operación invalida el paso anterior para evitar sobrescribir trabajo posterior. En Administración, Empezar de cero las vacaciones exige escribir equipo-año; borra solo solicitudes y adjudicaciones del borrador y conserva plantilla, parámetros y publicaciones. Los cambios anteriores a esta versión no tienen undo retroactivo.
+
+## Ayuda en la web
+El apartado Ayuda permite leer y descargar las guías. La guía de consulta es pública; la guía de gestión y README, VALIDACION y DESPLIEGUE se entregan solo a administradores mediante una ruta que comprueba el rol en el servidor. Los originales Markdown se incorporan al build del servidor, por lo que sus cambios se reflejan al desplegar.

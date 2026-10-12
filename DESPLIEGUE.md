@@ -18,3 +18,5 @@ Actualización final: versión 3, despliegue appgdep_6acd557af6508191b53d6cd77bf
 Importación real comprobada en Chrome y persistente tras recargar: equipo C de 2026, 16 nombres y nicks coincidentes, 16 antigüedades vacías, 81 solicitudes y 81 adjudicaciones copiadas. No se ha publicado el borrador como resultado definitivo. Los otros siete equipos conservan ejemplos: faltan sus fuentes. El Excel de Descargas es idéntico al de fuentes y solo incluye la plantilla C.
 
 La copia descargada por el usuario antes de importar tiene SHA-256 válida; contiene ocho equipos y 128 personas de ejemplo. Conviene descargar una nueva copia tras la importación.
+
+La versión 4 incorporó Deshacer/Rehacer y reinicio reversible, con 28 pruebas automatizadas y tipos correctos. Despliegue confirmado: appgdep_6acd56f2621881918ac31c9b16565e30. Las 81 selecciones de C permanecieron tras la actualización.

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { sitesAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
 import { Service, principal, ApiError } from '../../../server/service';
+import {documentation} from '../../../server/documentation';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 async function serve(request: Request) {
@@ -15,6 +16,13 @@ async function serve(request: Request) {
     const actor = await principal(repo, user, bindings.SUPERADMIN_EMAILS ?? '');
         const service = new Service(repo, actor);
         if (request.method === 'GET') {
+            if(path[0]==='help'){
+                const documents=documentation(actor.role);
+                if(!path[1])return reply(documents);
+                const doc=documents.find(d=>d.id===path[1]);
+                if(!doc)throw new ApiError('Documento no disponible',404);
+                return new Response(doc.content,{headers:{'Content-Type':'text/markdown; charset=utf-8','Content-Disposition':`attachment; filename="${doc.filename}"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+            }
             if (path[0] === 'session')
             return reply({ principal: actor, identity: user ? { subject: user.subject } : null });
             if (path[0] === 'index')

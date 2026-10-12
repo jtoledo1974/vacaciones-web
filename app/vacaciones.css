@@ -5,3 +5,6 @@
 .retire{border:0;background:transparent;color:#9aab92;font-size:14px;padding:0 0 0 8px;cursor:pointer}.retire:hover{color:#a95b4b}
 .roster-panel td input{width:100%;min-width:120px;max-width:none}.roster-panel th:nth-child(2),.roster-panel td:nth-child(2){min-width:260px}.roster-panel td:last-child input{min-width:145px}.roster-panel td{padding:8px}
 .warning{background:#faf2dc;color:#9a7d38;border:1px solid #eddfb8}
+
+.help-document{margin-top:28px;max-width:980px;line-height:1.75;overflow-wrap:anywhere}.help-document h2{margin:28px 0 18px}.help-document h3{margin:26px 0 12px}.help-document p{margin:12px 0;color:var(--text)}.help-document li{margin:8px 0}.help-document pre{overflow:auto;padding:16px;background:#f3f6f5;border-radius:10px}.help-document code{font-size:.9em;background:#f3f6f5;padding:2px 5px;border-radius:4px}.help-inline-link{border:0;background:none;padding:0;color:#256454;text-decoration:underline;cursor:pointer;font:inherit}.help-panel .button-row{gap:10px}.help-document .table-wrap{margin:20px 0}
+
