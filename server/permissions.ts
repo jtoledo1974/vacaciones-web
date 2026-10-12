@@ -2,6 +2,7 @@ export type Identity = {
     provider: string;
     subject: string;
     email: string;
+    emailVerified?:boolean;
 } | null;
 export type Principal = {
     id: string | null;

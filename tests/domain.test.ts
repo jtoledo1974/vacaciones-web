@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calendar, easter, iso, leap, serial, holidayDates } from '../domain/calendar.ts';
+import { calendar, easter, iso, leap, serial, holidayDates,rotationCode } from '../domain/calendar.ts';
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calculate } from '../domain/vacations.ts';
 import ref from './excel-reference.json' with { type: 'json' };
@@ -17,3 +17,4 @@ test('8 equipos por 15 ejercicios, sin ciclos duplicados', () => { for (let y = 
     } });
 test('copiar parámetros no altera el original ni copia adjudicaciones', () => { const c = defaultConfig(2026), before = JSON.stringify(c), n = copyConfig(c, 2026, 2027); assert.equal(JSON.stringify(c), before); assert.equal(n.summerStart, '2027-06-01'); assert.ok(!('awards' in n)); });
 test('Baremo ponderado, menor puntuación y antigüedad primero', () => { const c = defaultConfig(2026); const members = [{ id: 'a', code: 'A01', seniority: '2010-01-01' }, { id: 'b', code: 'A02', seniority: '2000-01-01' }]; const r = calculate(2026, 'C', c, members, [{ id: '1', member_id: 'a', slot: 1, cycle_date: '2026-01-07' }, { id: '2', member_id: 'b', slot: 1, cycle_date: '2026-01-07' }], []); assert.equal(r.ordering[0].id, 'b'); assert.equal(r.ordering[0].score, 24); });
+test('Frontera de rotación bisiesta usa el ciclo CT del original',()=>{for(const y of [2028,2032])for(const t of 'ABCDEFGH'){const c=defaultConfig(y);c.correturnos=String(y)+'-01-01';const ct=calendar(y,t,c).find(s=>s.correturnos);assert.ok(ct);const boundary=serial(ct.date)+7,after=(Math.floor(y/4)%8+'ABCDEFGH'.indexOf(t))%8,before=(after+7)%8;assert.equal(rotationCode(boundary-1,y,t,c),c.rotation[(boundary-1)%8][before]);assert.equal(rotationCode(boundary,y,t,c),c.rotation[boundary%8][after]);}});

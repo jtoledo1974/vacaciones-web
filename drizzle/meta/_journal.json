@@ -8,6 +8,20 @@
       "when": 1791837902798,
       "tag": "0000_purple_lilandra",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791839863451,
+      "tag": "0001_charming_giant_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791840428045,
+      "tag": "0002_nifty_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }

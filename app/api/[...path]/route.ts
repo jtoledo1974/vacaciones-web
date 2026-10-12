@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { getChatGPTUser } from '../../chatgpt-auth';
+import { sitesAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
 import { Service, principal, ApiError } from '../../../server/service';
 export const dynamic = 'force-dynamic';
@@ -10,13 +10,13 @@ async function serve(request: Request) {
         const bindings = env as any;
         if (!bindings.DB)
             return reply({ error: 'El almacenamiento todavía no está disponible' }, 503);
-        const user = await getChatGPTUser();
+    const user = await sitesAuthenticator.authenticate(request);
         const repo = new D1Repository(bindings.DB);
-        const actor = await principal(repo, user ? { provider: 'chatgpt', subject: user.userId, email: user.email } : null, bindings.SUPERADMIN_EMAILS ?? '');
+    const actor = await principal(repo, user, bindings.SUPERADMIN_EMAILS ?? '');
         const service = new Service(repo, actor);
         if (request.method === 'GET') {
             if (path[0] === 'session')
-                return reply({ principal: actor, identity: user ? { subject: user.userId } : null });
+            return reply({ principal: actor, identity: user ? { subject: user.subject } : null });
             if (path[0] === 'index')
                 return reply(await service.list());
             if (path[0] === 'campaign' && path[1])
@@ -53,6 +53,8 @@ async function serve(request: Request) {
             return reply(await service.mutate(path[1], b));
         if (path[0] === 'users')
             return reply(await service.configureUser(b));
+    if (path[0] === 'teams')
+        return reply(await service.team(b));
         if (path[0] === 'restore')
             return reply(await service.restore(b.backup, b.revision));
         throw new ApiError('Ruta no encontrada', 404);

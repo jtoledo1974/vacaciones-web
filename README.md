@@ -5,7 +5,7 @@ Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script.
 ## Uso
 
 1. Abrir el Site privado e iniciar sesión con la cuenta autorizada.
-2. Pulsar **Preparar campaña de prueba**: ocho equipos A–H, 16 códigos ficticios por equipo y ejercicio 2026. No se importan personas reales.
+2. Pulsar **Preparar campaña de prueba**: ocho equipos A–H, 16 códigos ficticios por equipo y ejercicio 2026. La importación de datos reales requiere una petición expresa; la carga del Excel original ha sido autorizada en esta sesión.
 3. Seleccionar equipo y ejercicio. Registrar solicitudes y adjudicar ciclos en borrador.
 4. **Calcular revisión** guarda un resultado independiente. **Publicar** hace visible esa revisión y cierra la campaña. Reabrir permite trabajar sobre un nuevo borrador sin cambiar el resultado visible.
 5. Administración → campañas: crear el siguiente ejercicio, con parámetros originales o copiados. Los resultados nunca se copian.
@@ -55,3 +55,7 @@ Consultar [VALIDACION.md](VALIDACION.md) para alcance comprobado, discrepancias 
 Migración a Cloudflare: desplegar el build Worker con Wrangler, crear DB, aplicar las SQL versionadas, importar el backup, configurar las variables de entorno y sustituir el adaptador de autenticación de Sites por Firebase verificado u otro proveedor. El motor y el repositorio D1 se conservan. PostgreSQL requeriría otro repositorio y traducción acotada de SQL/transacciones; no se ha implementado. La vinculación de identidades entre proveedores requiere confirmar cuentas: no mapear automáticamente sujetos de ChatGPT a Firebase.
 
 No se ha contratado ningún servicio de pago. No existe prueba de gratuidad permanente: las cuotas y condiciones dependen de Sites y, tras migrar, del plan del proveedor. D1 tiene límites de tamaño, consultas y lote; el MVP limita las importaciones y debe ampliar la estrategia de restauración si el historial crece. Referencia: https://developers.cloudflare.com/d1/platform/limits/.
+
+
+La administración de plantillas permite nombres, nicks Unicode y fechas de antigüedad opcionales en una tabla conjunta; pegado por columnas y archivo de importación preparado desde el Excel. Los nombres son exclusivos de administración. No se generan fechas de antigüedad para celdas vacías. El código se conserva también en el repositorio privado https://github.com/jtoledo1974/vacaciones-web; las importaciones y copias de datos quedan excluidas.
+

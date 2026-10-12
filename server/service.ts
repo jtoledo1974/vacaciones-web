@@ -3,6 +3,7 @@ import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '.
 import { calculate } from '../domain/vacations.ts';
 import { requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
+import {validateRoster,rowStatements} from './roster.ts';
 const id = () => crypto.randomUUID(), now = () => new Date().toISOString();
 export class ApiError extends Error {
     constructor(message: string, public status = 400) { super(message); }
@@ -10,13 +11,13 @@ export class ApiError extends Error {
 function checkedConfig(config:Config,year:number){try{return validateConfig(config,year);}catch(e:any){throw new ApiError(e.message??'Parámetros no válidos');}}
 function checkedDate(value:string){try{return serial(value);}catch{throw new ApiError('Fecha no válida');}}
 export async function principal(repo: Repository, identity: Identity, superEmails: string): Promise<Principal> { if (!identity)
-    return { id: null, role: 'viewer', teams: [] }; const key = identity.provider + ':' + identity.subject; if (superEmails.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(identity.email.toLowerCase()))
+    return { id: null, role: 'viewer', teams: [] }; const key = identity.provider + ':' + identity.subject; if ((identity.provider==='chatgpt'||identity.emailVerified===true)&&superEmails.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(identity.email.toLowerCase()))
     return { id: key, role: 'superadmin', teams: [] }; const user = (await repo.all('SELECT * FROM users WHERE provider=? AND subject=?', [identity.provider, identity.subject]))[0]; if (!user)
     return { id: key, role: 'viewer', teams: [] }; return { id: key, role: user.role === 'team_admin' ? 'team_admin' : 'viewer', teams: (await repo.all('SELECT team_id FROM grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)', [user.id, now()])).map(g => g.team_id) }; }
 export class Service {
     constructor(private repo: Repository, public actor: Principal) { }
     async list() { const r = await this.repo.batch([{ sql: 'SELECT * FROM teams ORDER BY id' }, { sql: 'SELECT * FROM campaigns ORDER BY year DESC,team_id' }]); return { teams: r[0].results, campaigns: r[1].results, principal: this.actor }; }
-    async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
+    async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
     async view(cid: string) { const d = await this.load(cid); const editable = this.actor.role === 'superadmin' || this.actor.role === 'team_admin' && this.actor.teams.includes(d.campaign.team_id); if (editable)
         return { ...d, result: calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, d.requests, d.awards), runs: d.runs.map((r: any) => ({ ...r, result_json: undefined })), editable: true }; const pub = d.campaign.published_run_id ? d.runs.find((r: any) => r.id === d.campaign.published_run_id) || (await this.repo.all('SELECT * FROM runs WHERE id=? AND campaign_id=?', [d.campaign.published_run_id, cid]))[0] : null; if (!pub)
@@ -57,15 +58,15 @@ export class Service {
         return this.list();
     }
     async createCampaigns(year: number, copyYear: number | null) { requireSuper(this.actor); checkedConfig(defaultConfig(year), year); const ts = await this.repo.all('SELECT * FROM teams ORDER BY id'); if (ts.length !== 8)
-        throw new ApiError('Inicializa los ocho equipos primero'); const people = await this.repo.all('SELECT * FROM people'); const prior = copyYear ? await this.repo.all('SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=?', [copyYear]) : []; const ops: Statement[] = []; for (const t of ts) {
+        throw new ApiError('Inicializa los ocho equipos primero'); const people = await this.repo.all('SELECT * FROM people WHERE active=1'); const prior = copyYear ? await this.repo.all('SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=?', [copyYear]) : []; const ops: Statement[] = []; for (const t of ts) {
         const cid = id(), previous = prior.find(p => p.team_id === t.id);
         if (copyYear && !previous)
             throw new ApiError('El ejercicio de origen no contiene los ocho equipos');
         const config = previous ? copyConfig(JSON.parse(previous.json), copyYear!, year) : defaultConfig(year);
         checkedConfig(config, year);
-        ops.push({ sql: 'INSERT INTO campaigns(id,team_id,year,status,version,created_at) VALUES(?,?,?,\'open\',1,?)', args: [cid, t.id, year, now()] }, { sql: 'INSERT INTO parameters(campaign_id,json,version) VALUES(?,?,1)', args: [cid, JSON.stringify(config)] });
+        ops.push({ sql: 'INSERT INTO campaigns(id,team_id,year,status,version,data_kind,created_at) VALUES(?,?,?,\'open\',1,?,?)', args: [cid, t.id, year,previous?.data_kind??(people.some(p=>p.team_id===t.id&&p.label)?'configured':'demo'), now()] }, { sql: 'INSERT INTO parameters(campaign_id,json,version) VALUES(?,?,1)', args: [cid, JSON.stringify(config)] });
         for (const p of people.filter(p => p.team_id === t.id))
-            ops.push({ sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,seniority,version) VALUES(?,?,?,?,?,1)', args: [id(), cid, p.id, p.code, p.seniority] });
+            ops.push({ sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)', args: [id(), cid, p.id, p.code, p.label??'', p.seniority,p.position??0] });
         ops.push(this.audit('create_campaign', { id: cid, team_id: t.id }, null, { year, copyYear }));
     } await this.commit(ops); return this.list(); }
     async mutate(cid: string, body: any) {
@@ -145,6 +146,56 @@ export class Service {
             before = { status: c.status };
             after = { status: action === 'close' ? 'closed' : 'open' };
         }
+        else if(action==='import_roster'){
+            requireSuper(this.actor);
+            const source=body.source;
+            if(!source||source.format!=='vacaciones-roster-v1'||source.team!==c.team_id||source.year!==c.year)throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
+            const importedConfig=source.config?checkedConfig(source.config,c.year):d.config;
+            let rows;try{rows=validateRoster(source.rows,c.year,c.team_id,importedConfig);}catch(e:any){throw new ApiError(e.message);}
+            const imported=rows.map((r,i)=>({...r,id:id(),personId:id(),position:i}));
+            const selections=imported.flatMap(m=>(m.dates??[]).map((date,i)=>({id:id(),member_id:m.id,slot:i+1,cycle_date:date})).filter(r=>r.cycle_date));
+            // The original selection grid drives both the request and the vacation relation.
+            const importedAwards=source.copySelections?selections.map(r=>({id:id(),member_id:r.member_id,cycle_date:r.cycle_date})):[];
+            const check=calculate(c.year,c.team_id,importedConfig,imported,selections,importedAwards);
+            if(check.issues.length)throw new ApiError('Revisa la plantilla: '+check.issues.join('; '));
+            const existingPeople=await this.repo.all('SELECT * FROM people WHERE team_id=?',[c.team_id]);
+            ops.push({sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM campaign_members WHERE campaign_id=?',args:[cid]});
+            for(const member of d.members)ops.push({sql:'UPDATE people SET active=0,version=version+1 WHERE id=? AND team_id=?',args:[member.person_id,c.team_id]});
+            for(const m of imported){
+                const existing=existingPeople.find(p=>p.code===m.code);
+                if(existing){m.personId=existing.id;ops.push({sql:'UPDATE people SET label=?,seniority=?,position=?,active=1,version=version+1 WHERE id=? AND team_id=?',args:[m.label,m.seniority,m.position,existing.id,c.team_id]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[m.id,cid,existing.id,m.code,m.label,m.seniority,m.position]});}
+                else ops.push(...rowStatements(cid,c.team_id,m,m.position,m.personId,m.id));
+            }
+            for(const r of selections)ops.push({sql:'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1)',args:[r.id,cid,r.member_id,r.slot,r.cycle_date]});
+            for(const a of importedAwards)ops.push({sql:'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',args:[a.id,cid,a.member_id,a.cycle_date]});
+            ops.push({sql:"UPDATE campaigns SET data_kind='imported' WHERE id=?",args:[cid]});
+            if(source.config)ops.push({sql:'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',args:[JSON.stringify(importedConfig),cid]});
+            before={members:d.members,requests:d.requests,awards:d.awards,config:d.config};after={source:source.source??'Plantilla importada',members:rows.length,selections:selections.length,awards:importedAwards.length,configurationImported:!!source.config};
+        }
+        else if(action==='bulk_members'){
+            requireSuper(this.actor);
+            let rows;try{rows=validateRoster(body.rows,c.year,c.team_id,d.config);}catch(e:any){throw new ApiError(e.message);}
+            const resolved=rows.map((r,i)=>{const member=r.memberId?d.members.find(m=>m.id===r.memberId):d.members.find(m=>m.code===r.code);if(r.memberId&&!member)throw new ApiError('Controlador ajeno a este equipo');return {row:r,member,position:member?.position??d.members.length+i};});
+            const memberIds=resolved.map(r=>r.member?.id).filter(Boolean);
+            if(new Set(memberIds).size!==memberIds.length)throw new ApiError('El mismo controlador aparece en dos filas');
+            const touched=new Set(resolved.map(r=>r.member?.id).filter(Boolean));
+            if(resolved.some(r=>d.members.some(m=>m.code===r.row.code&&!touched.has(m.id))))throw new ApiError('Hay un identificador duplicado en la plantilla');
+            for(const {member} of resolved)if(member)ops.push({sql:'UPDATE people SET code=? WHERE id=? AND team_id=?',args:['TMP-'+id(),member.person_id,c.team_id]});
+            for(const {row:r,member,position} of resolved){
+                if(member)ops.push({sql:'UPDATE people SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND team_id=?',args:[r.code,r.label,r.seniority,member.person_id,c.team_id]},{sql:'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',args:[r.code,r.label,r.seniority,member.id,cid]});
+                else ops.push(...rowStatements(cid,c.team_id,r,position,id(),id()));
+            }
+            ops.push({sql:"UPDATE campaigns SET data_kind='configured' WHERE id=?",args:[cid]});
+            before=d.members;after=rows;
+        }
+        else if(action==='retire_member'){
+            requireSuper(this.actor);
+            const member=d.members.find(m=>m.id===body.memberId);
+            if(!member)throw new ApiError('Identificador no encontrado',404);
+            if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
+            ops.push({sql:'UPDATE people SET active=0,version=version+1 WHERE id=? AND team_id=?',args:[member.person_id,c.team_id]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
+            before=member;after={retired:member.code};
+        }
         else if (action === 'member') {
             requireSuper(this.actor);
             const code = String(body.code ?? '').trim().toUpperCase();
@@ -175,6 +226,17 @@ export class Service {
         throw new ApiError('Los permisos cambiaron. Recarga.', 409); const token = id(), ops: Statement[] = old ? [{ sql: 'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?', args: [body.role, uid, expected] }] : [{ sql: 'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)', args: [uid, 'chatgpt', body.subject, body.role] }]; ops.push({ sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] }, { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] }, { sql: 'DELETE FROM grants WHERE user_id=?', args: [uid] }); for (const t of new Set(body.teams))
         ops.push({ sql: 'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)', args: [id(), uid, t, body.expiresAt ?? null] }); ops.push(this.audit('permissions', null, { user: old, grants: oldGrants }, { subject: body.subject, role: body.role, teams: body.teams })); await this.commit(ops); return { ok: true }; }
     async admin() { requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
+    async team(body:any){
+        requireSuper(this.actor);
+        const team=(await this.repo.all('SELECT * FROM teams WHERE id=?',[body.id]))[0];
+        if(!team)throw new ApiError('Equipo no encontrado',404);
+        const name=typeof body.name==='string'?body.name.trim():'';
+        if(!name||name.length>50)throw new ApiError('Nombre de equipo de 1 a 50 caracteres');
+        if(body.version!==team.version)throw new ApiError('El equipo cambió. Recarga antes de guardar.',409);
+        const token=id();
+        await this.commit([{sql:'UPDATE teams SET name=?,version=version+1 WHERE id=? AND version=?',args:[name,body.id,body.version]},{sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},{sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},this.audit('team_name',{team_id:body.id},team,{name})]);
+        return this.list();
+    }
     async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }
     async restore(b: any, expectedRevision: number) {
         requireSuper(this.actor);
@@ -199,7 +261,7 @@ export class Service {
             for (const row of b.payload.tables[n]) {
                 if (Object.keys(row).some(k => !cols.includes(k)))
                     throw new ApiError('Columna desconocida');
-                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? null) });
+                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:null)) });
             }
         }
         ops.push(this.audit('restore', null, { revision: expectedRevision }, { sha256: b.sha256 }));
@@ -208,4 +270,7 @@ export class Service {
     }
 }
 async function digest(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
+
+
+
 

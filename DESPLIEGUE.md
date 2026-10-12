@@ -1,9 +1,13 @@
 # Site privado
 
-Proyecto: `appgprj_6acd43ada448819191e64de437e92b74`.
+URL: https://<site>.chatgpt.site
+Repositorio privado: https://github.com/jtoledo1974/vacaciones-web
+Proyecto de Sites: appgprj_6acd43ada448819191e64de437e92b74.
 
-La identidad y el enlace se conservan en `.openai/hosting.json` y en el resultado nativo de Sites. El despliegue usa el archivo Worker construido y las migraciones de `drizzle/`; no importa el Excel ni datos reales.
+Primer despliegue confirmado: appgdep_6acd4da16cc881918a2a6ab897290624, versión appgprj_6acd43ada448819191e64de437e92b74~appgver_1fa42cae9b208191b6374e390ca5dd69.
 
-Superadministradores autorizados por configuración de entorno: las dos cuentas solicitadas por el usuario. La pertenencia a la lista de visitantes de Sites no concede el rol de administrador por sí sola. El propietario conserva el acceso; el segundo visitante necesita aceptar el acceso de la plataforma.
+Se verificó en Chrome la sesión de superadministrador del propietario y la inicialización de ocho equipos en D1 alojado. El navegador embebido del usuario no completó el login; Chrome sí. No se sustituye ese mecanismo por un acceso inseguro.
 
-Las comprobaciones técnicas de la aplicación se describen en `VALIDACION.md`. El resultado de la verificación alojada se añadirá a este registro después del despliegue.
+Los dos superadministradores solicitados se configuran en el entorno privado de Sites. La lista de visitantes de la plataforma es independiente del rol de la aplicación.
+
+La siguiente versión añade edición conjunta/importación de plantillas, retirada de trabajadores y nombres de equipo. La importación del Excel original y sus datos fue autorizada por el usuario. Los archivos de importación contienen datos personales y quedan fuera de los repositorios y paquetes de despliegue.

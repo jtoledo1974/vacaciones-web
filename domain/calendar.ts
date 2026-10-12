@@ -94,8 +94,21 @@ export function dailyScorer(y: number, c: Config) {
             return a.score; const specials = hs.filter(h => h.serial === n).reduce((s, h) => s + (h.saturdayBase && weekday(n) === 6 ? base! : h.corpus ? (weekday(n) === 6 ? base! : base! >= 8 ? base! + 1 : 8) : h.score), 0); return specials > 0 ? specials : base; };
 }
 export function dailyScore(n: number, y: number, c: Config) { return dailyScorer(y, c)(n); }
-export function rotationCode(n: number, y: number, team: string, c: Config) { const index = 'ABCDEFGH'.indexOf(team); if (index < 0)
-    throw new Error('Equipo no válido'); const after = (Math.floor(y / 4) % 8 + index) % 8; const before = (after + 7) % 8; const boundary = serial(c.correturnos) + c.cycleLength - 1; return c.rotation[((n % 8) + 8) % 8][leap(y) && n < boundary ? before : after]; }
+export function rotationCode(n:number,y:number,team:string,c:Config){
+    const index='ABCDEFGH'.indexOf(team);
+    if(index<0)throw new Error('Equipo no válido');
+    const after=(Math.floor(y/4)%8+index)%8,before=(after+7)%8;
+    let boundary=0;
+    if(leap(y)){
+        const jan=serial(date(y,1,1));let night=jan;
+        while(night<jan+8&&c.rotation[night%8][before]!=='N')night++;
+        let first=night-4>=jan?night-4:night+4;
+        while(first+c.cycleLength<serial(c.correturnos))first+=c.cycleLength;
+        // Turno básico!AP1 = first CT cycle + Vac!N3 - 1, not the input date + N3 - 1.
+        boundary=first+c.cycleLength-1;
+    }
+    return c.rotation[((n%8)+8)%8][leap(y)&&n<boundary?before:after];
+}
 export function calendar(y: number, team: string, c: Config) { validateConfig(c, y); const scoreDay = dailyScorer(y, c); const jan = serial(date(y, 1, 1)); let night = jan; while (night < jan + 21 && rotationCode(night, y, team, c) !== 'N')
     night++; let first = night - 4 >= jan ? night - 4 : night + 4; const out: {
     date: string;
