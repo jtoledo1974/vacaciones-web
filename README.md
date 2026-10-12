@@ -1,10 +1,10 @@
-# Vacaciones · MVP web privado
+# Vacaciones · MVP web
 
 Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script. React/Vinext con Worker, D1 y autenticación de Sites. Las tablas y parámetros permanecen al desplegar versiones nuevas.
 
 ## Uso
 
-1. Abrir el Site privado e iniciar sesión con la cuenta autorizada.
+1. Abrir el Site público. Para administrar, iniciar sesión con una de las dos cuentas autorizadas.
 2. Pulsar **Preparar campaña de prueba**: ocho equipos A–H, 16 códigos ficticios por equipo y ejercicio 2026. La importación de datos reales requiere una petición expresa; la carga del Excel original ha sido autorizada en esta sesión.
 3. Seleccionar equipo y ejercicio. Registrar solicitudes y adjudicar ciclos en borrador.
 4. **Calcular revisión** guarda un resultado independiente. **Publicar** hace visible esa revisión y cierra la campaña. Reabrir permite trabajar sobre un nuevo borrador sin cambiar el resultado visible.
@@ -58,4 +58,5 @@ No se ha contratado ningún servicio de pago. No existe prueba de gratuidad perm
 
 
 La administración de plantillas permite nombres, nicks Unicode y fechas de antigüedad opcionales en una tabla conjunta; pegado por columnas y archivo de importación preparado desde el Excel. Los nombres son exclusivos de administración. No se generan fechas de antigüedad para celdas vacías. El código se conserva también en el repositorio privado https://github.com/jtoledo1974/vacaciones-web; las importaciones y copias de datos quedan excluidas.
+
 
