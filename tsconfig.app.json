@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.json","compilerOptions":{"allowImportingTsExtensions":true,"skipLibCheck":true},"include":["app/**/*.ts","app/**/*.tsx","server/**/*.ts","domain/**/*.ts","db/**/*.ts","cloudflare-env.d.ts"],"exclude":["node_modules","build","dist"]}
