@@ -23,8 +23,11 @@ async function serve(request: Request) {
                 return reply(await service.view(path[1]));
             if (path[0] === 'admin')
                 return reply(await service.admin());
-            if (path[0] === 'backup')
-                return reply(await service.backup());
+        if (path[0] === 'backup'){
+            const backup=await service.backup();
+            if(url.searchParams.get('download')==='1')return new Response(JSON.stringify(backup,null,2),{headers:{'Content-Type':'application/json; charset=utf-8','Content-Disposition':`attachment; filename="vacaciones-copia-${new Date().toISOString().slice(0,10)}.json"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+            return reply(backup);
+        }
             throw new ApiError('Ruta no encontrada', 404);
         }
         if (request.method !== 'POST')
