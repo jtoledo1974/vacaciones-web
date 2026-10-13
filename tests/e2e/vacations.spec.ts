@@ -29,13 +29,13 @@ async function activate(page:Page){
   await page.getByRole('button',{name:'Activar elección',exact:true}).click();
   await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
-async function cycle(page:Page,date:string){await page.getByRole('button',{name:new RegExp('^'+date+': ciclo')}).click();}
+async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
 async function confirm(page:Page,button:string){await page.getByRole('button',{name:button,exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();}
 
 test('calendario público, permisos y aislamiento',async({page,request,browser})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   const anonymous=await browser.newContext({baseURL:origin});const p=await anonymous.newPage();
-  await p.goto('/?equipo=C&year=2026');await expect(p.getByRole('heading',{name:'Elige en el calendario'})).toBeVisible();
+  await p.goto('/?equipo=C&year=2026');await expect(p.getByRole('heading',{name:'Disponibilidad y baremo'})).toBeVisible();
   await expect(p.getByLabel('Escenario',{exact:true})).toHaveCount(0);
   await expect(p.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
   expect((await anonymous.request.get('/api/campaign/'+s.id)).status()).toBe(403);
@@ -54,13 +54,13 @@ test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request}
   }
   await cycle(page,dates[0]);await expect(page.getByRole('button',{name:'Confirmar ambos ciclos',exact:true})).toBeDisabled();
   const options=await (await request.get('/api/election/'+s.id+'/options?selected='+dates[0])).json();
-  await expect(page.getByRole('button',{name:new RegExp('^'+options.available[0]+': ciclo')})).toBeEnabled();
+  await expect(page.locator('.vac2-cycle[data-cycle-date="'+options.available[0]+'"]').first()).toBeEnabled();
   await cycle(page,options.available[0]);await confirm(page,'Confirmar ambos ciclos');
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   expect((await read(request,s.id)).awards).toHaveLength(5);
-  await confirm(page,'Deshacer último cambio');await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+  await confirm(page,'↶ Deshacer');await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
   expect((await read(request,s.id)).awards).toHaveLength(3);
-  await confirm(page,'Rehacer último cambio');await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+  await confirm(page,'↷ Rehacer');await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   expect((await read(request,s.id)).awards).toHaveLength(5);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
 });
@@ -91,4 +91,24 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
   const current=await (await request.get('/api/backup')).json();
   await post(request,'restore',{backup,revision:current.payload.revision});
   d=await read(request,s.id);expect(d.campaign.status).toBe('open');expect(d.election.state.status).toBe('active');
+});
+
+
+test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',async({page,request})=>{
+  await page.setViewportSize({width:390,height:844});
+  const s=await setup(request,page);await open(page,s.id);await activate(page);
+  await expect(page.getByRole('button',{name:'Mapa',exact:true})).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByRole('button',{name:'Por CTA',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Calendario',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Siguiente →'})).toBeVisible();
+  await page.getByRole('button',{name:'Siguiente →'}).click();
+  await expect(page.getByRole('button',{name:'← Anterior'})).toBeEnabled();
+  await page.getByRole('button',{name:'Por CTA',exact:true}).click();
+  await expect(page.locator('.vac2-member-card').first()).toBeVisible();
+  await page.getByRole('button',{name:'Mapa',exact:true}).click();
+  await cycle(page,s.data.result.cycles[0].date);
+  await confirm(page,'Confirmar ciclo');
+  await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+  await expect(page.getByText('Últimas adjudicaciones')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
 });
