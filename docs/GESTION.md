@@ -1,47 +1,53 @@
 # Gestionar vacaciones
 
-Selecciona siempre el equipo y el ejercicio antes de guardar. Los cambios afectan únicamente a esa campaña.
+La vista **Vacaciones** sustituye las páginas separadas de solicitudes y asignaciones. El calendario permite consultar o seleccionar; las preferencias son alternativas futuras y las elecciones confirmadas ocupan cupo inmediatamente.
 
-## Solicitudes y adjudicaciones
+## Preparar una elección
 
-En **Solicitudes**, elige persona, ciclo y posición de preferencia. Guardar la misma posición sustituye su fecha. Puedes eliminar un registro con la papelera.
+1. Revisa la plantilla y las reglas del equipo y ejercicio.
+2. En **Preparar el orden de elección**, pega los nicks en el orden confirmado, uno por línea, e indica su origen. No se deriva de las puntuaciones del año actual.
+3. Confirma explícitamente la regla provisional: un ciclo por turno. Habilita el aplazamiento solo si corresponde: un aplazamiento pendiente para elegir dos ciclos en la siguiente ocasión, sin superar el total anual.
+4. Activa la elección. La cola espera la elección válida de la persona que aparece en pantalla. Un turno sin opciones válidas no se pasa automáticamente.
 
-En **Adjudicaciones**, registra los ciclos asignados. El servidor comprueba duplicados, cupos y fechas. Eliminar una solicitud no elimina su adjudicación, ni al contrario.
+El documento de normas sigue pendiente. Los remanentes, desempates y excepciones oficiales no se han automatizado. La política provisional queda identificada en el estado y las revisiones.
 
-## Deshacer y rehacer
+## Listas propias y delegadas
 
-Los botones **Deshacer último cambio** y **Rehacer último cambio** están disponibles en las vistas de gestión. Conservan un único paso para solicitudes, adjudicaciones y reinicios, incluso al recargar la página.
+En Administración, vincula el identificador de cuenta de ChatGPT a una persona. La cuenta recibe acceso a sus preferencias y a elegir en su turno; no administración. Una cuenta corresponde a una persona, con identidad conservada entre ejercicios y traslados.
 
-Una operación posterior invalida el paso anterior para evitar sobrescribir cambios posteriores. No permiten retroceder por todo el historial ni deshacer cambios de plantilla, configuración o publicaciones. Los cambios anteriores a la incorporación de esta función no tienen deshacer retroactivo.
+En **Preparar preferencias**, el administrador puede seleccionar a cualquier controlador del equipo e introducir su lista. Las flechas establecen prioridad. El consentimiento de automatización es explícito y se guarda con la lista. Se prueban las opciones en orden cuando llega su turno; las elecciones previas se respetan. Para una elección doble se busca una pareja válida y se confirma de forma conjunta, o se espera.
 
-## Empezar de cero un equipo
+El trabajo automático se guarda en lotes acotados. La web continúa esos lotes mientras está abierta; si se interrumpe, **Continuar automatismos** permite reanudarlos. Si cierras la web en mitad de una cadena de lotes, otra sesión puede reanudarla. No hay un planificador en segundo plano.
 
-En **Administración → Corregir o empezar de cero**, pulsa **Empezar de cero las vacaciones**. Se indica cuántas solicitudes y adjudicaciones se borrarán y se pide escribir el código del equipo y el año, por ejemplo C-2026.
+## Simular varias veces
 
-El reinicio vacía las dos listas del borrador. Conserva la plantilla, la configuración, los demás equipos y los resultados publicados. Puedes deshacerlo inmediatamente. Si la campaña está cerrada, un superadministrador debe reabrirla primero. Para cambiar el resultado visible al público hay que calcular y publicar una nueva revisión.
+Administración → **Simulaciones privadas** crea escenarios con nombre del mismo equipo y año. Copian plantilla y parámetros, empiezan sin vacaciones y copian el orden en pausa si existe. Opcionalmente copian preferencias.
 
-## Calcular y publicar
+El selector **Escenario** distingue la campaña real de cada simulación. Son privadas para administradores y no alteran la campaña real ni las plantillas que se copian a años futuros. Puedes probar varias en paralelo, cerrarlas o reiniciarlas. Los traslados entre grupos y la vinculación de cuentas se gestionan desde las campañas reales.
 
-**Calcular revisión** guarda una revisión con las entradas actuales. Resuelve las incidencias y pulsa **Publicar** para mostrarla en consulta y cerrar la campaña. Si modificas los datos, tendrás que calcular otra revisión antes de publicarla.
+## Deshacer, corregir y reiniciar
 
-Reabrir permite trabajar sobre el borrador sin alterar el resultado publicado.
+**Deshacer último cambio** y **Rehacer último cambio** recuperan el último lote guardado: preferencias, ocupación y posición de la cola, o un reinicio completo. Conservan un paso entre recargas; otra operación invalida ese paso. No son un historial ilimitado ni permiten deshacer cambios de plantilla, permisos o publicaciones.
 
-## Plantillas y ejercicios
+**Pausar elección** detiene el proceso para corregir datos. Las correcciones de vacaciones anteriores están en el desplegable de elecciones confirmadas; las peticiones antiguas sin elección se muestran aparte solo si existen. Cambiar plantilla o reglas invalida la cola para que se vuelva a confirmar un orden coherente. Los traslados requieren también que el destino esté en pausa.
 
-En Administración puedes editar toda la plantilla en una tabla y guardar juntos los cambios. También puedes pegar columnas desde Excel o importar una plantilla preparada mediante archivo o JSON pegado. Una antigüedad vacía significa desconocida.
+Administración → **Empezar de cero las vacaciones** vacía preferencias, selecciones anteriores, elecciones y estado de cola del escenario seleccionado, conservando plantilla, configuración y revisiones archivadas. Exige escribir equipo-año. Pausa la elección antes; después del reinicio puedes deshacer inmediatamente.
 
-Cada equipo tiene una plantilla independiente para cada ejercicio. Las modificaciones de nombres, antigüedades y composición afectan solo al año seleccionado. No cambian otros años ya creados ni resultados publicados.
+## Cerrar y reabrir
 
-Para dar de alta, añade una fila y guarda. Para una baja, pulsa **Baja de este año** en la fila. Para cambiar de turno, selecciona el equipo de destino y pulsa **Trasladar**. Ambas operaciones se aplican al ejercicio que figura en la pantalla; guarda las ediciones de la tabla antes de usarlas. Si hay solicitudes o adjudicaciones de esa persona, resuélvelas primero o realiza el cambio en un ejercicio nuevo sin vacaciones.
+**Cerrar equipo** bloquea los cambios de vacaciones y mantiene la consulta. Reabrir no reanuda la cola automáticamente: usa **Reanudar elección** cuando proceda. Cada equipo y cada simulación se cierran por separado.
 
-Crear un nuevo ejercicio prepara los ocho equipos. Puedes copiar la plantilla de un año concreto, usar el último ejercicio anterior de cada equipo o empezar sin controladores. La elección de plantilla es independiente de la de parámetros. No se copian solicitudes ni adjudicaciones. Una corrección de un año antiguo no altera una plantilla más reciente que ya existe. Los años futuros usan únicamente el origen que elijas al crearlos; no hay propagación automática a ejercicios ya creados.
+En **Revisiones y cierre del ejercicio**, calcular y guardar el resultado final conserva una copia independiente. La consulta pública muestra las asignaciones actuales sin necesitar ese cierre final.
 
-## Copias de seguridad
+## Plantillas por año
 
-Descarga una copia completa antes de operaciones importantes y guárdala fuera del Site. La copia JSON incluye todos los equipos, permisos e historial; no contiene secretos del entorno.
+Las altas, bajas y cambios de grupo afectan solo al año seleccionado. Los años ya creados no cambian. Los futuros pueden copiar la plantilla de un ejercicio concreto, la última anterior de cada equipo o empezar vacíos, independientemente de sus parámetros. No copian vacaciones ni preferencias.
 
-Restaurar sustituye los datos de toda la aplicación, no solo del equipo seleccionado. Está reservado al superadministrador y verifica la integridad SHA-256. Una copia anterior a una importación no contiene los nuevos datos.
+Guarda las ediciones de plantilla antes de dar bajas o trasladar. Resuelve previamente las elecciones y preferencias de la persona. Una antigüedad vacía significa desconocida.
 
+## Copias y restauración
 
-## Elección por turnos
-Los controladores eligen secuencialmente según disponibilidad; el orden parte del remanente del año anterior. El baremo de las selecciones actuales no fija ese orden. La gestión de cola y remanentes espera el documento de normas. Consulta [Elección de vacaciones por turnos](ELECCION.md) para el requisito confirmado, la propuesta de interfaz y los detalles pendientes.
+Descarga una copia completa antes de cambios importantes. Incluye todos los equipos, escenarios, cuentas vinculadas, preferencias, estados de elección, revisiones y auditoría. No incluye secretos del entorno. Guarda el JSON fuera del Site.
+
+Restaurar sustituye los datos de toda la aplicación, no solo del escenario elegido. Comprueba SHA-256, referencias y estados, y se aplica en una transacción. Las copias anteriores a esta ampliación se admiten con las nuevas tablas vacías. No hay una copia externa programada: la descarga es manual.
+

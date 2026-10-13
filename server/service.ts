@@ -1,13 +1,15 @@
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
-import { requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
+import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
 import {validateRoster,rowStatements} from './roster.ts';
+import {ApiError} from './errors.ts';
+import {ElectionService,electionStateStatement} from './election-service.ts';
+import {cloneSimulation} from './simulations.ts';
+import {validateElectionState} from '../domain/election.ts';
+export {ApiError} from './errors.ts';
 const id = () => crypto.randomUUID(), now = () => new Date().toISOString();
-export class ApiError extends Error {
-    constructor(message: string, public status = 400) { super(message); }
-}
 function checkedConfig(config:Config,year:number){try{return validateConfig(config,year);}catch(e:any){throw new ApiError(e.message??'Parámetros no válidos');}}
 function checkedDate(value:string){try{return serial(value);}catch{throw new ApiError('Fecha no válida');}}
 export async function principal(repo: Repository, identity: Identity, superEmails: string): Promise<Principal> { if (!identity)
@@ -16,12 +18,29 @@ export async function principal(repo: Repository, identity: Identity, superEmail
     return { id: key, role: 'viewer', teams: [] }; return { id: key, role: user.role === 'team_admin' ? 'team_admin' : 'viewer', teams: (await repo.all('SELECT team_id FROM grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)', [user.id, now()])).map(g => g.team_id) }; }
 export class Service {
     constructor(private repo: Repository, public actor: Principal) { }
-    async list() { const r = await this.repo.batch([{ sql: 'SELECT * FROM teams ORDER BY id' }, { sql: 'SELECT * FROM campaigns ORDER BY year DESC,team_id' }]); return { teams: r[0].results, campaigns: r[1].results, principal: this.actor }; }
+    election(){return new ElectionService(this.repo,this.actor,{load:cid=>this.load(cid),commit:ops=>this.commit(ops),audit:(a,c,b,n)=>this.audit(a,c,b,n)});}
+    async list(){
+        const r=await this.repo.batch([{sql:'SELECT * FROM teams ORDER BY id'},{sql:'SELECT * FROM campaigns ORDER BY year DESC,team_id,created_at'}]);
+        const campaigns=r[1].results.filter(c=>c.scope_key==='live'||canWrite(this.actor,c.team_id));
+        const mine=this.actor.id?await this.repo.all('SELECT m.campaign_id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE a.principal_key=?',[this.actor.id]):[];
+        return {teams:r[0].results.filter(t=>/^[A-H]$/.test(t.id)).map(t=>({...t,name:'Equipo '+t.id})),campaigns,principal:this.actor,myCampaignIds:mine.map(m=>m.campaign_id).filter(id=>campaigns.some(c=>c.id===id))};
+    }
+    async createSimulation(cid:string,body:any){
+        requireSuper(this.actor);const d=await this.load(cid);if(body.version!==d.campaign.version)throw new ApiError('La campaña cambió. Recarga antes de crear la simulación.',409);
+        const result=await cloneSimulation(this.repo,d,body.name,body.copyPreferences===true);await this.commit([...result.statements,this.audit('simulation_created',{id:result.id,team_id:d.campaign.team_id},null,{source:cid,name:body.name})]);return {id:result.id};
+    }
     async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
-    async view(cid: string) { const d = await this.load(cid); const editable = this.actor.role === 'superadmin' || this.actor.role === 'team_admin' && this.actor.teams.includes(d.campaign.team_id); if (editable)
-        return { ...d, undo: await this.vacationUndo(cid,d.campaign.version).then(e=>e&&e.action!=='undo_vacations'?{id:e.id,action:e.action}:null), redo: await this.vacationUndo(cid,d.campaign.version).then(e=>e?.action==='undo_vacations'?{id:e.id}:null), result: calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, d.requests, d.awards), runs: d.runs.map((r: any) => ({ ...r, result_json: undefined })), editable: true }; const pub = d.campaign.published_run_id ? d.runs.find((r: any) => r.id === d.campaign.published_run_id) || (await this.repo.all('SELECT * FROM runs WHERE id=? AND campaign_id=?', [d.campaign.published_run_id, cid]))[0] : null; if (!pub)
-        return { campaign: { id: cid, year: d.campaign.year, team_id: d.campaign.team_id, status: d.campaign.status }, members: [], requests: [], awards: [], config: null, result: null, runs: [], editable: false }; const s = JSON.parse(pub.result_json); return { campaign: { id: cid, year: d.campaign.year, team_id: d.campaign.team_id, status: 'published' }, members: s.members.map((m: any) => ({ id: m.id, code: m.code })), requests: s.requests, awards: s.awards, result: { ...s.result, ordering: s.result.ordering.map((m: any) => ({ id: m.id, code: m.code, score: m.score })) }, config: null, runs: [], editable: false }; }
+    async view(cid:string){
+        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id))throw new ApiError('Simulación reservada a administradores',403);const election=await this.election().view(d),result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards);
+        if(canWrite(this.actor,d.campaign.team_id))return {...d,election,undo:await this.vacationUndo(cid,d.campaign.version).then(e=>e&&e.action!=='undo_vacations'?{id:e.id,action:e.action}:null),redo:await this.vacationUndo(cid,d.campaign.version).then(e=>e?.action==='undo_vacations'?{id:e.id}:null),result,runs:d.runs.map((r:any)=>({...r,result_json:undefined})),editable:true};
+        return {campaign:{id:cid,year:d.campaign.year,team_id:d.campaign.team_id,status:d.campaign.status,version:d.campaign.version,data_kind:d.campaign.data_kind,scope_key:d.campaign.scope_key,simulation_name:d.campaign.simulation_name},members:d.members.map(m=>({id:m.id,code:m.code})),requests:[],awards:d.awards,result:{...result,ordering:[]},config:null,runs:[],election,participating:!!election.myMemberId,editable:false};
+    }
+    async publishedView(cid:string){
+        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id))throw new ApiError('Simulación reservada a administradores',403);const run=d.campaign.published_run_id?(await this.repo.all('SELECT * FROM runs WHERE id=? AND campaign_id=?',[d.campaign.published_run_id,cid]))[0]:null;
+        if(!run)return null;const snapshot=JSON.parse(run.result_json);
+        return {campaign:{id:cid,year:d.campaign.year,team_id:d.campaign.team_id,status:'published'},members:snapshot.members.map((m:any)=>({id:m.id,code:m.code})),awards:snapshot.awards,result:{...snapshot.result,ordering:[]}};
+    }
     async vacationUndo(cid:string,version:number) {
         const entries=await this.repo.all('SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30',[cid]);
         return entries.find(e=>{const before=e.before_json?JSON.parse(e.before_json):null,after=JSON.parse(e.after_json);return before?.format==='vacations-undo-v1'&&after.version===version;})??null;
@@ -64,9 +83,9 @@ export class Service {
     async createCampaigns(year: number, copyYear: number | null, rosterYear:number|null|'latest'='latest') { requireSuper(this.actor); checkedConfig(defaultConfig(year), year);
         if(rosterYear!=='latest'&&rosterYear!==null&&(!Number.isInteger(rosterYear)||rosterYear>=year))throw new ApiError('La plantilla de origen debe ser de un ejercicio anterior');
         const ts = await this.repo.all('SELECT * FROM teams ORDER BY id'); if (ts.length !== 8)
-        throw new ApiError('Inicializa los ocho equipos primero'); const prior = copyYear ? await this.repo.all('SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=?', [copyYear]) : []; const ops: Statement[] = []; for (const t of ts) {
+        throw new ApiError('Inicializa los ocho equipos primero'); const prior = copyYear ? await this.repo.all('SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=? AND c.scope_key=\'live\'', [copyYear]) : []; const ops: Statement[] = []; for (const t of ts) {
         const cid = id(), previous = prior.find(p => p.team_id === t.id);
-        const rosterSource=rosterYear===null?null:(await this.repo.all(rosterYear==='latest'?'SELECT * FROM campaigns WHERE team_id=? AND year<? ORDER BY year DESC LIMIT 1':'SELECT * FROM campaigns WHERE team_id=? AND year=?',[t.id,rosterYear==='latest'?year:rosterYear]))[0];
+        const rosterSource=rosterYear===null?null:(await this.repo.all(rosterYear==='latest'?'SELECT * FROM campaigns WHERE team_id=? AND year<? AND scope_key=\'live\' ORDER BY year DESC LIMIT 1':'SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key=\'live\'',[t.id,rosterYear==='latest'?year:rosterYear]))[0];
         if(rosterYear!==null&&!rosterSource)throw new ApiError('No hay plantilla de origen para el equipo '+t.id+'. Elige empezar sin controladores.');
         const annualPeople=rosterSource?await this.repo.all('SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code',[rosterSource.id]):[];
         if(annualPeople.some(p=>p.seniority&&p.seniority>`${year}-12-31`))throw new ApiError('La plantilla contiene una antigüedad posterior al ejercicio');
@@ -88,6 +107,8 @@ export class Service {
         if (!Number.isInteger(body.version) || body.version !== c.version)
             throw new ApiError('La campaña cambió. Recarga antes de guardar.', 409);
         const action = body.action;
+        const election=await this.election().read(cid);
+        if(election.state?.status==='active'&&!['calculate','close'].includes(action))throw new ApiError('Pausa la elección antes de corregir datos o cambiar la plantilla');
         if (c.status !== 'open' && !['reopen', 'publish', 'close'].includes(action))
             throw new ApiError('La campaña está cerrada. Un superadministrador puede reabrirla.');
         const ops = cas(cid, body.version);
@@ -136,6 +157,8 @@ export class Service {
             if (!before)
                 throw new ApiError('Registro no encontrado', 404);
             ops.push({ sql: `DELETE FROM ${table} WHERE id=? AND campaign_id=?`, args: [body.id, cid] });
+            // Original imported selections populated both relations. Keep their correction unified.
+            if(action==='delete_award')ops.push({sql:'DELETE FROM requests WHERE campaign_id=? AND member_id=? AND cycle_date=?',args:[cid,before.member_id,before.cycle_date]});
             after = { deleted: body.id };
         }
         else if (action === 'award') {
@@ -154,7 +177,7 @@ export class Service {
         else if (action === 'calculate') {
             const result = calculate(c.year, c.team_id, d.config, d.members, d.requests, d.awards);
             const runId = id();
-            ops.push({ sql: 'INSERT INTO runs(id,campaign_id,source_version,engine_version,result_json,created_by,created_at) VALUES(?,?,?,?,?,?,?)', args: [runId, cid, c.version + 1, ENGINE_VERSION, JSON.stringify({ result, config: d.config, members: d.members, requests: d.requests, awards: d.awards }), this.actor.id, now()] });
+            ops.push({ sql: 'INSERT INTO runs(id,campaign_id,source_version,engine_version,result_json,created_by,created_at) VALUES(?,?,?,?,?,?,?)', args: [runId, cid, c.version + 1, ENGINE_VERSION, JSON.stringify({ result, config: d.config, members: d.members, requests: d.requests, awards: d.awards,election }), this.actor.id, now()] });
             after = { runId, issues: result.issues };
         }
         else if (action === 'publish') {
@@ -186,12 +209,12 @@ export class Service {
             const importedAwards=source.copySelections?selections.map(r=>({id:id(),member_id:r.member_id,cycle_date:r.cycle_date})):[];
             const check=calculate(c.year,c.team_id,importedConfig,imported,selections,importedAwards);
             if(check.issues.length)throw new ApiError('Revisa la plantilla: '+check.issues.join('; '));
-            const existingPeople=await this.repo.all('SELECT * FROM people WHERE team_id=?',[c.team_id]);
-            ops.push({sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM campaign_members WHERE campaign_id=?',args:[cid]});
+
+            ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null),{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM campaign_members WHERE campaign_id=?',args:[cid]});
 
             for(const m of imported){
                 const annual=d.members.find(p=>p.code===m.code);
-                const existing=existingPeople.find(p=>p.id===annual?.person_id)||existingPeople.find(p=>p.code===m.code);
+                const existing=annual?{id:annual.person_id}:null;
                 if(existing){m.personId=existing.id;ops.push({sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[m.id,cid,existing.id,m.code,m.label,m.seniority,m.position]});}
                 else ops.push(...rowStatements(cid,c.team_id,m,m.position,m.personId,m.id));
             }
@@ -218,17 +241,21 @@ export class Service {
             before=d.members;after=rows;
         }
         else if(action==='transfer_member'){
+            if(c.scope_key!=='live')throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
             requireSuper(this.actor);
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Controlador no encontrado',404);
+            if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de cambiar de turno');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.');
-            const target=(await this.repo.all('SELECT * FROM campaigns WHERE team_id=? AND year=?',[body.targetTeam,c.year]))[0];
+            const target=(await this.repo.all('SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key=\'live\'',[body.targetTeam,c.year]))[0];
             if(!target||target.id===cid||target.status!=='open')throw new ApiError('Elige otro equipo con campaña abierta en el mismo ejercicio');
             if(target.version!==body.targetVersion)throw new ApiError('El equipo de destino cambió. Recarga antes de trasladar.',409);
             const destination=await this.load(target.id);
+            const targetElection=await this.election().read(target.id);
+            if(targetElection.state?.status==='active')throw new ApiError('Pausa también la elección del equipo de destino antes del traslado');
             if(destination.members.some(m=>m.person_id===member.person_id||m.code===member.code))throw new ApiError('La persona o su identificador ya existe en el equipo de destino');
             if(destination.members.length>=100)throw new ApiError('El equipo de destino ha alcanzado el máximo de 100 controladores');
-            ops.push(...cas(target.id,target.version),{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[id(),target.id,member.person_id,member.code,member.label,member.seniority,Math.max(-1,...destination.members.map(m=>m.position))+1]},{sql:"UPDATE campaigns SET data_kind='configured' WHERE id IN (?,?)",args:[cid,target.id]});
+            ops.push(...cas(target.id,target.version),electionStateStatement(target.id,null),{sql:'DELETE FROM preferences WHERE member_id=? AND campaign_id=?',args:[member.id,cid]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[id(),target.id,member.person_id,member.code,member.label,member.seniority,Math.max(-1,...destination.members.map(m=>m.position))+1]},{sql:"UPDATE campaigns SET data_kind='configured' WHERE id IN (?,?)",args:[cid,target.id]});
             before=member;after={code:member.code,from:c.team_id,to:target.team_id,year:c.year};
             ops.push(this.audit('transfer_received',target,null,after));
         }
@@ -236,8 +263,9 @@ export class Service {
             requireSuper(this.actor);
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Identificador no encontrado',404);
+            if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de dar la baja');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
-            ops.push({sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
+            ops.push({sql:'DELETE FROM preferences WHERE member_id=? AND campaign_id=?',args:[member.id,cid]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
             before=member;after={retired:member.code};
         }
         else if (action === 'member') {
@@ -261,9 +289,13 @@ export class Service {
         else
             throw new ApiError('Operación no válida');
         if(['request','award','delete_request','delete_award','reset_vacations','undo_vacations','redo_vacations'].includes(action)){
-            before={format:'vacations-undo-v1',requests:d.requests,awards:d.awards};
+            before={format:'vacations-undo-v1',requests:d.requests,awards:d.awards,election};
             after={...after,version:c.version+1};
         }
+        if(action==='close'&&election.state)ops.push(electionStateStatement(cid,{...election.state,status:'paused'}));
+        if(action==='reset_vacations'){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null));}
+        else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic) VALUES(?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0]});}}
+        else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
         ops.push(this.audit(action, c, before, after));
         await this.commit(ops);
         return this.view(cid);
@@ -274,42 +306,36 @@ export class Service {
         throw new ApiError('Los permisos cambiaron. Recarga.', 409); const token = id(), ops: Statement[] = old ? [{ sql: 'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?', args: [body.role, uid, expected] }] : [{ sql: 'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)', args: [uid, 'chatgpt', body.subject, body.role] }]; ops.push({ sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] }, { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] }, { sql: 'DELETE FROM grants WHERE user_id=?', args: [uid] }); for (const t of new Set(body.teams))
         ops.push({ sql: 'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)', args: [id(), uid, t, body.expiresAt ?? null] }); ops.push(this.audit('permissions', null, { user: old, grants: oldGrants }, { subject: body.subject, role: body.role, teams: body.teams })); await this.commit(ops); return { ok: true }; }
     async admin() { requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
-    async team(body:any){
-        requireSuper(this.actor);
-        const team=(await this.repo.all('SELECT * FROM teams WHERE id=?',[body.id]))[0];
-        if(!team)throw new ApiError('Equipo no encontrado',404);
-        const name=typeof body.name==='string'?body.name.trim():'';
-        if(!name||name.length>50)throw new ApiError('Nombre de equipo de 1 a 50 caracteres');
-        if(body.version!==team.version)throw new ApiError('El equipo cambió. Recarga antes de guardar.',409);
-        const token=id();
-        await this.commit([{sql:'UPDATE teams SET name=?,version=version+1 WHERE id=? AND version=?',args:[name,body.id,body.version]},{sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},{sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},this.audit('team_name',{team_id:body.id},team,{name})]);
-        return this.list();
-    }
     async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }
     async restore(b: any, expectedRevision: number) {
         requireSuper(this.actor);
         if (!b?.payload || b.payload.format !== 'vacaciones-backup-v1' || b.sha256 !== await digest(JSON.stringify(b.payload)))
             throw new ApiError('Copia inválida o integridad incorrecta');
+        const tables={...b.payload.tables}; for(const key of ['preferences','election_states','controller_accounts'])if(tables[key]===undefined)tables[key]=[];
         const names = Object.keys(tableColumns);
-        if (names.some(n => !Array.isArray(b.payload.tables[n])) || Object.keys(b.payload.tables).some(n => !names.includes(n)))
+        if (names.some(n => !Array.isArray(tables[n])) || Object.keys(tables).some(n => !names.includes(n)))
             throw new ApiError('Tablas no válidas');
-        if (names.reduce((n, t) => n + b.payload.tables[t].length, 0) > 25000)
+        if (names.reduce((n, t) => n + tables[t].length, 0) > 25000)
             throw new ApiError('Copia demasiado grande');
-        for (const c of b.payload.tables.campaigns) {
-            const p = b.payload.tables.parameters.find((p: any) => p.campaign_id === c.id);
+        for (const c of tables.campaigns) {
+            const p = tables.parameters.find((p: any) => p.campaign_id === c.id);
             if (!p)
                 throw new ApiError('Faltan parámetros');
             checkedConfig(JSON.parse(p.json), c.year);
         }
+        try{
+            for(const row of tables.election_states)validateElectionState(JSON.parse(row.json),tables.campaign_members.filter((m:any)=>m.campaign_id===row.campaign_id));
+            for(const pref of tables.preferences){const member=tables.campaign_members.find((m:any)=>m.id===pref.member_id&&m.campaign_id===pref.campaign_id),campaign=tables.campaigns.find((c:any)=>c.id===pref.campaign_id),config=tables.parameters.find((p:any)=>p.campaign_id===pref.campaign_id);if(!member||!campaign||!config)throw new Error('Preferencias ajenas a la campaña');const dates=JSON.parse(pref.dates_json),validDates=new Set(calendar(campaign.year,campaign.team_id,JSON.parse(config.json)).map(c=>c.date));if(!Array.isArray(dates)||dates.length>100||new Set(dates).size!==dates.length||dates.some(d=>!validDates.has(d))||![0,1].includes(pref.automatic))throw new Error('Preferencias no válidas');}
+        }catch(e:any){throw new ApiError('Copia no válida: '+e.message);}
         const token = id(), ops: Statement[] = [{ sql: "UPDATE app_state SET revision=revision+1 WHERE id='main' AND revision=?", args: [expectedRevision] }, { sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] }, { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] }];
         for (const n of [...names].reverse())
             ops.push({ sql: `DELETE FROM ${n}` });
         for (const n of names) {
             const cols = tableColumns[n];
-            for (const row of b.payload.tables[n]) {
+            for (const row of tables[n]) {
                 if (Object.keys(row).some(k => !cols.includes(k)))
                     throw new ApiError('Columna desconocida');
-                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:null)) });
+                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:k==='scope_key'?'live':k==='simulation_name'?'':null)) });
             }
         }
         ops.push(this.audit('restore', null, { revision: expectedRevision }, { sha256: b.sha256 }));
@@ -318,6 +344,11 @@ export class Service {
     }
 }
 async function digest(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
+
+
+
+
+
 
 
 

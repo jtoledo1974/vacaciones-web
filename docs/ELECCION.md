@@ -15,11 +15,11 @@ La elección es un proceso ordenado sobre disponibilidad cambiante. No debe pres
 
 El baremo mostrado actualmente se calcula a partir de las selecciones del ejercicio abierto. Sirve para comparar las entradas con las hojas originales, pero **no establece el orden de elección de este año**. Las altas anuales crean identidades y los traslados conservan la identidad; las importaciones de históricos tendrán que confirmar la correspondencia entre personas, sin deducirla automáticamente de nombres o nicks.
 
-La aplicación actual permite registrar solicitudes y adjudicaciones manualmente. Todavía no gestiona una cola de elección, rondas, remanentes históricos ni avance automático del turno. No se modifica el algoritmo de puntuación ni se mueve ninguna elección existente mientras faltan las normas.
+La aplicación actual permite registrar solicitudes y adjudicaciones manualmente. La ampliación incorpora cola con orden confirmado por administrador, preferencias privadas, automatismos al llegar el turno y una política provisional de un ciclo por turno, con un aplazamiento para elegir dos en la siguiente ocasión. El remanente histórico, su cálculo y los desempates oficiales siguen pendientes del documento de normas. Las elecciones ya existentes se conservan y no se activa una cola para la campaña real automáticamente.
 
 ## Propuesta de interfaz
 
-Una vista principal **Elección de vacaciones**, organizada en tres zonas:
+La vista principal **Vacaciones** reúne calendario, cola y preferencias:
 
 1. **Orden del equipo:** lista fija de participantes, puntuación remanente de origen y estado de elección. Debe mostrar el ejercicio y la fuente que justifican el orden. Las peticiones actuales no lo recalculan.
 2. **Quién elige ahora:** persona activa y, si las normas establecen varias rondas, ronda actual. Acciones de confirmar elección, pasar o aplazar solo si están previstas por las normas. El administrador registra la elección; no se concede escritura pública a los controladores.
@@ -29,7 +29,7 @@ Separar visualmente **remanente anterior**, **baremo de la elección actual** y 
 
 Confirmar una elección deberá guardar persona, ciclo, turno/ronda, origen del orden y reglas utilizadas en una transacción. Deshacer o rehacer tendrá que recuperar también la posición de la cola y la disponibilidad, no solo las listas de vacaciones. El avance, la identidad de quien elige y los cupos deberán comprobarse en el servidor.
 
-La consulta pública conservará únicamente el resultado publicado y los identificadores abreviados. Datos históricos que justifiquen el orden y gestión de la cola quedarán sujetos a permisos de administración.
+La consulta pública muestra las elecciones confirmadas actuales, su ocupación y baremos, incluso antes del cierre final. Conserva únicamente los identificadores abreviados; nombres, antigüedades, cuentas, preferencias y simulaciones no son públicos. Los administradores gestionan el orden; una cuenta vinculada puede guardar sus preferencias y elegir en su turno.
 
 ## Pendiente del documento de normas
 
@@ -47,3 +47,4 @@ No asumir menor puntuación primero, desempate por antigüedad, una petición po
 ## Validación con históricos
 
 Las hojas finales permiten contrastar calendarios, baremos, saldos y ocupación. Para reproducir el proceso secuencial hacen falta también el orden inicial y, cuando sea relevante, la secuencia o las rondas de elección: un resultado final por sí solo no demuestra que el proceso de elección se reproduzca correctamente. Incluir varios equipos, cambios de plantilla y un año bisiesto.
+

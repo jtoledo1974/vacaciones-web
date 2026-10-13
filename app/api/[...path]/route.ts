@@ -16,6 +16,7 @@ async function serve(request: Request) {
     const actor = await principal(repo, user, bindings.SUPERADMIN_EMAILS ?? '');
         const service = new Service(repo, actor);
         if (request.method === 'GET') {
+            if(path[0]==='election'&&path[1]&&path[2]==='options')return reply(await service.election().options(path[1],url.searchParams.getAll('selected')));
             if(path[0]==='help'){
                 const documents=documentation(actor.role);
                 if(!path[1])return reply(documents);
@@ -28,7 +29,7 @@ async function serve(request: Request) {
             if (path[0] === 'index')
                 return reply(await service.list());
             if (path[0] === 'campaign' && path[1])
-                return reply(await service.view(path[1]));
+                return reply(url.searchParams.get('published')==='1'?await service.publishedView(path[1]):await service.view(path[1]));
             if (path[0] === 'admin')
                 return reply(await service.admin());
         if (path[0] === 'backup'){
@@ -60,12 +61,12 @@ async function serve(request: Request) {
             return reply(await service.init());
         if (path[0] === 'campaigns')
             return reply(await service.createCampaigns(b.year, b.copyYear ?? null, b.rosterYear===undefined?'latest':b.rosterYear));
+        if(path[0]==='simulations'&&path[1])return reply(await service.createSimulation(path[1],b));
+        if(path[0]==='election'&&path[1]){await service.election().mutate(path[1],b);return reply(await service.view(path[1]));}
         if (path[0] === 'campaign' && path[1])
             return reply(await service.mutate(path[1], b));
         if (path[0] === 'users')
             return reply(await service.configureUser(b));
-    if (path[0] === 'teams')
-        return reply(await service.team(b));
         if (path[0] === 'restore')
             return reply(await service.restore(b.backup, b.revision));
         throw new ApiError('Ruta no encontrada', 404);
@@ -77,3 +78,5 @@ async function serve(request: Request) {
 }
 export const GET = serve;
 export const POST = serve;
+
+

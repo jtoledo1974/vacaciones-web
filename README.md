@@ -4,12 +4,13 @@ Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script.
 
 ## Uso
 
-1. Abrir el Site público. Para administrar, iniciar sesión con una de las dos cuentas autorizadas.
-2. Pulsar **Preparar campaña de prueba**: ocho equipos A–H, 16 códigos ficticios por equipo y ejercicio 2026. La importación de datos reales requiere una petición expresa; la carga del Excel original ha sido autorizada en esta sesión.
-3. Seleccionar equipo y ejercicio. Registrar solicitudes y adjudicar ciclos en borrador.
-4. **Calcular revisión** guarda un resultado independiente. **Publicar** hace visible esa revisión y cierra la campaña. Reabrir permite trabajar sobre un nuevo borrador sin cambiar el resultado visible.
-5. Administración → campañas: crear el siguiente ejercicio, con parámetros originales o copiados. Los resultados nunca se copian.
-6. Descargar una copia completa antes de operaciones importantes. Restaurar requiere confirmación, verifica SHA-256 y sustituye los datos de forma atómica.
+1. Consulta pública: elige equipo A–H y año para ver calendario, elecciones actuales y baremos. Filtra por controlador para localizar sus vacaciones.
+2. Administración: inicia sesión con una de las tres cuentas autorizadas. Vincula las cuentas personales a controladores para que puedan guardar sus preferencias y elegir en su turno.
+3. Vacaciones: añade alternativas desde el calendario, ordénalas y autoriza la selección automática si procede. El administrador también puede introducir listas de otras personas.
+4. Confirma manualmente el orden de origen antes de activar la cola. La política provisional es un ciclo por turno; permite habilitar un aplazamiento para elegir dos juntos. Las normas oficiales de remanentes y desempates están pendientes.
+5. Simulaciones privadas: crea varios escenarios del mismo equipo y ejercicio. Se pueden reiniciar o cerrar sin afectar la campaña real. Los grupos tienen nombres fijos, A–H.
+6. Cerrar un equipo bloquea cambios pero mantiene la consulta. El cierre final puede guardar una revisión archivada; la ocupación actual es pública durante el proceso.
+7. Descarga una copia completa JSON, que incluye preferencias, cuentas, cola, escenarios y revisiones. La restauración afecta a toda la aplicación, verifica integridad y se ejecuta en una transacción.
 
 ## Estructura
 
@@ -26,7 +27,7 @@ Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script.
 
 `SUPERADMIN_EMAILS` se configura en el entorno de Sites, nunca en el frontend. Las dos cuentas solicitadas están autorizadas mediante ese entorno. Los sujetos estables de otras cuentas pueden asignarse a equipos desde Administración. Las delegaciones admiten fecha de caducidad. El superadministrador no se concede desde el navegador ni por pertenecer simplemente al Site.
 
-El Site tiene además una lista de visitantes de la plataforma. Esta lista y los permisos de la aplicación son independientes. El acceso público, si se autoriza después, no concede escritura ni acceso a borradores: la API entrega solo la copia publicada y códigos abreviados, sin antigüedad, identidad del responsable ni configuración.
+El Site tiene además una lista de visitantes de la plataforma. Esta lista y los permisos de la aplicación son independientes. La consulta pública muestra asignaciones actuales y códigos abreviados sin requerir cierre final. No entrega preferencias, antigüedad, nombres completos, cuentas, origen privado del orden ni configuración. Las simulaciones son privadas. Una cuenta vinculada modifica solo su lista y elige solo cuando le corresponde; la administración no se concede por iniciar sesión.
 
 ## Datos, concurrencia y copias
 
@@ -69,3 +70,13 @@ El apartado Ayuda permite leer y descargar las guías. La guía de consulta es p
 
 ## Paradigma de elección
 El propietario ha confirmado una elección secuencial con orden predeterminado por remanentes del año anterior. Ver [ELECCION.md](ELECCION.md). El baremo calculado sobre las selecciones actuales no es el orden de elección; el flujo de rondas, remanentes y avance espera las normas del ejercicio.
+
+## Motor y contratos reutilizables
+
+`domain/election.ts` implementa reglas puras sobre DTO: turno actual, validación de elecciones, aplazamiento y avance por preferencias. No importa React, D1, Cloudflare ni autenticación. La disponibilidad y los baremos conservan el motor original validado.
+
+`server/election-service.ts` autoriza cada comando, obtiene los datos mediante Repository y guarda las elecciones, la cola y la auditoría con control de versión y transacción. `server/simulations.ts` clona escenarios aislados. `app/cycle-calendar.tsx`, `app/election-workspace.tsx` y `app/confirmation.tsx` separan calendario, flujo y confirmación accesible; no usan confirmaciones nativas de JavaScript.
+
+API: GET `/api/campaign/:id` para la consulta actual, GET con `?published=1` para la revisión archivada; POST `/api/election/:id` para preferencias, elección, aplazamiento y administración de cola; GET `/api/election/:id/options` para comprobar el segundo ciclo; POST `/api/simulations/:id` para escenarios privados. Los comandos incluyen la versión de campaña. El transporte web actual usa la sesión de Sites y Origin; un cliente nativo futuro deberá usar un adaptador de identidad/transportes verificado. El motor y los casos de uso se conservan al cambiar de alojamiento o interfaz; no se afirma que exista ya una aplicación móvil o login Firebase.
+
+Los automatismos se procesan en lotes acotados y la web continúa hasta el siguiente turno manual. Si se interrumpe la cadena, otra sesión autorizada puede continuarla. Deshacer y rehacer recuperan el último lote, incluyendo cola y preferencias. El reinicio vacía también el estado de elección; los escenarios separados permiten varias simulaciones simultáneas.

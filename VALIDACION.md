@@ -54,3 +54,13 @@ Ver [README.md](README.md) para uso, despliegue, Firebase y migración a Cloudfl
 
 ## Aclaración del proceso de elección
 El orden operativo no se ha validado: debe derivarse de remanentes del ejercicio anterior. El cálculo actual corresponde al baremo de las selecciones del ejercicio abierto. Se elimina la etiqueta que lo identificaba como orden de petición. La reproducción de un proceso secuencial requiere normas, remanentes de origen y secuencia de elección, además de los resultados finales.
+
+## Ampliación de elección secuencial y simulaciones
+
+45 pruebas automatizadas pasan. Se añaden turno y prioridad de listas, rechazo de elección fuera de turno, aplazamiento y elección doble atómica, consentimiento automático, opciones compatibles del segundo ciclo, aislamiento de preferencias y nombres, cuenta vinculada sin administración, undo/redo de cola y ocupación, cierre de campaña, simulaciones independientes y restauración de tablas nuevas y copias antiguas.
+
+HTTP sobre D1 local: dos escenarios completos probaron tres elecciones con automatismos y cinco elecciones con aplazamiento/recuperación, rechazo de cambios en una campaña cerrada, lectura anónima de la campaña real, rechazo anónimo de simulaciones y preservación de los datos de origen. En Chrome se creó un tercer escenario desde la UI y se eligieron directamente ciclos simples y dobles, con confirmación integrada, avance de cola y undo/redo. Vista de 390 px sin desbordamiento horizontal; filtro por controlador con ciclos resaltados. Son simulaciones ficticias locales, no una adjudicación operativa ni logins reales de controladores externos.
+
+La consulta pública actual sustituye la limitación de mostrar solo el último resultado publicado. La revisión final archivada sigue siendo independiente e inmutable. No se publican preferencias, cuentas ni nombres completos.
+
+Pendiente: documento de normas del ejercicio, remanentes históricos y desempates oficiales, siete plantillas reales que no aparecen en el Excel disponible y validación con datos de años anteriores. Los puntos de la UI son baremo acumulado sin ponderar; no son un cálculo certificado del saldo del próximo año. La política de un ciclo y un aplazamiento se activa solo mediante confirmación expresa del administrador.

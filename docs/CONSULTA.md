@@ -1,17 +1,23 @@
-# Consultar vacaciones
+# Consultar y elegir vacaciones
 
-Selecciona **Equipo** y **Ejercicio** en la parte superior. Cada equipo tiene su propio calendario anual.
+Selecciona equipo (A–H) y ejercicio. La vista **Vacaciones** reúne calendario, ocupación, baremos y elecciones confirmadas.
 
-## Calendario y resultados
+## Consulta pública
 
-El calendario muestra los ciclos de vacaciones y su ocupación. Pulsa un día para ver los identificadores asociados al ciclo. Solicitudes y Adjudicaciones permiten consultar las listas del resultado publicado.
+Sin iniciar sesión puedes ver lo que ya está asignado, también durante una elección en curso. Pulsa un día para ver el ciclo, su baremo y quién lo tiene. Usa **Ver vacaciones de** para resaltar las vacaciones de una persona y consultar sus ciclos y baremo acumulado. Las listas personales, nombres completos, antigüedades y simulaciones son privados.
 
-La consulta pública muestra únicamente la última revisión publicada por un administrador. Si no hay resultados publicados, verás un aviso. Los borradores, nombres completos y antigüedades están reservados a la gestión.
+Los puntos mostrados son la suma del baremo de los ciclos elegidos, sin ponderar. El remanente oficial y la proyección al año siguiente esperan el documento de normas; esta suma no fija el orden.
 
-## Solicitudes y errores
+## Tu cuenta y tu lista
 
-Una solicitud expresa una preferencia; una adjudicación es una asignación registrada. No son lo mismo. Para pedir o corregir vacaciones, contacta con el administrador de tu equipo. La consulta pública no permite modificar datos.
+Inicia sesión y facilita al administrador el identificador de cuenta que aparece en Vacaciones. Debe vincularlo expresamente a tu nick; iniciar sesión no concede administración ni permite escoger la identidad de otra persona.
 
-## Acceso
+Con tu cuenta vinculada puedes **Preparar preferencias**. Añade ciclos pulsando el calendario y ordénalos con las flechas. Puedes incluir alternativas que ahora están ocupadas: al llegar tu turno se omitirán las que no sean válidas. Marca la asignación automática solo si autorizas que se elija desde esa lista al llegar tu turno, y guarda.
 
-Puedes consultar sin iniciar sesión. Los administradores deben iniciar sesión con su cuenta autorizada para gestionar las campañas. En Ayuda encontrarán las instrucciones de gestión.
+El administrador puede introducir tu lista si se la entregas por otro medio. Los demás controladores no pueden editarla ni verla.
+
+## Elegir en tu turno
+
+La pantalla indica quién elige. Si te corresponde, pulsa un ciclo válido y confirma. En la regla provisional se elige uno por turno. Si está habilitado, puedes aplazar una vez para elegir dos en la siguiente ocasión: los dos se comprueban y guardan juntos. Si la lista automática no permite completar el turno, este queda esperando; no se salta a otra persona automáticamente.
+
+La disponibilidad se actualiza periódicamente y siempre se comprueba de nuevo al confirmar. Una campaña cerrada mantiene la consulta pero bloquea las elecciones.
