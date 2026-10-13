@@ -63,7 +63,7 @@ HTTP sobre D1 local: dos escenarios completos probaron tres elecciones con autom
 
 La consulta pública actual sustituye la limitación de mostrar solo el último resultado publicado. La revisión final archivada sigue siendo independiente e inmutable. No se publican preferencias, cuentas ni nombres completos.
 
-Recibido: Criterios Vacaciones 1.1 (10/06/2025), documentado en docs/CRITERIOS_VACACIONES_1.1_2025.md. Ahora se implementan rotación de empates, dos aplazamientos, turnos conjuntos, cupos RRHH, registro separado de solicitudes originales y puntuación de nuevas incorporaciones. Pendiente: el PDF original binario, la obtención y confirmación de puntuaciones históricas para cada CTA, plantillas de siete equipos y la simulación retrospectiva de los resultados 2020/2022 contra el motor TS. Los datos ficticios de las pruebas no acreditan aún esa equivalencia.
+Recibido: Criterios Vacaciones 1.1 (10/06/2025), documentado en docs/CRITERIOS_VACACIONES_1.1_2025.md. Ahora se implementan rotación de empates, dos aplazamientos, turnos conjuntos, cupos RRHH, registro separado de solicitudes originales y puntuación de nuevas incorporaciones. La regresión histórica ya reproduce desde el motor TypeScript las 46 fechas y 46 baremos de 2020, las 46 fechas y 45 baremos verificables de 2022, y las 90 elecciones reales de 2020 con cupos y clasificación resultante de 2021. Véase docs/VALIDACION_HISTORICA.md. Pendiente: el PDF original binario, datos históricos contrastados de todos los equipos, verificación independiente de la lógica histórica de festivos, y reconstrucción exacta de eventuales elecciones conjuntas o permutas. La plantilla de 2022 tiene #N/A en su último ciclo.
 
 ## Playwright — 13 de octubre de 2026
 
@@ -73,3 +73,8 @@ Suite reproducible: 4 escenarios en escritorio y móvil (8 pruebas), servidor pr
 ## Aplicación de Criterios Vacaciones 1.1 — 13 de octubre de 2026
 
 Las pruebas añadidas verifican explícitamente la elección triple, la rotación de grupos empatados, los turnos conjuntos, los cupos RRHH de un solo CTA, el cálculo de altas y la conservación de solicitudes tras una modificación de adjudicación. El orden inicial y el sorteo requieren verificación del administrador; las vacaciones de antigüedad dependen de otro documento todavía no aportado. Los cambios se desarrollan en la PR #1 y deben ser aprobados antes de producción.
+
+
+## Regresión histórica, equipo H (13 de octubre de 2026)
+
+Pruebas automatizadas basadas en libros Excel V19.8 (2020) y V20.0 (2022): comprobadas 46+46 fechas, 46+45 baremos, 90 elecciones, 15 totales personales y las 15 posiciones del orden para 2021. GitHub Actions: 57/57 pruebas Node y 10/10 pruebas Playwright; typecheck correcto. Los valores diarios se toman de las cachés del original: no es una certificación de sus fórmulas de festivos ni una demostración de cronología de permutas. [Metodología y límites](docs/VALIDACION_HISTORICA.md).
