@@ -300,11 +300,30 @@ export class Service {
         await this.commit(ops);
         return this.view(cid);
     }
-    async configureUser(body: any) { requireSuper(this.actor); if (!['viewer', 'team_admin'].includes(body.role) || !Array.isArray(body.teams) || body.teams.some((t: string) => !('ABCDEFGH'.includes(t) && t.length === 1)) || typeof body.subject !== 'string' || body.subject.length < 1 || body.subject.length > 200)
-        throw new ApiError('Usuario o permisos no válidos'); if (body.expiresAt && (!Number.isFinite(Date.parse(body.expiresAt)) || Date.parse(body.expiresAt) <= Date.now()))
-        throw new ApiError('Caducidad no válida'); const uid = 'chatgpt:' + body.subject; const old = (await this.repo.all('SELECT * FROM users WHERE id=?', [uid]))[0] ?? null; const oldGrants = await this.repo.all('SELECT * FROM grants WHERE user_id=?', [uid]); const expected = Number(body.version ?? 0); if ((old?.version ?? 0) !== expected)
-        throw new ApiError('Los permisos cambiaron. Recarga.', 409); const token = id(), ops: Statement[] = old ? [{ sql: 'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?', args: [body.role, uid, expected] }] : [{ sql: 'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)', args: [uid, 'chatgpt', body.subject, body.role] }]; ops.push({ sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] }, { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] }, { sql: 'DELETE FROM grants WHERE user_id=?', args: [uid] }); for (const t of new Set(body.teams))
-        ops.push({ sql: 'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)', args: [id(), uid, t, body.expiresAt ?? null] }); ops.push(this.audit('permissions', null, { user: old, grants: oldGrants }, { subject: body.subject, role: body.role, teams: body.teams })); await this.commit(ops); return { ok: true }; }
+    async configureUser(body: any) {
+        requireSuper(this.actor);
+        const provider=body.provider??'chatgpt';
+        if(!['chatgpt','firebase'].includes(provider)||!['viewer','team_admin'].includes(body.role)
+        ||!Array.isArray(body.teams)||body.teams.some((t:string)=>!('ABCDEFGH'.includes(t)&&t.length===1))
+        ||typeof body.subject!=='string'||body.subject.length<1||body.subject.length>200||/[\s:]/.test(body.subject))
+            throw new ApiError('Usuario o permisos no válidos');
+        if(body.expiresAt&&(!Number.isFinite(Date.parse(body.expiresAt))||Date.parse(body.expiresAt)<=Date.now()))
+            throw new ApiError('Caducidad no válida');
+        const uid=provider+':'+body.subject;
+        const old=(await this.repo.all('SELECT * FROM users WHERE id=?',[uid]))[0]??null;
+        const oldGrants=await this.repo.all('SELECT * FROM grants WHERE user_id=?',[uid]);
+        const expected=Number(body.version??0);
+        if((old?.version??0)!==expected)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        const token=id(),ops:Statement[]=old
+            ?[{sql:'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?',args:[body.role,uid,expected]}]
+            :[{sql:'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)',args:[uid,provider,body.subject,body.role]}];
+        ops.push({sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
+            {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},
+            {sql:'DELETE FROM grants WHERE user_id=?',args:[uid]});
+        for(const t of new Set(body.teams))ops.push({sql:'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',args:[id(),uid,t,body.expiresAt??null]});
+        ops.push(this.audit('permissions',null,{user:old,grants:oldGrants},{provider,subject:body.subject,role:body.role,teams:body.teams}));
+        await this.commit(ops);return {ok:true};
+    }
     async admin() { requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
     async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }
     async restore(b: any, expectedRevision: number) {

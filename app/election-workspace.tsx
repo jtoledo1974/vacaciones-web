@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
 
@@ -20,7 +20,17 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  useEffect(()=>{setSelected([]);},[turn?.memberId,turn?.needed,state?.status]);
  useEffect(()=>{if(mine)setMemberId(mine);},[mine]);
  useEffect(()=>{setDetail((current:any)=>current?data.result.cycles.find((c:any)=>c.date===current.date)??null:null);},[data.campaign.version]);
- useEffect(()=>{setDates(election.preferences.find((p:any)=>p.member_id===memberId)?.dates??[]);},[memberId,JSON.stringify(election.preferences.find((p:any)=>p.member_id===memberId)?.dates??[])]);
+ const lastSavedPreferences=useRef<{memberId:string;dates:string}>({memberId:'',dates:'[]'});
+ const serverPreferences=JSON.stringify(election.preferences.find((p:any)=>p.member_id===memberId)?.dates??[]);
+ useEffect(()=>{
+  const incoming=JSON.parse(serverPreferences) as string[];
+  setDates(current=>{
+   const untouched=lastSavedPreferences.current.memberId!==memberId
+    ||JSON.stringify(current)===lastSavedPreferences.current.dates;
+   return untouched?incoming:current;
+  });
+  lastSavedPreferences.current={memberId,dates:serverPreferences};
+ },[memberId,serverPreferences]);
  useEffect(()=>{
   setPairOptions(null);if(turn?.needed!==2||selected.length!==1)return;
   let active=true;setLoadingOptions(true);

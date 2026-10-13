@@ -97,8 +97,10 @@ export class ElectionService{
     requireSuper(this.actor);authorizeMember(body.memberId);automaticAllowed=false;recordUndo=false;
     const member=d.members.find((m:any)=>m.id===body.memberId),existing=(await this.repo.all('SELECT * FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
     if((existing?.version??0)!==body.accountVersion)throw new ApiError('La vinculación cambió. Recarga antes de guardar.',409);
-    const subject=String(body.subject??'').trim();if(subject.length>250||/[\s\r\n]/.test(subject))throw new ApiError('Identificador de cuenta no válido');
-    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,'chatgpt:'+subject]});
+    const subject=String(body.subject??'').trim(),provider=body.provider??'chatgpt';
+    if(!['chatgpt','firebase'].includes(provider)||subject.length>250||/[\s\r\n:]/.test(subject))
+     throw new ApiError('Identificador o proveedor de cuenta no válido');
+    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider+':'+subject]});
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
     requireSuper(this.actor);automaticAllowed=false;const entry=await this.history(cid,c.version);

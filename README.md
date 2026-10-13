@@ -49,9 +49,15 @@ Vista local: `node scripts/run-framework.mjs dev`. `.dev.vars` puede autorizar `
 
 Despliegue: registrar una sola identidad de Site, conservar `.openai/hosting.json`, sincronizar fuente con `site-workflow.mjs` y publicar el archivo construido desde el mismo commit. Sites aplica las migraciones y provisiona DB. Nunca subir fuentes Excel ni `.sites-runtime`, `.dev.vars`, `.wrangler`, copias de usuario o secretos.
 
+## Sincronización y autenticación opcional
+
+Los clientes activos comprueban la revisión de D1 cada cinco segundos y actualizan calendario, turno, historial y permisos cuando se guarda un cambio. Al regresar a una pestaña en segundo plano se refrescan inmediatamente. No son WebSockets ni se garantiza una notificación instantánea.
+
+Firebase Authentication puede reutilizar usuarios y UID de un proyecto externo sin migrar contraseñas ni sustituir D1. Se activa solo al configurar los bindings de Firebase en Sites; las credenciales Sites existentes permanecen disponibles. Ver [docs/AUTENTICACION_FIREBASE.md](docs/AUTENTICACION_FIREBASE.md) para variables, dominios autorizados, tokens y verificaciones previas al despliegue.
+
 ## Firebase, Cloudflare y límites
 
-Consultar [VALIDACION.md](VALIDACION.md) para alcance comprobado, discrepancias y pendientes. Firebase no está habilitado ni se afirma que su login haya sido probado en este Site. Añadir un adaptador que verifique tokens en el servidor (firma, issuer, audience, expiración y sujeto), y vincular proveedor/sujeto a los permisos existentes. Para promover superadministradores con Firebase debe exigirse además `email_verified`, sin confiar en un correo suministrado por el cliente. Configurar dominio autorizado y probar popup/redirect antes de activar. Referencias: https://firebase.google.com/docs/auth/admin/verify-id-tokens y https://firebase.google.com/docs/auth/web/google-signin.
+Consultar [VALIDACION.md](VALIDACION.md) para alcance comprobado, discrepancias y pendientes. Firebase sigue sin estar habilitado en el Site alojado, pero ya existe un adaptador opcional que verifica tokens ID en el servidor (firma, issuer, audience, expiración y sujeto) y vincula proveedor/sujeto a los permisos existentes. Para promover superadministradores con Firebase debe exigirse además `email_verified`, sin confiar en un correo suministrado por el cliente. Configurar dominio autorizado y probar popup/redirect antes de activar. Referencias: https://firebase.google.com/docs/auth/admin/verify-id-tokens y https://firebase.google.com/docs/auth/web/google-signin.
 
 Migración a Cloudflare: desplegar el build Worker con Wrangler, crear DB, aplicar las SQL versionadas, importar el backup, configurar las variables de entorno y sustituir el adaptador de autenticación de Sites por Firebase verificado u otro proveedor. El motor y el repositorio D1 se conservan. PostgreSQL requeriría otro repositorio y traducción acotada de SQL/transacciones; no se ha implementado. La vinculación de identidades entre proveedores requiere confirmar cuentas: no mapear automáticamente sujetos de ChatGPT a Firebase.
 

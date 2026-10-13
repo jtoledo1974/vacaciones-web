@@ -149,3 +149,11 @@
  .election-side .election-order-panel{order:5;width:100%}
  .election-layout>.election-calendar-wrap{order:2}
 }
+
+/* Optional federated sign-in, separate from the built-in Sites identity. */
+.sidebar-bottom .firebase-login{
+ display:block;width:100%;text-align:left;margin-top:10px;padding:9px 8px;
+ color:#c3e3d7;background:#29443d;border:1px solid #46685c;
+ border-radius:7px;font-size:11px;line-height:1.4;
+}
+.sidebar-bottom .firebase-login:hover{background:#355b4e}

@@ -112,3 +112,28 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   await expect(page.getByText('Últimas adjudicaciones')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
 });
+
+
+test('dos clientes abiertos reciben una adjudicación sin recargar manualmente',async({page,request})=>{
+ const s=await setup(request,page);
+ await open(page,s.id);
+ await activate(page);
+ const second=await page.context().newPage();
+ await second.goto('/?equipo=C&year=2026');
+ await second.getByLabel('Escenario',{exact:true}).selectOption(s.id);
+ await expect(second.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
+ const date=s.data.result.cycles[0].date;
+ await cycle(page,date);
+ await confirm(page,'Confirmar ciclo');
+ await expect(second.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible({timeout:18000});
+ await expect(second.locator('.vac2-cycle[data-cycle-date="'+date+'"]')).toContainText('QA_A');
+ if(await second.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await second.getByRole('button',{name:'Abrir menú',exact:true}).click();
+ await second.getByRole('button',{name:'Configuración',exact:true}).click();
+ const updated=await election(request,s.id,{action:'choose',memberId:s.data.members[1].id,dates:[s.data.result.cycles[1].date]});
+ expect(updated.awards).toHaveLength(2);
+ await expect(second.getByText('Actualización automática · hasta 5 s')).toBeVisible();
+ if(await second.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await second.getByRole('button',{name:'Abrir menú',exact:true}).click();
+ await second.getByRole('button',{name:'Vacaciones',exact:true}).click();
+ await expect(second.getByRole('heading',{name:'QA_C elige ahora'})).toBeVisible({timeout:18000});
+ await second.close();
+});

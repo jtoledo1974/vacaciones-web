@@ -1,5 +1,6 @@
 'use client';
 import {useEffect,useState,Fragment} from 'react';
+import {firebaseBearerToken,firebaseUser,subscribeFirebaseSession} from './firebase-client';
 type Doc={id:string;title:string;audience:string;filename:string;content:string};
 function Inline({text,documents,select}:{text:string;documents:Doc[];select:(id:string)=>void}){
  return <>{text.split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|`[^`]+`)/g).map((part,i)=>{
@@ -25,8 +26,30 @@ function Markdown({text,documents,select}:{text:string;documents:Doc[];select:(i
 }
 export default function Help(){
  const [documents,setDocuments]=useState<Doc[]>([]),[selected,setSelected]=useState('consulta'),[error,setError]=useState('');
- useEffect(()=>{let active=true;fetch('/api/help',{cache:'no-store'}).then(async r=>{const d:any=await r.json();if(!r.ok)throw new Error(d.error);if(active)setDocuments(d);}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[]);
+ useEffect(()=>{
+  let active=true;
+  const reload=async()=>{
+   try{
+    const token=await firebaseBearerToken();
+    const r=await fetch('/api/help',{cache:'no-store',headers:token?{Authorization:'Bearer '+token}:{}});
+    const d:any=await r.json();if(!r.ok)throw new Error(d.error);
+    if(active){setDocuments(d);setError('');}
+   }catch(e:any){if(active)setError(e.message);}
+  };
+  const unsubscribe=subscribeFirebaseSession(()=>{void reload();});
+  void reload();
+  return ()=>{active=false;unsubscribe();};
+ },[]);
  const doc=documents.find(d=>d.id===selected)??documents[0];
- return <section className="panel help-panel"><div className="section-head"><div><h2>Ayuda y documentación</h2><p>Guías de consulta y, según tus permisos, instrucciones de gestión y documentación del proyecto.</p></div></div>{error?<div role="alert" className="alert error">{error}</div>:!doc?<p>Cargando documentación…</p>:<><nav className="button-row" aria-label="Documentos de ayuda">{documents.map(d=><button key={d.id} className={d.id===doc.id?'primary':'secondary'} aria-pressed={d.id===doc.id} onClick={()=>setSelected(d.id)}>{d.title}</button>)}</nav><article className="help-document"><div className="section-head"><span className="tag">{doc.audience==='public'?'Consulta pública':'Administración'}</span><a href={'/api/help/'+doc.id} className="secondary">Descargar {doc.filename}</a></div><Markdown text={doc.content} documents={documents} select={setSelected}/></article></>}</section>;
+ return <section className="panel help-panel"><div className="section-head"><div><h2>Ayuda y documentación</h2><p>Guías de consulta y, según tus permisos, instrucciones de gestión y documentación del proyecto.</p></div></div>{error?<div role="alert" className="alert error">{error}</div>:!doc?<p>Cargando documentación…</p>:<><nav className="button-row" aria-label="Documentos de ayuda">{documents.map(d=><button key={d.id} className={d.id===doc.id?'primary':'secondary'} aria-pressed={d.id===doc.id} onClick={()=>setSelected(d.id)}>{d.title}</button>)}</nav><article className="help-document"><div className="section-head"><span className="tag">{doc.audience==='public'?'Consulta pública':'Administración'}</span>{firebaseUser()?<button className="secondary" onClick={async()=>{
+  try{
+   const token=await firebaseBearerToken();
+   const r=await fetch('/api/help/'+doc.id,{headers:token?{Authorization:'Bearer '+token}:{}});
+   if(!r.ok)throw new Error('No se pudo descargar el documento');
+   const blob=new Blob([await r.text()],{type:'text/markdown'});
+   const uri=URL.createObjectURL(blob),a=document.createElement('a');
+   a.href=uri;a.download=doc.filename;a.click();setTimeout(()=>URL.revokeObjectURL(uri),1500);
+  }catch(e:any){setError(e.message);}
+ }}>Descargar {doc.filename}</button>:<a href={'/api/help/'+doc.id} className="secondary">Descargar {doc.filename}</a>}</div><Markdown text={doc.content} documents={documents} select={setSelected}/></article></>}</section>;
 }
 
