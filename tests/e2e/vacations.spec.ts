@@ -92,3 +92,26 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
   await post(request,'restore',{backup,revision:current.payload.revision});
   d=await read(request,s.id);expect(d.campaign.status).toBe('open');expect(d.election.state.status).toBe('active');
 });
+
+test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola transacción',async({page,request})=>{
+ const fixture=await setup(request,page),dates=fixture.data.result.cycles.map((c:any)=>c.date);
+ await open(page,fixture.id);
+ await page.getByText('Preparar el orden de elección',{exact:true}).click();
+ await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
+ await page.getByLabel('Turnos conjuntos').fill('QA_A, QA_C');
+ await page.getByLabel('Origen del orden').fill('Sorteo y elección conjunta ficticios; Criterios 1.1 de 2025');
+ await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1').check();
+ await page.getByRole('button',{name:'Activar elección'}).click();
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible();
+ await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
+ await expect(page.getByRole('heading',{name:'QA_A + QA_C elige ahora'})).toBeVisible();
+ await cycle(page,dates[1]);
+ await expect(page.getByRole('button',{name:'Confirmar turno conjunto'})).toBeDisabled();
+ await page.getByRole('button',{name:/QA_C: 0\/1/}).click();
+ await cycle(page,dates[2]);
+ await confirm(page,'Confirmar turno conjunto');
+ const after=await read(request,fixture.id);
+ expect(after.awards).toHaveLength(3);
+ expect(after.requests).toHaveLength(3);
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible();
+});
