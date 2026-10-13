@@ -66,3 +66,6 @@ En todas las vistas de administración hay Deshacer y Rehacer para el último ca
 ## Ayuda en la web
 El apartado Ayuda permite leer y descargar las guías. La guía de consulta es pública; la guía de gestión y README, VALIDACION y DESPLIEGUE se entregan solo a administradores mediante una ruta que comprueba el rol en el servidor. Los originales Markdown se incorporan al build del servidor, por lo que sus cambios se reflejan al desplegar.
 
+
+## Paradigma de elección
+El propietario ha confirmado una elección secuencial con orden predeterminado por remanentes del año anterior. Ver [ELECCION.md](ELECCION.md). El baremo calculado sobre las selecciones actuales no es el orden de elección; el flujo de rondas, remanentes y avance espera las normas del ejercicio.

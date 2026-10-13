@@ -42,3 +42,6 @@ Descarga una copia completa antes de operaciones importantes y guárdala fuera d
 
 Restaurar sustituye los datos de toda la aplicación, no solo del equipo seleccionado. Está reservado al superadministrador y verifica la integridad SHA-256. Una copia anterior a una importación no contiene los nuevos datos.
 
+
+## Elección por turnos
+Los controladores eligen secuencialmente según disponibilidad; el orden parte del remanente del año anterior. El baremo de las selecciones actuales no fija ese orden. La gestión de cola y remanentes espera el documento de normas. Consulta [Elección de vacaciones por turnos](ELECCION.md) para el requisito confirmado, la propuesta de interfaz y los detalles pendientes.

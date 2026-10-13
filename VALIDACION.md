@@ -51,3 +51,6 @@ Ver [README.md](README.md) para uso, despliegue, Firebase y migración a Cloudfl
 
 
 
+
+## Aclaración del proceso de elección
+El orden operativo no se ha validado: debe derivarse de remanentes del ejercicio anterior. El cálculo actual corresponde al baremo de las selecciones del ejercicio abierto. Se elimina la etiqueta que lo identificaba como orden de petición. La reproducción de un proceso secuencial requiere normas, remanentes de origen y secuencia de elección, además de los resultados finales.
