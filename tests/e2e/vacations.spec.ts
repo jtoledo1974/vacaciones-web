@@ -24,8 +24,8 @@ async function activate(page:Page){
   await page.getByText('Preparar el orden de elección',{exact:true}).click();
   await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
   await page.getByLabel('Origen del orden').fill('Orden ficticio de Playwright, sin uso operativo');
-  await page.getByLabel('Permitir aplazar una vez', {exact:false}).check();
-  await page.getByLabel('Confirmo este orden', {exact:false}).check();
+  await page.getByLabel('Permitir uno o dos aplazamientos', {exact:false}).check();
+  await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1', {exact:false}).check();
   await page.getByRole('button',{name:'Activar elección',exact:true}).click();
   await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
@@ -102,7 +102,7 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  await page.getByLabel('Origen del orden').fill('Sorteo y elección conjunta ficticios; Criterios 1.1 de 2025');
  await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1').check();
  await page.getByRole('button',{name:'Activar elección'}).click();
- await expect(page.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'QA_D elige ahora'})).toBeVisible();
  await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
  await expect(page.getByRole('heading',{name:'QA_A + QA_C elige ahora'})).toBeVisible();
  await cycle(page,dates[1]);
