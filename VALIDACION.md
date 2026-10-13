@@ -64,3 +64,7 @@ HTTP sobre D1 local: dos escenarios completos probaron tres elecciones con autom
 La consulta pública actual sustituye la limitación de mostrar solo el último resultado publicado. La revisión final archivada sigue siendo independiente e inmutable. No se publican preferencias, cuentas ni nombres completos.
 
 Pendiente: documento de normas del ejercicio, remanentes históricos y desempates oficiales, siete plantillas reales que no aparecen en el Excel disponible y validación con datos de años anteriores. Los puntos de la UI son baremo acumulado sin ponderar; no son un cálculo certificado del saldo del próximo año. La política de un ciclo y un aplazamiento se activa solo mediante confirmación expresa del administrador.
+
+## Playwright — 13 de octubre de 2026
+
+Suite reproducible: 4 escenarios en escritorio y móvil (8 pruebas), servidor propio en 5199 y D1 exclusiva de QA. Ejecución completa con Chrome instalado: 8/8 correctas en 1,3 minutos. Consulta pública, aislamiento, aplazamiento y elección doble, undo/redo, preferencias automáticas, bloqueo, descarga y restauración. No certifica el login real de ChatGPT ni Safari nativo. Ver docs/PRUEBAS.md.
