@@ -102,7 +102,7 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  await page.getByLabel('Origen del orden').fill('Sorteo y elección conjunta ficticios; Criterios 1.1 de 2025');
  await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1').check();
  await page.getByRole('button',{name:'Activar elección'}).click();
- await expect(page.getByRole('heading',{name:'QA_D elige ahora'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible();
  await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
  await expect(page.getByRole('heading',{name:'QA_A + QA_C elige ahora'})).toBeVisible();
  await cycle(page,dates[1]);
@@ -113,5 +113,5 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  const after=await read(request,fixture.id);
  expect(after.awards).toHaveLength(3);
  expect(after.requests).toHaveLength(3);
- await expect(page.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'QA_D elige ahora'})).toBeVisible();
 });
