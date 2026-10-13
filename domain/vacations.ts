@@ -53,7 +53,7 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
     }
     const relation = c.relation ?? { minimum: 1, base: 2, maximum: 3, graceJanuary: 0, graceOctober: 0 };
     const originalQuotas = relationQuotas(cycles.map(s => s.period), cycles.map(s => awards.filter(a => a.cycle_date === s.date).length), { ...relation, people: members.length, necessary: neededTotal, baseTotal });
-    const result = cycles.map((s, i) => { const occupied = awards.filter(a => a.cycle_date === s.date).length; const requested = requests.filter(a => a.cycle_date === s.date).length; const q = originalQuotas[i]; if (occupied > q.max)
+    const result = cycles.map((s, i) => { const occupied = awards.filter(a => a.cycle_date === s.date).length; const requested = requests.filter(a => a.cycle_date === s.date).length; const original = originalQuotas[i]; const specialQuota=c.specialQuotas?.[s.date]; const q=specialQuota===undefined?original:{...original,max:specialQuota,available:occupied<specialQuota}; if (occupied > q.max)
         issues.push(`${s.date}: supera el cupo máximo de la relación`); return { ...s, occupied, requested, ...q }; });
     for (const a of awards)
         if (!byDate.has(a.cycle_date) || !members.some(m => m.id === a.member_id))

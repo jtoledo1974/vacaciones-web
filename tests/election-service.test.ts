@@ -47,3 +47,36 @@ test('el segundo ciclo se valida contra el primero y las opciones no modifican l
  const {repo,s,cid,d,person}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map(c=>c.date);await act(s,cid,{action:'link_account',memberId:a.id,subject:'person',accountVersion:0});await act(s,cid,start(d));await act(s,cid,{action:'defer',memberId:a.id});await act(s,cid,{action:'choose',memberId:b.id,dates:[dates[0]]});await act(s,cid,{action:'choose',memberId:c.id,dates:[dates[1]]});const before=await s.load(cid),options=await person.election().options(cid,[dates[0]]);assert.equal(options.available.includes(dates[0]),false);assert.equal(options.available.includes(dates[1]),true);assert.deepEqual(await s.load(cid),before);await assert.rejects(new Service(repo,{id:'chatgpt:other',role:'viewer',teams:[]}).election().options(cid,[dates[0]]),/turno/);
 });
 
+
+test('Criterios 1.1 p.2: la elección guarda seis solicitudes de origen, que sobreviven una permuta posterior',async()=>{
+ const {s,cid,d}=await setup(),[a,b]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,start(d));
+ let next=await act(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ assert.equal(next.requests.length,1);
+ assert.equal(next.requests[0].cycle_date,dates[0]);
+ await act(s,cid,{action:'pause'});
+ next=await s.view(cid);
+ next=await s.mutate(cid,{action:'delete_award',id:next.awards[0].id,version:next.campaign.version});
+ assert.equal(next.awards.length,0);
+ assert.equal(next.requests.length,1);
+ assert.equal(next.result.ordering.find((p:any)=>p.id===a.id).score,d.result.cycles[0].score);
+ next=await s.mutate(cid,{action:'award',memberId:a.id,date:dates[1],version:next.campaign.version});
+ assert.equal(next.awards[0].cycle_date,dates[1]);
+ assert.equal(next.requests[0].cycle_date,dates[0]);
+});
+test('Criterios 1.1 p.2: turno conjunto: servidor confirma todas las selecciones y solicitudes o ninguna',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,{...start(d),jointGroups:[[a.id,c.id]]});
+ let next=await s.view(cid);
+ assert.equal(next.election.turn.memberId,b.id);
+ next=await act(s,cid,{action:'choose',memberId:b.id,dates:[dates[0]]});
+ assert.deepEqual(next.election.turn.participants,[a.id,c.id]);
+ await assert.rejects(act(s,cid,{action:'choose_joint',entries:[{member_id:a.id,dates:[dates[1]]}]}),/todos sus participantes/);
+ assert.equal((await s.view(cid)).awards.length,1);
+ next=await act(s,cid,{action:'choose_joint',entries:[{member_id:a.id,dates:[dates[1]]},{member_id:c.id,dates:[dates[2]]}]});
+ assert.equal(next.awards.length,3);
+ assert.equal(next.requests.length,3);
+ next=await act(s,cid,{action:'election_undo',historyId:next.election.undo});
+ assert.equal(next.awards.length,1);
+ assert.equal(next.requests.length,1);
+});

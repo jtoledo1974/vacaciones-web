@@ -1,50 +1,28 @@
-# Elección de vacaciones por turnos
+# Elección de vacaciones por turnos — Criterios Vacaciones 1.1 (2025)
 
-Nota de requisitos, 13 de octubre de 2026. Fuente: explicación directa del propietario. El documento de normas aplicable al ejercicio está pendiente de recibir.
+Fuente: [resumen documental](CRITERIOS_VACACIONES_1.1_2025.md) de «250610 Criterios Vacaciones 1.1.pdf» (10/06/2025). Prevalece el PDF original, que debe subirse al repositorio desde un entorno capaz de adjuntar binarios.
 
-## Paradigma confirmado
+## Selección y puntuación
 
-- Los controladores piden secuencialmente, cuando les corresponde su turno de elección.
-- Cada persona elige en función de las vacaciones que van quedando libres después de las elecciones anteriores.
-- El orden de elección viene predeterminado por la puntuación remanente de las peticiones del año anterior.
-- La plantilla puede cambiar entre ejercicios. El historial debe vincularse a una identidad estable, incluso al cambiar de equipo o identificador.
+- La elección secuencial escribe **requests (solicitudes originales)** y **awards (vacaciones vigentes)** en la misma transacción, incluido el sexto ciclo.
+- Si se modifica después una adjudicación, la solicitud original permanece: criterios, página 2. Las permutas pueden regirse por otro cómputo si así lo acuerda el equipo, decisión que ha de registrarse explícitamente.
+- El orden es de menor a mayor puntuación del ejercicio anterior; el administrador confirma el orden y su origen. No se altera por los puntos de la elección abierta.
 
-La elección es un proceso ordenado sobre disponibilidad cambiante. No debe presentarse como una recogida simultánea de preferencias que luego se ordena por las puntuaciones del ejercicio actual.
+## Empates, aplazamientos y grupos
 
-## Diferencia con la aplicación actual
+- El administrador declara cada grupo de empatados en el orden **sorteado** y contiguo en la lista. El motor rota una posición por ronda: 1,2,3 → 2,3,1 → 3,1,2 (p.3). No utiliza antigüedad como desempate operativo.
+- Dos aplazamientos consecutivos permiten elegir hasta tres ciclos juntos en el turno siguiente (p.2). Nunca superan seis ciclos por persona.
+- Dos o tres CTA pueden configurar un turno conjunto con antelación. En cada ronda actúan en el turno del último integrante; un responsable confirma el grupo como una adjudicación transaccional. El aplazamiento combinado de grupos carece de UI y requiere gestión administrativa.
+- Las preferencias automáticas solo aplican en turnos individuales; no se adelantan a un turno conjunto.
 
-El baremo mostrado actualmente se calcula a partir de las selecciones del ejercicio abierto. Sirve para comparar las entradas con las hojas originales, pero **no establece el orden de elección de este año**. Las altas anuales crean identidades y los traslados conservan la identidad; las importaciones de históricos tendrán que confirmar la correspondencia entre personas, sin deducirla automáticamente de nombres o nicks.
+## Cupos y nuevos CTA
 
-La aplicación actual permite registrar solicitudes y adjudicaciones manualmente. La ampliación incorpora cola con orden confirmado por administrador, preferencias privadas, automatismos al llegar el turno y una política provisional de un ciclo por turno, con un aplazamiento para elegir dos en la siguiente ocasión. El remanente histórico, su cálculo y los desempates oficiales siguen pendientes del documento de normas. Las elecciones ya existentes se conservan y no se activa una cola para la campaña real automáticamente.
+- Config.specialQuotas define un máximo explícito para un ciclo (por ejemplo, cupo extra RRHH de un CTA). Se mantienen asimismo las restricciones globales del modelo.
+- No hay reserva de dos ciclos de verano por persona. El sexto puntúa.
+- domain/historical-order.ts implementa newcomerScore para 6, 4–5 y menos de 4 ciclos completos disfrutados (p.3). El equipo administrador debe documentar las vacaciones disfrutadas y las medias por ronda; no pueden inferirse de otra dependencia sin datos.
 
-## Propuesta de interfaz
+## Tests y compatibilidad
 
-La vista principal **Vacaciones** reúne calendario, cola y preferencias:
-
-1. **Orden del equipo:** lista fija de participantes, puntuación remanente de origen y estado de elección. Debe mostrar el ejercicio y la fuente que justifican el orden. Las peticiones actuales no lo recalculan.
-2. **Quién elige ahora:** persona activa y, si las normas establecen varias rondas, ronda actual. Acciones de confirmar elección, pasar o aplazar solo si están previstas por las normas. El administrador registra la elección; no se concede escritura pública a los controladores.
-3. **Qué queda libre:** calendario de ciclos disponibles, cupos restantes y explicación de restricciones aplicables. Una elección confirmada actualiza la ocupación antes del siguiente turno.
-
-Separar visualmente **remanente anterior**, **baremo de la elección actual** y **remanente para el próximo ejercicio**. Nunca usar una única columna «Puntuación» para los tres conceptos.
-
-Confirmar una elección deberá guardar persona, ciclo, turno/ronda, origen del orden y reglas utilizadas en una transacción. Deshacer o rehacer tendrá que recuperar también la posición de la cola y la disponibilidad, no solo las listas de vacaciones. El avance, la identidad de quien elige y los cupos deberán comprobarse en el servidor.
-
-La consulta pública muestra las elecciones confirmadas actuales, su ocupación y baremos, incluso antes del cierre final. Conserva únicamente los identificadores abreviados; nombres, antigüedades, cuentas, preferencias y simulaciones no son públicos. Los administradores gestionan el orden; una cuenta vinculada puede guardar sus preferencias y elegir en su turno.
-
-## Pendiente del documento de normas
-
-- Qué significa exactamente «puntuación remanente», cómo se obtiene y qué peticiones computan.
-- Sentido del orden, desempates y regla para datos desconocidos.
-- Número de rondas y cantidad o tipo de ciclos elegibles en cada turno.
-- Cómo se actualizan o consumen puntuaciones; si el orden cambia entre rondas.
-- Reglas para altas, reincorporaciones, bajas y cambios de equipo, incluida la antigüedad.
-- Qué hace una ausencia, un aplazamiento, una renuncia o una corrección de una elección anterior.
-- Cuándo la petición reserva o confirma un cupo y cómo se gestionan restricciones o excepciones.
-- Cómo se cierra el ejercicio y qué saldo se transmite al siguiente.
-
-No asumir menor puntuación primero, desempate por antigüedad, una petición por ronda ni un saldo inicial de cero para nuevas personas hasta contrastarlo con las normas.
-
-## Validación con históricos
-
-Las hojas finales permiten contrastar calendarios, baremos, saldos y ocupación. Para reproducir el proceso secuencial hacen falta también el orden inicial y, cuando sea relevante, la secuencia o las rondas de elección: un resultado final por sí solo no demuestra que el proceso de elección se reproduzca correctamente. Incluir varios equipos, cambios de plantilla y un año bisiesto.
-
+- tests/criterios-2025.test.ts verifica empates, elección triple, turno conjunto, cupo de uno y nuevos CTA.
+- tests/election-service.test.ts verifica que los ciclos originalmente solicitados persisten tras un cambio posterior y que el turno conjunto/undo son atómicos.
+- GitHub Actions ejecuta Node tests, TypeScript typecheck y Playwright al abrir o actualizar el PR. Los casos históricos Excel se validan con un perfil específico (45 frente a 46 ciclos) y no se alteran silenciosamente las fórmulas heredadas.
