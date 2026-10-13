@@ -8,3 +8,5 @@
 
 .help-document{margin-top:28px;max-width:980px;line-height:1.75;overflow-wrap:anywhere}.help-document h2{margin:28px 0 18px}.help-document h3{margin:26px 0 12px}.help-document p{margin:12px 0;color:var(--text)}.help-document li{margin:8px 0}.help-document pre{overflow:auto;padding:16px;background:#f3f6f5;border-radius:10px}.help-document code{font-size:.9em;background:#f3f6f5;padding:2px 5px;border-radius:4px}.help-inline-link{border:0;background:none;padding:0;color:#256454;text-decoration:underline;cursor:pointer;font:inherit}.help-panel .button-row{gap:10px}.help-document .table-wrap{margin:20px 0}
 
+
+.roster-actions{display:flex;flex-direction:column;gap:8px;min-width:190px}.roster-actions .secondary{white-space:nowrap}.roster-panel td{vertical-align:top}

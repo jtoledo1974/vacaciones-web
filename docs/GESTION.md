@@ -30,10 +30,15 @@ Reabrir permite trabajar sobre el borrador sin alterar el resultado publicado.
 
 En Administración puedes editar toda la plantilla en una tabla y guardar juntos los cambios. También puedes pegar columnas desde Excel o importar una plantilla preparada mediante archivo o JSON pegado. Una antigüedad vacía significa desconocida.
 
-Crear un nuevo ejercicio prepara los ocho equipos, copia la plantilla activa y permite copiar los parámetros. No copia solicitudes ni adjudicaciones.
+Cada equipo tiene una plantilla independiente para cada ejercicio. Las modificaciones de nombres, antigüedades y composición afectan solo al año seleccionado. No cambian otros años ya creados ni resultados publicados.
+
+Para dar de alta, añade una fila y guarda. Para una baja, pulsa **Baja de este año** en la fila. Para cambiar de turno, selecciona el equipo de destino y pulsa **Trasladar**. Ambas operaciones se aplican al ejercicio que figura en la pantalla; guarda las ediciones de la tabla antes de usarlas. Si hay solicitudes o adjudicaciones de esa persona, resuélvelas primero o realiza el cambio en un ejercicio nuevo sin vacaciones.
+
+Crear un nuevo ejercicio prepara los ocho equipos. Puedes copiar la plantilla de un año concreto, usar el último ejercicio anterior de cada equipo o empezar sin controladores. La elección de plantilla es independiente de la de parámetros. No se copian solicitudes ni adjudicaciones. Una corrección de un año antiguo no altera una plantilla más reciente que ya existe. Los años futuros usan únicamente el origen que elijas al crearlos; no hay propagación automática a ejercicios ya creados.
 
 ## Copias de seguridad
 
 Descarga una copia completa antes de operaciones importantes y guárdala fuera del Site. La copia JSON incluye todos los equipos, permisos e historial; no contiene secretos del entorno.
 
 Restaurar sustituye los datos de toda la aplicación, no solo del equipo seleccionado. Está reservado al superadministrador y verifica la integridad SHA-256. Una copia anterior a una importación no contiene los nuevos datos.
+

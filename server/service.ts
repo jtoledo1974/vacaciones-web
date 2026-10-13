@@ -61,17 +61,26 @@ export class Service {
         await this.commit(ops);
         return this.list();
     }
-    async createCampaigns(year: number, copyYear: number | null) { requireSuper(this.actor); checkedConfig(defaultConfig(year), year); const ts = await this.repo.all('SELECT * FROM teams ORDER BY id'); if (ts.length !== 8)
-        throw new ApiError('Inicializa los ocho equipos primero'); const people = await this.repo.all('SELECT * FROM people WHERE active=1'); const prior = copyYear ? await this.repo.all('SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=?', [copyYear]) : []; const ops: Statement[] = []; for (const t of ts) {
+    async createCampaigns(year: number, copyYear: number | null, rosterYear:number|null|'latest'='latest') { requireSuper(this.actor); checkedConfig(defaultConfig(year), year);
+        if(rosterYear!=='latest'&&rosterYear!==null&&(!Number.isInteger(rosterYear)||rosterYear>=year))throw new ApiError('La plantilla de origen debe ser de un ejercicio anterior');
+        const ts = await this.repo.all('SELECT * FROM teams ORDER BY id'); if (ts.length !== 8)
+        throw new ApiError('Inicializa los ocho equipos primero'); const prior = copyYear ? await this.repo.all('SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=?', [copyYear]) : []; const ops: Statement[] = []; for (const t of ts) {
         const cid = id(), previous = prior.find(p => p.team_id === t.id);
+        const rosterSource=rosterYear===null?null:(await this.repo.all(rosterYear==='latest'?'SELECT * FROM campaigns WHERE team_id=? AND year<? ORDER BY year DESC LIMIT 1':'SELECT * FROM campaigns WHERE team_id=? AND year=?',[t.id,rosterYear==='latest'?year:rosterYear]))[0];
+        if(rosterYear!==null&&!rosterSource)throw new ApiError('No hay plantilla de origen para el equipo '+t.id+'. Elige empezar sin controladores.');
+        const annualPeople=rosterSource?await this.repo.all('SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code',[rosterSource.id]):[];
+        if(annualPeople.some(p=>p.seniority&&p.seniority>`${year}-12-31`))throw new ApiError('La plantilla contiene una antigüedad posterior al ejercicio');
+        // Lock each selected source while copying, so a concurrent edit rolls back creation.
+        if(rosterSource){const token=id();ops.push({sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN (SELECT version FROM campaigns WHERE id=?)=? THEN ? ELSE NULL END)',args:[rosterSource.id,rosterSource.version,token]},{sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]});}
         if (copyYear && !previous)
             throw new ApiError('El ejercicio de origen no contiene los ocho equipos');
+        if(previous&&previous.id!==rosterSource?.id){const token=id();ops.push({sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN (SELECT version FROM campaigns WHERE id=?)=? THEN ? ELSE NULL END)',args:[previous.id,previous.version,token]},{sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]});}
         const config = previous ? copyConfig(JSON.parse(previous.json), copyYear!, year) : defaultConfig(year);
         checkedConfig(config, year);
-        ops.push({ sql: 'INSERT INTO campaigns(id,team_id,year,status,version,data_kind,created_at) VALUES(?,?,?,\'open\',1,?,?)', args: [cid, t.id, year,previous?.data_kind??(people.some(p=>p.team_id===t.id&&p.label)?'configured':'demo'), now()] }, { sql: 'INSERT INTO parameters(campaign_id,json,version) VALUES(?,?,1)', args: [cid, JSON.stringify(config)] });
-        for (const p of people.filter(p => p.team_id === t.id))
-            ops.push({ sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)', args: [id(), cid, p.id, p.code, p.label??'', p.seniority,p.position??0] });
-        ops.push(this.audit('create_campaign', { id: cid, team_id: t.id }, null, { year, copyYear }));
+        ops.push({ sql: 'INSERT INTO campaigns(id,team_id,year,status,version,data_kind,created_at) VALUES(?,?,?,\'open\',1,?,?)', args: [cid, t.id, year,rosterSource?.data_kind??'configured', now()] }, { sql: 'INSERT INTO parameters(campaign_id,json,version) VALUES(?,?,1)', args: [cid, JSON.stringify(config)] });
+        for (const p of annualPeople)
+            ops.push({ sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)', args: [id(), cid, p.person_id, p.code, p.label??'', p.seniority,p.position??0] });
+        ops.push(this.audit('create_campaign', { id: cid, team_id: t.id }, null, { year, copyYear,rosterYear:rosterSource?.year??null }));
     } await this.commit(ops); return this.list(); }
     async mutate(cid: string, body: any) {
         const d = await this.load(cid), c = d.campaign;
@@ -179,10 +188,11 @@ export class Service {
             if(check.issues.length)throw new ApiError('Revisa la plantilla: '+check.issues.join('; '));
             const existingPeople=await this.repo.all('SELECT * FROM people WHERE team_id=?',[c.team_id]);
             ops.push({sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM campaign_members WHERE campaign_id=?',args:[cid]});
-            for(const member of d.members)ops.push({sql:'UPDATE people SET active=0,version=version+1 WHERE id=? AND team_id=?',args:[member.person_id,c.team_id]});
+
             for(const m of imported){
-                const existing=existingPeople.find(p=>p.code===m.code);
-                if(existing){m.personId=existing.id;ops.push({sql:'UPDATE people SET label=?,seniority=?,position=?,active=1,version=version+1 WHERE id=? AND team_id=?',args:[m.label,m.seniority,m.position,existing.id,c.team_id]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[m.id,cid,existing.id,m.code,m.label,m.seniority,m.position]});}
+                const annual=d.members.find(p=>p.code===m.code);
+                const existing=existingPeople.find(p=>p.id===annual?.person_id)||existingPeople.find(p=>p.code===m.code);
+                if(existing){m.personId=existing.id;ops.push({sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[m.id,cid,existing.id,m.code,m.label,m.seniority,m.position]});}
                 else ops.push(...rowStatements(cid,c.team_id,m,m.position,m.personId,m.id));
             }
             for(const r of selections)ops.push({sql:'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1)',args:[r.id,cid,r.member_id,r.slot,r.cycle_date]});
@@ -199,20 +209,35 @@ export class Service {
             if(new Set(memberIds).size!==memberIds.length)throw new ApiError('El mismo controlador aparece en dos filas');
             const touched=new Set(resolved.map(r=>r.member?.id).filter(Boolean));
             if(resolved.some(r=>d.members.some(m=>m.code===r.row.code&&!touched.has(m.id))))throw new ApiError('Hay un identificador duplicado en la plantilla');
-            for(const {member} of resolved)if(member)ops.push({sql:'UPDATE people SET code=? WHERE id=? AND team_id=?',args:['TMP-'+id(),member.person_id,c.team_id]});
+
             for(const {row:r,member,position} of resolved){
-                if(member)ops.push({sql:'UPDATE people SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND team_id=?',args:[r.code,r.label,r.seniority,member.person_id,c.team_id]},{sql:'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',args:[r.code,r.label,r.seniority,member.id,cid]});
+                if(member)ops.push({sql:'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',args:[r.code,r.label,r.seniority,member.id,cid]});
                 else ops.push(...rowStatements(cid,c.team_id,r,position,id(),id()));
             }
             ops.push({sql:"UPDATE campaigns SET data_kind='configured' WHERE id=?",args:[cid]});
             before=d.members;after=rows;
+        }
+        else if(action==='transfer_member'){
+            requireSuper(this.actor);
+            const member=d.members.find(m=>m.id===body.memberId);
+            if(!member)throw new ApiError('Controlador no encontrado',404);
+            if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.');
+            const target=(await this.repo.all('SELECT * FROM campaigns WHERE team_id=? AND year=?',[body.targetTeam,c.year]))[0];
+            if(!target||target.id===cid||target.status!=='open')throw new ApiError('Elige otro equipo con campaña abierta en el mismo ejercicio');
+            if(target.version!==body.targetVersion)throw new ApiError('El equipo de destino cambió. Recarga antes de trasladar.',409);
+            const destination=await this.load(target.id);
+            if(destination.members.some(m=>m.person_id===member.person_id||m.code===member.code))throw new ApiError('La persona o su identificador ya existe en el equipo de destino');
+            if(destination.members.length>=100)throw new ApiError('El equipo de destino ha alcanzado el máximo de 100 controladores');
+            ops.push(...cas(target.id,target.version),{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[id(),target.id,member.person_id,member.code,member.label,member.seniority,Math.max(-1,...destination.members.map(m=>m.position))+1]},{sql:"UPDATE campaigns SET data_kind='configured' WHERE id IN (?,?)",args:[cid,target.id]});
+            before=member;after={code:member.code,from:c.team_id,to:target.team_id,year:c.year};
+            ops.push(this.audit('transfer_received',target,null,after));
         }
         else if(action==='retire_member'){
             requireSuper(this.actor);
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Identificador no encontrado',404);
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
-            ops.push({sql:'UPDATE people SET active=0,version=version+1 WHERE id=? AND team_id=?',args:[member.person_id,c.team_id]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
+            ops.push({sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
             before=member;after={retired:member.code};
         }
         else if (action === 'member') {
@@ -226,11 +251,11 @@ export class Service {
                 throw new ApiError('Ese código ya existe en esta campaña');
             if (m) {
                 before = m;
-                ops.push({ sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?', args: [code, body.seniority, m.id, cid] }, { sql: 'UPDATE people SET code=?,seniority=?,version=version+1 WHERE id=? AND team_id=?', args: [code, body.seniority, m.person_id, c.team_id] });
+                ops.push({ sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?', args: [code, body.seniority, m.id, cid] });
             }
             else {
                 const pid = id();
-                ops.push({ sql: 'INSERT INTO people(id,team_id,code,seniority,version) VALUES(?,?,?,?,1)', args: [pid, c.team_id, code, body.seniority] }, { sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,seniority,version) VALUES(?,?,?,?,?,1)', args: [id(), cid, pid, code, body.seniority] });
+                ops.push(...rowStatements(cid,c.team_id,{code,label:'',seniority:body.seniority},d.members.length,pid,id()));
             }
         }
         else
@@ -293,6 +318,7 @@ export class Service {
     }
 }
 async function digest(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
+
 
 
 

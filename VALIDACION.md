@@ -19,7 +19,7 @@
 | HTTP con D1 local | Persistencia tras nueva petición; 401 sin sesión, 403 sin Origin, 409 con versión obsoleta; copia completa. |
 | Interfaz | Guardado de solicitud ficticia en navegador; comprobación de calendario/escritorio y formulario/móvil (390 px), sin desbordamiento horizontal. |
 
-28 pruebas automatizadas del motor y servicio pasan. TypeScript de la aplicación pasa y el build Worker compila. Pruebas SQL críticas usan SQLite real con claves foráneas, además de pruebas HTTP sobre D1/Miniflare local. No equivalen por sí solas a verificación de la base alojada.
+33 pruebas automatizadas pasan, incluidas cuatro sobre plantillas independientes, copia explícita o vacía, traslados atómicos y protección de personas con vacaciones. TypeScript de la aplicación pasa y el build Worker compila. Pruebas SQL críticas usan SQLite real con claves foráneas, además de pruebas HTTP sobre D1/Miniflare local. No equivalen por sí solas a verificación de la base alojada.
 
 ## Correspondencia con el original y decisiones explícitas
 
@@ -48,5 +48,6 @@ Sites provee DB y encabezados de identidad, y mantiene una lista de visitantes i
 La exportación JSON cubre todos los datos; CSV cubre adjudicaciones del equipo. Las copias se descargan manualmente. El límite del importador es 5 MB y 25.000 registros; la restauración debe mantenerse dentro de los límites de lote/consultas de D1 del entorno. La gratuidad permanente no está garantizada por una prueba técnica y no se ha activado ningún servicio facturable.
 
 Ver [README.md](README.md) para uso, despliegue, Firebase y migración a Cloudflare. La prueba del Site alojado y su URL se registran en [DESPLIEGUE.md](DESPLIEGUE.md).
+
 
 

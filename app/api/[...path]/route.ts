@@ -59,7 +59,7 @@ async function serve(request: Request) {
         if (path[0] === 'initialize')
             return reply(await service.init());
         if (path[0] === 'campaigns')
-            return reply(await service.createCampaigns(b.year, b.copyYear ?? null));
+            return reply(await service.createCampaigns(b.year, b.copyYear ?? null, b.rosterYear===undefined?'latest':b.rosterYear));
         if (path[0] === 'campaign' && path[1])
             return reply(await service.mutate(path[1], b));
         if (path[0] === 'users')

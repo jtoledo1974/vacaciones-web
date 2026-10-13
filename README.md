@@ -30,7 +30,7 @@ El Site tiene además una lista de visitantes de la plataforma. Esta lista y los
 
 ## Datos, concurrencia y copias
 
-Entidades: equipos, personas, usuarios, asignaciones de permisos, campañas, parámetros anuales, miembros anuales, solicitudes, adjudicaciones, revisiones y auditoría. Los miembros anuales conservan su código y antigüedad propios. La configuración compleja se guarda como documento JSON versionado por campaña; no contiene solicitudes ni adjudicaciones. Es una decisión reversible con un adaptador o migración futura.
+Entidades: equipos, personas, usuarios, asignaciones de permisos, campañas, parámetros anuales, miembros anuales, solicitudes, adjudicaciones, revisiones y auditoría. Los miembros anuales conservan su identidad, código, nombre y antigüedad propios. La composición se copia desde una campaña anual explícita o la última anterior; people conserva identidades, no una plantilla global activa que gobierne los años futuros. Altas, bajas, importaciones y traslados cambian únicamente el ejercicio elegido. La configuración compleja se guarda como documento JSON versionado por campaña; no contiene solicitudes ni adjudicaciones. Es una decisión reversible con un adaptador o migración futura.
 
 Cada operación comprueba versión de campaña y ejecuta un lote transaccional D1 con compare-and-swap y una aserción SQL. El fallo revierte toda la operación, incluida la auditoría. Las revisiones guardan parámetros, entradas y resultados; una edición invalida su publicación. SHA-256 detecta daños accidentales en el backup, no autentica su origen. La restauración solo está disponible al superadministrador.
 
@@ -65,3 +65,4 @@ En todas las vistas de administración hay Deshacer y Rehacer para el último ca
 
 ## Ayuda en la web
 El apartado Ayuda permite leer y descargar las guías. La guía de consulta es pública; la guía de gestión y README, VALIDACION y DESPLIEGUE se entregan solo a administradores mediante una ruta que comprueba el rol en el servidor. Los originales Markdown se incorporan al build del servidor, por lo que sus cambios se reflejan al desplegar.
+

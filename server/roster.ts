@@ -2,7 +2,7 @@ import {serial,calendar,type Config} from '../domain/calendar.ts';
 import type {Statement} from './repository.ts';
 export type RosterRow={memberId?:string;code:string;label:string;seniority:string;dates?:string[]};
 export function validateRoster(rows:any,year:number,team:string,config:Config):RosterRow[]{
-    if(!Array.isArray(rows)||!rows.length||rows.length>100)throw new Error('La plantilla debe contener entre 1 y 100 controladores');
+    if(!Array.isArray(rows)||rows.length>100)throw new Error('La plantilla debe contener entre 0 y 100 controladores');
     const codes=new Set<string>(),members=new Set<string>(),dates=new Set(calendar(year,team,config).map(c=>c.date));
     return rows.map((row,i)=>{
         const code=String(row.code??'').trim().toUpperCase(),label=String(row.label??'').trim(),seniority=String(row.seniority??'').trim();
@@ -18,5 +18,5 @@ export function validateRoster(rows:any,year:number,team:string,config:Config):R
     });
 }
 export function rowStatements(cid:string,team:string,row:RosterRow,position:number,personId:string,memberId:string):Statement[]{
- return [{sql:'INSERT INTO people(id,team_id,code,label,seniority,position,active,version) VALUES(?,?,?,?,?,?,1,1)',args:[personId,team,row.code,row.label,row.seniority,position]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[memberId,cid,personId,row.code,row.label,row.seniority,position]}];
+ return [{sql:'INSERT INTO people(id,team_id,code,label,seniority,position,active,version) VALUES(?,?,?,?,?,?,1,1)',args:[personId,team,personId,row.label,row.seniority,position]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[memberId,cid,personId,row.code,row.label,row.seniority,position]}];
 }
