@@ -2,7 +2,27 @@
 import {useEffect,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
+import {newcomerScore} from '../domain/historical-order';
 
+function NewcomerCalculator(){
+ const [completed,setCompleted]=useState(''),[roundAverages,setRoundAverages]=useState(''),[message,setMessage]=useState('');
+ const calculateScore=()=>{
+  try{
+   const values=(raw:string)=>raw.trim()?raw.split(/[;,\n]/).map(s=>Number(s.trim())):[];
+   const points=values(completed),means=values(roundAverages);
+   if(points.length>6||means.length!==6||[...points,...means].some(n=>!Number.isFinite(n)))throw new Error('Introduce de 0 a 6 ciclos disfrutados y seis medias del equipo por ronda');
+   const source=newcomerScore(points.map((points,idx)=>({round:idx+1,points})),means.map(n=>[n]));
+   setMessage('Puntuación según criterios 1.1: '+source.score.toLocaleString('es-ES')+' puntos. Confirmar datos originales antes de situarlo en el orden.');
+  }catch(e:any){setMessage(e.message);}
+ };
+ return <details className="panel"><summary>Calculadora para nuevas incorporaciones</summary>
+ <p>Normas, página 3. Introduce los puntos de los ciclos completos disfrutados por el nuevo CTA y la media de puntos de cada una de las seis rondas del equipo. Calcula la puntuación para introducirlo en el orden; no altera automáticamente la clasificación.</p>
+ <label>Puntos de ciclos disfrutados (entre 0 y 6, separados por comas)<textarea aria-label="Ciclos disfrutados por nuevo CTA" rows={2} placeholder="40, 56, 80, 32" value={completed} onChange={e=>setCompleted(e.target.value)}/></label>
+ <label>Media de puntos del equipo, rondas 1 a 6<textarea aria-label="Medias por ronda del equipo" rows={2} placeholder="40, 50, 60, 65, 38, 35" value={roundAverages} onChange={e=>setRoundAverages(e.target.value)}/></label>
+ <button type="button" className="secondary" onClick={calculateScore}>Calcular puntuación del nuevo CTA</button>
+ {message&&<p role="status">{message}</p>}
+ </details>;
+}
 function OrderSetup({data,busy,act}:any){
  const [order,setOrder]=useState(''),[ties,setTies]=useState(''),[joints,setJoints]=useState(''),[source,setSource]=useState(''),[confirmed,setConfirmed]=useState(false),[deferral,setDeferral]=useState(true),[error,setError]=useState('');
  const parseGroups=(raw:string)=>raw.split(/\n/).map(line=>line.split(/[,;]/).map(code=>code.trim().toUpperCase()).filter(Boolean)).filter(group=>group.length>0);
@@ -21,7 +41,7 @@ function OrderSetup({data,busy,act}:any){
  <label>Identificadores en orden confirmado (uno por línea)<textarea required aria-label="Orden confirmado" value={order} onChange={e=>setOrder(e.target.value)} rows={6}/></label>
  <label>Empates sorteados (opcional; un grupo consecutivo por línea)<textarea aria-label="Grupos empatados" value={ties} onChange={e=>setTies(e.target.value)} rows={3} placeholder="AA, BB, CC"/></label>
  <label>Turnos conjuntos acordados (opcional; dos o tres CTA por línea)<textarea aria-label="Turnos conjuntos" value={joints} onChange={e=>setJoints(e.target.value)} rows={3} placeholder="DD, EE"/></label>
- <label>Origen del orden y sorteo<input required minLength={10} maxLength={500} value={source} onChange={e=>setSource(e.target.value)} placeholder="Ejercicio anterior, puntuaciones y acta del sorteo"/></label>
+ <NewcomerCalculator/><label>Origen del orden y sorteo<input required minLength={10} maxLength={500} value={source} onChange={e=>setSource(e.target.value)} placeholder="Ejercicio anterior, puntuaciones y acta del sorteo"/></label>
  <div className="team-checkboxes">
  <label><input type="checkbox" checked={deferral} onChange={e=>setDeferral(e.target.checked)}/> Permitir uno o dos aplazamientos (dos o tres ciclos en el siguiente turno)</label>
  <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Confirmo la aplicación de Criterios Vacaciones 1.1 (2025)</label>
