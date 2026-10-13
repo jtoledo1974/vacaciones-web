@@ -2,6 +2,21 @@
 
 La vista **Vacaciones** sustituye las páginas separadas de solicitudes y asignaciones. El calendario permite consultar o seleccionar; las preferencias son alternativas futuras y las elecciones confirmadas ocupan cupo inmediatamente.
 
+
+## Mesa de elección y dispositivos móviles
+
+La pantalla de elección tiene tres vistas que comparten los mismos ciclos y cupos:
+
+- **Mapa:** año completo, ciclos agrupados por mes de comienzo; color según plazas libres (0, 1, 2, 3 o 4+) y códigos abreviados de ocupantes.
+- **Calendario:** días de cada mes, puntos en el detalle del ciclo y relación de códigos que ya eligieron; en móvil se navega mes a mes.
+- **Por CTA:** seis columnas de ciclos adjudicados a cada CTA ordenados por **fecha de vacaciones**, no necesariamente por turno de elección. En móvil son fichas desplegables.
+
+El borde dorado identifica ciclos cuyo campo period es verano según las fechas de la configuración anual; no altera plazas, cuotas ni prioridad de las personas. Los colores interiores solo indican disponibilidad. Si un ciclo cruza meses, la ocupación también puede aparecer en el detalle del mes al que se extiende.
+
+En administración, el turno activo, la confirmación y Deshacer/Rehacer aparecen juntos; la historia inversa de adjudicaciones se construye a partir de elecciones vigentes y marcas de auditoría. Los ciclos importados, cuando no tienen registro secuencial de elección, se identifican como tales. Las preferencias reutilizan el calendario, pero no ocupan plazas antes de su adjudicación.
+
+En móvil, la zona de acción precede al calendario y las secciones largas de historial, preferencias y orden se presentan después. El mapa conserva el año completo en desplazamiento vertical. El informe PDF final seguirá diseñándose y contrastándose con el Excel histórico en una fase independiente.
+
 ## Preparar una elección
 
 1. Revisa la plantilla y las reglas del equipo y ejercicio.

@@ -35,8 +35,30 @@ export class ElectionService{
   const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:d.awards.filter((a:any)=>a.member_id===m.id).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid,d.campaign.version):null;
+  // Build the visible reverse-chronological log from choices still present in this campaign.
+  // Undo/redo restores awards, so an undone choice must not appear as a current selection.
+  const timeline:any[]=[];
+  if(manage){
+   const active=new Set(d.awards.map((a:any)=>a.member_id+'|'+a.cycle_date));
+   const seen=new Set<string>();
+   const rows=await this.repo.all('SELECT after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 500',[cid]);
+   for(const row of rows){
+    let after:any;try{after=JSON.parse(row.after_json??'{}');}catch{continue;}
+    const choices=Array.isArray(after?.choices)?after.choices:[];
+    for(const choice of [...choices].reverse()){
+     const key=choice.member_id+'|'+choice.cycle_date;
+     if(active.has(key)&&!seen.has(key)){seen.add(key);timeline.push({member_id:choice.member_id,cycle_date:choice.cycle_date,created_at:row.created_at});}
+    }
+   }
+   // Imported/legacy awards may lack a corresponding sequential audit record.
+   for(const award of d.awards){
+    const key=award.member_id+'|'+award.cycle_date;
+    if(!seen.has(key)){timeline.push({member_id:award.member_id,cycle_date:award.cycle_date,legacy:true});seen.add(key);}
+   }
+  }
+
   const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,canDefer:!!(turn.memberId&&raw.state?.allowDeferral&&!raw.state.credits[turn.memberId]&&ctx.awards.filter(a=>a.member_id===turn.memberId).length<ctx.config.cyclesPerPerson-1)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences))};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,canDefer:!!(turn.memberId&&raw.state?.allowDeferral&&!raw.state.credits[turn.memberId]&&ctx.awards.filter(a=>a.member_id===turn.memberId).length<ctx.config.cyclesPerPerson-1)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
  }
  async mutate(cid:string,body:any){
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
