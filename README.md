@@ -7,7 +7,7 @@ Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script.
 1. Consulta pública: elige equipo A–H y año para ver calendario, elecciones actuales y baremos. Filtra por controlador para localizar sus vacaciones.
 2. Administración: inicia sesión con una de las tres cuentas autorizadas. Vincula las cuentas personales a controladores para que puedan guardar sus preferencias y elegir en su turno.
 3. Vacaciones: añade alternativas desde el calendario, ordénalas y autoriza la selección automática si procede. El administrador también puede introducir listas de otras personas.
-4. Confirma manualmente el orden de origen antes de activar la cola. La política provisional es un ciclo por turno; permite habilitar un aplazamiento para elegir dos juntos. Las normas oficiales de remanentes y desempates están pendientes.
+4. Confirma manualmente el orden de origen antes de activar la cola. Aplica Criterios Vacaciones 1.1 (10/06/2025): un ciclo por ronda, hasta dos aplazamientos para elegir tres ciclos, rotación de empatados sorteados y turnos conjuntos. Se debe confirmar el orden y el sorteo usando las puntuaciones del ejercicio anterior.
 5. Simulaciones privadas: crea varios escenarios del mismo equipo y ejercicio. Se pueden reiniciar o cerrar sin afectar la campaña real. Los grupos tienen nombres fijos, A–H.
 6. Cerrar un equipo bloquea cambios pero mantiene la consulta. El cierre final puede guardar una revisión archivada; la ocupación actual es pública durante el proceso.
 7. Descarga una copia completa JSON, que incluye preferencias, cuentas, cola, escenarios y revisiones. La restauración afecta a toda la aplicación, verifica integridad y se ejecuta en una transacción.
@@ -69,7 +69,7 @@ El apartado Ayuda permite leer y descargar las guías. La guía de consulta es p
 
 
 ## Paradigma de elección
-El propietario ha confirmado una elección secuencial con orden predeterminado por remanentes del año anterior. Ver [ELECCION.md](ELECCION.md). El baremo calculado sobre las selecciones actuales no es el orden de elección; el flujo de rondas, remanentes y avance espera las normas del ejercicio.
+El orden secuencial proviene de las puntuaciones de los seis ciclos originalmente solicitados en el ejercicio anterior. Ver [ELECCION.md](docs/ELECCION.md) y [normas 1.1](docs/CRITERIOS_VACACIONES_1.1_2025.md). Los empates se sortean y alternan por rondas; nuevas incorporaciones requieren los datos históricos disfrutados y las medias del equipo.
 
 ## Motor y contratos reutilizables
 

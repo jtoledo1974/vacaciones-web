@@ -10,7 +10,7 @@
 | Pascua, Feria y fechas UTC | Pruebas del computus, +18 original, fecha inválida y año bisiesto. |
 | Ocho equipos y cambios anuales | 120 calendarios, años 2026–2040, sin fechas duplicadas; intervalos de ocho días y ajuste de nueve días cuando corresponde. Es una comprobación de invariantes, no 120 comparaciones contra Excel recalculado. |
 | Cupos dinámicos | Port directo de S, T, AA y celdas auxiliares, con casos de agotamiento global y de verano. Se conserva el límite U5:U49. |
-| Baremos y desempates | Ponderación de las seis columnas originales y orden ascendente, con empate por antigüedad. |
+| Baremos y desempates | Se mantiene la ordenación informativa heredada de Excel, pero el turno operativo sigue Criterios Vacaciones 1.1: sorteo de empatados y rotación entre rondas, no antigüedad. |
 | Roles y equipos | Viewer/anónimo sin escritura; responsable de A no modifica C; miembro ajeno rechazado; configuración reservada al superadministrador; delegación caducada sin permiso. |
 | Concurrencia | Edición obsoleta rechazada; compare-and-swap fallido revierte todo el lote SQL. |
 | Campañas | Creación de ocho campañas nuevas sin alterar el ejercicio anterior; no copia solicitudes/adjudicaciones. |
@@ -63,8 +63,13 @@ HTTP sobre D1 local: dos escenarios completos probaron tres elecciones con autom
 
 La consulta pública actual sustituye la limitación de mostrar solo el último resultado publicado. La revisión final archivada sigue siendo independiente e inmutable. No se publican preferencias, cuentas ni nombres completos.
 
-Pendiente: documento de normas del ejercicio, remanentes históricos y desempates oficiales, siete plantillas reales que no aparecen en el Excel disponible y validación con datos de años anteriores. Los puntos de la UI son baremo acumulado sin ponderar; no son un cálculo certificado del saldo del próximo año. La política de un ciclo y un aplazamiento se activa solo mediante confirmación expresa del administrador.
+Recibido: Criterios Vacaciones 1.1 (10/06/2025), documentado en docs/CRITERIOS_VACACIONES_1.1_2025.md. Ahora se implementan rotación de empates, dos aplazamientos, turnos conjuntos, cupos RRHH, registro separado de solicitudes originales y puntuación de nuevas incorporaciones. Pendiente: el PDF original binario, la obtención y confirmación de puntuaciones históricas para cada CTA, plantillas de siete equipos y la simulación retrospectiva de los resultados 2020/2022 contra el motor TS. Los datos ficticios de las pruebas no acreditan aún esa equivalencia.
 
 ## Playwright — 13 de octubre de 2026
 
 Suite reproducible: 4 escenarios en escritorio y móvil (8 pruebas), servidor propio en 5199 y D1 exclusiva de QA. Ejecución completa con Chrome instalado: 8/8 correctas en 1,3 minutos. Consulta pública, aislamiento, aplazamiento y elección doble, undo/redo, preferencias automáticas, bloqueo, descarga y restauración. No certifica el login real de ChatGPT ni Safari nativo. Ver docs/PRUEBAS.md.
+
+
+## Aplicación de Criterios Vacaciones 1.1 — 13 de octubre de 2026
+
+Las pruebas añadidas verifican explícitamente la elección triple, la rotación de grupos empatados, los turnos conjuntos, los cupos RRHH de un solo CTA, el cálculo de altas y la conservación de solicitudes tras una modificación de adjudicación. El orden inicial y el sorteo requieren verificación del administrador; las vacaciones de antigüedad dependen de otro documento todavía no aportado. Los cambios se desarrollan en la PR #1 y deben ser aprobados antes de producción.
