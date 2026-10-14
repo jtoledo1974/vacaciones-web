@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
 import {newcomerScore} from '../domain/historical-order';
@@ -60,7 +60,17 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  useEffect(()=>{setSelected([]);setJointSelected({});setJointTarget('');},[turn?.memberId,turn?.needed,state?.status]);
  useEffect(()=>{if(mine)setMemberId(mine);},[mine]);
  useEffect(()=>{setDetail((current:any)=>current?data.result.cycles.find((c:any)=>c.date===current.date)??null:null);},[data.campaign.version]);
- useEffect(()=>{setDates(election.preferences.find((p:any)=>p.member_id===memberId)?.dates??[]);},[memberId,JSON.stringify(election.preferences.find((p:any)=>p.member_id===memberId)?.dates??[])]);
+ const lastSavedPreferences=useRef<{memberId:string;dates:string}>({memberId:'',dates:'[]'});
+ const serverPreferences=JSON.stringify(election.preferences.find((p:any)=>p.member_id===memberId)?.dates??[]);
+ useEffect(()=>{
+  const incoming=JSON.parse(serverPreferences) as string[];
+  setDates(current=>{
+   const untouched=lastSavedPreferences.current.memberId!==memberId
+    ||JSON.stringify(current)===lastSavedPreferences.current.dates;
+   return untouched?incoming:current;
+  });
+  lastSavedPreferences.current={memberId,dates:serverPreferences};
+ },[memberId,serverPreferences]);
  useEffect(()=>{
   setPairOptions(null);if(turn?.needed!==2||selected.length!==1)return;
   let active=true;setLoadingOptions(true);
@@ -76,20 +86,66 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  }
  if(mode==='preferences'&&canPreferences){if(!dates.includes(c.date))setDates([...dates,c.date]);return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage('Este ciclo no es válido para quien elige ahora: ya está elegido, no hay cupo o se excede un límite.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
  return <>
-  <section className="panel election-turn"><div><div className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · ELECCIÓN EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'VACACIONES DEL EQUIPO'}</div><h2>{state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(' + '):current.code} elige ahora`:'Consulta ciclos, ocupación y baremos'}</h2><p>{state?.status==='active'&&current?`Corresponde elegir ${turn.needed} ciclo(s) ${turn?.participants?.length>1?'en turno conjunto':'en turno individual'}. ${canChoose?'Selecciona en el calendario y confirma.':'El turno espera una elección válida de esta persona.'}`:'Las vacaciones registradas se muestran públicamente. El orden de elección necesita confirmación del administrador.'}</p></div><div className="button-row">{canPreferences&&<><button className={mode==='choose'?'primary':'secondary'} onClick={()=>setMode('choose')}>Elegir / consultar</button><button className={mode==='preferences'?'primary':'secondary'} onClick={()=>setMode('preferences')}>Preparar preferencias</button></>}{superuser&&state&&state.status!=='complete'&&<button className="secondary" disabled={busy||!open} onClick={()=>act({action:state.status==='active'?'pause':'resume'},state.status==='active'?'Elección pausada':'Elección reanudada')}>{state.status==='active'?'Pausar elección':'Reanudar elección'}</button>}</div></section>
+  <section className="panel election-turn election-workflow-head"><div><div className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · ELECCIÓN EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'VACACIONES DEL EQUIPO'}</div><h2>{state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:'Consulta ciclos, ocupación y baremos'}</h2><p>{state?.status==='active'&&current?`Corresponde elegir ${turn.needed} ciclo(s). ${canChoose?'Selecciona en el calendario y confirma.':'El turno espera una elección válida de esta persona.'}`:'Las vacaciones registradas se muestran públicamente. El orden de elección necesita confirmación del administrador.'}</p></div><div className="button-row">{canPreferences&&<><button className={mode==='choose'?'primary':'secondary'} onClick={()=>setMode('choose')}>Elegir / consultar</button><button className={mode==='preferences'?'primary':'secondary'} onClick={()=>setMode('preferences')}>Preparar preferencias</button></>}{superuser&&state&&state.status!=='complete'&&<button className="secondary" disabled={busy||!open} onClick={()=>act({action:state.status==='active'?'pause':'resume'},state.status==='active'?'Elección pausada':'Elección reanudada')}>{state.status==='active'?'Pausar elección':'Reanudar elección'}</button>}</div></section>
   {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
 <div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{data.members.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0} ciclos · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>
   {canPreferences&&mode==='preferences'&&manage&&<label className="preference-member">Introducir preferencias para<select aria-label="Preferencias de controlador" value={memberId} onChange={e=>setMemberId(e.target.value)}>{data.members.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>}
-  {manage&&<div className="button-row election-history"><button className="secondary" disabled={busy||(!election.undo&&!data.undo)||!open} onClick={async()=>{if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');}}>Deshacer último cambio</button><button className="secondary" disabled={busy||(!election.redo&&!data.redo)||!open} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>Rehacer último cambio</button></div>}
-  <div className="election-layout"><div>{detail&&<section className="panel cycle-selection"><h2>{formatDate(detail.date)} – {formatDate(detail.end)}</h2><p><strong>{detail.score} puntos de baremo</strong> · {detail.occupied}/{detail.max} plazas ocupadas</p><div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>{message&&<p role="status" className="alert warning">{message}</p>}{mode==='choose'&&canChoose&&<>{turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}<p>Selección: {turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+(jointSelected[id]??[]).map(formatDate).join(' + ')).join(' | '):selected.length?selected.map(formatDate).join(' + '):'pulsa un ciclo en el calendario'}</p><div className="button-row"><button className="primary" disabled={busy||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={async()=>{
+  <div className="election-layout">
+   <div className="election-calendar-wrap">
+    <CycleCalendar year={data.campaign.year} cycles={data.result.cycles}
+     selected={mode==='preferences'?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
+     busy={busy||loadingOptions} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
+     awards={data.awards} members={data.members} order={state?.order??[]} points={election.points}/>
+   </div>
+   <aside className="election-side">
+    <section className="panel vac2-choice-card">
+     <div className="eyebrow">{mode==='preferences'?'PREPARANDO PREFERENCIAS':state?.status==='active'?'TURNO ACTUAL':'CONSULTAR CICLO'}</div>
+     {mode==='choose'&&state?.status==='active'&&current&&<><h2>{current.code} · Ronda {turn.round}</h2><p className="muted">Debe elegir {turn.needed} ciclo(s). Después: {data.members.find((m:any)=>m.id===state.order[(state.cursor+1)%state.order.length])?.code??'—'}.</p></>}
+     {mode==='preferences'&&<h2>Preferencias de {data.members.find((m:any)=>m.id===memberId)?.code}</h2>}
+     {detail?<><h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2><p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {Math.max(0,detail.max-detail.occupied)} libres</p>
+      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div></>:<p className="muted">Selecciona un ciclo en el calendario para ver ocupantes, disponibilidad y baremo.</p>}
+     {message&&<p role="status" className="alert warning">{message}</p>}
+     {mode==='choose'&&canChoose&&<>
+             {turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}<p>Selección: {turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+(jointSelected[id]??[]).map(formatDate).join(' + ')).join(' | '):selected.length?selected.map(formatDate).join(' + '):'pulsa un ciclo en el calendario'}</p><div className="button-row"><button className="primary" disabled={busy||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={async()=>{
  if(turn?.participants?.length>1){
   const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));
   if(await confirm('¿Confirmar las elecciones del turno conjunto?'))act({action:'choose_joint',entries},'Turno conjunto confirmado');
  }else if(await confirm('¿Confirmar '+selected.map(formatDate).join(' y ')+' para '+current.code+'?'))act({action:'choose',memberId:current.id,dates:selected},'Elección confirmada');
- }}>Confirmar {turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo'}</button>{state.allowDeferral&&turn?.participants?.length===1&&<button className="secondary" disabled={busy||!turn.canDefer} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code} para elegir dos ciclos en su próxima ocasión?`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}</div></>}</section>}<CycleCalendar year={data.campaign.year} cycles={data.result.cycles} selected={mode==='preferences'?dates:selected} onSelect={clickCycle} busy={busy||loadingOptions} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}/></div>
-   <aside className="election-side">{mode==='preferences'&&canPreferences&&memberId&&<Preferences key={memberId} data={data} memberId={memberId} dates={dates} setDates={setDates} busy={busy} act={act}/>}
-    <section id="puntos-equipo" className="panel"><h2>{state?'Orden de elección':'Controladores del equipo'}</h2>{state&&manage&&<p className="muted">{state.source}</p>}<ol className="turn-list">{(state?state.order:data.members.map((m:any)=>m.id)).map((id:string)=>{const m=data.members.find((m:any)=>m.id===id),p=election.points.find((p:any)=>p.member_id===id);return <li key={id} className={id===turn?.memberId?'current-turn':''}><strong>{m?.code}</strong><span>{p?.cycles??0} ciclos · {p?.points??0} de baremo{state?.credits[id]?' · '+state.credits[id]+' turno(s) aplazado(s)':''}</span></li>;})}</ol><p className="muted">Puntos: suma del baremo de los ciclos elegidos. El remanente oficial y la proyección al año siguiente esperan las normas; no se utiliza esta suma para cambiar el orden.</p></section>
-   </aside></div>
+ }}>Confirmar {turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo'}</button>{state.allowDeferral&&turn?.participants?.length===1&&<button className="secondary" disabled={busy||!turn.canDefer} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code} para elegir dos ciclos en su próxima ocasión?`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}</div></>}
+      {manage&&<div className="election-workflow-actions">
+      <button className="secondary" disabled={busy||(!election.undo&&!data.undo)||!open} onClick={async()=>{
+       if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))
+        data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');
+      }}>↶ Deshacer</button>
+      <button className="secondary" disabled={busy||(!election.redo&&!data.redo)||!open} onClick={async()=>{
+       if(await confirm('¿Rehacer el cambio de elección?'))
+        data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');
+      }}>↷ Rehacer</button>
+     </div>}
+    </section>
+    {manage&&<section className="panel election-history-panel"><h2>Últimas adjudicaciones</h2>
+     <p className="muted">Más recientes primero. Las elecciones deshechas desaparecen de esta lista.</p>
+     {(election.timeline??[]).length?
+      <ol className="election-log">{(election.timeline??[]).slice(0,40).map((a:any,i:number)=>{
+       const code=data.members.find((m:any)=>m.id===a.member_id)?.code??'?';
+       const cycle=data.result.cycles.find((c:any)=>c.date===a.cycle_date);
+       return <li key={a.member_id+'|'+a.cycle_date}><div><b>{i+1}. {code}</b><br/><span>{formatDate(a.cycle_date)} · {cycle?.score??'—'} puntos{a.legacy?' · importado':''}</span></div></li>;
+      })}</ol>:<p className="muted">Todavía no hay ciclos adjudicados.</p>}
+    </section>}
+    {mode==='preferences'&&canPreferences&&memberId&&<Preferences key={memberId} data={data} memberId={memberId} dates={dates} setDates={setDates} busy={busy} act={act}/>}
+    <section id="puntos-equipo" className="panel election-order-panel">
+     <h2>{state?'Orden de elección':'Controladores del equipo'}</h2>
+     {state&&manage&&<p className="muted">{state.source}</p>}
+     <ol className="turn-list">{(state?state.order:data.members.map((m:any)=>m.id)).map((id:string)=>{
+      const m=data.members.find((m:any)=>m.id===id),p=election.points.find((p:any)=>p.member_id===id);
+      return <li key={id} className={id===turn?.memberId?'current-turn':''}><strong>{m?.code}</strong>
+       <span>{p?.cycles??0} ciclos · {p?.points??0} puntos{state?.credits[id]?' · '+state.credits[id]+' turno(s) aplazado(s)':''}</span></li>;
+     })}</ol>
+     <p className="muted">Puntuación de los ciclos elegidos del año actual; no cambia el orden inicial de elección.</p>
+    </section>
+   </aside>
+  </div>
+
   {superuser&&open&&(!state||state.status==='paused')&&<OrderSetup data={data} busy={busy} act={act}/>}
   {!manage&&!mine&&<section className="panel"><h2>Preparar tus preferencias</h2><p>Inicia sesión y pide al administrador que vincule tu cuenta a tu identificador. Podrá introducir tu lista por ti si no usas la web.</p>{identity?<p>Tu identificador de cuenta: <code className="subject">{identity}</code></p>:<a className="secondary" href={signinUrl}>Iniciar sesión</a>}</section>}
   <details className="panel"><summary>Vacaciones confirmadas · {data.awards.length} ciclos</summary><div className="table-wrap"><table><thead><tr><th>Controlador</th><th>Ciclo</th><th>Baremo</th>{manage&&<th>Corrección</th>}</tr></thead><tbody>{data.awards.map((a:any)=>{const c=data.result.cycles.find((c:any)=>c.date===a.cycle_date);return <tr key={a.id}><td>{data.members.find((m:any)=>m.id===a.member_id)?.code}</td><td>{formatDate(a.cycle_date)}</td><td>{c?.score}</td>{manage&&<td><button className="secondary" disabled={busy||state?.status==='active'||!open} onClick={async()=>{if(await confirm('¿Eliminar este ciclo confirmado?'))legacy({action:'delete_award',id:a.id},'Ciclo eliminado');}}>Eliminar ciclo</button></td>}</tr>;})}</tbody></table></div></details>

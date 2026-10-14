@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { sitesAuthenticator } from '../../../server/auth';
+import { federatedAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
 import { Service, principal, ApiError } from '../../../server/service';
 import {documentation} from '../../../server/documentation';
@@ -11,11 +11,23 @@ async function serve(request: Request) {
         const bindings = env as any;
         if (!bindings.DB)
             return reply({ error: 'El almacenamiento todavía no está disponible' }, 503);
-    const user = await sitesAuthenticator.authenticate(request);
+    const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '').authenticate(request);
         const repo = new D1Repository(bindings.DB);
     const actor = await principal(repo, user, bindings.SUPERADMIN_EMAILS ?? '');
         const service = new Service(repo, actor);
         if (request.method === 'GET') {
+            if(path[0]==='auth-config')return reply({
+                firebase: bindings.FIREBASE_PROJECT_ID&&bindings.FIREBASE_API_KEY ? {
+                    projectId:bindings.FIREBASE_PROJECT_ID,
+                    apiKey:bindings.FIREBASE_API_KEY,
+                    authDomain:bindings.FIREBASE_AUTH_DOMAIN??bindings.FIREBASE_PROJECT_ID+'.firebaseapp.com',
+                    appId:bindings.FIREBASE_APP_ID??undefined
+                }:null
+            });
+            if(path[0]==='revision'){
+                const rows=await repo.all("SELECT revision FROM app_state WHERE id='main'");
+                return reply({revision:rows[0]?.revision??0});
+            }
             if(path[0]==='election'&&path[1]&&path[2]==='options')return reply(await service.election().options(path[1],url.searchParams.getAll('selected')));
             if(path[0]==='help'){
                 const documents=documentation(actor.role);
@@ -25,7 +37,7 @@ async function serve(request: Request) {
                 return new Response(doc.content,{headers:{'Content-Type':'text/markdown; charset=utf-8','Content-Disposition':`attachment; filename="${doc.filename}"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
             }
             if (path[0] === 'session')
-            return reply({ principal: actor, identity: user ? { subject: user.subject } : null });
+            return reply({ principal: actor, identity: user ? { provider: user.provider,subject: user.subject,email: user.email } : null });
             if (path[0] === 'index')
                 return reply(await service.list());
             if (path[0] === 'campaign' && path[1])

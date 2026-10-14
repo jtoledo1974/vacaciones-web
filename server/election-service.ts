@@ -35,8 +35,30 @@ export class ElectionService{
   const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid,d.campaign.version):null;
+  // Build the visible reverse-chronological log from choices still present in this campaign.
+  // Undo/redo restores awards, so an undone choice must not appear as a current selection.
+  const timeline:any[]=[];
+  if(manage){
+   const active=new Set(d.awards.map((a:any)=>a.member_id+'|'+a.cycle_date));
+   const seen=new Set<string>();
+   const rows=await this.repo.all('SELECT after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 500',[cid]);
+   for(const row of rows){
+    let after:any;try{after=JSON.parse(row.after_json??'{}');}catch{continue;}
+    const choices=Array.isArray(after?.choices)?after.choices:[];
+    for(const choice of [...choices].reverse()){
+     const key=choice.member_id+'|'+choice.cycle_date;
+     if(active.has(key)&&!seen.has(key)){seen.add(key);timeline.push({member_id:choice.member_id,cycle_date:choice.cycle_date,created_at:row.created_at});}
+    }
+   }
+   // Imported/legacy awards may lack a corresponding sequential audit record.
+   for(const award of d.awards){
+    const key=award.member_id+'|'+award.cycle_date;
+    if(!seen.has(key)){timeline.push({member_id:award.member_id,cycle_date:award.cycle_date,legacy:true});seen.add(key);}
+   }
+  }
+
   const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences))};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
  }
  async mutate(cid:string,body:any){
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
@@ -76,8 +98,10 @@ export class ElectionService{
     requireSuper(this.actor);authorizeMember(body.memberId);automaticAllowed=false;recordUndo=false;
     const member=d.members.find((m:any)=>m.id===body.memberId),existing=(await this.repo.all('SELECT * FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
     if((existing?.version??0)!==body.accountVersion)throw new ApiError('La vinculación cambió. Recarga antes de guardar.',409);
-    const subject=String(body.subject??'').trim();if(subject.length>250||/[\s\r\n]/.test(subject))throw new ApiError('Identificador de cuenta no válido');
-    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,'chatgpt:'+subject]});
+    const subject=String(body.subject??'').trim(),provider=body.provider??'chatgpt';
+    if(!['chatgpt','firebase'].includes(provider)||subject.length>250||/[\s\r\n:]/.test(subject))
+     throw new ApiError('Identificador o proveedor de cuenta no válido');
+    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider+':'+subject]});
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
     requireSuper(this.actor);automaticAllowed=false;const entry=await this.history(cid,c.version);
