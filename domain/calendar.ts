@@ -49,6 +49,8 @@ export type Config = {
         nextYear?: boolean;
     }[];
     specialCycles: string[];
+    // Explicit HR exception for an individual cycle; 1 restricts it to one CTA.
+    specialQuotas?: Record<string,number>;
     rotation: string[][];
     holidays: Holiday[];
 };
@@ -78,7 +80,7 @@ export function validateConfig(c: Config, y: number) { if (!c || !Number.isInteg
             throw new Error('Cupo de relación no válido');
     if (c.relation.minimum > c.relation.base || c.relation.base > c.relation.maximum)
         throw new Error('Orden de cupos no válido');
-} c.specialCycles.forEach(serial); return c; }
+} if(c.specialQuotas){for(const [date,max] of Object.entries(c.specialQuotas)){serial(date);if(!Number.isInteger(max)||max<1||max>12)throw new Error('Cupo especial de RRHH no válido');}} c.specialCycles.forEach(serial); return c; }
 export function holidayDates(y: number, c: Config) { return c.holidays.map(h => { let n = h.offset !== undefined ? easter(y) + h.offset : serial(date(y + (h.nextYear ? 1 : 0), h.month!, h.day!)); if (h.shiftSunday && weekday(n) === 7)
     n++; return { ...h, date: iso(n), serial: n }; }); }
 export function dailyScorer(y: number, c: Config) {

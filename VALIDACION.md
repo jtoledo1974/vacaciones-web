@@ -10,7 +10,7 @@
 | Pascua, Feria y fechas UTC | Pruebas del computus, +18 original, fecha inválida y año bisiesto. |
 | Ocho equipos y cambios anuales | 120 calendarios, años 2026–2040, sin fechas duplicadas; intervalos de ocho días y ajuste de nueve días cuando corresponde. Es una comprobación de invariantes, no 120 comparaciones contra Excel recalculado. |
 | Cupos dinámicos | Port directo de S, T, AA y celdas auxiliares, con casos de agotamiento global y de verano. Se conserva el límite U5:U49. |
-| Baremos y desempates | Ponderación de las seis columnas originales y orden ascendente, con empate por antigüedad. |
+| Baremos y desempates | Se mantiene la ordenación informativa heredada de Excel, pero el turno operativo sigue Criterios Vacaciones 1.1: sorteo de empatados y rotación entre rondas, no antigüedad. |
 | Roles y equipos | Viewer/anónimo sin escritura; responsable de A no modifica C; miembro ajeno rechazado; configuración reservada al superadministrador; delegación caducada sin permiso. |
 | Concurrencia | Edición obsoleta rechazada; compare-and-swap fallido revierte todo el lote SQL. |
 | Campañas | Creación de ocho campañas nuevas sin alterar el ejercicio anterior; no copia solicitudes/adjudicaciones. |
@@ -63,8 +63,18 @@ HTTP sobre D1 local: dos escenarios completos probaron tres elecciones con autom
 
 La consulta pública actual sustituye la limitación de mostrar solo el último resultado publicado. La revisión final archivada sigue siendo independiente e inmutable. No se publican preferencias, cuentas ni nombres completos.
 
-Pendiente: documento de normas del ejercicio, remanentes históricos y desempates oficiales, siete plantillas reales que no aparecen en el Excel disponible y validación con datos de años anteriores. Los puntos de la UI son baremo acumulado sin ponderar; no son un cálculo certificado del saldo del próximo año. La política de un ciclo y un aplazamiento se activa solo mediante confirmación expresa del administrador.
+Recibido: Criterios Vacaciones 1.1 (10/06/2025), documentado en docs/CRITERIOS_VACACIONES_1.1_2025.md. Ahora se implementan rotación de empates, dos aplazamientos, turnos conjuntos, cupos RRHH, registro separado de solicitudes originales y puntuación de nuevas incorporaciones. La regresión histórica ya reproduce desde el motor TypeScript las 46 fechas y 46 baremos de 2020, las 46 fechas y 45 baremos verificables de 2022, y las 90 elecciones reales de 2020 con cupos y clasificación resultante de 2021. Véase docs/VALIDACION_HISTORICA.md. Pendiente: el PDF original binario, datos históricos contrastados de todos los equipos, verificación independiente de la lógica histórica de festivos, y reconstrucción exacta de eventuales elecciones conjuntas o permutas. La plantilla de 2022 tiene #N/A en su último ciclo.
 
 ## Playwright — 13 de octubre de 2026
 
 Suite reproducible: 4 escenarios en escritorio y móvil (8 pruebas), servidor propio en 5199 y D1 exclusiva de QA. Ejecución completa con Chrome instalado: 8/8 correctas en 1,3 minutos. Consulta pública, aislamiento, aplazamiento y elección doble, undo/redo, preferencias automáticas, bloqueo, descarga y restauración. No certifica el login real de ChatGPT ni Safari nativo. Ver docs/PRUEBAS.md.
+
+
+## Aplicación de Criterios Vacaciones 1.1 — 13 de octubre de 2026
+
+Las pruebas añadidas verifican explícitamente la elección triple, la rotación de grupos empatados, los turnos conjuntos, los cupos RRHH de un solo CTA, el cálculo de altas y la conservación de solicitudes tras una modificación de adjudicación. El orden inicial y el sorteo requieren verificación del administrador; las vacaciones de antigüedad dependen de otro documento todavía no aportado. Los cambios se desarrollan en la PR #1 y deben ser aprobados antes de producción.
+
+
+## Regresión histórica, equipo H (13 de octubre de 2026)
+
+Pruebas automatizadas basadas en libros Excel V19.8 (2020) y V20.0 (2022): comprobadas 46+46 fechas, 46+45 baremos, 90 elecciones, 15 totales personales y las 15 posiciones del orden para 2021. GitHub Actions: 57/57 pruebas Node y 10/10 pruebas Playwright; typecheck correcto. Los valores diarios se toman de las cachés del original: no es una certificación de sus fórmulas de festivos ni una demostración de cronología de permutas. [Metodología y límites](docs/VALIDACION_HISTORICA.md).

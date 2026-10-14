@@ -158,7 +158,9 @@ export class Service {
                 throw new ApiError('Registro no encontrado', 404);
             ops.push({ sql: `DELETE FROM ${table} WHERE id=? AND campaign_id=?`, args: [body.id, cid] });
             // Original imported selections populated both relations. Keep their correction unified.
-            if(action==='delete_award')ops.push({sql:'DELETE FROM requests WHERE campaign_id=? AND member_id=? AND cycle_date=?',args:[cid,before.member_id,before.cycle_date]});
+            // Criterios 1.1 p.2: correcting a later award must not erase the original selection.
+            // Legacy imported grids without an election still behave as before.
+            if(action==='delete_award'&&!election.state)ops.push({sql:'DELETE FROM requests WHERE campaign_id=? AND member_id=? AND cycle_date=?',args:[cid,before.member_id,before.cycle_date]});
             after = { deleted: body.id };
         }
         else if (action === 'award') {

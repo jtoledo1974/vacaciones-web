@@ -24,13 +24,55 @@ async function activate(page:Page){
   await page.getByText('Preparar el orden de elección',{exact:true}).click();
   await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
   await page.getByLabel('Origen del orden').fill('Orden ficticio de Playwright, sin uso operativo');
-  await page.getByLabel('Permitir aplazar una vez', {exact:false}).check();
-  await page.getByLabel('Confirmo este orden', {exact:false}).check();
+  await page.getByLabel('Permitir uno o dos aplazamientos', {exact:false}).check();
+  await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1', {exact:false}).check();
   await page.getByRole('button',{name:'Activar elección',exact:true}).click();
   await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
 async function confirm(page:Page,button:string){await page.getByRole('button',{name:button,exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();}
+
+test('integración: dos aplazamientos permiten elegir tres ciclos desde el calendario',async({page,request},info)=>{
+ const s=await setup(request,page);await open(page,s.id);await activate(page);
+ const dates=s.data.result.cycles.map((c:any)=>c.date);
+ await confirm(page,'Aplazar para elegir dos');
+ for(let round=0;round<2;round++){
+  for(let person=1;person<4;person++)await election(request,s.id,{action:'choose',memberId:s.data.members[person].id,dates:[dates[round*3+person-1]]});
+  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible({timeout:18000});
+  if(round===0)await confirm(page,'Aplazar para elegir tres');
+ }
+ await cycle(page,dates[6]);await cycle(page,dates[7]);
+ await expect(page.getByRole('button',{name:'Confirmar tres ciclos',exact:true})).toBeDisabled();
+ await expect(page.locator('.vac2-cycle[data-cycle-date="'+dates[8]+'"]').first()).toBeEnabled();
+ await cycle(page,dates[8]);await confirm(page,'Confirmar tres ciclos');
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ const result=await read(request,s.id);
+ expect(result.awards.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
+ expect(result.requests.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+ await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
+});
+
+test('integración: administración agrupada y navegación pública en escritorio y móvil',async({page,request,browser},info)=>{
+ const s=await setup(request,page);await open(page,s.id);
+ await expect(page.getByRole('button',{name:'Exportar adjudicaciones CSV'})).toBeVisible();
+ if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Configuración',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Administración',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Campañas anuales'})).toBeVisible();
+ await expect(page.getByRole('link',{name:'Descargar copia completa'})).toBeHidden();
+ await page.getByText('Parámetros del ejercicio',{exact:true}).click();
+ await expect(page.getByRole('button',{name:'Guardar parámetros'})).toBeVisible();
+ await page.getByText('Parámetros del ejercicio',{exact:true}).click();
+ await page.getByText('Herramientas avanzadas',{exact:true}).click();
+ await expect(page.getByRole('link',{name:'Descargar copia completa'})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+ await page.screenshot({path:info.outputPath('administracion-integrada.png'),fullPage:true});
+ const anonymous=await browser.newContext({baseURL:origin});const p=await anonymous.newPage();
+ await p.goto('/?equipo=C&year=2026');await expect(p.getByRole('heading',{name:'Disponibilidad y baremo'})).toBeVisible();
+ await expect(p.getByRole('button',{name:'Administración',exact:true})).toHaveCount(0);
+ await anonymous.close();
+});
 
 test('calendario público, permisos y aislamiento',async({page,request,browser})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
@@ -94,6 +136,28 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
   d=await read(request,s.id);expect(d.campaign.status).toBe('open');expect(d.election.state.status).toBe('active');
 });
 
+test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola transacción',async({page,request})=>{
+ const fixture=await setup(request,page),dates=fixture.data.result.cycles.map((c:any)=>c.date);
+ await open(page,fixture.id);
+ await page.getByText('Preparar el orden de elección',{exact:true}).click();
+ await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
+ await page.getByLabel('Turnos conjuntos').fill('QA_A, QA_C');
+ await page.getByLabel('Origen del orden').fill('Sorteo y elección conjunta ficticios; Criterios 1.1 de 2025');
+ await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1').check();
+ await page.getByRole('button',{name:'Activar elección'}).click();
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible();
+ await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
+ await expect(page.getByRole('heading',{name:'QA_A + QA_C elige ahora'})).toBeVisible();
+ await cycle(page,dates[1]);
+ await expect(page.getByRole('button',{name:'Confirmar turno conjunto'})).toBeDisabled();
+ await page.getByRole('button',{name:/QA_C: 0\/1/}).click();
+ await cycle(page,dates[2]);
+ await confirm(page,'Confirmar turno conjunto');
+ const after=await read(request,fixture.id);
+ expect(after.awards).toHaveLength(3);
+ expect(after.requests).toHaveLength(3);
+ await expect(page.getByRole('heading',{name:'QA_D elige ahora'})).toBeVisible();
+});
 
 test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',async({page,request})=>{
   await page.setViewportSize({width:390,height:844});

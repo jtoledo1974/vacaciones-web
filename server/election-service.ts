@@ -1,4 +1,4 @@
-import {advanceAutomatic,choose,currentTurn,defer,choiceIssues,preferredChoice,validateOrder,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,choiceIssues,preferredChoice,validateOrder,validateElectionState,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -33,7 +33,7 @@ export class ElectionService{
   const focus=manage?turn?.memberId:mine;
   const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
   const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
-  const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:d.awards.filter((a:any)=>a.member_id===m.id).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
+  const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid,d.campaign.version):null;
   // Build the visible reverse-chronological log from choices still present in this campaign.
   // Undo/redo restores awards, so an undone choice must not appear as a current selection.
@@ -58,7 +58,7 @@ export class ElectionService{
   }
 
   const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,canDefer:!!(turn.memberId&&raw.state?.allowDeferral&&!raw.state.credits[turn.memberId]&&ctx.awards.filter(a=>a.member_id===turn.memberId).length<ctx.config.cyclesPerPerson-1)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
  }
  async mutate(cid:string,body:any){
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
@@ -67,7 +67,7 @@ export class ElectionService{
   if(!manage&&!mine)throw new ApiError('Tu cuenta no está vinculada a un controlador de este equipo',403);
   if(c.status!=='open')throw new ApiError('La campaña está cerrada');
   if(body.version!==c.version)throw new ApiError('La campaña cambió. Recarga antes de guardar.',409);
-  const action=body.action,ops=cas(cid,c.version),snapshot={format:'election-undo-v1',...raw,awards:d.awards};
+  const action=body.action,ops=cas(cid,c.version),snapshot={format:'election-undo-v1',...raw,awards:d.awards,requests:d.requests};
   let state=raw.state,preferences=raw.preferences,choices:any[]=[],automaticAllowed=true,recordUndo=true;
   const authorizeMember=(memberId:string)=>{if(!d.members.some((m:any)=>m.id===memberId))throw new ApiError('Controlador ajeno al equipo');if(!manage&&memberId!==mine)throw new ApiError('Solo puedes modificar tus propias preferencias o elegir en tu turno',403);};
   try{
@@ -82,10 +82,11 @@ export class ElectionService{
     if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección provisional admite entre uno y seis ciclos por persona');
     if(state&&d.awards.length)throw new ApiError('No cambies el orden después de comenzar a elegir. Reanuda la elección o reinicia las vacaciones.');
     if(body.rulesConfirmed!==true||typeof body.source!=='string'||body.source.trim().length<10||body.source.length>500||typeof body.allowDeferral!=='boolean')throw new ApiError('Confirma las reglas y el origen del orden antes de activar la elección');
-    state={status:'active',order:body.order,cursor:0,credits:{},source:body.source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION};
-   }else if(action==='choose'||action==='defer'){
-    authorizeMember(body.memberId);if(!state)throw new ApiError('El administrador debe confirmar el orden de elección primero');
+    state={status:'active',order:body.order,cursor:0,credits:{},source:body.source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups:body.tieGroups??[],jointGroups:body.jointGroups??[]};validateElectionState(state,d.members);
+   }else if(action==='choose'||action==='choose_joint'||action==='defer'){
+    if(action==='choose_joint'){if(!manage)throw new ApiError('El turno conjunto requiere la confirmación del responsable',403);}else authorizeMember(body.memberId);if(!state)throw new ApiError('El administrador debe confirmar el orden de elección primero');
     if(action==='choose'){if(!Array.isArray(body.dates)||body.dates.some((v:any)=>typeof v!=='string'))throw new ApiError('Selección no válida');const next=choose(ctx,state,body.memberId,body.dates);state=next.state;choices=next.choices;}
+    else if(action==='choose_joint'){const next=chooseJoint(ctx,state,body.entries);state=next.state;choices=next.choices;}
     else state=defer(ctx,state,body.memberId);
    }else if(action==='pause'||action==='resume'){
     requireSuper(this.actor);if(!state)throw new ApiError('No hay una elección configurada');state={...state,status:action==='pause'?'paused':'active'};
@@ -106,12 +107,24 @@ export class ElectionService{
     requireSuper(this.actor);automaticAllowed=false;const entry=await this.history(cid,c.version);
     if(!entry||entry.id!==body.historyId||(action==='election_redo')!==(entry.action==='election_undo'))throw new ApiError('El cambio ya no está disponible para deshacer o rehacer',409);
     const prior=JSON.parse(entry.before_json);state=prior.state;preferences=prior.preferences;
-    ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('preferences',['member_id','campaign_id','dates_json','automatic'],preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0])));
+    ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],(prior.requests??d.requests).map((a:any)=>[a.id,cid,a.member_id,a.slot,a.cycle_date,a.version])),...insertRows('preferences',['member_id','campaign_id','dates_json','automatic'],preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0])));
    }else throw new ApiError('Operación de elección no válida');
    if(state&&automaticAllowed){const updated={...ctx,awards:[...ctx.awards,...choices.map((a,i)=>({...a,id:'manual-'+i}))]},next=advanceAutomatic(updated,state,preferences);state=next.state;choices.push(...next.choices);}
   }catch(e:any){if(e.status)throw e;throw new ApiError(e.message);}
   ops.push(electionStateStatement(cid,state));
   ops.push(...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],choices.map(a=>[crypto.randomUUID(),cid,a.member_id,a.cycle_date,1])));
+  // Criterios 1.1 p.2: the original selection persists even if an award is
+  // later changed. Existing imported requests for the same cycle are reused.
+  const newRequests:any[][]=[],usedByMember=new Map<string,Set<number>>();
+  for(const a of choices){
+   if(d.requests.some((r:any)=>r.member_id===a.member_id&&r.cycle_date===a.cycle_date))continue;
+   let used=usedByMember.get(a.member_id);
+   if(!used){used=new Set(d.requests.filter((r:any)=>r.member_id===a.member_id).map((r:any)=>r.slot));usedByMember.set(a.member_id,used);}
+   const slot=Array.from({length:ctx.config.cyclesPerPerson},(_,i)=>i+1).find(n=>!used!.has(n));
+   if(slot===undefined)throw new ApiError('No quedan posiciones para registrar la solicitud original');
+   used.add(slot);newRequests.push([crypto.randomUUID(),cid,a.member_id,slot,a.cycle_date,1]);
+  }
+  ops.push(...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
   ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{version:c.version+1,choices,memberId:body.memberId??null}));
   await this.host.commit(ops);return {changed:true};
  }
