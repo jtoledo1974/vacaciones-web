@@ -32,6 +32,48 @@ async function activate(page:Page){
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
 async function confirm(page:Page,button:string){await page.getByRole('button',{name:button,exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();}
 
+test('integración: dos aplazamientos permiten elegir tres ciclos desde el calendario',async({page,request},info)=>{
+ const s=await setup(request,page);await open(page,s.id);await activate(page);
+ const dates=s.data.result.cycles.map((c:any)=>c.date);
+ await confirm(page,'Aplazar para elegir dos');
+ for(let round=0;round<2;round++){
+  for(let person=1;person<4;person++)await election(request,s.id,{action:'choose',memberId:s.data.members[person].id,dates:[dates[round*3+person-1]]});
+  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible({timeout:18000});
+  if(round===0)await confirm(page,'Aplazar para elegir tres');
+ }
+ await cycle(page,dates[6]);await cycle(page,dates[7]);
+ await expect(page.getByRole('button',{name:'Confirmar tres ciclos',exact:true})).toBeDisabled();
+ await expect(page.locator('.vac2-cycle[data-cycle-date="'+dates[8]+'"]').first()).toBeEnabled();
+ await cycle(page,dates[8]);await confirm(page,'Confirmar tres ciclos');
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ const result=await read(request,s.id);
+ expect(result.awards.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
+ expect(result.requests.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+ await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
+});
+
+test('integración: administración agrupada y navegación pública en escritorio y móvil',async({page,request,browser},info)=>{
+ const s=await setup(request,page);await open(page,s.id);
+ await expect(page.getByRole('button',{name:'Exportar adjudicaciones CSV'})).toBeVisible();
+ if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Configuración',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'Administración',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Campañas anuales'})).toBeVisible();
+ await expect(page.getByRole('link',{name:'Descargar copia completa'})).toBeHidden();
+ await page.getByText('Parámetros del ejercicio',{exact:true}).click();
+ await expect(page.getByRole('button',{name:'Guardar parámetros'})).toBeVisible();
+ await page.getByText('Parámetros del ejercicio',{exact:true}).click();
+ await page.getByText('Herramientas avanzadas',{exact:true}).click();
+ await expect(page.getByRole('link',{name:'Descargar copia completa'})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+ await page.screenshot({path:info.outputPath('administracion-integrada.png'),fullPage:true});
+ const anonymous=await browser.newContext({baseURL:origin});const p=await anonymous.newPage();
+ await p.goto('/?equipo=C&year=2026');await expect(p.getByRole('heading',{name:'Disponibilidad y baremo'})).toBeVisible();
+ await expect(p.getByRole('button',{name:'Administración',exact:true})).toHaveCount(0);
+ await anonymous.close();
+});
+
 test('calendario público, permisos y aislamiento',async({page,request,browser})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   const anonymous=await browser.newContext({baseURL:origin});const p=await anonymous.newPage();

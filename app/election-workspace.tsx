@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
 import {newcomerScore} from '../domain/historical-order';
+import {orderForRound} from '../domain/election';
 
 function NewcomerCalculator(){
  const [completed,setCompleted]=useState(''),[roundAverages,setRoundAverages]=useState(''),[message,setMessage]=useState('');
@@ -72,13 +73,14 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   lastSavedPreferences.current={memberId,dates:serverPreferences};
  },[memberId,serverPreferences]);
  useEffect(()=>{
-  setPairOptions(null);if(turn?.needed!==2||selected.length!==1)return;
+  setPairOptions(null);if(turn?.participants?.length!==1||turn?.needed<2||!selected.length||selected.length>=turn.needed)return;
   let active=true;setLoadingOptions(true);
   const query=new URLSearchParams();selected.forEach(date=>query.append('selected',date));
   fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{const body:any=await response.json();if(!response.ok)throw new Error(body.error);if(active)setPairOptions(body.available);}).catch(e=>{if(active){setPairOptions([]);setMessage(e.message);}}).finally(()=>{if(active)setLoadingOptions(false);});
   return ()=>{active=false;setLoadingOptions(false);};
  },[selected.join(','),turn?.needed,data.campaign.version]);
- const canChoose=open&&state?.status==='active'&&(manage||mine===turn?.memberId),canPreferences=open&&(manage||!!mine);
+ const canChoose=open&&state?.status==='active'&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&(manage||!!mine);
+ const roundOrder=state?orderForRound(state,Math.max(0,(turn?.round??1)-1)):data.members.map((m:any)=>m.id);
  function clickCycle(c:any){setDetail(c);setMessage('');
  if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
   const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
@@ -95,12 +97,12 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <CycleCalendar year={data.campaign.year} cycles={data.result.cycles}
      selected={mode==='preferences'?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
      busy={busy||loadingOptions} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
-     awards={data.awards} members={data.members} order={state?.order??[]} points={election.points}/>
+     awards={data.awards} members={data.members} order={roundOrder} points={election.points}/>
    </div>
    <aside className="election-side">
     <section className="panel vac2-choice-card">
      <div className="eyebrow">{mode==='preferences'?'PREPARANDO PREFERENCIAS':state?.status==='active'?'TURNO ACTUAL':'CONSULTAR CICLO'}</div>
-     {mode==='choose'&&state?.status==='active'&&current&&<><h2>{current.code} · Ronda {turn.round}</h2><p className="muted">Debe elegir {turn.needed} ciclo(s). Después: {data.members.find((m:any)=>m.id===state.order[(state.cursor+1)%state.order.length])?.code??'—'}.</p></>}
+     {mode==='choose'&&state?.status==='active'&&current&&<><h2>{turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(' + ')} · Ronda {turn.round}</h2><p className="muted">Debe elegir {turn.needed} ciclo(s).</p></>}
      {mode==='preferences'&&<h2>Preferencias de {data.members.find((m:any)=>m.id===memberId)?.code}</h2>}
      {detail?<><h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2><p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {Math.max(0,detail.max-detail.occupied)} libres</p>
       <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div></>:<p className="muted">Selecciona un ciclo en el calendario para ver ocupantes, disponibilidad y baremo.</p>}
@@ -136,7 +138,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <section id="puntos-equipo" className="panel election-order-panel">
      <h2>{state?'Orden de elección':'Controladores del equipo'}</h2>
      {state&&manage&&<p className="muted">{state.source}</p>}
-     <ol className="turn-list">{(state?state.order:data.members.map((m:any)=>m.id)).map((id:string)=>{
+     <ol className="turn-list">{roundOrder.map((id:string)=>{
       const m=data.members.find((m:any)=>m.id===id),p=election.points.find((p:any)=>p.member_id===id);
       return <li key={id} className={id===turn?.memberId?'current-turn':''}><strong>{m?.code}</strong>
        <span>{p?.cycles??0} ciclos · {p?.points??0} puntos{state?.credits[id]?' · '+state.credits[id]+' turno(s) aplazado(s)':''}</span></li>;
