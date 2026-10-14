@@ -36,7 +36,7 @@ El trabajo automático se guarda en lotes acotados. La web continúa esos lotes 
 
 ## Simular varias veces
 
-Administración → **Simulaciones privadas** crea escenarios con nombre del mismo equipo y año. Copian plantilla y parámetros, empiezan sin vacaciones y copian el orden en pausa si existe. Opcionalmente copian preferencias.
+Administración → **Herramientas avanzadas** → **Simulaciones privadas** crea escenarios con nombre del mismo equipo y año. Copian plantilla y parámetros, empiezan sin vacaciones y copian el orden en pausa si existe. Opcionalmente copian preferencias.
 
 El selector **Escenario** distingue la campaña real de cada simulación. Son privadas para administradores y no alteran la campaña real ni las plantillas que se copian a años futuros. Puedes probar varias en paralelo, cerrarlas o reiniciarlas. Los traslados entre grupos y la vinculación de cuentas se gestionan desde las campañas reales.
 
@@ -46,7 +46,7 @@ El selector **Escenario** distingue la campaña real de cada simulación. Son pr
 
 **Pausar elección** detiene el proceso para corregir datos. Las correcciones de vacaciones anteriores están en el desplegable de elecciones confirmadas; las peticiones antiguas sin elección se muestran aparte solo si existen. Cambiar plantilla o reglas invalida la cola para que se vuelva a confirmar un orden coherente. Los traslados requieren también que el destino esté en pausa.
 
-Administración → **Empezar de cero las vacaciones** vacía preferencias, selecciones anteriores, elecciones y estado de cola del escenario seleccionado, conservando plantilla, configuración y revisiones archivadas. Exige escribir equipo-año. Pausa la elección antes; después del reinicio puedes deshacer inmediatamente.
+Administración → **Herramientas avanzadas** → **Empezar de cero las vacaciones** vacía preferencias, selecciones anteriores, elecciones y estado de cola del escenario seleccionado, conservando plantilla, configuración y revisiones archivadas. Exige escribir equipo-año. Pausa la elección antes; después del reinicio puedes deshacer inmediatamente.
 
 ## Cerrar y reabrir
 
@@ -61,6 +61,8 @@ Las altas, bajas y cambios de grupo afectan solo al año seleccionado. Los años
 Guarda las ediciones de plantilla antes de dar bajas o trasladar. Resuelve previamente las elecciones y preferencias de la persona. Una antigüedad vacía significa desconocida.
 
 ## Copias y restauración
+
+La copia completa y la restauración están en **Administración → Herramientas avanzadas**. El CSV y el enlace público están en **Vacaciones → Compartir y exportar**.
 
 Descarga una copia completa antes de cambios importantes. Incluye todos los equipos, escenarios, cuentas vinculadas, preferencias, estados de elección, revisiones y auditoría. No incluye secretos del entorno. Guarda el JSON fuera del Site.
 

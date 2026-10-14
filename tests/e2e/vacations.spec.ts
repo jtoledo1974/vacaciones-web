@@ -82,6 +82,7 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
   await page.getByRole('button',{name:'Administración',exact:true}).click();
+  await page.getByText('Herramientas avanzadas',{exact:true}).click();
   const downloadPromise=page.waitForEvent('download');await page.getByRole('link',{name:'Descargar copia completa'}).click();
   const download=await downloadPromise;await download.saveAs(info.outputPath('backup.json'));
   const backup=await (await request.get('/api/backup')).json();
@@ -128,7 +129,7 @@ test('dos clientes abiertos reciben una adjudicación sin recargar manualmente',
  await expect(second.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible({timeout:18000});
  await expect(second.locator('.vac2-cycle[data-cycle-date="'+date+'"]')).toContainText('QA_A');
  if(await second.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await second.getByRole('button',{name:'Abrir menú',exact:true}).click();
- await second.getByRole('button',{name:'Configuración',exact:true}).click();
+ await second.getByRole('button',{name:'Administración',exact:true}).click();
  const updated=await election(request,s.id,{action:'choose',memberId:s.data.members[1].id,dates:[s.data.result.cycles[1].date]});
  expect(updated.awards).toHaveLength(2);
  await expect(second.getByText('Actualización automática · hasta 5 s')).toBeVisible();
