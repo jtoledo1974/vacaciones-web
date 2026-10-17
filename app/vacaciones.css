@@ -157,3 +157,11 @@
  border-radius:7px;font-size:11px;line-height:1.4;
 }
 .sidebar-bottom .firebase-login:hover{background:#355b4e}
+
+/* Optional local superadmin login: hidden unless deployment secrets are configured. */
+.local-admin-login { margin-top: 0.75rem; }
+.local-admin-login summary { cursor: pointer; font-size: 0.84rem; }
+.local-admin-login form { display: grid; gap: 0.65rem; margin-top: 0.75rem; }
+.local-admin-login label { display: grid; gap: 0.25rem; font-size: 0.8rem; }
+.local-admin-login input { width: 100%; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid #94a3b8; border-radius: 0.4rem; color: #0f172a; background: white; }
+.local-admin-error { color: #fca5a5; font-size: 0.8rem; margin-top: 0.5rem; }

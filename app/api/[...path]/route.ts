@@ -3,6 +3,7 @@ import { federatedAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
 import { Service, principal, ApiError } from '../../../server/service';
 import {documentation} from '../../../server/documentation';
+import {localAdminEnabled,localAdminLogin,localAdminLogout} from '../../../server/local-admin';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 async function serve(request: Request) {
@@ -11,12 +12,17 @@ async function serve(request: Request) {
         const bindings = env as any;
         if (!bindings.DB)
             return reply({ error: 'El almacenamiento todavía no está disponible' }, 503);
-    const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '').authenticate(request);
         const repo = new D1Repository(bindings.DB);
-    const actor = await principal(repo, user, bindings.SUPERADMIN_EMAILS ?? '');
+        if(path[0]==='local-admin'&&request.method==='POST'){
+            if(path[1]==='login')return localAdminLogin(request,bindings,repo);
+            if(path[1]==='logout')return localAdminLogout(request);
+        }
+        const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '',bindings).authenticate(request);
+        const actor = await principal(repo,user,bindings.SUPERADMIN_EMAILS ?? '');
         const service = new Service(repo, actor);
         if (request.method === 'GET') {
             if(path[0]==='auth-config')return reply({
+                localAdminEnabled:localAdminEnabled(bindings),
                 firebase: bindings.FIREBASE_PROJECT_ID&&bindings.FIREBASE_API_KEY ? {
                     projectId:bindings.FIREBASE_PROJECT_ID,
                     apiKey:bindings.FIREBASE_API_KEY,

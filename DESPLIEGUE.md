@@ -20,3 +20,10 @@ Importación real comprobada en Chrome y persistente tras recargar: equipo C de 
 La copia descargada por el usuario antes de importar tiene SHA-256 válida; contiene ocho equipos y 128 personas de ejemplo. Conviene descargar una nueva copia tras la importación.
 
 La versión 4 incorporó Deshacer/Rehacer y reinicio reversible, con 28 pruebas automatizadas y tipos correctos. Despliegue confirmado: appgdep_6acd56f2621881918ac31c9b16565e30. Las 81 selecciones de C permanecieron tras la actualización.
+
+
+## Acceso local de emergencia (opcional)
+
+Se ha añadido un acceso de **superadministrador de pruebas** mediante usuario y contraseña estática configurados únicamente como secretos del despliegue. No altera ChatGPT Sites ni Firebase. Por defecto está desactivado.
+
+Consultar [docs/ADMIN_LOCAL.md](docs/ADMIN_LOCAL.md) para `LOCAL_ADMIN_USERNAME`, `LOCAL_ADMIN_PASSWORD` y `LOCAL_ADMIN_SESSION_SECRET`, medidas de seguridad y procedimiento para ChatGPT Work. La identidad local se puede desactivar retirando los secretos; nunca escribir contraseñas en GitHub.
