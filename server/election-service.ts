@@ -16,7 +16,13 @@ export class ElectionService{
   const result=await this.repo.batch([{sql:'SELECT json FROM election_states WHERE campaign_id=?',args:[cid]},{sql:'SELECT * FROM preferences WHERE campaign_id=?',args:[cid]}]);
   return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic})) as Preference[]};
  }
- async memberForAccount(d:any){if(!this.actor.id)return null;return (await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=? AND a.principal_key=?',[d.campaign.id,this.actor.id]))[0]?.id??null;}
+ async memberForAccount(d:any){
+  if(!this.actor.id)return null;
+  const keys=[this.actor.id,...(this.actor.emailKey?[this.actor.emailKey]:[])];
+  const matches=await this.repo.all(`SELECT DISTINCT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=? AND a.principal_key IN (${keys.map(()=>'?').join(',')})`,[d.campaign.id,...keys]);
+  // Refuse ambiguous mappings (for example an old UID linked to another person's email).
+  return matches.length===1?matches[0].id:null;
+ }
  // A linked controller owns their preferences even when a team administrator manages the team.
  // Superadministrators retain access; team administrators may assist only unlinked users.
  async preferenceMemberIds(d:any,mine:string|null):Promise<string[]>{
@@ -127,9 +133,12 @@ export class ElectionService{
     const member=d.members.find((m:any)=>m.id===body.memberId),existing=(await this.repo.all('SELECT * FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
     if((existing?.version??0)!==body.accountVersion)throw new ApiError('La vinculación cambió. Recarga antes de guardar.',409);
     const subject=String(body.subject??'').trim(),provider=body.provider??'chatgpt';
-    if(!['chatgpt','firebase'].includes(provider)||subject.length>250||/[\s\r\n:]/.test(subject))
-     throw new ApiError('Identificador o proveedor de cuenta no válido');
-    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider+':'+subject]});
+    const email=subject.toLowerCase();
+    const isEmail=provider==='chatgpt'&&/^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(email)&&email.length<=250;
+    const isFirebaseUid=provider==='firebase'&&subject.length<=250&&subject.length>0&&!/[\s\r\n:]/.test(subject);
+    if(subject&&!isEmail&&!isFirebaseUid||!['chatgpt','firebase'].includes(provider))
+     throw new ApiError('Introduce un correo válido de ChatGPT Sites o un UID de Firebase');
+    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider==='chatgpt'?'chatgpt-email:'+email:'firebase:'+subject]});
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
     requireSuper(this.actor);automaticAllowed=false;const entry=await this.history(cid,c.version);
