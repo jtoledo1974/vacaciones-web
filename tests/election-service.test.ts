@@ -17,9 +17,25 @@ test('listas propias y administración delegada, con turno y permisos comprobado
  result=await act(s,cid,{action:'choose',memberId:b.id,dates:[date]});assert.equal(result.awards.length,2);assert.ok(result.awards.some((x:any)=>x.member_id===a.id));
  const mine=await person.view(cid);assert.equal(mine.election.preferences.length,1);assert.equal(mine.election.myMemberId,a.id);assert.equal(mine.election.accounts.length,0);assert.equal(mine.editable,false);assert.equal(mine.config,null);
 });
-test('consulta anónima ve elecciones actuales, baremos y ocupación, sin preferencias o datos personales',async()=>{
- const {repo,s,cid,d}=await setup(),[a,b]=d.members,date=d.result.cycles[0].date;await act(s,cid,{action:'preferences',memberId:b.id,dates:[date],automatic:false});await act(s,cid,start(d));await act(s,cid,{action:'choose',memberId:a.id,dates:[date]});
- const publicView=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.awards.length,1);assert.equal(publicView.result.cycles[0].occupied,1);assert.ok(Number.isFinite(publicView.result.cycles[0].score));assert.deepEqual(publicView.election.preferences,[]);assert.equal(publicView.election.state.source,undefined);assert.ok(!JSON.stringify(publicView).includes('Nombre privado'));assert.equal(publicView.requests.length,0);
+test('guardar preferencias durante el propio turno adjudica de inmediato sin casilla de autorización',async()=>{
+ const {s,cid,d}=await setup(),[a,b]=d.members,date=d.result.cycles[0].date;
+ await act(s,cid,start(d));
+ const result=await act(s,cid,{action:'preferences',memberId:a.id,dates:[date]});
+ assert.deepEqual(result.awards.filter((award:any)=>award.member_id===a.id).map((award:any)=>award.cycle_date),[date]);
+ assert.equal(result.election.turn.memberId,b.id);
+ assert.equal(result.election.preferences.find((p:any)=>p.member_id===a.id).automatic,true);
+});
+test('una lista heredada con automatic=false también se aplica sin regrabarla',async()=>{
+ const {repo,s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;
+ await act(s,cid,{action:'preferences',memberId:a.id,dates:[date]});
+ await repo.batch([{sql:'UPDATE preferences SET automatic=0 WHERE member_id=?',args:[a.id]}]);
+ const result=await act(s,cid,start(d));
+ assert.deepEqual(result.awards.filter((award:any)=>award.member_id===a.id).map((award:any)=>award.cycle_date),[date]);
+ assert.equal(result.election.preferences.find((p:any)=>p.member_id===a.id).automatic,false);
+});
+test('consulta anónima ve también adjudicaciones automáticas sin exponer preferencias o datos personales',async()=>{
+ const {repo,s,cid,d}=await setup(),[a,b]=d.members,dates=d.result.cycles.map((c:any)=>c.date);await act(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]]});await act(s,cid,start(d));await act(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ const publicView=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.awards.length,2);assert.equal(publicView.result.cycles[0].occupied,1);assert.ok(Number.isFinite(publicView.result.cycles[0].score));assert.deepEqual(publicView.election.preferences,[]);assert.equal(publicView.election.state.source,undefined);assert.ok(!JSON.stringify(publicView).includes('Nombre privado'));assert.equal(publicView.requests.length,0);
 });
 test('undo y redo recuperan cola, preferencias y ocupación; una versión obsoleta no pierde datos',async()=>{
  const {s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,start(d));let next=await act(s,cid,{action:'choose',memberId:a.id,dates:[date]});const before=next.election.state;
@@ -38,7 +54,7 @@ test('simulaciones repetibles no alteran la campaña real ni se exponen a usuari
  await s.createCampaigns(2027,2026);assert.equal((await s.list()).campaigns.filter(c=>c.year===2027&&c.scope_key==='live').length,8);
 });
 test('backup y restauración incluyen listas, cuentas, cola y simulaciones; admiten copias antiguas',async()=>{
- const {s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,{action:'preferences',memberId:a.id,dates:[date],automatic:false});await act(s,cid,start(d));await act(s,cid,{action:'defer',memberId:a.id});const snapshot=await s.backup();
+ const {s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,{action:'preferences',memberId:d.members[1].id,dates:[date]});await act(s,cid,start(d));await act(s,cid,{action:'defer',memberId:a.id});const snapshot=await s.backup();
  let current=await s.view(cid);await act(s,cid,{action:'pause'});current=await s.view(cid);await s.mutate(cid,{action:'reset_vacations',confirmation:'C-2026',version:current.campaign.version});await s.restore(snapshot,(await s.admin()).revision);const restored=await s.view(cid);assert.equal(restored.election.state.credits[a.id],1);assert.equal(restored.election.preferences.length,1);assert.equal(restored.election.accounts.length,1);
  const legacy=structuredClone(snapshot);for(const table of ['preferences','election_states','controller_accounts'])delete (legacy.payload.tables as any)[table];for(const c of legacy.payload.tables.campaigns){delete c.scope_key;delete c.simulation_name;}const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(legacy.payload)));legacy.sha256=Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');await s.restore(legacy,(await s.admin()).revision);assert.equal((await s.view(cid)).election.state,null);assert.equal((await s.load(cid)).campaign.scope_key,'live');
 });
