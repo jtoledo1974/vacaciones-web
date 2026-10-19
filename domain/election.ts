@@ -13,7 +13,16 @@ export type ElectionState={
  // A joint turn is taken at the position of its last participant in each round.
  jointGroups?:string[][];
 };
-export type Preference={member_id:string;dates:string[];automatic:boolean};
+export type Preference={member_id:string;dates:string[];automatic:boolean;persistent?:boolean;active?:boolean};
+// A one-turn list is consumed by a confirmed choice, not by a deferral.
+export function visiblePreferenceDates(dates:string[],cycles:{date:string;occupied:number;max:number}[]):string[]{
+ const byDate=new Map(cycles.map(c=>[c.date,c]));
+ return dates.filter(date=>{const cycle=byDate.get(date);return !!cycle&&cycle.occupied<cycle.max;});
+}
+export function consumePreferences(preferences:Preference[],memberIds:string[]):Preference[]{
+ const consumed=new Set(memberIds);
+ return preferences.map(p=>consumed.has(p.member_id)&&!p.persistent?{...p,active:false}:p);
+}
 export type ElectionContext={year:number;team:string;config:Config;members:Member[];requests:Request[];awards:Award[]};
 export type Choice={member_id:string;cycle_date:string};
 export type JointChoice={member_id:string;dates:string[]};
@@ -143,7 +152,8 @@ export function defer(ctx:ElectionContext,input:ElectionState,memberId:string){
 export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferences:Preference[]){
  const turn=currentTurn(ctx,state);
  if(turn.participants.length!==1||!turn.memberId)return null;
- const pref=preferences.find(p=>p.member_id===turn.memberId&&p.automatic);
+ // A saved preference list is an advance instruction to choose; legacy automatic=false is ignored.
+ const pref=preferences.find(p=>p.member_id===turn.memberId&&p.active!==false);
  if(!pref)return null;
  const needed=turn.needed;
  // Explicit bounded backtracking avoids accepting a pair/triple that breaks joint quota accounting.
@@ -162,11 +172,13 @@ export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferen
 }
 export function advanceAutomatic(ctx:ElectionContext,input:ElectionState,preferences:Preference[],maxTurns=12){
  let state=currentTurn(ctx,input).state;const choices:Choice[]=[];
+ let remainingPreferences=preferences;
  for(let step=0;step<maxTurns;step++){
   const context={...ctx,awards:[...ctx.awards,...choices.map((c,i)=>({...c,id:'automatic-'+i}))]},turn=currentTurn(context,state);
-  state=turn.state;const dates=preferredChoice(context,state,preferences);if(!dates||!turn.memberId)break;
+  state=turn.state;const dates=preferredChoice(context,state,remainingPreferences);if(!dates||!turn.memberId)break;
   const next=choose(context,state,turn.memberId,dates);choices.push(...next.choices);state=next.state;
+  remainingPreferences=consumePreferences(remainingPreferences,[turn.memberId]);
  }
  const finalContext={...ctx,awards:[...ctx.awards,...choices.map((c,i)=>({...c,id:'automatic-'+i}))]};
- return {state,choices,pendingAutomatic:!!preferredChoice(finalContext,state,preferences)};
+ return {state,choices,preferences:remainingPreferences,pendingAutomatic:!!preferredChoice(finalContext,state,remainingPreferences)};
 }

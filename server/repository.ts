@@ -21,5 +21,5 @@ export const tableColumns: Record<string, string[]> = { teams: ['id', 'name', 'v
 // Append dependents after their parent tables so backup restoration preserves foreign keys.
 tableColumns.controller_accounts=['person_id','principal_key','version'];
 tableColumns.election_states=['campaign_id','json'];
-tableColumns.preferences=['member_id','campaign_id','dates_json','automatic'];
+tableColumns.preferences=['member_id','campaign_id','dates_json','automatic','persistent','active'];
 

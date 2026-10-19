@@ -17,15 +17,94 @@ test('listas propias y administración delegada, con turno y permisos comprobado
  result=await act(s,cid,{action:'choose',memberId:b.id,dates:[date]});assert.equal(result.awards.length,2);assert.ok(result.awards.some((x:any)=>x.member_id===a.id));
  const mine=await person.view(cid);assert.equal(mine.election.preferences.length,1);assert.equal(mine.election.myMemberId,a.id);assert.equal(mine.election.accounts.length,0);assert.equal(mine.editable,false);assert.equal(mine.config,null);
 });
-test('consulta anónima ve elecciones actuales, baremos y ocupación, sin preferencias o datos personales',async()=>{
- const {repo,s,cid,d}=await setup(),[a,b]=d.members,date=d.result.cycles[0].date;await act(s,cid,{action:'preferences',memberId:b.id,dates:[date],automatic:false});await act(s,cid,start(d));await act(s,cid,{action:'choose',memberId:a.id,dates:[date]});
- const publicView=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.awards.length,1);assert.equal(publicView.result.cycles[0].occupied,1);assert.ok(Number.isFinite(publicView.result.cycles[0].score));assert.deepEqual(publicView.election.preferences,[]);assert.equal(publicView.election.state.source,undefined);assert.ok(!JSON.stringify(publicView).includes('Nombre privado'));assert.equal(publicView.requests.length,0);
+test('guardar preferencias durante el propio turno adjudica de inmediato sin casilla de autorización',async()=>{
+ const {s,cid,d}=await setup(),[a,b]=d.members,date=d.result.cycles[0].date;
+ await act(s,cid,start(d));
+ const result=await act(s,cid,{action:'preferences',memberId:a.id,dates:[date]});
+ assert.deepEqual(result.awards.filter((award:any)=>award.member_id===a.id).map((award:any)=>award.cycle_date),[date]);
+ assert.equal(result.election.turn.memberId,b.id);
+ assert.equal(result.election.preferences.find((p:any)=>p.member_id===a.id).automatic,true);
+});
+test('una lista heredada con automatic=false también se aplica sin regrabarla',async()=>{
+ const {repo,s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;
+ await act(s,cid,{action:'preferences',memberId:a.id,dates:[date]});
+ await repo.batch([{sql:'UPDATE preferences SET automatic=0 WHERE member_id=?',args:[a.id]}]);
+ const result=await act(s,cid,start(d));
+ assert.deepEqual(result.awards.filter((award:any)=>award.member_id===a.id).map((award:any)=>award.cycle_date),[date]);
+ assert.equal(result.election.preferences.find((p:any)=>p.member_id===a.id).automatic,false);
+});
+test('consulta anónima ve también adjudicaciones automáticas sin exponer preferencias o datos personales',async()=>{
+ const {repo,s,cid,d}=await setup(),[a,b]=d.members,dates=d.result.cycles.map((c:any)=>c.date);await act(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]]});await act(s,cid,start(d));await act(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ const publicView=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.awards.length,2);assert.equal(publicView.result.cycles[0].occupied,1);assert.ok(Number.isFinite(publicView.result.cycles[0].score));assert.deepEqual(publicView.election.preferences,[]);assert.equal(publicView.election.state.source,undefined);assert.ok(!JSON.stringify(publicView).includes('Nombre privado'));assert.equal(publicView.requests.length,0);
 });
 test('undo y redo recuperan cola, preferencias y ocupación; una versión obsoleta no pierde datos',async()=>{
  const {s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,start(d));let next=await act(s,cid,{action:'choose',memberId:a.id,dates:[date]});const before=next.election.state;
  await assert.rejects(s.election().mutate(cid,{action:'choose',memberId:d.members[1].id,dates:[date],version:1}),/cambió/);
  next=await act(s,cid,{action:'election_undo',historyId:next.election.undo});assert.equal(next.awards.length,0);assert.equal(next.election.turn.memberId,a.id);
  next=await act(s,cid,{action:'election_redo',historyId:next.election.redo});assert.equal(next.awards.length,1);assert.deepEqual(next.election.state,before);
+});
+test('varios undo y redo pueden intercalarse; una elección alternativa crea rama nueva',async()=>{
+ const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id),dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,start(d));
+ const first=await act(s,cid,{action:'choose',memberId:ids[0],dates:[dates[0]]});
+ const second=await act(s,cid,{action:'choose',memberId:ids[1],dates:[dates[1]]});
+ const third=await act(s,cid,{action:'choose',memberId:ids[2],dates:[dates[2]]});
+ const snapshot=(v:any)=>({
+  state:v.election.state,
+  awards:v.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),
+  requests:v.requests.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),
+ });
+ const original=snapshot(third);
+ let current=await act(s,cid,{action:'election_undo',historyId:third.election.undo});
+ assert.deepEqual(snapshot(current),snapshot(second));
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.deepEqual(snapshot(current),snapshot(first));
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.deepEqual(snapshot(current),snapshot(second));
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.deepEqual(snapshot(current),snapshot(first));
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.deepEqual(snapshot(current),original);
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ current=await act(s,cid,{action:'choose',memberId:ids[2],dates:[dates[3]]});
+ assert.equal(current.election.redo,null);
+ assert.deepEqual(current.awards.filter((a:any)=>a.member_id===ids[2]).map((a:any)=>a.cycle_date),[dates[3]]);
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.election.turn.memberId,ids[2]);
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.equal(current.awards.length,3);
+ assert.deepEqual(current.awards.filter((a:any)=>a.member_id===ids[2]).map((a:any)=>a.cycle_date),[dates[3]]);
+});
+test('una preferencia siguiente turno se consume y puede recuperarse con undo/redo',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]],persistent:false});
+ await act(s,cid,start(d));
+ let current=await act(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ assert.deepEqual(current.awards.filter((x:any)=>x.member_id===b.id).map((x:any)=>x.cycle_date),[dates[1]]);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,false);
+ const completed=current;
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,true);
+ assert.equal(current.awards.length,0);
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,false);
+ assert.deepEqual(current.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),completed.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort());
+});
+test('aplazar no consume una lista que se guarda antes del siguiente turno efectivo',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,start(d));
+ let current=await act(s,cid,{action:'defer',memberId:a.id});
+ await act(s,cid,{action:'preferences',memberId:a.id,dates});
+ assert.equal((await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id).active,true);
+ current=await act(s,cid,{action:'choose',memberId:b.id,dates:[dates[2]]});
+ assert.equal(current.election.turn.memberId,c.id);
+ const candidate=await s.election().read(cid);
+ assert.equal(candidate.preferences.find(p=>p.member_id===a.id)?.active,true);
+ current=await act(s,cid,{action:'choose',memberId:c.id,dates:[dates[3]]});
+ assert.equal(current.election.turn.memberId===a.id||current.awards.some((award:any)=>award.member_id===a.id),true);
+ assert.equal(current.awards.filter((award:any)=>award.member_id===a.id).length,2);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,false);
 });
 test('cerrar un equipo bloquea preferencias, elecciones y correcciones y permite seguir consultando',async()=>{
  const {s,cid,d,person}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,start(d));let next=await s.view(cid);next=await s.mutate(cid,{action:'close',version:next.campaign.version});assert.equal(next.election.state.status,'paused');
@@ -38,7 +117,7 @@ test('simulaciones repetibles no alteran la campaña real ni se exponen a usuari
  await s.createCampaigns(2027,2026);assert.equal((await s.list()).campaigns.filter(c=>c.year===2027&&c.scope_key==='live').length,8);
 });
 test('backup y restauración incluyen listas, cuentas, cola y simulaciones; admiten copias antiguas',async()=>{
- const {s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,{action:'preferences',memberId:a.id,dates:[date],automatic:false});await act(s,cid,start(d));await act(s,cid,{action:'defer',memberId:a.id});const snapshot=await s.backup();
+ const {s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,{action:'preferences',memberId:d.members[1].id,dates:[date]});await act(s,cid,start(d));await act(s,cid,{action:'defer',memberId:a.id});const snapshot=await s.backup();
  let current=await s.view(cid);await act(s,cid,{action:'pause'});current=await s.view(cid);await s.mutate(cid,{action:'reset_vacations',confirmation:'C-2026',version:current.campaign.version});await s.restore(snapshot,(await s.admin()).revision);const restored=await s.view(cid);assert.equal(restored.election.state.credits[a.id],1);assert.equal(restored.election.preferences.length,1);assert.equal(restored.election.accounts.length,1);
  const legacy=structuredClone(snapshot);for(const table of ['preferences','election_states','controller_accounts'])delete (legacy.payload.tables as any)[table];for(const c of legacy.payload.tables.campaigns){delete c.scope_key;delete c.simulation_name;}const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(legacy.payload)));legacy.sha256=Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');await s.restore(legacy,(await s.admin()).revision);assert.equal((await s.view(cid)).election.state,null);assert.equal((await s.load(cid)).campaign.scope_key,'live');
 });
@@ -98,7 +177,7 @@ test('empate pendiente bloquea elección, aplazamiento y automatismos; sorteo ex
  await assert.rejects(s.election().mutate(cid,{action:'resolve_tie',method:'random',version}),/cambió/);
  await assert.rejects(act(s,cid,{action:'resolve_tie',method:'random'}),/pendiente/);
  await act(s,cid,{action:'pause'});await assert.rejects(act(s,cid,start(d)),/orden/);await act(s,cid,{action:'resume'});
- await act(s,cid,{action:'preferences',memberId:ids[0],dates:[date],automatic:false});
+ await act(s,cid,{action:'preferences',memberId:ids[0],dates:[]});
  for(let i=0;i<3;i++)next=await act(s,cid,{action:'choose',memberId:order[i],dates:[d.result.cycles[i].date]});
  assert.equal(next.election.turn.round,2);assert.equal(next.election.turn.memberId,order[1]);
  const publicView:any=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.election.state.tieResolutions[0].actor,undefined);
