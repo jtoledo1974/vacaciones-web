@@ -43,6 +43,65 @@ test('undo y redo recuperan cola, preferencias y ocupación; una versión obsole
  next=await act(s,cid,{action:'election_undo',historyId:next.election.undo});assert.equal(next.awards.length,0);assert.equal(next.election.turn.memberId,a.id);
  next=await act(s,cid,{action:'election_redo',historyId:next.election.redo});assert.equal(next.awards.length,1);assert.deepEqual(next.election.state,before);
 });
+test('varios undo y redo pueden intercalarse; una elección alternativa crea rama nueva',async()=>{
+ const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id),dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,start(d));
+ const first=await act(s,cid,{action:'choose',memberId:ids[0],dates:[dates[0]]});
+ const second=await act(s,cid,{action:'choose',memberId:ids[1],dates:[dates[1]]});
+ const third=await act(s,cid,{action:'choose',memberId:ids[2],dates:[dates[2]]});
+ const snapshot=(v:any)=>({
+  state:v.election.state,
+  awards:v.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),
+  requests:v.requests.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),
+ });
+ const original=snapshot(third);
+ let current=await act(s,cid,{action:'election_undo',historyId:third.election.undo});
+ assert.deepEqual(snapshot(current),snapshot(second));
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.deepEqual(snapshot(current),snapshot(first));
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.deepEqual(snapshot(current),snapshot(second));
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.deepEqual(snapshot(current),snapshot(first));
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.deepEqual(snapshot(current),original);
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ current=await act(s,cid,{action:'choose',memberId:ids[2],dates:[dates[3]]});
+ assert.equal(current.election.redo,null);
+ assert.deepEqual(current.awards.filter((a:any)=>a.member_id===ids[2]).map((a:any)=>a.cycle_date),[dates[3]]);
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.election.turn.memberId,ids[2]);
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.equal(current.awards.length,3);
+ assert.deepEqual(current.awards.filter((a:any)=>a.member_id===ids[2]).map((a:any)=>a.cycle_date),[dates[3]]);
+});
+test('una preferencia siguiente turno se consume y puede recuperarse con undo/redo',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]],persistent:false});
+ await act(s,cid,start(d));
+ let current=await act(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ assert.deepEqual(current.awards.filter((x:any)=>x.member_id===b.id).map((x:any)=>x.cycle_date),[dates[1]]);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,false);
+ const completed=current;
+ current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,true);
+ assert.equal(current.awards.length,0);
+ current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,false);
+ assert.deepEqual(current.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),completed.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort());
+});
+test('aplazar no consume una lista que se guarda antes del siguiente turno efectivo',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,start(d));
+ let current=await act(s,cid,{action:'defer',memberId:a.id});
+ await act(s,cid,{action:'preferences',memberId:a.id,dates:[dates[0],dates[1]]});
+ assert.equal((await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id).active,true);
+ await act(s,cid,{action:'choose',memberId:b.id,dates:[dates[2]]});
+ current=await act(s,cid,{action:'choose',memberId:c.id,dates:[dates[3]]});
+ assert.deepEqual(current.awards.filter((a:any)=>a.member_id===a.id).map((a:any)=>a.cycle_date).sort(),[dates[0],dates[1]].sort());
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,false);
+});
 test('cerrar un equipo bloquea preferencias, elecciones y correcciones y permite seguir consultando',async()=>{
  const {s,cid,d,person}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,start(d));let next=await s.view(cid);next=await s.mutate(cid,{action:'close',version:next.campaign.version});assert.equal(next.election.state.status,'paused');
  await assert.rejects(act(person,cid,{action:'preferences',memberId:a.id,dates:[date],automatic:true}),/cerrada/);await assert.rejects(act(s,cid,{action:'choose',memberId:a.id,dates:[date]}),/cerrada/);await assert.rejects(s.mutate(cid,{action:'delete_award',id:'x',version:next.campaign.version}),/cerrada/);assert.equal((await s.view(cid)).campaign.status,'closed');
