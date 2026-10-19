@@ -214,7 +214,7 @@ test('empate de tres: registrar orden externo pulsando nombres, persistir y rota
  for(const code of ['QA_D','QA_B','QA_C'])await page.getByRole('button',{name:'Añadir al sorteo '+code,exact:true}).click();
  await expect(page.getByRole('list',{name:'Orden del sorteo externo'})).toHaveText('QA_DQA_BQA_C');
  await confirm(page,'Guardar orden externo');await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
- await page.reload();await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
+ await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
  const saved=await read(request,s.id);expect(saved.election.state.tieResolutions[0].order).toEqual([3,1,2].map(i=>s.data.members[i].id));
  expect(saved.election.state.tieResolutions[0].method).toBe('external');
  for(const [i,idx] of [3,1,2].entries())await election(request,s.id,{action:'choose',memberId:s.data.members[idx].id,dates:[s.data.result.cycles[i+1].date]});
@@ -231,6 +231,6 @@ test('sorteo en la app guarda una permutación y no permite repetir',async({page
  await confirm(page,'Sortear y guardar orden');
  await expect(page.getByRole('heading',{name:'Empate pendiente de sorteo'})).toHaveCount(0);
  const saved=await read(request,s.id),resolution=saved.election.state.tieResolutions[0];expect(resolution.method).toBe('random');expect([...resolution.order].sort()).toEqual(s.data.members.slice(0,3).map((m:any)=>m.id).sort());
- await page.reload();await expect(page.getByRole('button',{name:'Sortear y guardar orden'})).toHaveCount(0);
+ await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);await expect(page.getByRole('heading',{name:saved.members.find((m:any)=>m.id===saved.election.turn.memberId).code+' elige ahora',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Sortear y guardar orden'})).toHaveCount(0);
  expect((await read(request,s.id)).election.state.tieResolutions).toEqual(saved.election.state.tieResolutions);
 });
