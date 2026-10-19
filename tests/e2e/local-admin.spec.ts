@@ -19,6 +19,8 @@ test('password administration, invalid login, CSRF, bearer precedence, isolation
  if(!index.teams.length)expect((await api.post('/api/initialize',{data:{},headers:{Origin:origin}})).status()).toBe(200);
  await page.reload();
  await expect(page.getByText('Acceso mediante Administrador local',{exact:true})).toBeAttached();
+ // Main no longer selects team C implicitly; the admin panel needs an active campaign.
+ await page.getByLabel('Equipo',{exact:true}).selectOption('C');
  const session=await (await api.get('/api/session')).json();expect(session.identity.provider).toBe('local_admin');
  expect((await api.get('/api/admin')).status()).toBe(200);
  expect((await api.get('/api/admin',{headers:{Authorization:'Bearer invalid'}})).status()).toBe(401);
