@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
 import {newcomerScore} from '../domain/historical-order';
-import {orderForRound} from '../domain/election';
+import {orderForRound,visiblePreferenceDates} from '../domain/election';
 
 function NewcomerCalculator(){
  const [completed,setCompleted]=useState(''),[roundAverages,setRoundAverages]=useState(''),[message,setMessage]=useState('');
@@ -71,7 +71,7 @@ function Preferences({data,memberId,dates,setDates,busy,act}:any){
  useEffect(()=>setPersistent(existing?.persistent??false),[memberId,existing?.persistent]);
  const member=data.members.find((m:any)=>m.id===memberId);
  // Only presentation is filtered: the full ordered list survives exhausted quotas and undo.
- const visibleDates=dates.filter((date:string)=>{const cycle=data.result.cycles.find((c:any)=>c.date===date);return cycle&&cycle.occupied<cycle.max;});
+ const visibleDates=visiblePreferenceDates(dates,data.result.cycles);
  const hiddenCount=dates.length-visibleDates.length;
  function swapVisible(index:number,direction:-1|1){
   const other=visibleDates[index+direction];
