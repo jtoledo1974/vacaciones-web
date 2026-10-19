@@ -106,3 +106,12 @@ y el código en la plantilla **del ejercicio y campaña seleccionados**.
   elegirla. Después se añade `verComo=CODIGO`; el enlace sigue apuntando al escenario.
 - Una barra indica el modo y ofrece «Salir de vista previa». Las sesiones de otras personas
   no se ven afectadas. No se suplantan credenciales externas de Google o ChatGPT.
+
+## Prueba Push para superadmin
+
+La pantalla `/notificaciones` muestra a un superadministrador autenticado el botón
+«Enviar Push de prueba a este dispositivo» cuando el navegador está suscrito con **su
+propia cuenta**. El endpoint comprueba rol y titularidad de la suscripción antes de enviar;
+no toca campañas, elecciones, preferencias ni cola de avisos. La prueba no reproduce
+el cambio real de turno ni envía alertas automáticas en simulaciones. Requiere claves
+VAPID y un navegador compatible con Web Push.
