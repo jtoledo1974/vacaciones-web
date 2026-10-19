@@ -132,9 +132,18 @@ export class ElectionService{
     if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider+':'+subject]});
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
-    requireSuper(this.actor);automaticAllowed=false;const entry=await this.history(cid,c.version);
+    if(!manage)throw new ApiError('Solo el responsable del equipo puede deshacer o rehacer elecciones',403);
+    automaticAllowed=false;const entry=await this.history(cid,c.version);
     if(!entry||entry.id!==body.historyId||(action==='election_redo')!==(entry.action==='election_undo'))throw new ApiError('El cambio ya no está disponible para deshacer o rehacer',409);
-    const prior=JSON.parse(entry.before_json);state=prior.state;preferences=prior.preferences;
+    const prior=JSON.parse(entry.before_json);
+    // A team administrator may undo elections, but not overwrite the private
+    // preferences of a linked controller (except their own account).
+    if(this.actor.role!=='superadmin'){
+     const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]);
+     if(linked.some((m:any)=>m.id!==mine&&JSON.stringify((prior.preferences??[]).find((p:any)=>p.member_id===m.id)??null)!==JSON.stringify(preferences.find(p=>p.member_id===m.id)??null)))
+      throw new ApiError('Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas',403);
+    }
+    state=prior.state;preferences=prior.preferences;
     ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],(prior.requests??d.requests).map((a:any)=>[a.id,cid,a.member_id,a.slot,a.cycle_date,a.version])),...insertRows('preferences',['member_id','campaign_id','dates_json','automatic'],preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0])));
    }else throw new ApiError('Operación de elección no válida');
    if(state&&automaticAllowed){const updated={...ctx,awards:[...ctx.awards,...choices.map((a,i)=>({...a,id:'manual-'+i}))]},next=advanceAutomatic(updated,state,preferences);state=next.state;choices.push(...next.choices);}
