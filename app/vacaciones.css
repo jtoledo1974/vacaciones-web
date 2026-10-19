@@ -251,3 +251,34 @@
  .header-account-info strong{font-size:11px}
  .header-account-info small{font-size:10px}
 }
+
+/* Election: slim status bar and detail only after a calendar interaction. */
+.election-turn.election-workflow-head{padding:12px 16px;margin-bottom:16px;gap:10px;position:static}
+.election-turn-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;min-width:0}
+.election-turn-status .eyebrow{margin:0;font-size:9px}
+.election-turn.election-workflow-head h2{font-size:14px;margin:0;line-height:1.4}
+.election-turn-status .muted{font-size:11px}
+.election-turn-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.election-turn-controls>button{padding:7px 10px}
+.election-more-actions{position:relative;border:0;margin:0;padding:0}
+.election-more-actions>summary{list-style:none;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;white-space:nowrap}
+.election-more-actions>summary::-webkit-details-marker{display:none}
+.election-more-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:10;display:grid;gap:6px;min-width:220px;padding:10px;background:white;border:1px solid var(--line);border-radius:9px;box-shadow:0 6px 20px #183a2920}
+.election-more-menu button{white-space:normal}
+.election-side{position:static;max-height:none;overflow:visible}
+.election-side .vac2-choice-card{position:static;top:auto;z-index:auto;box-shadow:none}
+.election-choice-heading,.election-history-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.election-choice-heading .eyebrow{margin:0}
+.election-choice-heading .icon-button{font-size:20px}
+.election-history-head{flex-wrap:wrap}
+.election-history-head .election-workflow-actions{margin:0}
+.election-history-head .election-workflow-actions button{padding:6px 9px}
+.election-selected-summary{overflow-wrap:anywhere}
+@media(max-width:680px){
+ .election-turn.election-workflow-head{padding:10px 12px!important}
+ .election-turn-controls{width:100%}
+ .election-turn-controls>button{flex:1}
+ .election-layout.has-active-detail .election-side .vac2-choice-card{position:fixed;top:auto;bottom:8px;left:8px;right:8px;width:auto;z-index:15;max-height:50dvh;overflow-y:auto;margin:0;padding:12px;box-shadow:0 6px 30px #183a2950}
+ .election-layout.has-active-detail .election-side .vac2-choice-card .button-row{flex-direction:row;flex-wrap:wrap}
+ .election-layout.has-active-detail .election-side .vac2-choice-card .button-row button{flex:1}
+}

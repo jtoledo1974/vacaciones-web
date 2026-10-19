@@ -23,6 +23,7 @@ async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026')
 async function activate(page:Page,ties=''){
   await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await page.getByText('Preparar el orden de elección',{exact:true}).click();
   await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
   if(ties)await page.getByLabel('Grupos empatados',{exact:true}).fill(ties);
@@ -33,7 +34,14 @@ async function activate(page:Page,ties=''){
   await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
-async function confirm(page:Page,button:string){await page.getByRole('button',{name:button,exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();}
+async function confirm(page:Page,button:string){
+ const target=page.getByRole('button',{name:button,exact:true});
+ if(button.startsWith('Aplazar')&&!await target.isVisible())await page.locator('.election-more-actions > summary').click();
+ await target.click();
+ if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+ }else await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+}
 
 test('integración: dos aplazamientos permiten elegir tres ciclos desde el calendario',async({page,request},info)=>{
  const s=await setup(request,page);await open(page,s.id);await activate(page);
@@ -197,7 +205,10 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   await expect(page.locator('.vac2-member-card').first()).toBeVisible();
   await page.getByRole('button',{name:'Mapa',exact:true}).click();
   await cycle(page,s.data.result.cycles[0].date);
+  await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toBeVisible();
+  await expect(page.locator('.vac2-choice-card')).toHaveCSS('position','fixed');
   await confirm(page,'Confirmar ciclo');
+  await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   await expect(page.getByText('Últimas adjudicaciones')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
@@ -273,6 +284,7 @@ test('sin equipo en URL no se impone C y el administrador puede borrar una simul
  }finally{await visitor.close();}
  await page.goto('/?equipo=C&year=2026');
  await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
+ if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
  await page.getByRole('button',{name:'Administración',exact:true}).click();
  await page.locator('.scenario-actions summary').click();
  await page.getByRole('button',{name:'Eliminar simulación'}).click();
