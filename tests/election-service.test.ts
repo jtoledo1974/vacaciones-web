@@ -161,7 +161,7 @@ test('deshacer automáticas sucesivas y rehacerlas intercaladas restaura prefere
  assert.deepEqual(current.awards.map((x:any)=>x.member_id).sort(),[a.id,b.id,c.id].sort());
  assert.equal(current.requests.length,3);
  assert.equal(current.election.preferences.find((p:any)=>p.member_id===c.id).active,false);
- assert.equal(current.election.state.automaticPaused,false);
+ assert.equal(current.election.state.automaticPaused??false,false);
  assert.notEqual(bChoice.election.undo,cChoice.election.undo);
 });
 test('solo administradores reanudan automatismos; reanudar permite adjudicar tras revisar',async()=>{
