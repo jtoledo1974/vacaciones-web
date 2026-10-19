@@ -83,7 +83,7 @@ function Preferences({data,memberId,dates,setDates,busy,act}:any){
  async function savePreferences(){
   const turn=data.election.turn;
   // Saving during the current individual turn may immediately award its cycles.
-  if(data.election.state?.status==='active'&&turn?.memberId===memberId&&turn.participants?.length===1&&dates.length>0){
+  if(data.election.state?.status==='active'&&!data.election.state.automaticPaused&&turn?.memberId===memberId&&turn.participants?.length===1&&dates.length>0){
    const quantity=turn.needed===1?'un ciclo':turn.needed+' ciclos';
    const accepted=await confirm('Es el turno de '+(member?.code??'este controlador')+'. Al guardar estas preferencias, el sistema intentará adjudicar inmediatamente '+quantity+' según el orden de la lista y los cupos disponibles. Si hay opciones válidas suficientes, la adjudicación se registrará automáticamente y se avanzará al siguiente turno, sin otra confirmación. ¿Guardar y continuar?');
    if(!accepted)return;
@@ -152,6 +152,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   </section>
   {superuser&&open&&(!state||state.status==='paused')&&<div id="preparar-eleccion"><OrderSetup key={data.campaign.id+JSON.stringify(data.config?.previousScores)} data={data} busy={busy} act={act}/></div>}
   {turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
+  {manage&&state?.status==='active'&&state.automaticPaused&&<div className="alert warning" role="status">Los automatismos están detenidos tras deshacer una elección. Puedes corregir el turno manualmente; no se adjudicará de nuevo por sorpresa. <button type="button" className="secondary" disabled={busy||!open} onClick={async()=>{if(await confirm('¿Reanudar los automatismos? Las preferencias vigentes podrían adjudicar inmediatamente los siguientes turnos.'))act({action:'resume_automatic'},'Automatismos reanudados');}}>Reanudar automatismos</button></div>}
   {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
 <div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0} ciclos · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>
   {canPreferences&&mode==='preferences'&&manage&&<label className="preference-member">Introducir preferencias para<select aria-label="Preferencias de controlador" value={memberId} onChange={e=>setMemberId(e.target.value)}>{data.members.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>}
