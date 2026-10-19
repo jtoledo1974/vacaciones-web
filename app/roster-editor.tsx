@@ -40,7 +40,7 @@ function initialRows(data:any):Row[] {
 }
 const emptyRow=():Row=>({code:'',label:'',seniority:'',provider:'',subject:'',accountVersion:0});
 
-export default function RosterEditor({data,busy,save,importRoster,retire,transfer,teams,readOnly=false}:any) {
+export default function RosterEditor({data,busy,save,importRoster,retire,transfer,teams,readOnly=false,manageAccounts=false}:any) {
   const confirm=useConfirmation();
   const live=data.campaign.scope_key==='live';
   const [rows,setRows]=useState<Row[]>(()=>initialRows(data));
@@ -52,7 +52,7 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     const m=original[i];
     return !m||r.memberId!==m.memberId||r.code!==m.code||r.label!==m.label||r.seniority!==m.seniority;
   });
-  const changedAccounts:AccountChange[]=live?rows.filter(r=>{
+  const changedAccounts:AccountChange[]=live&&manageAccounts?rows.filter(r=>{
     const previous=r.memberId?byId.get(r.memberId):undefined;
     return accountKey(r)!==accountKey(previous??{provider:'',subject:''});
   }).map(({memberId,code,provider,subject,accountVersion})=>({memberId,code,provider,subject,accountVersion})):[];
@@ -111,13 +111,13 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     {error&&<div className="alert error" role="alert">{error}</div>}
     <div className="table-wrap roster-table-wrap"><table className="roster-table">
       <thead><tr><th>Nick</th><th>Nombre</th><th>Antigüedad</th>
-        {live&&<><th>Correo de acceso / UID</th><th>Autenticación</th></>}
+        {live&&manageAccounts&&<><th>Correo de acceso / UID</th><th>Autenticación</th></>}
         <th><span className="sr-only">Acciones</span></th></tr></thead>
       <tbody>{rows.map((r,i)=><tr key={r.memberId??'new-'+i}>
         <td><input className="roster-code" aria-label={'Identificador fila '+(i+1)} value={r.code} maxLength={24} disabled={locked} onChange={e=>change(i,'code',e.target.value)}/></td>
         <td><input className="roster-name" aria-label={'Nombre fila '+(i+1)} value={r.label} maxLength={120} disabled={locked} onChange={e=>change(i,'label',e.target.value)}/></td>
         <td><input className="roster-date" aria-label={'Antigüedad fila '+(i+1)} type="date" value={r.seniority} disabled={locked} onChange={e=>change(i,'seniority',e.target.value)}/></td>
-        {live&&<>
+        {live&&manageAccounts&&<>
           <td><input className="roster-subject" aria-label={'Correo de acceso o UID de '+r.code} value={r.subject} maxLength={250} placeholder={r.legacyKey?'Vínculo anterior activo':r.provider==='firebase'?'UID Firebase':'correo@ejemplo.es' disabled={locked} autoComplete="off" onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,subject:e.target.value,legacyKey:undefined,provider:e.target.value&&!row.provider?'chatgpt':row.provider}:row))}/></td>
           <td><select className="roster-provider" aria-label={'Autenticación de '+r.code} value={r.provider} disabled={locked} onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,provider:e.target.value as Provider,subject:e.target.value?row.subject:'',legacyKey:e.target.value==='chatgpt'?row.legacyKey:undefined}:row))}>
             <option value="">Sin vincular</option><option value="chatgpt">ChatGPT Sites</option><option value="firebase">Firebase</option>
@@ -158,6 +158,6 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
         <button className="secondary" disabled={busy} onClick={paste}>Llevar a la tabla</button>
       </details>
     </>}
-    {live&&<p className="roster-footnote">Para ChatGPT Sites basta con el correo electrónico de acceso; debe coincidir con la cuenta autenticada. Firebase sigue usando UID. «Sin vincular» elimina la asociación. Los vínculos antiguos siguen funcionando hasta que se sustituyan por correo. Los accesos se comparten entre ejercicios de la misma persona.</p>}
+    {live&&manageAccounts&&<p className="roster-footnote">Para ChatGPT Sites basta con el correo electrónico de acceso; debe coincidir con la cuenta autenticada. Firebase sigue usando UID. «Sin vincular» elimina la asociación. Los vínculos antiguos siguen funcionando hasta que se sustituyan por correo. Los accesos se comparten entre ejercicios de la misma persona.</p>}
   </section>;
 }
