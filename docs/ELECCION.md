@@ -10,7 +10,7 @@ Fuente: [resumen documental](CRITERIOS_VACACIONES_1.1_2025.md) de «250610 Crite
 
 ## Empates, aplazamientos y grupos
 
-- El administrador declara cada grupo de empatados en el orden **sorteado** y contiguo en la lista. El motor rota una posición por ronda: 1,2,3 → 2,3,1 → 3,1,2 (p.3). No utiliza antigüedad como desempate operativo.
+- El administrador declara cada grupo de empatados contiguo en la lista provisional. Si hay puntuaciones anteriores guardadas, el servidor detecta los grupos automáticamente. Antes del primer turno del grupo, se bloquean elecciones y automatismos hasta registrar el sorteo. El responsable puede pulsar **Sortear y guardar orden**, o seleccionar todos los nombres en el orden obtenido fuera de la app y pulsar **Guardar orden externo**. Se conservan orden, método, fecha y responsable; no se permite repetir el sorteo registrado. El motor rota una posición por ronda: 1,2,3 → 2,3,1 → 3,1,2 (p.3). No utiliza antigüedad como desempate operativo.
 - Dos aplazamientos consecutivos permiten elegir hasta tres ciclos juntos en el turno siguiente (p.2). Nunca superan seis ciclos por persona.
 - Dos o tres CTA pueden configurar un turno conjunto con antelación. En cada ronda actúan en el turno del último integrante; un responsable confirma el grupo como una adjudicación transaccional. El aplazamiento combinado de grupos carece de UI y requiere gestión administrativa.
 - Las preferencias automáticas solo aplican en turnos individuales; no se adelantan a un turno conjunto.

@@ -11,7 +11,7 @@ La pantalla de elección tiene tres vistas que comparten los mismos ciclos y cup
 - **Calendario:** días de cada mes, puntos en el detalle del ciclo y relación de códigos que ya eligieron; en móvil se navega mes a mes.
 - **Por CTA:** seis columnas de ciclos adjudicados a cada CTA ordenados por **fecha de vacaciones**, no necesariamente por turno de elección. En móvil son fichas desplegables.
 
-El borde dorado identifica ciclos cuyo campo period es verano según las fechas de la configuración anual; no altera plazas, cuotas ni prioridad de las personas. Los colores interiores solo indican disponibilidad. Si un ciclo cruza meses, la ocupación también puede aparecer en el detalle del mes al que se extiende.
+El borde dorado identifica los ciclos de verano según las fechas de la configuración anual. El borde es visual; cambiar las fechas configuradas sí afecta al cálculo de cupos adicionales por período, sin cambiar la prioridad de las personas. Los colores interiores solo indican disponibilidad. Si un ciclo cruza meses, la ocupación también puede aparecer en el detalle del mes al que se extiende.
 
 En administración, el turno activo, la confirmación y Deshacer/Rehacer aparecen juntos; la historia inversa de adjudicaciones se construye a partir de elecciones vigentes y marcas de auditoría. Los ciclos importados, cuando no tienen registro secuencial de elección, se identifican como tales. Las preferencias reutilizan el calendario, pero no ocupan plazas antes de su adjudicación.
 
@@ -20,11 +20,11 @@ En móvil, la zona de acción precede al calendario y las secciones largas de hi
 ## Preparar una elección
 
 1. Revisa la plantilla y las reglas del equipo y ejercicio.
-2. En **Preparar el orden de elección**, pega los nicks en el orden confirmado, uno por línea, e indica su origen. No se deriva de las puntuaciones del año actual.
-3. Confirma explícitamente la regla provisional: un ciclo por turno. Habilita el aplazamiento solo si corresponde: un aplazamiento pendiente para elegir dos ciclos en la siguiente ocasión, sin superar el total anual.
+2. En **Preparar el orden de elección**, revisa los nicks por puntuación anterior, uno por línea, e indica su origen. Si se han guardado las puntuaciones anteriores, el orden aparece preparado y el servidor detecta los empates. En otro caso, declara los grupos empatados consecutivos; su orden interno es provisional. No se deriva de las puntuaciones del año actual.
+3. Confirma los Criterios Vacaciones 1.1 (2025). Cada persona elige un ciclo por ronda; si se habilita el aplazamiento, puede acumular hasta dos para elegir dos o tres ciclos en su siguiente turno, sin superar el total anual.
 4. Activa la elección. La cola espera la elección válida de la persona que aparece en pantalla. Un turno sin opciones válidas no se pasa automáticamente.
 
-El documento de normas sigue pendiente. Los remanentes, desempates y excepciones oficiales no se han automatizado. La política provisional queda identificada en el estado y las revisiones.
+Antes de que el primer integrante de cada grupo empatado pueda elegir, la aplicación pide registrar el sorteo. El responsable puede sortear en la app o pulsar los nombres en el orden obtenido en un sorteo externo y guardar. El resultado persiste tras recargar y rota en las rondas siguientes. Las restricciones anuales de RRHH deben contrastarse con su documento específico; no se deducen del coloreado de una tabla impresa.
 
 ## Listas propias y delegadas
 
