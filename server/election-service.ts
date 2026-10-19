@@ -17,6 +17,15 @@ export class ElectionService{
   return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic})) as Preference[]};
  }
  async memberForAccount(d:any){if(!this.actor.id)return null;return (await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=? AND a.principal_key=?',[d.campaign.id,this.actor.id]))[0]?.id??null;}
+ // A linked controller owns their preferences even when a team administrator manages the team.
+ // Superadministrators retain access; team administrators may assist only unlinked users.
+ async preferenceMemberIds(d:any,mine:string|null):Promise<string[]>{
+  if(this.actor.role==='superadmin')return d.members.map((m:any)=>m.id);
+  if(!canWrite(this.actor,d.campaign.team_id))return mine?[mine]:[];
+  const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',[d.campaign.id]);
+  const restricted=new Set(linked.map((row:any)=>row.id));
+  return d.members.filter((m:any)=>m.id===mine||!restricted.has(m.id)).map((m:any)=>m.id);
+ }
  async history(cid:string,version:number){return (await this.repo.all('SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30',[cid])).find(e=>e.before_json&&JSON.parse(e.before_json).format==='election-undo-v1'&&JSON.parse(e.after_json).version===version)??null;}
  async options(cid:string,selected:string[]){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
@@ -28,7 +37,7 @@ export class ElectionService{
   return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
  }
  async view(d:any){
-  const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
+  const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
   const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
@@ -58,7 +67,7 @@ export class ElectionService{
   }
 
   const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
  }
  async mutate(cid:string,body:any){
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
@@ -73,6 +82,7 @@ export class ElectionService{
   try{
    if(action==='preferences'){
     authorizeMember(body.memberId);
+    if(!(await this.preferenceMemberIds(d,mine)).includes(body.memberId))throw new ApiError('Las preferencias de un controlador con cuenta vinculada solo pueden modificarlas su titular o un superadministrador',403);
     const dates=body.dates,validDates=new Set(resultDates(ctx));
     if(!Array.isArray(dates)||dates.length>100||dates.some(date=>typeof date!=='string'||!validDates.has(date))||new Set(dates).size!==dates.length||typeof body.automatic!=='boolean')throw new ApiError('Lista de preferencias no válida: usa ciclos del calendario, sin duplicados');
     preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:body.automatic}];
