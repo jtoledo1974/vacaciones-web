@@ -78,7 +78,7 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
   await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'})).toBeVisible();
   const saved=await read(request,cloned.id);
   expect(saved.election.preferences.find((p:any)=>p.member_id===own.id)).toMatchObject({
-   dates:[date],automatic:false,
+   dates:[date],automatic:true,
   });
 
   await election(request,cloned.id,{
@@ -87,10 +87,7 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
   });
   await page.reload();
   await page.getByLabel('Escenario',{exact:true}).selectOption(cloned.id);
-  await expect(page.getByRole('heading',{name:own.code+' elige ahora',exact:true})).toBeVisible();
-  await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();
-  await page.getByRole('button',{name:'Confirmar ciclo',exact:true}).click();
-  await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+  // Starting the election applies this previously saved list immediately.
   const next=simulation.members.find((m:any)=>m.id!==own.id);
   await expect(page.getByRole('heading',{name:next.code+' elige ahora',exact:true})).toBeVisible();
 
