@@ -100,7 +100,6 @@ test('calendario público, permisos y aislamiento',async({page,request,browser})
 test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request},info)=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);
-  await page.screenshot({path:info.outputPath('revision-eleccion-desktop.png'),fullPage:true});
   await confirm(page,'Aplazar para elegir dos');
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   for(let i=1;i<4;i++){
@@ -187,7 +186,6 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   await cycle(page,s.data.result.cycles[0].date);
   await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toBeVisible();
   await expect(page.locator('.vac2-choice-card')).toHaveCSS('position','fixed');
-  await page.screenshot({path:info.outputPath('revision-eleccion-movil.png'),fullPage:true});
   await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
