@@ -284,6 +284,7 @@ test('sin equipo en URL no se impone C y el administrador puede borrar una simul
  }finally{await visitor.close();}
  await page.goto('/?equipo=C&year=2026');
  await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
+ if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
  await page.getByRole('button',{name:'Administración',exact:true}).click();
  await page.locator('.scenario-actions summary').click();
  await page.getByRole('button',{name:'Eliminar simulación'}).click();
