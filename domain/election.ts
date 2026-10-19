@@ -144,7 +144,7 @@ export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferen
  const turn=currentTurn(ctx,state);
  if(turn.participants.length!==1||!turn.memberId)return null;
  // A saved preference list is an advance instruction to choose; legacy automatic=false is ignored.
-  const pref=preferences.find(p=>p.member_id===turn.memberId);
+ const pref=preferences.find(p=>p.member_id===turn.memberId);
  if(!pref)return null;
  const needed=turn.needed;
  // Explicit bounded backtracking avoids accepting a pair/triple that breaks joint quota accounting.
