@@ -41,13 +41,13 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
  const original=before.election.accounts.find((a:any)=>a.member_id===controller.id);
  const originalKey:string=original?.principal_key??'';
  const originalProvider=originalKey.startsWith('firebase:')?'firebase':'chatgpt';
- const originalSubject=originalKey?originalKey.slice(originalProvider.length+1):'';
+ const originalSubject=originalKey?originalKey.slice(originalKey.indexOf(':')+1):'';
 
  // Account links may only be registered on a live campaign. The link is
  // temporary and restored in finally; actual choices occur in a simulation.
  await election(request,live.id,{
   action:'link_account',memberId:controller.id,provider:'chatgpt',
-  subject:session.identity.subject,accountVersion:original?.version??0,
+  subject:session.identity.email,accountVersion:original?.version??0,
  });
  try{
   const linked=await read(request,live.id);
@@ -90,7 +90,7 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
   await expect(page.getByRole('heading',{name:own.code+' elige ahora',exact:true})).toBeVisible();
   await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();
   await page.getByRole('button',{name:'Confirmar ciclo',exact:true}).click();
-  await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   const next=simulation.members.find((m:any)=>m.id!==own.id);
   await expect(page.getByRole('heading',{name:next.code+' elige ahora',exact:true})).toBeVisible();
 
