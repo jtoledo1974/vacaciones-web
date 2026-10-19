@@ -27,23 +27,23 @@ test('local password login returns a signed HttpOnly session with superadmin per
  const login=await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo);
  assert.equal(login.status,200);
  const header=login.headers.get('set-cookie')??'';
- assert.match(header,/^__Host-vacaciones-local-admin=v1\./);
+ assert.match(header,/^__Host-vacaciones-local-admin=v2\./);
  for(const attribute of ['Secure','HttpOnly','SameSite=Strict','Path=/'])assert.ok(header.includes(attribute));
  assert.ok(!header.includes(config.LOCAL_ADMIN_PASSWORD!));
  const cookie=header.split(';')[0];
  const request=new Request('https://vacaciones.example.test/api/session',{headers:{Cookie:cookie}});
- const identity=await localAdminIdentity(request,config);
+ const identity=await localAdminIdentity(request,config,repo);
  assert.deepEqual(identity,{provider:'local_admin',subject:'qa-superadmin',email:'',emailVerified:false});
  const role=await principal(repo,identity,'');
  assert.equal(role.role,'superadmin');
  assert.equal(role.id,'local_admin:qa-superadmin');
- assert.equal(await localAdminIdentity(request,{...config,LOCAL_ADMIN_SESSION_SECRET:'different-signing-secret-with-more-than-32-characters'}),null);
- const forged=new Request('https://vacaciones.example.test/api/session',{headers:{Cookie:cookie.replace('v1.','v1.9')}});
- assert.equal(await localAdminIdentity(forged,config),null);
+ assert.equal(await localAdminIdentity(request,{...config,LOCAL_ADMIN_SESSION_SECRET:'different-signing-secret-with-more-than-32-characters'},repo),null);
+ const forged=new Request('https://vacaciones.example.test/api/session',{headers:{Cookie:cookie.replace('v2.','v2.9')}});
+ assert.equal(await localAdminIdentity(forged,config,repo),null);
  const signedPart=cookie.split('.');
  const tampered=new Request('https://vacaciones.example.test/api/session',{headers:{Cookie:[signedPart[0],signedPart[1],'A'+signedPart[2].slice(1)].join('.')}});
- assert.equal(await localAdminIdentity(tampered,config),null);
- const logout=localAdminLogout(new Request(url,{method:'POST',headers:{Origin:'https://vacaciones.example.test'}}));
+ assert.equal(await localAdminIdentity(tampered,config,repo),null);
+ const logout=await localAdminLogout(new Request(url,{method:'POST',headers:{Origin:'https://vacaciones.example.test',Cookie:cookie}}),config,repo);
  assert.equal(logout.status,200);
  assert.match(logout.headers.get('set-cookie')??'',/Max-Age=0/);
 });
@@ -58,7 +58,67 @@ test('local password login enforces origin, valid JSON, invalid credentials and 
  }
  assert.equal((await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo)).status,429);
  assert.equal((await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!,'203.0.113.11'),config,repo)).status,200);
- const logs=await repo.all<{actor:string;action:string;after_json:string}>("SELECT actor,action,after_json FROM audit WHERE action='local_admin_login_failed'");
- assert.equal(logs.length,5);
+ const logs=await repo.all<{actor:string;action:string;after_json:string}>("SELECT actor,action,after_json FROM audit WHERE action='local_admin_login_attempt'");
+ assert.equal(logs.length,6);
  assert.ok(logs.every(x=>!x.actor.includes('203.0.113.10')&&!x.after_json.includes('password')));
+});
+
+
+test('sessions expire, rotate, revoke independently, and cannot be replayed after logout',async()=>{
+ const repo=new SQLiteRepo();
+ const session=async()=>{
+  const r=await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo);
+  return new Request(url,{method:'POST',headers:{Origin:new URL(url).origin,Cookie:r.headers.get('set-cookie')!.split(';')[0]}});
+ };
+ const a=await session(),b=await session();
+ assert.notEqual(a.headers.get('cookie'),b.headers.get('cookie'));
+ assert.ok(await localAdminIdentity(a,config,repo));
+ assert.equal(await localAdminIdentity(a,{...config,LOCAL_ADMIN_PASSWORD:'a-different-and-long-password-for-rotation'},repo),null);
+ const clock=Date.now;try{Date.now=()=>clock()+8*3600*1000+1000;assert.equal(await localAdminIdentity(a,config,repo),null);}finally{Date.now=clock;}
+ assert.equal((await localAdminLogout(a,config,repo)).status,200);
+ assert.equal(await localAdminIdentity(a,config,repo),null);
+ assert.ok(await localAdminIdentity(b,config,repo));
+ assert.equal((await localAdminLogout(new Request(url,{method:'POST',headers:{Origin:'https://evil.test',Cookie:b.headers.get('cookie')!}}),config,repo)).status,403);
+ assert.ok(await localAdminIdentity(b,config,repo));
+});
+test('atomic throttle admits only five concurrent attempts and recovers after window',async()=>{
+ const repo=new SQLiteRepo();
+ const results=await Promise.all(Array.from({length:20},()=>localAdminLogin(loginRequest('qa-superadmin','wrong'),config,repo)));
+ assert.equal(results.filter(r=>r.status===401).length,5);
+ assert.equal(results.filter(r=>r.status===429).length,15);
+ const clock=Date.now;try{Date.now=()=>clock()+901000;assert.equal((await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo)).status,200);}finally{Date.now=clock;}
+});
+test('malformed bodies, content types, missing origin and oversized streams fail closed',async()=>{
+ const repo=new SQLiteRepo();
+ for(const [body,status] of [['null',401],['[]',401],['{',400],['x'.repeat(2049),413]] as const){
+  const request=new Request(url,{method:'POST',headers:{Origin:new URL(url).origin,'Content-Type':'application/json'},body});
+  assert.equal((await localAdminLogin(request,config,repo)).status,status);
+ }
+ assert.equal((await localAdminLogin(new Request(url,{method:'POST',body:'{}'}),config,repo)).status,403);
+ assert.equal((await localAdminLogin(new Request(url,{method:'POST',headers:{Origin:new URL(url).origin,'Content-Type':'application/jsonp'},body:'{}'}),config,repo)).status,415);
+});
+
+test('local superadmin authorizes administration and isolated mutations; anonymous and other users cannot',async()=>{
+ const {Service}=await import('../server/service.ts');
+ const repo=new SQLiteRepo();
+ const login=await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo);
+ const request=new Request(url,{headers:{Cookie:login.headers.get('set-cookie')!.split(';')[0]}});
+ const actor=await principal(repo,await localAdminIdentity(request,config,repo),'');
+ const admin=new Service(repo,actor);await admin.init();
+ const index=await admin.list(),live=index.campaigns[0];
+ const before=await admin.view(live.id);
+ const simulation=await admin.createSimulation(live.id,{version:live.version,name:'Isolated authentication QA'});
+ assert.ok((await admin.admin()).audit.length);
+ const copy=await admin.view(simulation.id);
+ assert.equal(copy.editable,true);
+ const anonymous=new Service(repo,await principal(repo,null,''));
+ const other=new Service(repo,await principal(repo,{provider:'firebase',subject:'other-user',email:'',emailVerified:false},''));
+ for(const service of [anonymous,other]){
+  await assert.rejects(()=>service.admin(),{status:403});
+  await assert.rejects(()=>service.view(simulation.id),{status:403});
+  await assert.rejects(()=>service.mutate(live.id,{action:'close',version:live.version}),{status:403});
+ }
+ assert.deepEqual(await admin.view(live.id),before);
+ const backup=await admin.backup();await admin.restore(backup,backup.payload.revision);
+ assert.equal(await localAdminIdentity(request,config,repo),null);
 });
