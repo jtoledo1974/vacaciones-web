@@ -1,4 +1,4 @@
-import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -14,7 +14,7 @@ export class ElectionService{
  constructor(private repo:Repository,private actor:Principal,private host:Host){}
  async read(cid:string){
   const result=await this.repo.batch([{sql:'SELECT json FROM election_states WHERE campaign_id=?',args:[cid]},{sql:'SELECT * FROM preferences WHERE campaign_id=?',args:[cid]}]);
-  return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic})) as Preference[]};
+  return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic,persistent:!!p.persistent,active:!!p.active})) as Preference[]};
  }
  async memberForAccount(d:any){
   if(!this.actor.id)return null;
@@ -90,9 +90,10 @@ export class ElectionService{
     authorizeMember(body.memberId);
     if(!(await this.preferenceMemberIds(d,mine)).includes(body.memberId))throw new ApiError('Las preferencias de un controlador con cuenta vinculada solo pueden modificarlas su titular o un superadministrador',403);
     const dates=body.dates,validDates=new Set(resultDates(ctx));
-    if(!Array.isArray(dates)||dates.length>100||dates.some(date=>typeof date!=='string'||!validDates.has(date))||new Set(dates).size!==dates.length)throw new ApiError('Lista de preferencias no válida: usa ciclos del calendario, sin duplicados');
-    preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:true}];
-    ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic) VALUES(?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic',args:[body.memberId,cid,JSON.stringify(dates),1]});
+    if(!Array.isArray(dates)||dates.length>100||dates.some(date=>typeof date!=='string'||!validDates.has(date))||new Set(dates).size!==dates.length||(body.persistent!==undefined&&typeof body.persistent!=='boolean'))throw new ApiError('Lista de preferencias no válida: usa ciclos del calendario, sin duplicados');
+    const persistent=body.persistent===true,active=dates.length>0;
+    preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:true,persistent,active}];
+    ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic,persistent=excluded.persistent,active=excluded.active',args:[body.memberId,cid,JSON.stringify(dates),1,persistent?1:0,active?1:0]});
    }else if(action==='start'){
     requireSuper(this.actor);validateOrder(body.order,d.members);
     if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección provisional admite entre uno y seis ciclos por persona');
@@ -122,6 +123,7 @@ export class ElectionService{
     if(action==='choose'){if(!Array.isArray(body.dates)||body.dates.some((v:any)=>typeof v!=='string'))throw new ApiError('Selección no válida');const next=choose(ctx,state,body.memberId,body.dates);state=next.state;choices=next.choices;}
     else if(action==='choose_joint'){const next=chooseJoint(ctx,state,body.entries);state=next.state;choices=next.choices;}
     else state=defer(ctx,state,body.memberId);
+    if(action==='choose'||action==='choose_joint')preferences=consumePreferences(preferences,action==='choose'?[body.memberId]:body.entries.map((entry:any)=>entry.member_id));
    }else if(action==='pause'||action==='resume'){
     requireSuper(this.actor);if(!state)throw new ApiError('No hay una elección configurada');state={...state,status:action==='pause'?'paused':'active'};
    }else if(action==='advance'){
@@ -144,10 +146,15 @@ export class ElectionService{
     requireSuper(this.actor);automaticAllowed=false;const entry=await this.history(cid,c.version);
     if(!entry||entry.id!==body.historyId||(action==='election_redo')!==(entry.action==='election_undo'))throw new ApiError('El cambio ya no está disponible para deshacer o rehacer',409);
     const prior=JSON.parse(entry.before_json);state=prior.state;preferences=prior.preferences;
-    ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],(prior.requests??d.requests).map((a:any)=>[a.id,cid,a.member_id,a.slot,a.cycle_date,a.version])),...insertRows('preferences',['member_id','campaign_id','dates_json','automatic'],preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0])));
+    ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],(prior.requests??d.requests).map((a:any)=>[a.id,cid,a.member_id,a.slot,a.cycle_date,a.version])),...insertRows('preferences',['member_id','campaign_id','dates_json','automatic','persistent','active'],preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0])));
    }else throw new ApiError('Operación de elección no válida');
-   if(state&&automaticAllowed){const updated={...ctx,awards:[...ctx.awards,...choices.map((a,i)=>({...a,id:'manual-'+i}))]},next=advanceAutomatic(updated,state,preferences);state=next.state;choices.push(...next.choices);}
+   if(state&&automaticAllowed){const updated={...ctx,awards:[...ctx.awards,...choices.map((a,i)=>({...a,id:'manual-'+i}))]},next=advanceAutomatic(updated,state,preferences);state=next.state;preferences=next.preferences;choices.push(...next.choices);}
   }catch(e:any){if(e.status)throw e;throw new ApiError(e.message);}
+  // Save preference consumption atomically with awards, requests and cursor.
+  if(!['election_undo','election_redo'].includes(action))for(const p of preferences){
+   const prior=raw.preferences.find(previous=>previous.member_id===p.member_id);
+   if(prior&&prior.active!==p.active)ops.push({sql:'UPDATE preferences SET active=? WHERE member_id=? AND campaign_id=?',args:[p.active!==false?1:0,p.member_id,cid]});
+  }
   ops.push(electionStateStatement(cid,state));
   ops.push(...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],choices.map(a=>[crypto.randomUUID(),cid,a.member_id,a.cycle_date,1])));
   // Criterios 1.1 p.2: the original selection persists even if an award is
