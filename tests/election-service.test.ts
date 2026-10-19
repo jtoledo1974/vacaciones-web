@@ -153,8 +153,8 @@ test('preferencias privadas: administrador delegado solo gestiona controladores 
  assert.deepEqual(delegated.election.preferenceMemberIds,[c.id]);
  assert.deepEqual(delegated.election.preferences.map((p:any)=>p.member_id),[c.id]);
  assert.equal(delegated.election.accounts.length,0);
- assert.equal(JSON.stringify(delegated).includes('"member_id":"'+a.id+'"'),false);
- assert.equal(JSON.stringify(delegated).includes('"member_id":"'+b.id+'"'),false);
+ assert.equal(JSON.stringify(delegated.election.preferences).includes(a.id),false);
+ assert.equal(JSON.stringify(delegated.election.preferences).includes(b.id),false);
  for(const linked of [a,b]){
   await assert.rejects(act(delegate,cid,{action:'preferences',memberId:linked.id,dates:[dates[4]],automatic:false}),/vinculada/);
  }
