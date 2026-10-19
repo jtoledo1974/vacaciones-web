@@ -12,7 +12,7 @@ Los puntos mostrados son la suma del baremo de los ciclos elegidos, sin ponderar
 
 Inicia sesión con ChatGPT utilizando el correo que el administrador ha registrado junto a tu nick en la plantilla. La web comprueba ese correo autenticado; no debes enviar ningún identificador de sesión. Iniciar sesión no concede administración ni permite escoger la identidad de otra persona.
 
-Con tu cuenta vinculada puedes **Preparar preferencias**. Añade ciclos pulsando el calendario y ordénalos con las flechas. Puedes incluir alternativas que ahora están ocupadas: al llegar tu turno se omitirán las que no sean válidas. Marca la asignación automática solo si autorizas que se elija desde esa lista al llegar tu turno, y guarda.
+Con tu cuenta vinculada puedes **Preparar preferencias**. Añade ciclos pulsando el calendario y ordénalos con las flechas. Puedes incluir alternativas que ahora están ocupadas: al llegar tu turno se omitirán las que no sean válidas. **Guardar la lista autoriza automáticamente la elección desde esas preferencias**, sin activar ninguna casilla adicional. Si ya es tu turno y hay alternativas indicadas, antes de guardar aparecerá una confirmación que explica que se adjudicarán inmediatamente los ciclos válidos y se avanzará la elección sin una segunda confirmación.
 
 El administrador puede introducir tu lista si se la entregas por otro medio. Los demás controladores no pueden editarla ni verla.
 
