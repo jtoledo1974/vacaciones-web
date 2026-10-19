@@ -123,6 +123,15 @@ export class Service {
             const entry=await this.vacationUndo(cid,c.version);
             if(!entry||entry.id!==body.undoId||(action==='redo_vacations')!==(entry.action==='undo_vacations'))throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.',409);
             const snapshot=JSON.parse(entry.before_json);
+            // Undo/redo may restore a full preference snapshot. Do not let a delegated
+            // administrator overwrite linked controllers' preferences through this route.
+            if(this.actor.role!=='superadmin'&&snapshot.election){
+                const mine=await this.election().memberForAccount(d);
+                const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',[cid]);
+                const previous=snapshot.election.preferences??[],current=election.preferences;
+                if(linked.some((m:any)=>m.id!==mine&&JSON.stringify(previous.find((p:any)=>p.member_id===m.id)??null)!==JSON.stringify(current.find((p:any)=>p.member_id===m.id)??null)))
+                    throw new ApiError('Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas',403);
+            }
             ops.push({sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]});
             for(const r of snapshot.requests)ops.push({sql:'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,?)',args:[r.id,cid,r.member_id,r.slot,r.cycle_date,r.version]});
             for(const a of snapshot.awards)ops.push({sql:'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,?)',args:[a.id,cid,a.member_id,a.cycle_date,a.version]});

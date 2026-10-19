@@ -137,3 +137,53 @@ test('simulaciones remapean empates pendientes, turnos conjuntos y actas sin ref
  copy=await act(s,clone.id,{action:'resume'});assert.ok(copy.election.turn.memberId);
  assert.deepEqual((await s.view(cid)).election.state,next.election.state);
 });
+
+test('preferencias privadas: administrador delegado solo gestiona controladores sin cuenta vinculada',async()=>{
+ const {repo,s,cid,d,person}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((x:any)=>x.date);
+ const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
+ const ownDelegate=new Service(repo,{id:'chatgpt:person',role:'team_admin',teams:['C']});
+ const firebaseOwner=new Service(repo,{id:'firebase:uid-b',role:'viewer',teams:[]});
+ const outsider=new Service(repo,{id:'chatgpt:outsider',role:'viewer',teams:[]});
+ await act(s,cid,{action:'link_account',memberId:a.id,provider:'chatgpt',subject:'person',accountVersion:0});
+ await act(s,cid,{action:'link_account',memberId:b.id,provider:'firebase',subject:'uid-b',accountVersion:0});
+ await act(s,cid,{action:'preferences',memberId:a.id,dates:[dates[0]],automatic:false});
+ await act(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]],automatic:true});
+ await act(s,cid,{action:'preferences',memberId:c.id,dates:[dates[2]],automatic:false});
+ const delegated=await delegate.view(cid);
+ assert.deepEqual(delegated.election.preferenceMemberIds,[c.id]);
+ assert.deepEqual(delegated.election.preferences.map((p:any)=>p.member_id),[c.id]);
+ assert.equal(delegated.election.accounts.length,0);
+ assert.equal(JSON.stringify(delegated.election.preferences).includes(a.id),false);
+ assert.equal(JSON.stringify(delegated.election.preferences).includes(b.id),false);
+ for(const linked of [a,b]){
+  await assert.rejects(act(delegate,cid,{action:'preferences',memberId:linked.id,dates:[dates[4]],automatic:false}),/vinculada/);
+ }
+ await act(delegate,cid,{action:'preferences',memberId:c.id,dates:[dates[3]],automatic:true});
+ assert.deepEqual((await s.view(cid)).election.preferences.map((p:any)=>p.member_id).sort(),[a.id,b.id,c.id].sort());
+ assert.deepEqual((await person.view(cid)).election.preferences.map((p:any)=>p.member_id),[a.id]);
+ assert.deepEqual((await firebaseOwner.view(cid)).election.preferences.map((p:any)=>p.member_id),[b.id]);
+ assert.deepEqual((await outsider.view(cid)).election.preferences,[]);
+ assert.deepEqual((await ownDelegate.view(cid)).election.preferenceMemberIds,[a.id,c.id]);
+ await act(ownDelegate,cid,{action:'preferences',memberId:a.id,dates:[dates[5]],automatic:false});
+ await assert.rejects(act(ownDelegate,cid,{action:'preferences',memberId:b.id,dates:[],automatic:false}),/vinculada/);
+ await act(s,cid,{action:'link_account',memberId:c.id,provider:'firebase',subject:'uid-c',accountVersion:0});
+ assert.deepEqual((await delegate.view(cid)).election.preferences,[]);
+ assert.deepEqual((await delegate.view(cid)).election.preferenceMemberIds,[]);
+ await assert.rejects(act(delegate,cid,{action:'preferences',memberId:c.id,dates:[],automatic:false}),/vinculada/);
+ await act(s,cid,{action:'link_account',memberId:b.id,provider:'firebase',subject:'',accountVersion:1});
+ assert.deepEqual((await delegate.view(cid)).election.preferenceMemberIds,[b.id]);
+ await act(delegate,cid,{action:'preferences',memberId:b.id,dates:[dates[6]],automatic:false});
+});
+test('deshacer un reinicio no permite a un administrador delegado restaurar preferencias vinculadas',async()=>{
+ const {repo,s,cid,d}=await setup(),member=d.members[0],date=d.result.cycles[0].date;
+ const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
+ await act(s,cid,{action:'link_account',memberId:member.id,provider:'chatgpt',subject:'person',accountVersion:0});
+ await act(s,cid,{action:'preferences',memberId:member.id,dates:[date],automatic:false});
+ const reset=await s.mutate(cid,{action:'reset_vacations',version:(await s.load(cid)).campaign.version,confirmation:'C-2026'});
+ assert.deepEqual(reset.election.preferences,[]);
+ const view=await delegate.view(cid);
+ await assert.rejects(delegate.mutate(cid,{action:'undo_vacations',version:view.campaign.version,undoId:view.undo.id}),/restaurar preferencias/);
+ assert.deepEqual((await delegate.view(cid)).election.preferences,[]);
+ const restored=await s.mutate(cid,{action:'undo_vacations',version:reset.campaign.version,undoId:reset.undo.id});
+ assert.deepEqual(restored.election.preferences.map((p:any)=>p.member_id),[member.id]);
+});
