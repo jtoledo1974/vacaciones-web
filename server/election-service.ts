@@ -102,7 +102,7 @@ export class ElectionService{
   if(c.status!=='open')throw new ApiError('La campaña está cerrada');
   if(body.version!==c.version)throw new ApiError('La campaña cambió. Recarga antes de guardar.',409);
   const action=body.action,ops=cas(cid,c.version),snapshot={format:'election-undo-v1',...raw,awards:d.awards,requests:d.requests};
-  let state=raw.state,preferences=raw.preferences,choices:any[]=[],automaticAllowed=true,recordUndo=true;
+  let state=raw.state,preferences=raw.preferences,choices:any[]=[],recordUndo=true;
   const authorizeMember=(memberId:string)=>{if(!d.members.some((m:any)=>m.id===memberId))throw new ApiError('Controlador ajeno al equipo');if(!manage&&memberId!==mine)throw new ApiError('Solo puedes modificar tus propias preferencias o elegir en tu turno',403);};
   try{
    if(action==='preferences'){
@@ -136,7 +136,6 @@ export class ElectionService{
     if(!['random','external'].includes(body.method))throw new ApiError('Método de sorteo no válido');
     state=resolveTie(ctx,state,body.method==='random'?drawTie(group):body.order,body.method,this.actor.id!,new Date().toISOString());
     // The result must be visible and reviewable before an automatic choice uses it.
-    automaticAllowed=false;
    }else if(action==='choose'||action==='choose_joint'||action==='defer'){
     if(action==='choose_joint'){if(!manage)throw new ApiError('El turno conjunto requiere la confirmación del responsable',403);}else authorizeMember(body.memberId);if(!state)throw new ApiError('El administrador debe confirmar el orden de elección primero');
     if(action==='choose'){if(!Array.isArray(body.dates)||body.dates.some((v:any)=>typeof v!=='string'))throw new ApiError('Selección no válida');const next=choose(ctx,state,body.memberId,body.dates);state=next.state;choices=next.choices;}
@@ -145,12 +144,20 @@ export class ElectionService{
     if(action==='choose'||action==='choose_joint')preferences=consumePreferences(preferences,action==='choose'?[body.memberId]:body.entries.map((entry:any)=>entry.member_id));
    }else if(action==='pause'||action==='resume'){
     requireSuper(this.actor);if(!state)throw new ApiError('No hay una elección configurada');state={...state,status:action==='pause'?'paused':'active'};
+   }else if(action==='resume_automatic'){
+    if(!manage)throw new ApiError('Solo el responsable del equipo puede reanudar los automatismos',403);
+    if(!state||state.status!=='active'||!state.automaticPaused)throw new ApiError('No hay automatismos detenidos para reanudar');
+    state={...state,automaticPaused:false};
    }else if(action==='advance'){
     if(!state)throw new ApiError('No hay una elección configurada');
     if(!preferredChoice(ctx,state,preferences))return {changed:false};
+    // Each advance commits EXACTLY ONE turn, with its own undo snapshot.
+    // Manual selections and preceding automated turns are already committed.
+    const next=advanceAutomatic(ctx,state,preferences,1);
+    state=next.state;preferences=next.preferences;choices=next.choices;
    }else if(action==='link_account'){
     if(c.scope_key!=='live')throw new ApiError('Vincula las cuentas desde una campaña real');
-    requireSuper(this.actor);authorizeMember(body.memberId);automaticAllowed=false;recordUndo=false;
+    requireSuper(this.actor);authorizeMember(body.memberId);recordUndo=false;
     const member=d.members.find((m:any)=>m.id===body.memberId),existing=(await this.repo.all('SELECT * FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
     if((existing?.version??0)!==body.accountVersion)throw new ApiError('La vinculación cambió. Recarga antes de guardar.',409);
     const subject=String(body.subject??'').trim(),provider=body.provider??'chatgpt';
@@ -163,7 +170,7 @@ export class ElectionService{
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
     if(!manage)throw new ApiError('Solo el responsable del equipo puede deshacer o rehacer elecciones',403);
-    automaticAllowed=false;const history=await this.history(cid);
+    const history=await this.history(cid);
     const entry=action==='election_undo'?history.undo:history.redo;
     if(!entry||entry.id!==body.historyId)throw new ApiError('El cambio ya no está disponible para deshacer o rehacer',409);
     const prior=JSON.parse(entry.before_json);
@@ -179,9 +186,11 @@ export class ElectionService{
       throw new ApiError('Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas',403);
     }
     state=prior.state;preferences=prior.preferences;
+    // Undo must leave the recovered turn editable, never automatically re-award it.
+    // Redo restores the prior snapshot exactly (including the old pause state).
+    if(action==='election_undo'&&state)state={...state,automaticPaused:true};
     ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],(prior.requests??d.requests).map((a:any)=>[a.id,cid,a.member_id,a.slot,a.cycle_date,a.version])),...insertRows('preferences',['member_id','campaign_id','dates_json','automatic','persistent','active'],preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0])));
    }else throw new ApiError('Operación de elección no válida');
-   if(state&&automaticAllowed){const updated={...ctx,awards:[...ctx.awards,...choices.map((a,i)=>({...a,id:'manual-'+i}))]},next=advanceAutomatic(updated,state,preferences);state=next.state;preferences=next.preferences;choices.push(...next.choices);}
   }catch(e:any){if(e.status)throw e;throw new ApiError(e.message);}
   // Save preference consumption atomically with awards, requests and cursor.
   if(!['election_undo','election_redo'].includes(action))for(const p of preferences){
