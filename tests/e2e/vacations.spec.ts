@@ -21,6 +21,8 @@ async function setup(api:APIRequestContext,page:Page){
 }
 async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(id);await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();}
 async function activate(page:Page,ties=''){
+  await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
   await page.getByText('Preparar el orden de elección',{exact:true}).click();
   await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
   if(ties)await page.getByLabel('Grupos empatados',{exact:true}).fill(ties);
