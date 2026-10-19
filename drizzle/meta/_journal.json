@@ -43,6 +43,13 @@
       "when": 1792433600000,
       "tag": "0005_preferences_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792441000000,
+      "tag": "0006_turn_notifications",
+      "breakpoints": true
     }
   ]
 }
