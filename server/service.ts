@@ -13,16 +13,24 @@ const id = () => crypto.randomUUID(), now = () => new Date().toISOString();
 function checkedConfig(config:Config,year:number){try{return validateConfig(config,year);}catch(e:any){throw new ApiError(e.message??'Parámetros no válidos');}}
 function checkedDate(value:string){try{return serial(value);}catch{throw new ApiError('Fecha no válida');}}
 export async function principal(repo: Repository, identity: Identity, superEmails: string): Promise<Principal> { if (!identity)
-    return { id: null, role: 'viewer', teams: [] }; const key = identity.provider + ':' + identity.subject; if(identity.provider==='local_admin')return {id:key,role:'superadmin',teams:[]}; if ((identity.provider==='chatgpt'||identity.emailVerified===true)&&superEmails.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(identity.email.toLowerCase()))
-    return { id: key, role: 'superadmin', teams: [] }; const user = (await repo.all('SELECT * FROM users WHERE provider=? AND subject=?', [identity.provider, identity.subject]))[0]; if (!user)
-    return { id: key, role: 'viewer', teams: [] }; return { id: key, role: user.role === 'team_admin' ? 'team_admin' : 'viewer', teams: (await repo.all('SELECT team_id FROM grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)', [user.id, now()])).map(g => g.team_id) }; }
+    return { id: null, role: 'viewer', teams: [] }; const key = identity.provider + ':' + identity.subject;
+    const verifiedEmail=(identity.provider==='chatgpt'||identity.emailVerified===true)&&identity.email?.trim()?identity.email.trim().toLowerCase():null;
+    const emailKey=verifiedEmail&&identity.provider==='chatgpt'?'chatgpt-email:'+verifiedEmail:undefined;
+    if(identity.provider==='local_admin')return {id:key,role:'superadmin',teams:[]}; if (verifiedEmail&&superEmails.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(verifiedEmail))
+    return { id:key,role:'superadmin',teams:[],emailKey };
+    const subjects=[identity.subject,...(emailKey?['email:'+verifiedEmail]:[])];
+    const users=await repo.all(`SELECT * FROM users WHERE provider=? AND subject IN (${subjects.map(()=>'?').join(',')})`,[identity.provider,...subjects]);
+    const user=users.find(u=>u.subject===identity.subject)??users[0];
+    if(!user)return {id:key,role:'viewer',teams:[],emailKey};
+    return {id:key,role:user.role==='team_admin'?'team_admin':'viewer',teams:(await repo.all('SELECT team_id FROM grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)',[user.id,now()])).map(g=>g.team_id),emailKey}; }
 export class Service {
     constructor(private repo: Repository, public actor: Principal) { }
     election(){return new ElectionService(this.repo,this.actor,{load:cid=>this.load(cid),commit:ops=>this.commit(ops),audit:(a,c,b,n)=>this.audit(a,c,b,n)});}
     async list(){
         const r=await this.repo.batch([{sql:'SELECT * FROM teams ORDER BY id'},{sql:'SELECT * FROM campaigns ORDER BY year DESC,team_id,created_at'}]);
         const campaigns=r[1].results.filter(c=>c.scope_key==='live'||canWrite(this.actor,c.team_id));
-        const mine=this.actor.id?await this.repo.all('SELECT m.campaign_id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE a.principal_key=?',[this.actor.id]):[];
+        const accountKeys=[this.actor.id,...(this.actor.emailKey?[this.actor.emailKey]:[])].filter((key):key is string=>!!key);
+        const mine=accountKeys.length?await this.repo.all(`SELECT DISTINCT m.campaign_id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE a.principal_key IN (${accountKeys.map(()=>'?').join(',')})`,accountKeys):[];
         return {teams:r[0].results.filter(t=>/^[A-H]$/.test(t.id)).map(t=>({...t,name:'Equipo '+t.id})),campaigns,principal:this.actor,myCampaignIds:mine.map(m=>m.campaign_id).filter(id=>campaigns.some(c=>c.id===id))};
     }
     async createSimulation(cid:string,body:any){
@@ -314,25 +322,28 @@ export class Service {
     async configureUser(body: any) {
         requireSuper(this.actor);
         const provider=body.provider??'chatgpt';
-        if(!['chatgpt','firebase'].includes(provider)||!['viewer','team_admin'].includes(body.role)
-        ||!Array.isArray(body.teams)||body.teams.some((t:string)=>!('ABCDEFGH'.includes(t)&&t.length===1))
-        ||typeof body.subject!=='string'||body.subject.length<1||body.subject.length>200||/[\s:]/.test(body.subject))
+        const input=typeof body.subject==='string'?body.subject.trim():'';
+        const subject=provider==='chatgpt'?'email:'+input.toLowerCase():input;
+        const validEmail=provider==='chatgpt'&&/^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(input)&&input.length<=194;
+        const validUid=provider==='firebase'&&input.length>0&&input.length<=200&&!/[\s:]/.test(input);
+        if(!['chatgpt','firebase'].includes(provider)||(!validEmail&&!validUid)||!['viewer','team_admin'].includes(body.role)
+        ||!Array.isArray(body.teams)||body.teams.some((t:string)=>!('ABCDEFGH'.includes(t)&&t.length===1)))
             throw new ApiError('Usuario o permisos no válidos');
         if(body.expiresAt&&(!Number.isFinite(Date.parse(body.expiresAt))||Date.parse(body.expiresAt)<=Date.now()))
             throw new ApiError('Caducidad no válida');
-        const uid=provider+':'+body.subject;
+        const uid=provider+':'+subject;
         const old=(await this.repo.all('SELECT * FROM users WHERE id=?',[uid]))[0]??null;
         const oldGrants=await this.repo.all('SELECT * FROM grants WHERE user_id=?',[uid]);
         const expected=Number(body.version??0);
         if((old?.version??0)!==expected)throw new ApiError('Los permisos cambiaron. Recarga.',409);
         const token=id(),ops:Statement[]=old
             ?[{sql:'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?',args:[body.role,uid,expected]}]
-            :[{sql:'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)',args:[uid,provider,body.subject,body.role]}];
+            :[{sql:'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)',args:[uid,provider,subject,body.role]}];
         ops.push({sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
             {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},
             {sql:'DELETE FROM grants WHERE user_id=?',args:[uid]});
         for(const t of new Set(body.teams))ops.push({sql:'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',args:[id(),uid,t,body.expiresAt??null]});
-        ops.push(this.audit('permissions',null,{user:old,grants:oldGrants},{provider,subject:body.subject,role:body.role,teams:body.teams}));
+        ops.push(this.audit('permissions',null,{user:old,grants:oldGrants},{provider,subject,role:body.role,teams:body.teams}));
         await this.commit(ops);return {ok:true};
     }
     async admin() { requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
