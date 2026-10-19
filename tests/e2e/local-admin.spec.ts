@@ -3,6 +3,8 @@ const origin='http://127.0.0.1:5199';
 const credentials={username:'qa-superadmin',password:'Only-for-isolated-e2e-testing-12345'};
 test('password administration, invalid login, CSRF, bearer precedence, isolation and logout replay',async({page,browser})=>{
  await page.goto('/');
+ // auth-config is loaded by an effect: wait for hydration before opening the mobile menu.
+ await expect(page.getByText('Acceso administrador con contraseña',{exact:true})).toBeAttached();
  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
  await page.getByText('Acceso administrador con contraseña',{exact:true}).click();
  await page.getByLabel('Usuario',{exact:true}).fill(credentials.username);
