@@ -36,3 +36,12 @@ test('preferencia de siguiente turno no se consume al aplazar',()=>{
  assert.deepEqual(next.choices.map(c=>c.cycle_date),[dates[0],dates[1]]);
  assert.equal(next.preferences[0].active,false);
 });
+
+test('ciclos copados desaparecen sin perder su prioridad y reaparecen tras undo',()=>{
+ const dates=['2026-01-01','2026-01-09','2026-01-17'];
+ const cycles=dates.map((date,i)=>({date,occupied:i===1?2:0,max:2}));
+ assert.deepEqual(visiblePreferenceDates(dates,cycles),[dates[0],dates[2]]);
+ // An undo restores capacity; the original list was never modified.
+ cycles[1].occupied=1;
+ assert.deepEqual(visiblePreferenceDates(dates,cycles),dates);
+});
