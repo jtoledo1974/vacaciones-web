@@ -333,6 +333,8 @@ export class Service {
         if (!b?.payload || b.payload.format !== 'vacaciones-backup-v1' || b.sha256 !== await digest(JSON.stringify(b.payload)))
             throw new ApiError('Copia inválida o integridad incorrecta');
         const tables={...b.payload.tables}; for(const key of ['preferences','election_states','controller_accounts'])if(tables[key]===undefined)tables[key]=[];
+        // Restoring a backup must never resurrect a previously revoked session.
+        if(Array.isArray(tables.audit))tables.audit=tables.audit.map((r:any)=>r.action==='local_admin_session'?{...r,action:'local_admin_session_revoked'}:r);
         const names = Object.keys(tableColumns);
         if (names.some(n => !Array.isArray(tables[n])) || Object.keys(tables).some(n => !names.includes(n)))
             throw new ApiError('Tablas no válidas');
@@ -365,6 +367,7 @@ export class Service {
     }
 }
 async function digest(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
+
 
 
 

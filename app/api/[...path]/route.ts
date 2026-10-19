@@ -15,9 +15,9 @@ async function serve(request: Request) {
         const repo = new D1Repository(bindings.DB);
         if(path[0]==='local-admin'&&request.method==='POST'){
             if(path[1]==='login')return localAdminLogin(request,bindings,repo);
-            if(path[1]==='logout')return localAdminLogout(request);
+            if(path[1]==='logout')return localAdminLogout(request,bindings,repo);
         }
-        const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '',bindings).authenticate(request);
+        const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '',bindings,repo).authenticate(request);
         const actor = await principal(repo,user,bindings.SUPERADMIN_EMAILS ?? '');
         const service = new Service(repo, actor);
         if (request.method === 'GET') {
@@ -96,5 +96,6 @@ async function serve(request: Request) {
 }
 export const GET = serve;
 export const POST = serve;
+
 
 

@@ -70,7 +70,7 @@ export default defineConfig(async ({ command }) => {
         inspectorPort: false,
         config: {
           ...localBindingConfig,
-          ...(command === 'serve' && process.env.VACACIONES_E2E === '1' ? { vars: { SUPERADMIN_EMAILS: 'seedy@sites.test' } } : {}),
+          ...(command === 'serve' && process.env.VACACIONES_E2E === '1' ? { vars: { SUPERADMIN_EMAILS: 'seedy@sites.test', LOCAL_ADMIN_USERNAME:'qa-superadmin', LOCAL_ADMIN_PASSWORD:'Only-for-isolated-e2e-testing-12345', LOCAL_ADMIN_SESSION_SECRET:'Only-for-isolated-e2e-session-signing-67890' } } : {}),
           ...(command === "serve"
             ? {
                 services: [
