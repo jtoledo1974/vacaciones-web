@@ -313,7 +313,7 @@ export class Service {
         }
         if(action==='close'&&election.state)ops.push(electionStateStatement(cid,{...election.state,status:'paused'}));
         if(action==='reset_vacations'){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null));}
-        else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic) VALUES(?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0]});}}
+        else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0]});}}
         else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
         ops.push(this.audit(action, c, before, after));
         await this.commit(ops);
@@ -368,7 +368,7 @@ export class Service {
         }
         try{
             for(const row of tables.election_states)validateElectionState(JSON.parse(row.json),tables.campaign_members.filter((m:any)=>m.campaign_id===row.campaign_id));
-            for(const pref of tables.preferences){const member=tables.campaign_members.find((m:any)=>m.id===pref.member_id&&m.campaign_id===pref.campaign_id),campaign=tables.campaigns.find((c:any)=>c.id===pref.campaign_id),config=tables.parameters.find((p:any)=>p.campaign_id===pref.campaign_id);if(!member||!campaign||!config)throw new Error('Preferencias ajenas a la campaña');const dates=JSON.parse(pref.dates_json),validDates=new Set(calendar(campaign.year,campaign.team_id,JSON.parse(config.json)).map(c=>c.date));if(!Array.isArray(dates)||dates.length>100||new Set(dates).size!==dates.length||dates.some(d=>!validDates.has(d))||![0,1].includes(pref.automatic))throw new Error('Preferencias no válidas');}
+            for(const pref of tables.preferences){const member=tables.campaign_members.find((m:any)=>m.id===pref.member_id&&m.campaign_id===pref.campaign_id),campaign=tables.campaigns.find((c:any)=>c.id===pref.campaign_id),config=tables.parameters.find((p:any)=>p.campaign_id===pref.campaign_id);if(!member||!campaign||!config)throw new Error('Preferencias ajenas a la campaña');const dates=JSON.parse(pref.dates_json),validDates=new Set(calendar(campaign.year,campaign.team_id,JSON.parse(config.json)).map(c=>c.date));if(!Array.isArray(dates)||dates.length>100||new Set(dates).size!==dates.length||dates.some(d=>!validDates.has(d))||![0,1].includes(pref.automatic)||(pref.persistent!==undefined&&![0,1].includes(pref.persistent))||(pref.active!==undefined&&![0,1].includes(pref.active)))throw new Error('Preferencias no válidas');}
         }catch(e:any){throw new ApiError('Copia no válida: '+e.message);}
         const token = id(), ops: Statement[] = [{ sql: "UPDATE app_state SET revision=revision+1 WHERE id='main' AND revision=?", args: [expectedRevision] }, { sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] }, { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] }];
         for (const n of [...names].reverse())
@@ -378,7 +378,7 @@ export class Service {
             for (const row of tables[n]) {
                 if (Object.keys(row).some(k => !cols.includes(k)))
                     throw new ApiError('Columna desconocida');
-                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:k==='scope_key'?'live':k==='simulation_name'?'':null)) });
+                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:k==='scope_key'?'live':k==='simulation_name'?'':n==='preferences'&&k==='persistent'?0:n==='preferences'&&k==='active'?1:null)) });
             }
         }
         ops.push(this.audit('restore', null, { revision: expectedRevision }, { sha256: b.sha256 }));
