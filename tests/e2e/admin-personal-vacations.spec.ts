@@ -47,7 +47,7 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
  // temporary and restored in finally; actual choices occur in a simulation.
  await election(request,live.id,{
   action:'link_account',memberId:controller.id,provider:'chatgpt',
-  subject:session.identity.subject,accountVersion:original?.version??0,
+  subject:session.identity.email,accountVersion:original?.version??0,
  });
  try{
   const linked=await read(request,live.id);
