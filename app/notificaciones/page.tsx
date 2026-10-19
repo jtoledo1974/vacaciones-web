@@ -10,7 +10,7 @@ const decode=(value:string):Uint8Array=>{
 async function api(method:'GET'|'POST',body?:unknown):Promise<any>{
  const token=await firebaseBearerToken();
  const r=await fetch('/api/notifications',{method,cache:'no-store',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
- const response=await r.json();if(!r.ok)throw Error(response.error||'Error de notificaciones');return response;
+ const response=await r.json() as {error?:string};if(!r.ok)throw Error(response.error||'Error de notificaciones');return response;
 }
 export default function NotificationPreferences(){
  const [settings,setSettings]=useState<NotificationSettings|null>(null);
