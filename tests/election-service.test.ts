@@ -196,7 +196,7 @@ test('vinculación por correo ChatGPT: distinta cuenta no obtiene acceso y se re
  assert.deepEqual((await person.list()).myCampaignIds.includes(cid),true);
  const other=new Service(repo,{id:'chatgpt:other',emailKey:'chatgpt-email:other@example.test',role:'viewer',teams:[]});
  assert.equal((await other.view(cid)).election.myMemberId,null);
- await assert.rejects(act(s,cid,{action:'link_account',memberId:b.id,subject:'PERSON@example.test',accountVersion:0}),/UNIQUE|unique/);
+ await assert.rejects(act(s,cid,{action:'link_account',memberId:b.id,subject:'PERSON@example.test',accountVersion:0}),/ya existe/);
  // Historical UID mapping remains valid, but ambiguous UID/email combinations grant neither identity.
  await repo.batch([{sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1)',args:[b.person_id,'chatgpt:person']}]);
  assert.equal((await person.view(cid)).election.myMemberId,null);
