@@ -1,4 +1,5 @@
 import {currentTurn,orderForRound,type ElectionContext,type ElectionState} from '../domain/election.ts';
+import {appliedAudit} from './reconstruction.ts';
 
 type AuditRow={id:string;action:string;before_json:string|null;after_json:string|null;created_at:string};
 type LoggedChoice={member_id:string;cycle_date:string};
@@ -29,18 +30,11 @@ function roundAt(row:AuditRow,ctx:ElectionContext):number|null{
  * Each action retains its original ordering even when it selected 2–3 cycles.
  */
 export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:ElectionState|null):ElectionTimelineItem[]{
- const done:AuditRow[]=[],redo:AuditRow[]=[],draws:AuditRow[]=[];
- for(const row of rows){
-  if(row.action==='election_undo'){
-   const undone=done.pop();if(undone)redo.push(undone);
-  }else if(row.action==='election_redo'){
-   const restored=redo.pop();if(restored)done.push(restored);
-  }else if(row.action==='resolve_tie'){
-   draws.push(row);redo.length=0;
-  }else if(parse(row.before_json)?.format==='election-undo-v1'){
-   done.push(row);redo.length=0;
-  }
- }
+ // Reuse the canonical audit replay so guided reconstruction, undo, redo,
+ // cancelled reconstructions and new branches share exactly one definition
+ // of which historical choices remain effective.
+ const done=appliedAudit(rows).done as AuditRow[];
+ const draws=rows.filter(row=>row.action==='resolve_tie');
  const lastStart=done.findLastIndex(row=>row.action==='start');
  const active=lastStart>=0?done.slice(lastStart+1):[];
  const awardKeys=new Set(ctx.awards.map(a=>a.member_id+'|'+a.cycle_date));
@@ -49,18 +43,34 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
  const events:{sequence:number;item:ElectionTimelineItem}[]=[];
  if(state){
   for(const row of active){
-   if(!['choose','choose_joint','advance','defer'].includes(row.action))continue;
+   if(!['choose','choose_joint','advance','defer','reconstruction_step'].includes(row.action))continue;
    const before=parse(row.before_json),after=parse(row.after_json);
    const previous=before?.state as ElectionState|undefined;
    if(!previous)continue;
+   const reconstructed=row.action==='reconstruction_step';
+   const kind=reconstructed?after?.kind:row.action;
    const round=roundAt(row,ctx);
    const choices:LoggedChoice[]=(Array.isArray(after?.choices)?after.choices:[])
     .filter((choice:any)=>typeof choice?.member_id==='string'&&typeof choice?.cycle_date==='string'&&awardKeys.has(choice.member_id+'|'+choice.cycle_date));
    for(const choice of choices)accounted.add(choice.member_id+'|'+choice.cycle_date);
-   const memberIds:string[]=row.action==='defer'?[after?.memberId].filter((id):id is string=>typeof id==='string'):
-    [...new Set(choices.map(choice=>choice.member_id))];
-   if(row.action==='defer'&&!memberIds.length)continue;
-   if(row.action!=='defer'&&!choices.length)continue;
+   let turn:ReturnType<typeof currentTurn>|null=null;
+   if(reconstructed)try{
+    turn=currentTurn({...ctx,awards:before.awards??ctx.awards,requests:before.requests??ctx.requests},previous);
+   }catch{turn=null;}
+   const memberIds:string[]=kind==='defer'
+    ?[reconstructed?turn?.memberId:after?.memberId].filter((id):id is string=>typeof id==='string')
+    :[...new Set(choices.map(choice=>choice.member_id))];
+   if(kind==='resolve_tie'){
+    const order=after?.order;
+    if(!Array.isArray(order)||order.length<2)continue;
+    events.push({sequence:indices.get(row.id)??0,item:{
+     id:row.id,kind:'tie',round,createdAt:row.created_at,
+     memberIds:order,choices:[],deferredTurns:0,ties:[],method:'external',order
+    }});
+    continue;
+   }
+   if(kind==='defer'&&!memberIds.length)continue;
+   if(kind!=='defer'&&!choices.length)continue;
    const ties:ElectionTimelineItem['ties']=[];
    if(round!==null)for(const memberId of memberIds){
     const group=previous.tieGroups?.find(group=>group.includes(memberId));
@@ -69,7 +79,7 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
     ties.push({memberId,position:order.indexOf(memberId)+1,total:group.length,order});
    }
    events.push({sequence:indices.get(row.id)??0,item:{
-    id:row.id,kind:row.action==='defer'?'defer':'choice',round,createdAt:row.created_at,
+    id:row.id,kind:kind==='defer'?'defer':'choice',round,createdAt:row.created_at,
     memberIds,choices,deferredTurns:memberIds.length===1?(previous.credits?.[memberIds[0]]??0):0,ties
    }});
   }
