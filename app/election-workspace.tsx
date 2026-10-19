@@ -5,6 +5,7 @@ import {useConfirmation} from './confirmation';
 import {newcomerScore} from '../domain/historical-order';
 import {orderForRound} from '../domain/election';
 import PreferencesEditor from './preferences-editor';
+import ReconstructionPanel from './reconstruction-panel';
 
 function NewcomerCalculator(){
  const [completed,setCompleted]=useState(''),[roundAverages,setRoundAverages]=useState(''),[message,setMessage]=useState('');
@@ -67,7 +68,7 @@ function TieResolver({group,data,busy,act,manage,open}:any){
 }
 export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit}:any){
  const confirm=useConfirmation();
- const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId);
+ const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
  const previewReadOnly=!!data.preview&&!data.preview.writable;
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
@@ -121,7 +122,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{const body:any=await response.json();if(!response.ok)throw new Error(body.error);if(active)setPairOptions(body.available);}).catch(e=>{if(active){setPairOptions([]);setMessage(e.message);}}).finally(()=>{if(active)setLoadingOptions(false);});
   return ()=>{active=false;setLoadingOptions(false);};
  },[selected.join(','),turn?.needed,data.campaign.version]);
- const canChoose=open&&state?.status==='active'&&!!turn?.memberId&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&preferenceMemberIds.length>0;
+ const canChoose=open&&!frozen&&state?.status==='active'&&!!turn?.memberId&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&!frozen&&preferenceMemberIds.length>0;
  const roundOrder=state?orderForRound(state,Math.max(0,(turn?.round??1)-1)):data.members.map((m:any)=>m.id);
  function clickCycle(c:any){if(mode==='choose')setDetail(c);setMessage('');
  if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
@@ -130,6 +131,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  }
  if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(c.occupied>=c.max){setPreferenceMessage('Este ciclo no tiene plazas disponibles y no puede añadirse como nueva preferencia.');return;}if(!dates.includes(c.date)){editDates([...dates,c.date]);setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');}else setPreferenceMessage('Ya está en tu lista · posición '+(dates.indexOf(c.date)+1)+(dirty?'. Sin guardar.':'. Guardada.'));return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage('Este ciclo no es válido para quien elige ahora: ya está elegido, no hay cupo o se excede un límite.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
  return <>
+  {manage&&open&&<ReconstructionPanel data={data} busy={busy} act={act}/>}
+  {frozen&&<p className="panel alert warning" role="status">Elecciones y edición de preferencias congeladas durante la reconstrucción administrativa. Las adjudicaciones actuales pueden consultarse, pero solo los responsables pueden reconstruir decisiones.</p>}
   <section className="panel election-turn election-workflow-head" aria-label="Turno de elección">
    <div className="election-turn-status">
     <span className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'ELECCIÓN SIN INICIAR'}</span>
@@ -138,15 +141,15 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    </div>
    <div className="election-turn-controls">
     {canPreferences&&<><button className={mode==='choose'?'primary':'secondary'} aria-pressed={mode==='choose'} onClick={async()=>{if(mode==='choose'||await leavePreferences()){setMode('choose');setDetail(null);}}}>Elegir / consultar</button><button className={mode==='preferences'?'primary':'secondary'} aria-pressed={mode==='preferences'} onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>Preparar preferencias</button></>}
-    {((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary>Más acciones</summary><div className="election-more-menu">
+    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary>Más acciones</summary><div className="election-more-menu">
      {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
      {superuser&&state&&state.status!=='complete'&&<button type="button" className="secondary" disabled={busy||!open} onClick={()=>act({action:state.status==='active'?'pause':'resume'},state.status==='active'?'Elección pausada':'Elección reanudada')}>{state.status==='active'?'Pausar elección':'Reanudar elección'}</button>}
     </div></details>}
    </div>
   </section>
-  {mode==='choose'&&superuser&&open&&(!state||state.status==='paused')&&<div id="preparar-eleccion"><OrderSetup key={data.campaign.id+JSON.stringify(data.config?.previousScores)} data={data} busy={busy} act={act}/></div>}
-  {turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
-  {manage&&state?.status==='active'&&state.automaticPaused&&<div className="alert warning" role="status">Los automatismos están detenidos tras deshacer una elección. Puedes corregir el turno manualmente; no se adjudicará de nuevo por sorpresa. <button type="button" className="secondary" disabled={busy||!open} onClick={async()=>{if(await confirm('¿Reanudar los automatismos? Las preferencias vigentes podrían adjudicar inmediatamente los siguientes turnos.'))act({action:'resume_automatic'},'Automatismos reanudados');}}>Reanudar automatismos</button></div>}
+  {!frozen&&mode==='choose'&&superuser&&open&&(!state||state.status==='paused')&&<div id="preparar-eleccion"><OrderSetup key={data.campaign.id+JSON.stringify(data.config?.previousScores)} data={data} busy={busy} act={act}/></div>}
+  {!frozen&&turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
+  {manage&&!frozen&&state?.status==='active'&&state.automaticPaused&&<div className="alert warning" role="status">Los automatismos están detenidos por una operación administrativa. Puedes corregir el turno manualmente; no se adjudicará de nuevo por sorpresa. <button type="button" className="secondary" disabled={busy||!open} onClick={async()=>{if(await confirm('¿Reanudar los automatismos? Las preferencias vigentes podrían adjudicar inmediatamente los siguientes turnos.'))act({action:'resume_automatic'},'Automatismos reanudados');}}>Reanudar automatismos</button></div>}
   {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open||previewReadOnly} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
 {mode==='choose'&&<div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0} ciclos · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>}
   {canPreferences&&mode==='preferences'&&manage&&<label className="preference-member">Introducir preferencias para<select aria-label="Preferencias de controlador" value={memberId} disabled={busy} onChange={async e=>{const next=e.target.value;if(await leavePreferences()){setMemberId(next);setPreferenceMessage('');onPreferenceEdit?.();}}}>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>}
@@ -181,8 +184,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {manage&&<section className="panel election-history-panel">
      <div className="election-history-head"><h2>Últimas adjudicaciones</h2>
       <div className="election-workflow-actions">
-       {(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');}}>↶ Deshacer</button>}
-       {(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>↷ Rehacer</button>}
+       {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');}}>↶ Deshacer</button>}
+       {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>↷ Rehacer</button>}
       </div>
      </div>
      <p className="muted">Más recientes primero. Las elecciones deshechas desaparecen de esta lista.</p>

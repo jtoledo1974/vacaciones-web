@@ -185,6 +185,35 @@ test('guardar preferencias durante el turno avisa antes de adjudicar automática
  expect(after.election.preferences.find((p:any)=>p.member_id===member.id)).toMatchObject({dates:[date],automatic:true});
 });
 
+test('reconstrucción guiada: tercera elección distinta y cuarta por preferencias anteriores',async({page,request})=>{
+ const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date),ids=s.data.members.map((m:any)=>m.id);
+ await election(request,s.id,{action:'preferences',memberId:ids[3],dates:[dates[4]]});
+ await election(request,s.id,{action:'start',order:ids,source:'Orden ficticio para reconstrucción UI Playwright',rulesConfirmed:true,allowDeferral:true});
+ for(let i=0;i<3;i++)await election(request,s.id,{action:'choose',memberId:ids[i],dates:[dates[i]]});
+ await election(request,s.id,{action:'advance'});
+ await open(page,s.id);
+ await expect(page.getByRole('heading',{name:'Reconstruir elecciones anteriores'})).toBeVisible();
+ const history=(await read(request,s.id)).election.reconstruction.candidates;
+ const point=history.find((e:any)=>e.action==='choose'&&e.memberIds.includes(ids[2]));
+ await page.getByLabel('Punto de reconstrucción').selectOption(point.id);
+ await page.getByRole('button',{name:'Iniciar reconstrucción guiada'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(page.getByText('Elección congelada',{exact:true})).toBeVisible();
+ await expect(page.getByText('Decisión del administrador',{exact:true})).toBeVisible();
+ await page.getByLabel('Registrar otra decisión').check();
+ await page.getByLabel('Ciclo alternativo').selectOption(dates[3]);
+ await page.getByRole('button',{name:'Añadir ciclo'}).click();
+ await page.getByRole('button',{name:'Registrar decisión y continuar'}).click();
+ await expect(page.getByText('Mejor preferencia histórica:')).toBeVisible();
+ await page.getByRole('button',{name:'Registrar decisión y continuar'}).click();
+ await expect(page.getByRole('heading',{name:'Turnos reconstruidos'})).toBeVisible();
+ await page.getByRole('button',{name:'Finalizar reconstrucción'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ const result=await read(request,s.id);
+ expect(result.awards.find((a:any)=>a.member_id===ids[2]).cycle_date).toBe(dates[3]);
+ expect(result.awards.find((a:any)=>a.member_id===ids[3]).cycle_date).toBe(dates[4]);
+ expect(result.election.state.automaticPaused).toBe(true);
+});
 test('bloqueo, descarga y restauración de backup completo',async({page,request},info)=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
