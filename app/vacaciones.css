@@ -165,3 +165,7 @@
 .local-admin-login label { display: grid; gap: 0.25rem; font-size: 0.8rem; }
 .local-admin-login input { width: 100%; min-width: 0; padding: 0.4rem 0.55rem; border: 1px solid #94a3b8; border-radius: 0.4rem; color: #0f172a; background: white; }
 .local-admin-error { color: #fca5a5; font-size: 0.8rem; margin-top: 0.5rem; }
+
+/* The expanded password form must remain reachable on short/mobile screens. */
+.sidebar { overflow-y: auto; overscroll-behavior-y: contain; }
+.sidebar > * { flex-shrink: 0; }
