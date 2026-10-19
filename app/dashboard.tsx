@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {initialiseFirebase,subscribeFirebaseSession,firebaseBearerToken,firebaseUser,firebaseSignInWithGoogle,firebaseSignOut} from './firebase-client';
 import LocalAdminLogin from './local-admin-login';
+import { HeaderSession, SidebarSession } from './session-identity';
 import RosterEditor from './roster-editor';
 import ElectionWorkspace from './election-workspace';
 import SimulationTools from './simulation-tools';
@@ -28,6 +29,8 @@ function Dashboard() {
     const [localAdminEnabled,setLocalAdminEnabled]=useState(false);
     const [syncState,setSyncState]=useState<'ready'|'checking'|'offline'>('checking');
     const [sessionProvider,setSessionProvider]=useState('chatgpt');
+    const [sessionEmail,setSessionEmail]=useState('');
+    const [sessionLoaded,setSessionLoaded]=useState(false);
     const currentCid=useRef('');
     const isBusy=useRef(false);
     const lastRevision=useRef<number|null>(null);
@@ -40,8 +43,10 @@ function Dashboard() {
       const readSession=()=>api('session').then(s=>{
        if(!active)return;
        setIdentity(s.identity?.subject??'');
+       setSessionEmail(s.identity?.email??'');
        setSessionProvider(s.identity?.provider??'chatgpt');
-      }).catch(()=>{});
+       setSessionLoaded(true);
+      }).catch(()=>{if(active)setSessionLoaded(true);});
       const unregister=subscribeFirebaseSession(()=>{
        if(!active)return;
        lastRevision.current=null;
@@ -153,6 +158,8 @@ function Dashboard() {
         return current;
     },'Plantilla y accesos guardados');
     const superuser = index?.principal.role === 'superadmin', write = data?.editable && data?.campaign.status === 'open';
+    const roleLabel = superuser ? 'Superadministrador' : index?.principal.role === 'team_admin' ? 'Responsable de equipo' : index?.myCampaignIds?.length ? 'Controlador' : 'Solo lectura';
+    const sessionDetails = {loaded:sessionLoaded,subject:identity,email:sessionEmail,provider:sessionProvider,role:roleLabel,signinUrl};
     const team = data?.campaign.team_id ?? 'C', year = data?.campaign.year ?? 2026, result = data?.result;
     const links = [['eleccion', 'Vacaciones', CalendarDays], ...(superuser ? [['administracion', 'Administración', ShieldCheck] as const] : []), ['ayuda','Ayuda',BookOpen]] as const;
     async function go(n: string) { setNav(n); setMenu(false); if (n === 'administracion' && superuser) {
@@ -163,8 +170,26 @@ function Dashboard() {
             setError(e.message);
         }
     } }
-    return <div className="app"><aside className={'sidebar ' + (menu ? 'shown' : '')}><a className="brand" href="/"><span className="brand-mark">V<span>·</span></span><div>Vacaciones<small>OCHO EQUIPOS</small></div></a><button className="close-mobile" onClick={() => setMenu(false)} aria-label="Cerrar menú"><X /></button><div className="nav-caption">ESPACIO DE TRABAJO</div><nav>{links.map(([key, label, Icon]) => <button key={key} className={nav === key ? 'active' : ''} onClick={() => go(key)}><Icon size={19}/>{label}{nav === key && <ChevronRight size={15}/>}</button>)}</nav><div className="sidebar-bottom"><div className="env-dot"/> Consulta pública<div className="sidebar-foot">Gestión anual de equipos<br />Datos por equipo y ejercicio</div><div className="profile"><div className="avatar">{superuser ? 'SA' : 'LE'}</div><div>{superuser ? 'Superadministrador' : index?.principal.role === 'team_admin' ? 'Responsable de equipo' : data?.participating ? 'Controlador' : 'Consulta'}<small>{sessionProvider==='local_admin'?'Administrador local':firebaseUser()?'Firebase':'ChatGPT Sites'}</small></div></div><a href={signinUrl} target="_top">{identity&&sessionProvider==='chatgpt'?'Cambiar sesión Sites':'Entrar con ChatGPT'} <ArrowUpRight size={13}/></a>{firebaseEnabled&&<button type="button" className="firebase-login" onClick={async()=>{try{if(firebaseUser())await firebaseSignOut();else await firebaseSignInWithGoogle();}catch(e:any){setError(e.message??'Error de inicio de sesión Firebase');}}}>{firebaseUser()?'Cerrar sesión Firebase':'Entrar con Google (Firebase)'}</button>}<LocalAdminLogin enabled={localAdminEnabled} loggedIn={sessionProvider==='local_admin'}/></div></aside>
-    <main><header className="topbar"><button className="menu-mobile" onClick={() => setMenu(true)} aria-label="Abrir menú"><Menu /></button><span>Equipos <ChevronRight size={13}/> <b>{nav==='eleccion'?'Vacaciones':nav==='administracion'?'Administración':'Ayuda'}</b></span><span className="private-pill"><ShieldCheck size={14}/> Consulta pública · Administración protegida</span></header><div className="content"><div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : 'Administración general'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors"><label>Ejercicio<select aria-label="Ejercicio" value={year} onChange={e => setCid(index.campaigns.find((c: any) => c.year === Number(e.target.value) && c.team_id === team && c.scope_key==="live")?.id ?? '')}>{Array.from(new Set(index?.campaigns.map((c: any) => c.year) ?? [2026])).map((y: any) => <option key={y}>{y}</option>)}</select></label><label>Equipo<select aria-label="Equipo" value={team} onChange={e => setCid(index.campaigns.find((c: any) => c.team_id === e.target.value && c.year === year && c.scope_key==="live")?.id ?? '')}>{(index?.teams ?? 'ABCDEFGH'.split('').map(id => ({ id, name: 'Equipo ' + id }))).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>{superuser&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={e=>setCid(e.target.value)}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}</div></div>
+    return <div className="app">
+      <aside className={'sidebar ' + (menu ? 'shown' : '')}>
+        <a className="brand" href="/"><span className="brand-mark">V<span>·</span></span><div>Vacaciones<small>OCHO EQUIPOS</small></div></a>
+        <button className="close-mobile" onClick={() => setMenu(false)} aria-label="Cerrar menú"><X /></button>
+        <SidebarSession {...sessionDetails}/>
+        <div className="nav-caption">ESPACIO DE TRABAJO</div>
+        <nav>{links.map(([key, label, Icon]) => <button key={key} className={nav === key ? 'active' : ''} onClick={() => go(key)}><Icon size={19}/>{label}{nav === key && <ChevronRight size={15}/>}</button>)}</nav>
+        <div className="sidebar-bottom">
+          <div><span className="env-dot"/> Consulta pública disponible</div>
+          <div className="sidebar-foot">Gestión anual de equipos<br/>Datos por equipo y ejercicio</div>
+          {firebaseEnabled && (firebaseUser() ? <button type="button" className="firebase-login" onClick={async()=>{try{await firebaseSignOut();}catch(e:any){setError(e.message??'Error al cerrar sesión Firebase');}}}>Cerrar sesión de Google</button> : <details className="alternative-login"><summary>Otras formas de acceso</summary><button type="button" className="firebase-login" onClick={async()=>{try{await firebaseSignInWithGoogle();}catch(e:any){setError(e.message??'Error de inicio de sesión Firebase');}}}>Entrar con Google (Firebase)</button></details>)}
+          <LocalAdminLogin enabled={localAdminEnabled} loggedIn={sessionProvider==='local_admin'}/>
+        </div>
+      </aside>
+      {menu && <button type="button" className="sidebar-backdrop" aria-label="Cerrar menú" onClick={()=>setMenu(false)}/>}
+      <main><header className="topbar">
+        <button className="menu-mobile" onClick={() => setMenu(true)} aria-label="Abrir menú"><Menu /></button>
+        <span>Equipos <ChevronRight size={13}/> <b>{nav==='eleccion'?'Vacaciones':nav==='administracion'?'Administración':'Ayuda'}</b></span>
+        <HeaderSession {...sessionDetails} onOpenMenu={()=>{setMenu(true);document.getElementById('session-account')?.scrollIntoView({block:'start',behavior:'smooth'});}}/>
+      </header><div className="content"><div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : 'Administración general'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors"><label>Ejercicio<select aria-label="Ejercicio" value={year} onChange={e => setCid(index.campaigns.find((c: any) => c.year === Number(e.target.value) && c.team_id === team && c.scope_key==="live")?.id ?? '')}>{Array.from(new Set(index?.campaigns.map((c: any) => c.year) ?? [2026])).map((y: any) => <option key={y}>{y}</option>)}</select></label><label>Equipo<select aria-label="Equipo" value={team} onChange={e => setCid(index.campaigns.find((c: any) => c.team_id === e.target.value && c.year === year && c.scope_key==="live")?.id ?? '')}>{(index?.teams ?? 'ABCDEFGH'.split('').map(id => ({ id, name: 'Equipo ' + id }))).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>{superuser&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={e=>setCid(e.target.value)}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}</div></div>
     {error && <div className="alert error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar error">×</button></div>}{notice && <div className="alert success" role="status">{notice}</div>}
         {nav === 'ayuda' ? <Help/> : !index ? <div className="panel empty">Cargando el espacio de trabajo…</div> : !index.teams.length ? <div className="panel empty"><Layers size={36}/><h2>Tu espacio de vacaciones</h2><p>Prepara ocho equipos y una campaña de prueba de 2026.<br />Todos los identificadores iniciales son ficticios.</p>{superuser ? <button className="primary" disabled={busy} onClick={() => perform(async () => { const i = await api('initialize', {}); setCid(i.campaigns.find((c: any) => c.team_id === 'C')?.id); return i; }, 'Espacio de prueba preparado')}>Preparar campaña de prueba <ArrowUpRight size={16}/></button> : <p>Un superadministrador debe preparar la primera campaña.</p>}</div> : !data ? <div className="panel empty">Cargando campaña…</div> : <>
         <div className="campaign-strip"><span><span className={'status-dot ' + data.campaign.status}/><b>Equipo {team} · {year}</b><span className="status">{labels[data.campaign.status]}</span>{data.campaign.scope_key!=="live"&&<span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>}{data.campaign.data_kind==="demo"&&<span className="tag">Datos de ejemplo</span>}</span><span>{data.editable ? 'Área de gestión' : 'Solo lectura'} <span className="separator">/</span> {'Ocupación actual · Consulta pública'} <span className="separator">/</span> <span aria-live="polite">{syncState==='offline'?'Sin conexión · reintentando':syncState==='checking'?'Conectando…':'Actualización automática · hasta 5 s'}</span></span></div>

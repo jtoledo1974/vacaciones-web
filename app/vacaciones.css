@@ -201,3 +201,45 @@
 .roster-import{margin-top:13px;padding-top:12px}
 .roster-footnote{font-size:10px;color:#7c8d81;margin:12px 0 0;line-height:1.4}
 @media(max-width:580px){.roster-panel{padding:14px 10px}.roster-table th{padding:7px 6px}.roster-heading{gap:8px}}
+
+
+/* Session is the first action, not an anonymous-looking account in the footer. */
+.sidebar-session{margin-top:34px;padding:15px 13px;border:1px solid #42645b;border-radius:12px;background:#1d3936;color:#dbece5}
+.sidebar-session-heading{display:flex;align-items:center;gap:9px;font-size:12px}
+.sidebar-session-heading svg{color:#badcc7;flex:none}
+.sidebar-session p{font-size:11px;line-height:1.55;color:#c0d1c9;margin:11px 0 13px}
+.sidebar-session small{display:block;font-size:10px;line-height:1.5;color:#aec4b9;margin-top:10px}
+.sidebar-signin{display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 9px;background:#a7d1b0;color:#152e29;border-radius:8px;font-size:12px;font-weight:750;line-height:1.35;text-align:center}
+.sidebar-signin:hover{background:#c0e3c4}
+.session-pending{margin:0!important}
+.session-detail-label{color:#a2beb1;font-size:10px;margin-top:13px}
+.session-user{font-size:12px;font-weight:700;overflow-wrap:anywhere;margin-top:3px}
+.session-role{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:650;margin-top:5px;color:#daf2df}
+.session-signout{display:inline-flex;align-items:center;gap:6px;margin-top:13px;font-size:11px;color:#c2d7cd;text-decoration:underline;text-underline-offset:3px}
+.nav-caption{margin:28px 10px 13px}
+.sidebar-bottom{padding-top:17px}
+.sidebar-foot{margin-top:8px;padding-bottom:13px}
+.alternative-login{border-top:1px solid #324a43;padding-top:7px;margin-top:10px}
+.alternative-login summary{color:#b1c7bc;font-size:11px}
+.sidebar-backdrop{display:none}
+.header-signin,.header-account{display:inline-flex;align-items:center;gap:9px;border-radius:9px;min-height:40px}
+.header-signin{padding:10px 14px;background:#317a69;color:white;font-weight:700;font-size:12px}
+.header-signin:hover{background:#276a59}
+.header-account{border:1px solid #d9e6df;background:#f2f7f3;padding:7px 11px;color:#426152;text-align:left;max-width:340px}
+.header-account svg{flex:none}
+.header-account-info{display:block;min-width:0;max-width:100%}
+.header-account-info strong{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#284b3e}
+.header-account-info small{display:block;color:#618271;font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-session-pending{font-size:11px;color:#647e6f}
+@media(max-width:850px){
+ .sidebar.shown{width:min(320px,88vw);padding:25px 20px;box-shadow:0 14px 38px #0b191a55}
+ .sidebar-backdrop{display:block;position:fixed;inset:0;background:#142a2c99;border:0;z-index:19}
+ .topbar>span:first-of-type{display:none}
+ .header-account{max-width:calc(100vw - 90px)}
+}
+@media(max-width:580px){
+ .header-signin{font-size:12px;padding:9px 10px;gap:7px}
+ .header-account{min-width:0}
+ .header-account-info strong{font-size:11px}
+ .header-account-info small{font-size:10px}
+}
