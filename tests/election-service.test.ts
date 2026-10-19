@@ -114,7 +114,7 @@ test('empate pendiente bloquea elección, aplazamiento y automatismos; sorteo ex
  await assert.rejects(s.election().mutate(cid,{action:'resolve_tie',method:'random',version}),/cambió/);
  await assert.rejects(act(s,cid,{action:'resolve_tie',method:'random'}),/pendiente/);
  await act(s,cid,{action:'pause'});await assert.rejects(act(s,cid,start(d)),/orden/);await act(s,cid,{action:'resume'});
- await act(s,cid,{action:'preferences',memberId:ids[0],dates:[date],automatic:false});
+ await act(s,cid,{action:'preferences',memberId:ids[0],dates:[]});
  for(let i=0;i<3;i++)next=await act(s,cid,{action:'choose',memberId:order[i],dates:[d.result.cycles[i].date]});
  assert.equal(next.election.turn.round,2);assert.equal(next.election.turn.memberId,order[1]);
  const publicView:any=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.election.state.tieResolutions[0].actor,undefined);
