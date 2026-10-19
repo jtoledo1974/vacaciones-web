@@ -25,3 +25,6 @@ export const pushSubscriptions=sqliteTable('push_subscriptions',{endpoint:text('
 export const turnNotifications=sqliteTable('turn_notifications',{id:text('id').primaryKey(),ownerKey:text('owner_key').notNull(),campaignId:text('campaign_id').notNull(),memberId:text('member_id').notNull(),round:integer('round').notNull(),createdAt:text('created_at').notNull(),pushStatus:text('push_status').notNull().default('pending')});
 
 export const pushDeliveries=sqliteTable('push_deliveries',{eventId:text('event_id').notNull(),endpoint:text('endpoint').notNull(),status:text('status').notNull().default('pending'),leaseToken:text('lease_token'),leaseExpiresAt:integer('lease_expires_at').notNull().default(0),attempts:integer('attempts').notNull().default(0)},t=>[primaryKey({columns:[t.eventId,t.endpoint]})]);
+
+// Administrative reconstruction state is never part of publicly readable election data.
+export const reconstructionSessions=sqliteTable('reconstruction_sessions',{campaignId:text('campaign_id').primaryKey().references(()=>campaigns.id),json:text('json').notNull()});

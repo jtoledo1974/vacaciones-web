@@ -121,7 +121,7 @@ export async function dispatchNotifications(repo:Repository,config:PushConfig,ca
  for(const campaign of campaigns){
   try{
    const state=JSON.parse(campaign.json);
-   if(state.status!=='active')continue;
+   if(state.status!=='active'||state.automaticPaused)continue;
    const parts=await repo.batch([
     {sql:'SELECT * FROM campaign_members WHERE campaign_id=?',args:[campaign.id]},
     {sql:'SELECT * FROM awards WHERE campaign_id=?',args:[campaign.id]},
@@ -149,7 +149,7 @@ export async function dispatchNotifications(repo:Repository,config:PushConfig,ca
   try{
    // Drop obsolete pending alerts: never notify a controller after their turn passed.
    const state=JSON.parse(campaign.json);
-   if(state.status!=='active')continue;
+   if(state.status!=='active'||state.automaticPaused)continue;
    const rows=await repo.batch([{sql:'SELECT * FROM campaign_members WHERE campaign_id=?',args:[campaign.id]},{sql:'SELECT * FROM awards WHERE campaign_id=?',args:[campaign.id]},{sql:'SELECT * FROM requests WHERE campaign_id=?',args:[campaign.id]}]);
    const turn=currentTurn({year:campaign.year,team:campaign.team_id,config:JSON.parse(campaign.config_json),members:rows[0].results,awards:rows[1].results,requests:rows[2].results},state);
    const participants:string[]=turn.pendingTie?[]:turn.participants?.length?turn.participants:turn.memberId?[turn.memberId]:[];

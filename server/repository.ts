@@ -22,4 +22,5 @@ export const tableColumns: Record<string, string[]> = { teams: ['id', 'name', 'v
 tableColumns.controller_accounts=['person_id','principal_key','version'];
 tableColumns.election_states=['campaign_id','json'];
 tableColumns.preferences=['member_id','campaign_id','dates_json','automatic','persistent','active'];
+tableColumns.reconstruction_sessions=['campaign_id','json'];
 
