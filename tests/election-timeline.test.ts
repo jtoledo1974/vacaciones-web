@@ -81,3 +81,19 @@ test('cuatro empatados rotan dentro del grupo, sin mover a terceros',()=>{
  assert.deepEqual(orderForRound(source,2),['X','C','D','A','B','Y']);
  assert.deepEqual(orderForRound(source,3),['X','D','A','B','C','Y']);
 });
+
+test('la reconstrucción guiada sustituye turnos históricos sin mostrar decisiones archivadas',()=>{
+ const ctx:ElectionContext={year:2026,team:'C',config:defaultConfig(2026),
+  members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[]};
+ const a=award('a','A','2026-01-01'),old=award('old','B','2026-01-09'),replacement=award('new','B','2026-01-17');
+ const start=row('start','start',{format:'election-undo-v1',state:null,awards:[]},{});
+ const first=row('first','choose',snap(0,[]),{choices:[choice('A',a.cycle_date)]});
+ const second=row('second','choose',snap(1,[a]),{choices:[choice('B',old.cycle_date)]});
+ const rewind=row('rewind','reconstruction_start',null,{targetId:'second',keepCount:2,originalIds:['second']});
+ const rebuild=row('rebuild','reconstruction_step',snap(1,[a]),{kind:'choose',choices:[choice('B',replacement.cycle_date)]});
+ ctx.awards=[a,replacement];
+ const events=buildElectionTimeline([start,first,second,rewind,rebuild],ctx,state(2));
+ assert.deepEqual(events.filter(e=>e.kind==='choice').map(e=>e.id),['rebuild','first']);
+ assert.equal(events.find(e=>e.id==='rebuild')?.choices[0].cycle_date,replacement.cycle_date);
+ assert.ok(!events.some(e=>e.id==='second'));
+});
