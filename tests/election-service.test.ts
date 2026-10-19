@@ -123,3 +123,17 @@ test('puntuaciones guardadas detectan empates sin depender del cliente y rechaza
  next=await s.mutate(cid,{action:'config',version:next.campaign.version,config:{...next.config,previousScores:{AA:10,BB:20}}});
  await assert.rejects(act(s,cid,start(next)),/Faltan puntuaciones/);
 });
+
+test('simulaciones remapean empates pendientes, turnos conjuntos y actas sin referencias a miembros reales',async()=>{
+ const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
+ let next=await act(s,cid,{...start(d),tieGroups:[ids],jointGroups:[[ids[0],ids[1]]]});
+ let clone=await s.createSimulation(cid,{name:'Pending draw',version:next.campaign.version});
+ let copy=await s.view(clone.id);assert.equal(copy.election.state.status,'paused');
+ assert.ok(copy.election.state.pendingTieGroups[0].every((id:string)=>!ids.includes(id)));
+ copy=await act(s,clone.id,{action:'resume'});assert.equal(copy.election.turn.pendingTie.length,3);
+ next=await act(s,cid,{action:'resolve_tie',method:'external',order:[...ids].reverse()});
+ clone=await s.createSimulation(cid,{name:'Resolved draw',version:next.campaign.version});copy=await s.view(clone.id);
+ assert.deepEqual(copy.election.state.pendingTieGroups,[]);assert.ok(copy.election.state.tieResolutions[0].order.every((id:string)=>!ids.includes(id)));
+ copy=await act(s,clone.id,{action:'resume'});assert.ok(copy.election.turn.memberId);
+ assert.deepEqual((await s.view(cid)).election.state,next.election.state);
+});
