@@ -17,6 +17,7 @@ export class ElectionService{
   return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic,persistent:!!p.persistent,active:!!p.active})) as Preference[]};
  }
  async memberForAccount(d:any){
+  if(this.actor.preview)return this.actor.preview.campaignId===d.campaign.id&&d.members.some((m:any)=>m.id===this.actor.preview!.memberId)?this.actor.preview.memberId:null;
   if(!this.actor.id)return null;
   const keys=[this.actor.id,...(this.actor.emailKey?[this.actor.emailKey]:[])];
   const matches=await this.repo.all(`SELECT DISTINCT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=? AND a.principal_key IN (${keys.map(()=>'?').join(',')})`,[d.campaign.id,...keys]);
@@ -54,7 +55,7 @@ export class ElectionService{
  }
  async options(cid:string,selected:string[]){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
-  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id))throw new ApiError('Simulación reservada a administradores',403);
+  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
@@ -95,8 +96,10 @@ export class ElectionService{
   return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
  }
  async mutate(cid:string,body:any){
+  if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
+  if(this.actor.preview&&!this.actor.preview.writable)throw new ApiError('La vista previa de la campaña real no permite guardar',403);
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
-  if(c.scope_key!=='live'&&!manage)throw new ApiError('Simulación reservada a administradores',403);
+  if(c.scope_key!=='live'&&!manage&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
   if(!this.actor.id)throw new ApiError('Inicia sesión para guardar preferencias',401);
   if(!manage&&!mine)throw new ApiError('Tu cuenta no está vinculada a un controlador de este equipo',403);
   if(c.status!=='open')throw new ApiError('La campaña está cerrada');
