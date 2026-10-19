@@ -69,6 +69,7 @@ function TieResolver({group,data,busy,act,manage,open}:any){
 export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit}:any){
  const confirm=useConfirmation();
  const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
+ const previewReadOnly=!!data.preview&&!data.preview.writable;
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
  const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
@@ -105,6 +106,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  function editDates(next:string[]){setDates(next);setPreferenceMessage('Lista modificada. Cambios sin guardar.');onPreferenceEdit?.();}
  function editPersistence(next:boolean){setPersistent(next);setPreferenceMessage('Uso de la lista modificado. Cambios sin guardar.');onPreferenceEdit?.();}
  async function savePreferences(){
+   if(previewReadOnly)return;
   if(state?.status==='active'&&!state.automaticPaused&&turn?.memberId===memberId&&turn.participants?.length===1&&dates.length>0){
    const quantity=turn.needed===1?'un ciclo':turn.needed+' ciclos';
    const code=data.members.find((m:any)=>m.id===memberId)?.code;
@@ -116,7 +118,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  useEffect(()=>{
   setPairOptions(null);if(turn?.participants?.length!==1||turn?.needed<2||!selected.length||selected.length>=turn.needed)return;
   let active=true;setLoadingOptions(true);
-  const query=new URLSearchParams();selected.forEach(date=>query.append('selected',date));
+  const query=new URLSearchParams();selected.forEach(date=>query.append('selected',date));const preview=new URLSearchParams(location.search).get('verComo');if(preview)query.set('verComo',preview);
   fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{const body:any=await response.json();if(!response.ok)throw new Error(body.error);if(active)setPairOptions(body.available);}).catch(e=>{if(active){setPairOptions([]);setMessage(e.message);}}).finally(()=>{if(active)setLoadingOptions(false);});
   return ()=>{active=false;setLoadingOptions(false);};
  },[selected.join(','),turn?.needed,data.campaign.version]);
@@ -140,7 +142,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    <div className="election-turn-controls">
     {canPreferences&&<><button className={mode==='choose'?'primary':'secondary'} aria-pressed={mode==='choose'} onClick={async()=>{if(mode==='choose'||await leavePreferences()){setMode('choose');setDetail(null);}}}>Elegir / consultar</button><button className={mode==='preferences'?'primary':'secondary'} aria-pressed={mode==='preferences'} onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>Preparar preferencias</button></>}
     {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary>Más acciones</summary><div className="election-more-menu">
-     {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
+     {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
      {superuser&&state&&state.status!=='complete'&&<button type="button" className="secondary" disabled={busy||!open} onClick={()=>act({action:state.status==='active'?'pause':'resume'},state.status==='active'?'Elección pausada':'Elección reanudada')}>{state.status==='active'?'Pausar elección':'Reanudar elección'}</button>}
     </div></details>}
    </div>
@@ -148,7 +150,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {!frozen&&mode==='choose'&&superuser&&open&&(!state||state.status==='paused')&&<div id="preparar-eleccion"><OrderSetup key={data.campaign.id+JSON.stringify(data.config?.previousScores)} data={data} busy={busy} act={act}/></div>}
   {!frozen&&turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
   {manage&&!frozen&&state?.status==='active'&&state.automaticPaused&&<div className="alert warning" role="status">Los automatismos están detenidos por una operación administrativa. Puedes corregir el turno manualmente; no se adjudicará de nuevo por sorpresa. <button type="button" className="secondary" disabled={busy||!open} onClick={async()=>{if(await confirm('¿Reanudar los automatismos? Las preferencias vigentes podrían adjudicar inmediatamente los siguientes turnos.'))act({action:'resume_automatic'},'Automatismos reanudados');}}>Reanudar automatismos</button></div>}
-  {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
+  {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open||previewReadOnly} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
 {mode==='choose'&&<div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0} ciclos · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>}
   {canPreferences&&mode==='preferences'&&manage&&<label className="preference-member">Introducir preferencias para<select aria-label="Preferencias de controlador" value={memberId} disabled={busy} onChange={async e=>{const next=e.target.value;if(await leavePreferences()){setMemberId(next);setPreferenceMessage('');onPreferenceEdit?.();}}}>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>}
   <div className={"election-layout"+(detail?" has-active-detail":"")+(mode==='preferences'&&canPreferences?" is-preparing-preferences":"")}>
@@ -159,7 +161,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      awards={data.awards} members={data.members} order={roundOrder} points={election.points}/>
    </div>
    <aside className="election-side">
-    {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?(existing?'La lista coincide con la versión guardada.':'No hay cambios pendientes ni preferencias guardadas.'):preferenceMessage}/>}
+    {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?(existing?'La lista coincide con la versión guardada.':'No hay cambios pendientes ni preferencias guardadas.'):preferenceMessage}/>}
 
     {mode==='choose'&&detail&&<section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
@@ -171,7 +173,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       {turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}
       <p className="election-selected-summary"><strong>Elección:</strong> {turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | '):selected.length?selected.map(formatDate).join(' + '):'ningún ciclo elegido'}</p>
       <div className="button-row">
-       <button type="button" className="primary" disabled={busy||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={()=>{
+       <button type="button" className="primary" disabled={busy||previewReadOnly||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={()=>{
         if(turn?.participants?.length>1){const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));act({action:'choose_joint',entries},'Turno conjunto confirmado');}
         else act({action:'choose',memberId:current.id,dates:selected},'Elección confirmada');
        }}>Confirmar {turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo'}</button>

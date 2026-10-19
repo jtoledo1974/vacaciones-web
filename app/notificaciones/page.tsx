@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react';
 import {firebaseBearerToken} from '../firebase-client';
 
-type NotificationSettings={publicKey:string|null;subscriptions:{endpoint:string;createdAt:string}[];notifications:{id:string;campaign_id:string;round:number;created_at:string;team_id:string;year:number}[]};
+type NotificationSettings={canTest:boolean;publicKey:string|null;subscriptions:{endpoint:string;createdAt:string}[];notifications:{id:string;campaign_id:string;round:number;created_at:string;team_id:string;year:number}[]};
 const decode=(value:string):Uint8Array=>{
  const raw=atob(value.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-value.length%4)%4));
  return Uint8Array.from(raw,c=>c.charCodeAt(0));
@@ -53,6 +53,19 @@ export default function NotificationPreferences(){
   }catch(e){setMessage(e instanceof Error?e.message:String(e));}
   finally{setBusy(false);}
  }
+ async function testPush(){
+  setBusy(true);setMessage('');
+  try{
+   if(!settings?.canTest)throw Error('Esta prueba requiere permisos de superadministrador');
+   const registration=await navigator.serviceWorker.getRegistration('/notificaciones/');
+   const subscription=await registration?.pushManager.getSubscription();
+   if(!subscription||!settings.subscriptions.some(s=>s.endpoint===subscription.endpoint))
+    throw Error('Activa antes las notificaciones en este dispositivo con tu cuenta de superadministrador');
+   await api('POST',{action:'test',endpoint:subscription.endpoint});
+   setMessage('El servicio Push ha aceptado el aviso de prueba. Comprueba si aparece en el sistema; la aceptación no garantiza su visualización.');
+  }catch(e){setMessage(e instanceof Error?e.message:String(e));}
+  finally{setBusy(false);}
+ }
  return <main style={{maxWidth:750,margin:'2.5rem auto',padding:'0 1rem',fontFamily:'system-ui'}}>
   <a href="/">← Volver a vacaciones</a>
   <h1>Notificaciones de vacaciones</h1>
@@ -60,6 +73,7 @@ export default function NotificationPreferences(){
   <p>Permiso del navegador: <strong>{permission}</strong>. En este dispositivo: <strong>{enabled?'Activadas':'Desactivadas'}</strong>.</p>
   <button disabled={busy||!settings?.publicKey} onClick={toggle} style={{padding:12}}>{busy?'Procesando…':enabled?'Desactivar en este dispositivo':'Activar notificaciones en este dispositivo'}</button>
   {!settings?.publicKey&&<p>Notificaciones remotas pendientes de configuración VAPID por parte del administrador.</p>}
+  {settings?.canTest&&<section aria-label="Prueba Push de superadministrador"><h2>Prueba de notificación Push</h2><p>Envía un aviso Push real únicamente a este dispositivo, registrado con tu cuenta de superadministrador. No modifica turnos, preferencias ni campañas y no utiliza simulaciones.</p><button type="button" disabled={busy||!enabled||!settings.publicKey} onClick={testPush} style={{padding:12}}>Enviar Push de prueba a este dispositivo</button>{!enabled&&<p><small>Activa primero las notificaciones en este dispositivo para habilitar la prueba.</small></p>}</section>}
   {message&&<p role="status">{message}</p>}
   <h2>Últimos avisos de turno</h2>
   {!settings?.notifications.length?<p>No hay avisos registrados.</p>:<ul>{settings.notifications.map(n=><li key={n.id}>Ronda {n.round} · {new Date(n.created_at).toLocaleString('es-ES')} · <a href={'/?equipo='+encodeURIComponent(n.team_id)+'&year='+encodeURIComponent(String(n.year))}>Abrir elección</a></li>)}</ul>}

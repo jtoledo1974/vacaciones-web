@@ -55,6 +55,7 @@ El secreto debe ser **idéntico** en ambos entornos y nunca debe enviarse desde 
 ## Interfaz
 
 - `/notificaciones`: activar/desactivar Web Push en cada navegador autenticado y revisar historial.
+- **Prueba real de Push (solo superadmin):** en `/notificaciones`, tras activar la suscripción de su dispositivo, el botón «Enviar Push de prueba a este dispositivo» envía una notificación cifrada a ese endpoint y comprueba la aceptación del proveedor. La API verifica el rol de superadmin y que la suscripción pertenece a su propia identidad. No crea eventos de turno, no encola reintentos, no modifica elecciones y nunca prueba alertas de simulaciones. Un resultado aceptado por el servicio Push no garantiza la aparición en pantalla.
 - `/notificaciones/diagnostico`: comprobar APIs, permiso y visualización local de una notificación.
 - En iPhone, Web Push exige condiciones especiales para webs instaladas en la pantalla de inicio.
 - Chrome y el sistema operativo determinan el sonido de las notificaciones; la app no puede imponerlo.

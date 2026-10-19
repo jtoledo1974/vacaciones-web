@@ -1,6 +1,6 @@
 import {currentTurn} from '../domain/election.ts';
 import type {Repository} from './repository.ts';
-import type {Principal} from './permissions.ts';
+import {requireSuper,type Principal} from './permissions.ts';
 import {deliverPush,publicPushKey,type PushConfig} from './web-push.ts';
 import {ApiError} from './errors.ts';
 export function ownerKey(actor:Principal):string{
@@ -9,7 +9,7 @@ export function ownerKey(actor:Principal):string{
 }
 export async function notificationSettings(repo:Repository,actor:Principal,config:PushConfig){
  const key=ownerKey(actor);
- return {publicKey:publicPushKey(config),subscriptions:(await repo.all('SELECT endpoint,created_at FROM push_subscriptions WHERE owner_key=?',[key])).map(s=>({endpoint:s.endpoint,createdAt:s.created_at})),notifications:await repo.all('SELECT n.id,n.campaign_id,n.round,n.created_at,c.team_id,c.year FROM turn_notifications n JOIN campaigns c ON c.id=n.campaign_id WHERE n.owner_key=? ORDER BY n.created_at DESC LIMIT 25',[key])};
+ return {canTest:actor.role==='superadmin',publicKey:publicPushKey(config),subscriptions:(await repo.all('SELECT endpoint,created_at FROM push_subscriptions WHERE owner_key=?',[key])).map(s=>({endpoint:s.endpoint,createdAt:s.created_at})),notifications:await repo.all('SELECT n.id,n.campaign_id,n.round,n.created_at,c.team_id,c.year FROM turn_notifications n JOIN campaigns c ON c.id=n.campaign_id WHERE n.owner_key=? ORDER BY n.created_at DESC LIMIT 25',[key])};
 }
 function validateString(v:unknown,max:number):v is string{return typeof v==='string'&&v.length>0&&v.length<=max;}
 export async function updateSubscription(repo:Repository,actor:Principal,body:any,config:PushConfig){
@@ -28,6 +28,36 @@ export async function updateSubscription(repo:Repository,actor:Principal,body:an
  }else throw new ApiError('Acción desconocida');
  return {ok:true};
 }
+
+/**
+ * Send a real Web Push to exactly one subscription owned by the authenticated superadmin.
+ * This is independent of elections, simulations, the notification queue and Cron.
+ * Provider acceptance does not guarantee that the operating system will display it.
+ */
+export async function sendTestPush(
+ repo:Repository,actor:Principal,endpoint:unknown,config:PushConfig,
+ sender:typeof deliverPush=deliverPush,
+):Promise<{accepted:true}>{
+ requireSuper(actor);
+ if(!publicPushKey(config))throw new ApiError('Notificaciones Push no configuradas',503);
+ if(!validateString(endpoint,2048)||!endpoint.startsWith('https://'))throw new ApiError('Selecciona un dispositivo registrado',400);
+ const subscription=(await repo.all('SELECT endpoint,p256dh,auth FROM push_subscriptions WHERE owner_key=? AND endpoint=?',[ownerKey(actor),endpoint]))[0];
+ if(!subscription)throw new ApiError('Este dispositivo no está registrado en tu sesión',403);
+ let response:Response;
+ try{
+  response=await sender(config,subscription,{
+   title:'Vacaciones · Prueba de notificación',
+   body:'Este es un aviso de prueba. No se ha modificado ningún turno.',
+   url:'/notificaciones',
+   tag:'admin-push-test-'+crypto.randomUUID(),
+  });
+ }catch{throw new ApiError('Error de conexión con el servicio Push',502);}
+ if(!response.ok)throw new ApiError(
+  response.status===404||response.status===410?'La suscripción ha caducado. Vuelve a activar las notificaciones.':'El servicio Push ha rechazado la prueba',502
+ );
+ return {accepted:true};
+}
+
 const MAX_DELIVERIES_PER_RUN = 6;
 const DELIVERY_LEASE_MS = 90000;
 

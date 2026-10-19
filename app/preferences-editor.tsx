@@ -5,7 +5,7 @@ import {formatDate} from './cycle-calendar';
 import {visiblePreferenceDates} from '../domain/election';
 
 // One editor moves into a modal on small screens; its draft belongs to the workspace.
-export default function PreferencesEditor({data,memberId,dates,setDates,persistent,setPersistent,dirty,busy,save,message}:any){
+export default function PreferencesEditor({data,memberId,dates,setDates,persistent,setPersistent,dirty,busy,save,message,readOnly=false}:any){
  const [mobile,setMobile]=useState(false),[expanded,setExpanded]=useState(false);
  const panel=useRef<HTMLElement>(null),review=useRef<HTMLButtonElement>(null);
  const member=data.members.find((m:any)=>m.id===memberId);
@@ -54,6 +54,7 @@ export default function PreferencesEditor({data,memberId,dates,setDates,persiste
   <header className="preference-editor-head"><div><span className="eyebrow">TU LISTA ORDENADA</span><h2 id="preferences-title">Preferencias de {member?.code}</h2></div>{mobile&&<button type="button" className="secondary" onClick={()=>setExpanded(false)} aria-label="Cerrar revisión de preferencias">Cerrar</button>}</header>
   <div className="preference-editor-body">
    <p className={'preference-state '+(dirty?'pending':'saved')}>{status}</p>
+   {readOnly&&<p className="muted">Puedes añadir, quitar y reordenar ciclos para probar la interfaz. La campaña real no se modificará.</p>}
    <p>La posición 1 es tu primera opción. Se probarán en este orden al llegar tu turno.</p>
    {!dates.length&&<div className="preference-empty"><strong>Empieza por tu ciclo favorito</strong><p>Añade alternativas desde el calendario. Después revisa el orden y guarda tu lista.</p></div>}
    {existing?.active===false&&dates.length>0&&<p className="muted">Esta lista ya se utilizó. Vuelve a guardarla para autorizar su uso en tu próximo turno.</p>}
@@ -65,7 +66,7 @@ export default function PreferencesEditor({data,memberId,dates,setDates,persiste
    <label className="preference-consent"><input type="checkbox" disabled={busy} checked={persistent} onChange={e=>setPersistent(e.target.checked)}/> Mantener estas preferencias en todas las rondas restantes</label>
    <p className="muted">Sin marcar: solo el próximo turno efectivo, incluso si aplazas. {data.election.state?.automaticPaused?'Los automatismos están detenidos. Guardar conserva la lista sin adjudicar; el responsable debe reanudarlos.':'Guardar autoriza la asignación automática; si ya es tu turno, puede ser inmediata.'}</p>
   </div>
-  <footer className="preference-editor-footer"><span className={'preference-state '+(dirty?'pending':'saved')}>{status}</span><div className="preference-feedback" role="status" aria-live="polite" aria-atomic="true">{message}</div><button type="button" className="primary" disabled={busy||(!dirty&&existing?.active!==false)} onClick={save}>{busy?'Guardando…':'Guardar preferencias'}</button></footer>
+  <footer className="preference-editor-footer"><span className={'preference-state '+(dirty?'pending':'saved')}>{status}</span><div className="preference-feedback" role="status" aria-live="polite" aria-atomic="true">{message}</div><button type="button" className="primary" disabled={busy||readOnly||(!dirty&&existing?.active!==false)} onClick={save}>{readOnly?'Guardado desactivado':busy?'Guardando…':'Guardar preferencias'}</button></footer>
  </section>;
  return <>
   {mobile?<>

@@ -114,7 +114,7 @@ export class ReconstructionService{
  }
  async view(d:any,raw:{state:ElectionState|null;preferences:Preference[]}){
   const s=await this.read(d.campaign.id);
-  if(!canWrite(this.actor,d.campaign.team_id))return {active:!!s&&s.status!=='completed'};
+  if(this.actor.preview||!canWrite(this.actor,d.campaign.team_id))return {active:!!s&&s.status!=='completed'};
   const candidates=await this.candidates(d);
   if(!s)return {active:false,candidates};
   const active=s.status!=='completed',state=raw.state;
@@ -129,6 +129,7 @@ export class ReconstructionService{
  }
  async mutate(d:any,raw:{state:ElectionState|null;preferences:Preference[]},body:any){
   const c=d.campaign,cid=c.id,action=body.action;
+  if(this.actor.preview)throw new ApiError('La vista previa no permite reconstrucciones administrativas',403);
   if(!canWrite(this.actor,c.team_id))throw new ApiError('Solo un administrador del equipo puede reconstruir elecciones',403);
   if(c.status!=='open')throw new ApiError('La campaña está cerrada');
   if(body.version!==c.version)throw new ApiError('Otro administrador modificó la campaña. Actualiza la pantalla.',409);
