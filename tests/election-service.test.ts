@@ -4,7 +4,17 @@ import {Service} from '../server/service.ts';
 import {SQLiteRepo} from './sqlite-repo.ts';
 const owner={id:'chatgpt:owner',role:'superadmin' as const,teams:[]},visitor={id:'chatgpt:person',emailKey:'chatgpt-email:person@example.test',role:'viewer' as const,teams:[]};
 async function setup(){const repo=new SQLiteRepo(),s=new Service(repo,owner);await s.init();const cid=(await s.list()).campaigns.find(c=>c.team_id==='C').id;let d=await s.view(cid);d=await s.mutate(cid,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:[{code:'AA',label:'Nombre privado A',seniority:''},{code:'BB',label:'Nombre privado B',seniority:''},{code:'CC',label:'Nombre privado C',seniority:''}]}});return {repo,s,cid,d,person:new Service(repo,visitor)};}
-async function act(s:Service,cid:string,body:any){await s.election().mutate(cid,{...body,version:(await s.load(cid)).campaign.version});return s.view(cid);}
+// actOne exercises the atomic API operation; act mimics the browser draining pending turns.
+async function actOne(s:Service,cid:string,body:any){
+ await s.election().mutate(cid,{...body,version:(await s.load(cid)).campaign.version});
+ return s.view(cid);
+}
+async function act(s:Service,cid:string,body:any){
+ let next=await actOne(s,cid,body);
+ if(!['election_undo','election_redo','pause','link_account','resolve_tie'].includes(body.action))
+  for(let step=0;step<100&&next.election.pendingAutomatic;step++)next=await actOne(s,cid,{action:'advance'});
+ return next;
+}
 const start=(d:any,order=d.members.map((m:any)=>m.id))=>({action:'start',order,source:'Orden histórico confirmado por administrador',rulesConfirmed:true,allowDeferral:true});
 test('listas propias y administración delegada, con turno y permisos comprobados en servidor',async()=>{
  const {s,cid,d,person}=await setup(),[a,b]=d.members,date=d.result.cycles[0].date;
@@ -50,7 +60,7 @@ test('varios undo y redo pueden intercalarse; una elección alternativa crea ram
  const second=await act(s,cid,{action:'choose',memberId:ids[1],dates:[dates[1]]});
  const third=await act(s,cid,{action:'choose',memberId:ids[2],dates:[dates[2]]});
  const snapshot=(v:any)=>({
-  state:v.election.state,
+  state:v.election.state?(({automaticPaused,...state}:any)=>state)(v.election.state):null,
   awards:v.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),
   requests:v.requests.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),
  });
@@ -86,10 +96,89 @@ test('una preferencia siguiente turno se consume y puede recuperarse con undo/re
  const completed=current;
  current=await act(s,cid,{action:'election_undo',historyId:current.election.undo});
  assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,true);
- assert.equal(current.awards.length,0);
+ assert.equal(current.election.state.automaticPaused,true);
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id),[a.id]);
+ assert.equal(current.election.turn.memberId,b.id);
  current=await act(s,cid,{action:'election_redo',historyId:current.election.redo});
  assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,false);
  assert.deepEqual(current.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),completed.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort());
+});
+
+test('cada adjudicación automática tiene un undo propio, no arrastra el turno manual previo',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((x:any)=>x.date);
+ await actOne(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]],persistent:false});
+ await actOne(s,cid,{action:'preferences',memberId:c.id,dates:[dates[2]],persistent:false});
+ await actOne(s,cid,start(d));
+ let current=await actOne(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id),[a.id]);
+ assert.equal(current.election.pendingAutomatic,true);
+ current=await actOne(s,cid,{action:'advance'});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id).sort(),[a.id,b.id].sort());
+ assert.equal(current.election.turn.memberId,c.id);
+ current=await actOne(s,cid,{action:'advance'});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id).sort(),[a.id,b.id,c.id].sort());
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===c.id).active,false);
+ current=await actOne(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id).sort(),[a.id,b.id].sort());
+ assert.equal(current.election.turn.memberId,c.id);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===c.id).active,true);
+ assert.equal(current.election.state.automaticPaused,true);
+ assert.equal(current.election.pendingAutomatic,false);
+ const beforeVersion=current.campaign.version;
+ await actOne(s,cid,{action:'advance'}); // Paused: no change and no extra audit.
+ assert.equal((await s.view(cid)).campaign.version,beforeVersion);
+ const alternative=dates[4];
+ current=await actOne(s,cid,{action:'choose',memberId:c.id,dates:[alternative]});
+ assert.deepEqual(current.awards.filter((x:any)=>x.member_id===c.id).map((x:any)=>x.cycle_date),[alternative]);
+ assert.equal(current.election.redo,null);
+ assert.equal(current.election.state.automaticPaused,true);
+ current=await actOne(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.election.turn.memberId,c.id);
+ assert.equal(current.election.state.automaticPaused,true);
+ current=await actOne(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.deepEqual(current.awards.filter((x:any)=>x.member_id===c.id).map((x:any)=>x.cycle_date),[alternative]);
+});
+test('deshacer automáticas sucesivas y rehacerlas intercaladas restaura preferencias y cupos',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((x:any)=>x.date);
+ await actOne(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]],persistent:false});
+ await actOne(s,cid,{action:'preferences',memberId:c.id,dates:[dates[2]],persistent:false});
+ await actOne(s,cid,start(d));
+ await actOne(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ const bChoice=await actOne(s,cid,{action:'advance'});
+ const cChoice=await actOne(s,cid,{action:'advance'});
+ let current=await actOne(s,cid,{action:'election_undo',historyId:cChoice.election.undo});
+ current=await actOne(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id),[a.id]);
+ assert.equal(current.election.turn.memberId,b.id);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,true);
+ current=await actOne(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id).sort(),[a.id,b.id].sort());
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===b.id).active,false);
+ current=await actOne(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id),[a.id]);
+ current=await actOne(s,cid,{action:'election_redo',historyId:current.election.redo});
+ current=await actOne(s,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.deepEqual(current.awards.map((x:any)=>x.member_id).sort(),[a.id,b.id,c.id].sort());
+ assert.equal(current.requests.length,3);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===c.id).active,false);
+ assert.equal(current.election.state.automaticPaused??false,false);
+ assert.notEqual(bChoice.election.undo,cChoice.election.undo);
+});
+test('solo administradores reanudan automatismos; reanudar permite adjudicar tras revisar',async()=>{
+ const {repo,s,cid,d,person}=await setup(),[a,b]=d.members,dates=d.result.cycles.map((x:any)=>x.date);
+ await actOne(s,cid,{action:'preferences',memberId:a.id,dates:[dates[0]],persistent:true});
+ await actOne(s,cid,start(d));
+ let current=await actOne(s,cid,{action:'advance'});
+ assert.equal(current.awards.length,1);
+ current=await actOne(s,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.election.state.automaticPaused,true);
+ await assert.rejects(actOne(person,cid,{action:'resume_automatic'}),/vinculada|responsable/);
+ current=await actOne(s,cid,{action:'resume_automatic'});
+ assert.equal(current.election.state.automaticPaused,false);
+ assert.equal(current.election.pendingAutomatic,true);
+ current=await actOne(s,cid,{action:'advance'});
+ assert.equal(current.awards.length,1);
+ assert.equal(current.awards[0].cycle_date,dates[0]);
 });
 test('aplazar no consume una lista que se guarda antes del siguiente turno efectivo',async()=>{
  const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);

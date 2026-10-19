@@ -81,10 +81,13 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
    dates:[date],automatic:true,
   });
 
-  await election(request,cloned.id,{
+  const started=await election(request,cloned.id,{
    action:'start',order:[own.id,...simulation.members.filter((m:any)=>m.id!==own.id).map((m:any)=>m.id)],
    source:'Orden ficticio para probar la doble función',rulesConfirmed:true,allowDeferral:false,
   });
+  // Every automatic turn is a separate request with an independent undo step.
+  expect(started.election.pendingAutomatic).toBe(true);
+  await election(request,cloned.id,{action:'advance'});
   await page.reload();
   await page.getByLabel('Escenario',{exact:true}).selectOption(cloned.id);
   // Starting the election applies this previously saved list immediately.
