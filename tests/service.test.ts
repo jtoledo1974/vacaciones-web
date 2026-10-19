@@ -80,3 +80,38 @@ test('roles ChatGPT por correo autenticado, sin heredar permisos entre proveedor
  assert.equal(fakeFirebase.emailKey,undefined);
  await assert.rejects(s.configureUser({provider:'chatgpt',subject:'not-an-email',role:'team_admin',teams:['B'],version:0}),/válidos/);
 });
+
+test('borrar una simulación elimina sus dependencias sin tocar la campaña real y exige superadministrador y versión',async()=>{
+ const {s,repo,cid}=await setup();
+ const realBefore=await s.load(cid);
+ const peopleBefore=(await repo.all<{n:number}>('SELECT COUNT(*) AS n FROM people'))[0].n;
+ const created=await s.createSimulation(cid,{name:'Borrado seguro',version:realBefore.campaign.version});
+ let d=await s.view(created.id);
+ const member=d.members[0],date=d.result.cycles[0].date;
+ d=await s.mutate(created.id,{action:'request',version:d.campaign.version,memberId:member.id,slot:1,date});
+ d=await s.mutate(created.id,{action:'award',version:d.campaign.version,memberId:member.id,date});
+ d=await s.mutate(created.id,{action:'calculate',version:d.campaign.version});
+ await repo.batch([
+  {sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?)',args:[member.id,created.id,JSON.stringify([date]),0,0,1]},
+  {sql:'INSERT INTO election_states(campaign_id,json) VALUES(?,?)',args:[created.id,'{}']}
+ ]);
+ const teamAdmin=new Service(repo,{id:'chatgpt:team-admin',role:'team_admin',teams:['C']});
+ await assert.rejects(teamAdmin.deleteSimulation(created.id,{version:d.campaign.version}),/superadministrador/);
+ await assert.rejects(s.deleteSimulation(cid,{version:realBefore.campaign.version}),/campaña real/);
+ await assert.rejects(s.deleteSimulation(created.id,{version:d.campaign.version-1}),/cambió/);
+ assert.equal((await repo.all('SELECT * FROM runs WHERE campaign_id=?',[created.id])).length,1);
+ const temporaryPerson=crypto.randomUUID();
+ await repo.batch([
+  {sql:'INSERT INTO people(id,team_id,code,seniority) VALUES(?,?,?,?)',args:[temporaryPerson,'C','C_SIM_ONLY','']},
+  {sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,seniority) VALUES(?,?,?,?,?)',args:[crypto.randomUUID(),created.id,temporaryPerson,'SIM_ONLY','']}
+ ]);
+ await s.deleteSimulation(created.id,{version:d.campaign.version});
+ for(const table of ['campaigns','parameters','campaign_members','requests','awards','runs','preferences','election_states','audit']){
+  const column=table==='campaigns'?'id':'campaign_id';
+  assert.equal((await repo.all(`SELECT * FROM ${table} WHERE ${column}=?`,[created.id])).length,0,table);
+ }
+ assert.equal((await repo.all<{n:number}>('SELECT COUNT(*) AS n FROM people'))[0].n,peopleBefore);
+ assert.deepEqual(await s.load(cid),realBefore);
+ assert.equal((await s.list()).campaigns.some((c:any)=>c.id===created.id),false);
+ assert.equal((await repo.all("SELECT * FROM audit WHERE action='simulation_deleted' AND campaign_id IS NULL")).length,1);
+});

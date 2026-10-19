@@ -25,6 +25,7 @@ function download(name: string, text: string, type = 'application/json') { const
 function Dashboard() {
     const confirm=useConfirmation();
     const [index, setIndex] = useState<any>(null), [data, setData] = useState<any>(null), [cid, setCid] = useState(''), [nav, setNav] = useState('eleccion'), [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false), [admin, setAdmin] = useState<any>(null), [menu, setMenu] = useState(false), [identity, setIdentity] = useState(''),[signinUrl,setSigninUrl]=useState('/signin-with-chatgpt?return_to=/');
+    const [yearChoice,setYearChoice]=useState<number|null>(null);
     const [firebaseEnabled,setFirebaseEnabled]=useState(false);
     const [localAdminEnabled,setLocalAdminEnabled]=useState(false);
     const [syncState,setSyncState]=useState<'ready'|'checking'|'offline'>('checking');
@@ -54,7 +55,7 @@ function Dashboard() {
        loadIndex().then(i=>{
         const selected=currentCid.current;
         if(selected&&!i.campaigns.some((x:any)=>x.id===selected))
-          setCid(i.campaigns.find((x:any)=>x.scope_key==='live')?.id??'');
+          setCid('');
         else if(selected)api('campaign/'+selected).then(next=>{if(active)setData(next);}).catch(()=>{});
        }).catch(()=>{});
       });
@@ -65,15 +66,19 @@ function Dashboard() {
        if(!active)return;
        const p=new URLSearchParams(location.search);
        setSigninUrl('/signin-with-chatgpt?return_to='+encodeURIComponent(location.pathname+location.search));
-       const personal=!p.has('equipo')?i.campaigns.find((x:any)=>x.scope_key==='live'&&i.myCampaignIds.includes(x.id)&&(!p.get('year')||String(x.year)===p.get('year'))):null;
-       const found=personal??i.campaigns.find((x:any)=>x.scope_key==='live'&&x.team_id===(p.get('equipo')??'C')&&(!p.get('year')||String(x.year)===p.get('year')));
-       setCid(found?.id??i.campaigns[0]?.id??'');
+       const live=i.campaigns.filter((x:any)=>x.scope_key==='live');
+       const requestedYear=p.get('year')?Number(p.get('year')):null;
+       const defaultYear=live.length?Math.max(...live.map((x:any)=>x.year)):2026;
+       const personal=!p.has('equipo')?live.find((x:any)=>i.myCampaignIds.includes(x.id)&&(!requestedYear||x.year===requestedYear)):null;
+       const found=personal??(p.has('equipo')?live.find((x:any)=>x.team_id===p.get('equipo')&&(!requestedYear||x.year===requestedYear)):null);
+       setYearChoice(found?.year??requestedYear??defaultYear);
+       setCid(found?.id??'');
       }).catch(e=>{if(active)setError(e.message);});
       readSession();
       return ()=>{active=false;unregister();};
     },[]);
     useEffect(() => {
-        if(!cid)return;
+        if(!cid){setData(null);return;}
         let cancelled=false;
         setData(null);
         api('campaign/'+cid).then(d=>{
@@ -104,7 +109,7 @@ function Dashboard() {
           setData((previous:any)=>previous?.campaign.id===next.campaign.id&&previous.campaign.version>next.campaign.version?previous:next);
          }
          if(current&&!newIndex.campaigns.some((x:any)=>x.id===current))
-          setCid(newIndex.campaigns.find((x:any)=>x.scope_key==='live')?.id??'');
+          setCid('');
         }
         setSyncState('ready');
        }catch(e){
@@ -160,7 +165,7 @@ function Dashboard() {
     const superuser = index?.principal.role === 'superadmin', write = data?.editable && data?.campaign.status === 'open';
     const roleLabel = superuser ? 'Superadministrador' : index?.principal.role === 'team_admin' ? 'Responsable de equipo' : index?.myCampaignIds?.length ? 'Controlador' : 'Solo lectura';
     const sessionDetails = {loaded:sessionLoaded,subject:identity,email:sessionEmail,provider:sessionProvider,role:roleLabel,signinUrl};
-    const team = data?.campaign.team_id ?? 'C', year = data?.campaign.year ?? 2026, result = data?.result;
+    const team = data?.campaign.team_id ?? '', year = data?.campaign.year ?? yearChoice ?? Math.max(2026,...(index?.campaigns??[]).filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)), result = data?.result;
     const links = [['eleccion', 'Vacaciones', CalendarDays], ...(superuser ? [['administracion', 'Administración', ShieldCheck] as const] : []), ['ayuda','Ayuda',BookOpen]] as const;
     async function go(n: string) { setNav(n); setMenu(false); if (n === 'administracion' && superuser) {
         try {
@@ -189,9 +194,36 @@ function Dashboard() {
         <button className="menu-mobile" onClick={() => setMenu(true)} aria-label="Abrir menú"><Menu /></button>
         <span>Equipos <ChevronRight size={13}/> <b>{nav==='eleccion'?'Vacaciones':nav==='administracion'?'Administración':'Ayuda'}</b></span>
         <HeaderSession {...sessionDetails} onOpenMenu={()=>{setMenu(true);document.getElementById('session-account')?.scrollIntoView({block:'start',behavior:'smooth'});}}/>
-      </header><div className="content"><div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : 'Administración general'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors"><label>Ejercicio<select aria-label="Ejercicio" value={year} onChange={e => setCid(index.campaigns.find((c: any) => c.year === Number(e.target.value) && c.team_id === team && c.scope_key==="live")?.id ?? '')}>{Array.from(new Set(index?.campaigns.map((c: any) => c.year) ?? [2026])).map((y: any) => <option key={y}>{y}</option>)}</select></label><label>Equipo<select aria-label="Equipo" value={team} onChange={e => setCid(index.campaigns.find((c: any) => c.team_id === e.target.value && c.year === year && c.scope_key==="live")?.id ?? '')}>{(index?.teams ?? 'ABCDEFGH'.split('').map(id => ({ id, name: 'Equipo ' + id }))).map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label>{superuser&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={e=>setCid(e.target.value)}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}</div></div>
+      </header><div className="content"><div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : 'Administración general'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors">
+        <label>Ejercicio<select aria-label="Ejercicio" value={year} onChange={e=>{
+            const selectedYear=Number(e.target.value);setYearChoice(selectedYear);
+            if(team)setCid(index.campaigns.find((c:any)=>c.year===selectedYear&&c.team_id===team&&c.scope_key==='live')?.id??'');
+            else{const u=new URL(location.href);u.searchParams.set('year',String(selectedYear));history.replaceState({},'',u);}
+        }}>{Array.from(new Set(index?.campaigns.filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)??[2026])).map((y:any)=><option key={y} value={y}>{y}</option>)}</select></label>
+        <label>Equipo<select aria-label="Equipo" value={team} onChange={e=>{
+            const nextTeam=e.target.value;
+            if(!nextTeam){setCid('');const u=new URL(location.href);u.searchParams.delete('equipo');history.replaceState({},'',u);}
+            else setCid(index.campaigns.find((c:any)=>c.team_id===nextTeam&&c.year===year&&c.scope_key==='live')?.id??'');
+        }}><option value="">Selecciona un equipo</option>{(index?.teams??'ABCDEFGH'.split('').map(id=>({id,name:'Equipo '+id}))).map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
+        {superuser&&data&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={e=>setCid(e.target.value)}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}
+        {superuser&&data&&nav==='administracion'&&<button type="button" className="secondary scenario-create" onClick={()=>{
+            const advanced=document.querySelector('details.admin-advanced') as HTMLDetailsElement|null;
+            if(advanced)advanced.open=true;
+            document.getElementById('simulations-panel')?.scrollIntoView({behavior:'smooth',block:'center'});
+        }}><Plus size={15}/>Nueva simulación</button>}
+        {superuser&&data?.campaign.scope_key!=='live'&&data&&<details className="scenario-actions"><summary aria-label="Opciones de simulación" title="Opciones de simulación">···</summary><button type="button" disabled={busy} onClick={async e=>{
+            e.currentTarget.closest('details')?.removeAttribute('open');
+            if(!await confirm(`¿Eliminar definitivamente la simulación «${data.campaign.simulation_name}»? Se borrarán sus elecciones, preferencias e historial. La campaña real no cambiará.`))return;
+            await perform(async()=>{
+                await api('simulations/'+cid,{action:'delete',version:data.campaign.version});
+                const live=index.campaigns.find((c:any)=>c.team_id===team&&c.year===year&&c.scope_key==='live');
+                setData(null);setCid(live?.id??'');
+                return {ok:true};
+            },'Simulación eliminada');
+        }}>Eliminar simulación</button></details>}
+        </div></div>
     {error && <div className="alert error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar error">×</button></div>}{notice && <div className="alert success" role="status">{notice}</div>}
-        {nav === 'ayuda' ? <Help/> : !index ? <div className="panel empty">Cargando el espacio de trabajo…</div> : !index.teams.length ? <div className="panel empty"><Layers size={36}/><h2>Tu espacio de vacaciones</h2><p>Prepara ocho equipos y una campaña de prueba de 2026.<br />Todos los identificadores iniciales son ficticios.</p>{superuser ? <button className="primary" disabled={busy} onClick={() => perform(async () => { const i = await api('initialize', {}); setCid(i.campaigns.find((c: any) => c.team_id === 'C')?.id); return i; }, 'Espacio de prueba preparado')}>Preparar campaña de prueba <ArrowUpRight size={16}/></button> : <p>Un superadministrador debe preparar la primera campaña.</p>}</div> : !data ? <div className="panel empty">Cargando campaña…</div> : <>
+        {nav === 'ayuda' ? <Help/> : !index ? <div className="panel empty">Cargando el espacio de trabajo…</div> : !index.teams.length ? <div className="panel empty"><Layers size={36}/><h2>Tu espacio de vacaciones</h2><p>Prepara ocho equipos y una campaña de prueba de 2026.<br />Todos los identificadores iniciales son ficticios.</p>{superuser ? <button className="primary" disabled={busy} onClick={() => perform(async () => { const i = await api('initialize', {}); setCid(''); return i; }, 'Espacio de prueba preparado')}>Preparar campaña de prueba <ArrowUpRight size={16}/></button> : <p>Un superadministrador debe preparar la primera campaña.</p>}</div> : !cid ? <div className="panel empty"><Layers size={36}/><h2>Selecciona un equipo</h2><p>Elige el equipo y ejercicio que quieres consultar.</p></div> : !data ? <div className="panel empty">Cargando campaña…</div> : <>
         <div className="campaign-strip"><span><span className={'status-dot ' + data.campaign.status}/><b>Equipo {team} · {year}</b><span className="status">{labels[data.campaign.status]}</span>{data.campaign.scope_key!=="live"&&<span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>}{data.campaign.data_kind==="demo"&&<span className="tag">Datos de ejemplo</span>}</span><span>{data.editable ? 'Área de gestión' : 'Solo lectura'} <span className="separator">/</span> {'Ocupación actual · Consulta pública'} <span className="separator">/</span> <span aria-live="polite">{syncState==='offline'?'Sin conexión · reintentando':syncState==='checking'?'Conectando…':'Actualización automática · hasta 5 s'}</span></span></div>
         {nav === 'eleccion' && <><ElectionWorkspace key={cid} data={data} busy={busy} act={mutateElection} legacy={mutate} identity={identity} superuser={superuser} signinUrl={signinUrl}/><section className="panel"><h2>Compartir y exportar</h2><div className="button-row"><button className="secondary" onClick={() => { const url = new URL(location.href); url.searchParams.set('equipo', team); url.searchParams.set('year', year); navigator.clipboard.writeText(url.toString()).then(() => setNotice('Enlace copiado')); }}>Copiar enlace de consulta</button><button className="secondary" onClick={() => { const rows = [['identificador', 'fecha', 'baremo'], ...data.awards.map((a: any) => [data.members.find((m: any) => m.id === a.member_id)?.code, a.cycle_date, result.cycles.find((c: any) => c.date === a.cycle_date)?.score])]; download(`vacaciones-${team}-${year}.csv`, rows.map(r => r.map((s: any) => '"' + String(s ?? '').replaceAll('"', '""') + '"').join(',')).join('\r\n'), 'text/csv'); }}>Exportar adjudicaciones CSV</button></div></section></>}
 

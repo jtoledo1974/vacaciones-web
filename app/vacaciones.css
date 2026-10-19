@@ -13,7 +13,15 @@
 
 .election-turn{display:flex;justify-content:space-between;gap:24px;align-items:center}.election-turn h2{margin:8px 0}.election-turn p{max-width:660px}.election-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}.election-layout .calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.election-side{min-width:0}.election-history{margin:0 0 20px}.turn-list{padding-left:24px;margin:16px 0}.turn-list li{padding:9px 6px;border-bottom:1px solid #edf0ef}.turn-list li span{display:block;font-size:12px;color:#64766d;margin-top:3px}.turn-list .current-turn{background:#e6f2ec;border-radius:6px}.preference-list{padding-left:24px}.preference-list li{padding:9px 0;border-bottom:1px solid #edf0ef}.preference-list li>div{display:flex;gap:4px;margin-top:5px}.preference-consent{display:flex!important;flex-direction:row!important;gap:10px;align-items:start;line-height:1.4;margin:18px 0}.preference-consent input{width:auto!important}.preference-member{max-width:380px;margin-bottom:20px;display:flex;flex-direction:column;gap:8px}.cycle-selection .person-chip{margin:4px}.election-layout .panel{padding:24px}details.panel>summary{cursor:pointer;font-weight:650;margin-bottom:12px}details.panel textarea{width:100%;margin:12px 0}details.panel form>label{display:flex;flex-direction:column;gap:8px;margin:16px 0}@media(max-width:1200px){.election-layout{grid-template-columns:minmax(0,1fr) 280px}.election-layout .calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.election-layout{grid-template-columns:1fr}.election-turn{display:block}.election-turn .button-row{margin-top:16px}.election-side{display:grid;grid-template-columns:1fr 1fr;gap:16px}}@media(max-width:600px){.election-side{display:block}.election-layout .calendar-grid{grid-template-columns:1fr 1fr}.election-layout .panel{padding:16px}.day{min-width:0}}@media(max-width:390px){.election-layout .calendar-grid{grid-template-columns:1fr}}
 
-.simulation-tag{background:#eee8fa;color:#65488a}.selectors{flex-wrap:wrap}
+.simulation-tag{background:#eee8fa;color:#65488a}.selectors{flex-wrap:wrap;align-items:flex-end}
+.selectors .scenario-create{align-self:flex-end;min-height:39px}
+.selectors .scenario-actions{position:relative;align-self:flex-end;border:0;margin:0;padding:0;z-index:4}
+.scenario-actions>summary{list-style:none;display:grid;place-items:center;cursor:pointer;border:1px solid #dce5df;border-radius:7px;background:#fff;color:#405d4a;font-size:21px;width:39px;height:39px}
+.scenario-actions>summary::-webkit-details-marker{display:none}
+.scenario-actions>summary:focus-visible{outline:3px solid #82bcb0;outline-offset:3px}
+.scenario-actions>button{position:absolute;right:0;top:43px;width:max-content;background:#fff;color:#a03f34;border:1px solid #e1cfca;box-shadow:0 8px 22px #142a2c20;border-radius:7px;padding:12px 15px;z-index:5}
+.scenario-actions>button:hover{background:#fff1ed}
+@media(max-width:580px){.selectors .scenario-create{white-space:normal}}
 
 .cycle-selection{position:sticky;top:82px;z-index:2;box-shadow:0 8px 24px #183a2920}.election-side{position:sticky;top:82px;max-height:calc(100vh - 96px);overflow:auto}@media(max-width:900px){.election-side{position:static;max-height:none;overflow:visible}.cycle-selection{top:72px}}
 
