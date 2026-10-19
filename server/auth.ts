@@ -1,6 +1,7 @@
 import {getChatGPTUser} from '../app/chatgpt-auth';
 import type {Identity} from './permissions';
 import {verifyFirebaseIdToken} from './firebase-auth';
+import {localAdminIdentity,type LocalAdminConfig} from './local-admin.ts';
 
 export interface Authenticator {
  authenticate(request:Request):Promise<Identity>;
@@ -14,7 +15,7 @@ export const sitesAuthenticator:Authenticator={
 };
 
 /** A valid Firebase bearer ID token takes precedence; absent it, Sites remains available. */
-export function federatedAuthenticator(firebaseProjectId:string):Authenticator{
+export function federatedAuthenticator(firebaseProjectId:string,localConfig:LocalAdminConfig={},repo:import('./repository').Repository):Authenticator{
  return {
   async authenticate(request){
    const authorization=request.headers.get('authorization');
@@ -24,7 +25,9 @@ export function federatedAuthenticator(firebaseProjectId:string):Authenticator{
     try{return await verifyFirebaseIdToken(token,firebaseProjectId);}
     catch{throw Object.assign(new Error('La sesión Firebase ha caducado o no es válida'),{status:401});}
    }
-   return sitesAuthenticator.authenticate(request);
+   const local=await localAdminIdentity(request,localConfig,repo);
+   return local??sitesAuthenticator.authenticate(request);
   }
  };
 }
+

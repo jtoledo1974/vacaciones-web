@@ -13,7 +13,7 @@ const id = () => crypto.randomUUID(), now = () => new Date().toISOString();
 function checkedConfig(config:Config,year:number){try{return validateConfig(config,year);}catch(e:any){throw new ApiError(e.message??'Parámetros no válidos');}}
 function checkedDate(value:string){try{return serial(value);}catch{throw new ApiError('Fecha no válida');}}
 export async function principal(repo: Repository, identity: Identity, superEmails: string): Promise<Principal> { if (!identity)
-    return { id: null, role: 'viewer', teams: [] }; const key = identity.provider + ':' + identity.subject; if ((identity.provider==='chatgpt'||identity.emailVerified===true)&&superEmails.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(identity.email.toLowerCase()))
+    return { id: null, role: 'viewer', teams: [] }; const key = identity.provider + ':' + identity.subject; if(identity.provider==='local_admin')return {id:key,role:'superadmin',teams:[]}; if ((identity.provider==='chatgpt'||identity.emailVerified===true)&&superEmails.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(identity.email.toLowerCase()))
     return { id: key, role: 'superadmin', teams: [] }; const user = (await repo.all('SELECT * FROM users WHERE provider=? AND subject=?', [identity.provider, identity.subject]))[0]; if (!user)
     return { id: key, role: 'viewer', teams: [] }; return { id: key, role: user.role === 'team_admin' ? 'team_admin' : 'viewer', teams: (await repo.all('SELECT team_id FROM grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)', [user.id, now()])).map(g => g.team_id) }; }
 export class Service {
@@ -333,6 +333,8 @@ export class Service {
         if (!b?.payload || b.payload.format !== 'vacaciones-backup-v1' || b.sha256 !== await digest(JSON.stringify(b.payload)))
             throw new ApiError('Copia inválida o integridad incorrecta');
         const tables={...b.payload.tables}; for(const key of ['preferences','election_states','controller_accounts'])if(tables[key]===undefined)tables[key]=[];
+        // Restoring a backup must never resurrect a previously revoked session.
+        if(Array.isArray(tables.audit))tables.audit=tables.audit.map((r:any)=>r.action==='local_admin_session'?{...r,action:'local_admin_session_revoked'}:r);
         const names = Object.keys(tableColumns);
         if (names.some(n => !Array.isArray(tables[n])) || Object.keys(tables).some(n => !names.includes(n)))
             throw new ApiError('Tablas no válidas');
@@ -365,6 +367,7 @@ export class Service {
     }
 }
 async function digest(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
+
 
 
 
