@@ -29,12 +29,22 @@ test('password administration, invalid login, CSRF, bearer precedence, isolation
  expect((await anonymous.request.post('/api/campaigns',{data:{year:2027},headers:{Origin:origin}})).status()).toBe(401);
  const replay=await browser.newContext({storageState:await page.context().storageState()});
  expect((await api.post('/api/local-admin/logout',{data:{},headers:{Origin:'https://evil.test'}})).status()).toBe(403);
- if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
- await page.getByRole('button',{name:'Administración',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Campañas anuales'})).toBeVisible();
- if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
- await page.getByRole('button',{name:'Cerrar sesión de administrador local',exact:true}).click();
- await expect.poll(async()=>(await (await api.get('/api/session')).json()).principal.role).toBe('viewer');
- expect((await replay.request.get('/api/admin')).status()).toBe(403);
+ await test.step('Abrir panel de administración local',async()=>{
+  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())
+   await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
+  const administration=page.getByRole('button',{name:'Administración',exact:true});
+  await expect(administration).toBeVisible({timeout:8_000});
+  await administration.click({timeout:8_000});
+  await expect(page.getByRole('heading',{name:'Campañas anuales'})).toBeVisible({timeout:8_000});
+ });
+ await test.step('Cerrar sesión local y rechazar reutilización de cookie',async()=>{
+  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())
+   await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
+  const logout=page.getByRole('button',{name:'Cerrar sesión de administrador local',exact:true});
+  await expect(logout).toBeVisible({timeout:8_000});
+  await logout.click({timeout:8_000});
+  await expect.poll(async()=>(await (await api.get('/api/session')).json()).principal.role).toBe('viewer');
+  expect((await replay.request.get('/api/admin')).status()).toBe(403);
+ });
  await anonymous.close();await replay.close();
 });

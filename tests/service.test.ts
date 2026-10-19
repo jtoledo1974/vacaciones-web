@@ -115,3 +115,39 @@ test('borrar una simulación elimina sus dependencias sin tocar la campaña real
  assert.equal((await s.list()).campaigns.some((c:any)=>c.id===created.id),false);
  assert.equal((await repo.all("SELECT * FROM audit WHERE action='simulation_deleted' AND campaign_id IS NULL")).length,1);
 });
+
+test('vista como controlador: solo superadmin, datos de un miembro y campaña real de lectura', async () => {
+ const {repo,s,cid}=await setup();
+ const {resolveControllerPreview}=await import('../server/controller-preview.ts');
+ const d=await s.load(cid),member=d.members[0];
+ await assert.rejects(resolveControllerPreview(repo,{id:'cta',role:'viewer',teams:[]},cid,member.code),/superadministrador/);
+ await assert.rejects(resolveControllerPreview(repo,superuser,cid,'INEXISTENTE'),/no encontrado/);
+ const preview=await resolveControllerPreview(repo,superuser,cid,member.code.toLowerCase());
+ assert.equal(preview.writable,false);
+ assert.equal(preview.actor.role,'viewer');
+ const service=new Service(repo,preview.actor);
+ const view=await service.view(cid);
+ assert.equal(view.preview.code,member.code);
+ assert.equal(view.election.myMemberId,member.id);
+ assert.deepEqual(view.election.preferenceMemberIds,[member.id]);
+ assert.equal(view.election.canManage,false);
+ assert.equal(view.editable,false);
+ await assert.rejects(service.election().mutate(cid,{action:'preferences',memberId:member.id,dates:[],version:d.campaign.version}),/no permite guardar/);
+});
+test('vista como controlador: guarda preferencias propias solo en simulación sin tocar la campaña real', async () => {
+ const {repo,s,cid}=await setup();
+ const {resolveControllerPreview}=await import('../server/controller-preview.ts');
+ const live=await s.load(cid);
+ const created=await s.createSimulation(cid,{version:live.campaign.version,name:'Prueba UX',copyPreferences:true});
+ const sim=await s.load(created.id),member=sim.members[0],other=sim.members[1];
+ const preview=await resolveControllerPreview(repo,superuser,created.id,member.code);
+ assert.equal(preview.writable,true);
+ const service=new Service(repo,preview.actor);
+ const dates=[(await service.view(created.id)).result.cycles[0].date];
+ await service.election().mutate(created.id,{action:'preferences',memberId:member.id,dates,version:sim.campaign.version});
+ const view=await service.view(created.id);
+ assert.deepEqual(view.election.preferences.map((p:any)=>p.member_id),[member.id]);
+ assert.deepEqual(view.election.preferences[0].dates,dates);
+ assert.equal((await s.load(cid)).campaign.version,live.campaign.version);
+ await assert.rejects(service.election().mutate(created.id,{action:'preferences',memberId:other.id,dates,version:view.campaign.version}),/Solo puedes modificar tus propias preferencias/);
+});

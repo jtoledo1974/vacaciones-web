@@ -17,3 +17,15 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   event.waitUntil(self.clients.openWindow(event.notification.data?.url || "/"));
 });
+
+self.addEventListener("push", event => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch { payload = {}; }
+  event.waitUntil(self.registration.showNotification(payload.title || "Vacaciones", {
+    body: payload.body || "Tienes una nueva notificación",
+    tag: payload.tag || "vacaciones-turno",
+    silent: false,
+    renotify: true,
+    data: { url: payload.url || "/" }
+  }));
+});
