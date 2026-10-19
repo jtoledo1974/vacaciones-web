@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
 import {newcomerScore} from '../domain/historical-order';
-import {orderForRound} from '../domain/election';
+import {orderForRound,visiblePreferenceDates} from '../domain/election';
 
 function NewcomerCalculator(){
  const [completed,setCompleted]=useState(''),[roundAverages,setRoundAverages]=useState(''),[message,setMessage]=useState('');
@@ -65,10 +65,40 @@ function TieResolver({group,data,busy,act,manage,open}:any){
  </section>;
 }
 function Preferences({data,memberId,dates,setDates,busy,act}:any){
- const existing=data.election.preferences.find((p:any)=>p.member_id===memberId),[automatic,setAutomatic]=useState(existing?.automatic??false);
- useEffect(()=>setAutomatic(existing?.automatic??false),[existing?.automatic]);
+ const confirm=useConfirmation();
+ const existing=data.election.preferences.find((p:any)=>p.member_id===memberId);
+ const [persistent,setPersistent]=useState(existing?.persistent??false);
+ useEffect(()=>setPersistent(existing?.persistent??false),[memberId,existing?.persistent]);
  const member=data.members.find((m:any)=>m.id===memberId);
- return <section className="panel preferences-panel"><h2>Preferencias de {member?.code}</h2><p>Pulsa ciclos en el calendario para añadir alternativas. Se probarán de arriba abajo cuando llegue tu turno; un ciclo ocupado se omite. La lista puede contener más alternativas que vacaciones.</p>{!dates.length?<p className="muted">Todavía no hay preferencias.</p>:<ol className="preference-list">{dates.map((date:string,i:number)=>{const cycle=data.result.cycles.find((c:any)=>c.date===date);return <li key={date}><span>{formatDate(date)} · {cycle?.score} puntos</span><div><button className="icon-button" aria-label={`Subir preferencia ${i+1}`} disabled={i===0||busy} onClick={()=>{const next=[...dates];[next[i-1],next[i]]=[next[i],next[i-1]];setDates(next);}}>↑</button><button className="icon-button" aria-label={`Bajar preferencia ${i+1}`} disabled={i===dates.length-1||busy} onClick={()=>{const next=[...dates];[next[i+1],next[i]]=[next[i],next[i+1]];setDates(next);}}>↓</button><button className="icon-button" aria-label={`Quitar preferencia ${i+1}`} disabled={busy} onClick={()=>setDates(dates.filter((d:string)=>d!==date))}>×</button></div></li>;})}</ol>}<label className="preference-consent"><input type="checkbox" checked={automatic} onChange={e=>setAutomatic(e.target.checked)}/> Asignar automáticamente desde esta lista cuando llegue mi turno</label><p className="muted">Al guardar, las elecciones automáticas que ya correspondan pueden confirmarse de inmediato. Si no hay opciones válidas suficientes, el turno queda esperando.</p><button className="primary" disabled={busy} onClick={()=>act({action:'preferences',memberId,dates,automatic},'Preferencias guardadas')}>Guardar preferencias</button></section>;
+ // Only presentation is filtered: the full ordered list survives exhausted quotas and undo.
+ const visibleDates=visiblePreferenceDates(dates,data.result.cycles);
+ const hiddenCount=dates.length-visibleDates.length;
+ function swapVisible(index:number,direction:-1|1){
+  const other=visibleDates[index+direction];
+  if(!other)return;
+  const next=[...dates],first=next.indexOf(visibleDates[index]),second=next.indexOf(other);
+  [next[first],next[second]]=[next[second],next[first]];
+  setDates(next);
+ }
+ async function savePreferences(){
+  const turn=data.election.turn;
+  // Saving during the current individual turn may immediately award its cycles.
+  if(data.election.state?.status==='active'&&turn?.memberId===memberId&&turn.participants?.length===1&&dates.length>0){
+   const quantity=turn.needed===1?'un ciclo':turn.needed+' ciclos';
+   const accepted=await confirm('Es el turno de '+(member?.code??'este controlador')+'. Al guardar estas preferencias, el sistema intentará adjudicar inmediatamente '+quantity+' según el orden de la lista y los cupos disponibles. Si hay opciones válidas suficientes, la adjudicación se registrará automáticamente y se avanzará al siguiente turno, sin otra confirmación. ¿Guardar y continuar?');
+   if(!accepted)return;
+  }
+  act({action:'preferences',memberId,dates,persistent},'Preferencias guardadas');
+ }
+ return <section className="panel preferences-panel"><h2>Preferencias de {member?.code}</h2>
+  <p>Pulsa ciclos en el calendario para añadir alternativas. Se probarán de arriba abajo cuando llegue tu próximo turno efectivo; un ciclo ocupado se omite. La lista puede contener más alternativas que vacaciones.</p>
+  {existing?.active===false&&dates.length>0&&<p className="muted">Esta lista ya se utilizó en un turno anterior. Puedes editarla y volver a guardarla para tu próximo turno.</p>}
+  {!visibleDates.length?<p className="muted">No hay preferencias con plazas disponibles.</p>:<ol className="preference-list">{visibleDates.map((date:string,i:number)=>{const cycle=data.result.cycles.find((c:any)=>c.date===date);return <li key={date}><span>{formatDate(date)} · {cycle?.score} puntos</span><div><button className="icon-button" aria-label={`Subir preferencia ${i+1}`} disabled={i===0||busy} onClick={()=>swapVisible(i,-1)}>↑</button><button className="icon-button" aria-label={`Bajar preferencia ${i+1}`} disabled={i===visibleDates.length-1||busy} onClick={()=>swapVisible(i,1)}>↓</button><button className="icon-button" aria-label={`Quitar preferencia ${i+1}`} disabled={busy} onClick={()=>setDates(dates.filter((d:string)=>d!==date))}>×</button></div></li>;})}</ol>}
+  {hiddenCount>0&&<p className="muted">{hiddenCount} ciclo(s) sin cupo ocultos. Se conservan en su posición original y reaparecerán si se libera una plaza.</p>}
+  <label className="preference-consent"><input type="checkbox" checked={persistent} onChange={e=>setPersistent(e.target.checked)}/> Mantener estas preferencias en todas las rondas restantes</label>
+  <p className="muted">Por defecto, estas preferencias se usarán solo en tu siguiente turno efectivo, incluso si aplazas. Guardarlas autoriza la asignación automática cuando corresponda. Si ya es tu turno, pueden adjudicarse de inmediato.</p>
+  <button className="primary" disabled={busy} onClick={savePreferences}>Guardar preferencias</button>
+ </section>;
 }
 export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl}:any){
  const confirm=useConfirmation();
@@ -104,7 +134,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
   setJointSelected({...jointSelected,[target]:previous.includes(c.date)?previous.filter(d=>d!==c.date):previous.length>=max?[c.date]:[...previous,c.date]});return;
  }
- if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(!dates.includes(c.date))setDates([...dates,c.date]);return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage('Este ciclo no es válido para quien elige ahora: ya está elegido, no hay cupo o se excede un límite.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
+ if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(c.occupied>=c.max){setMessage('Este ciclo no tiene plazas disponibles y no puede añadirse como nueva preferencia.');return;}if(!dates.includes(c.date))setDates([...dates,c.date]);return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage('Este ciclo no es válido para quien elige ahora: ya está elegido, no hay cupo o se excede un límite.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
  return <>
   <section className="panel election-turn election-workflow-head" aria-label="Turno de elección">
    <div className="election-turn-status">

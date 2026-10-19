@@ -37,6 +37,29 @@ export class Service {
         requireSuper(this.actor);const d=await this.load(cid);if(body.version!==d.campaign.version)throw new ApiError('La campaña cambió. Recarga antes de crear la simulación.',409);
         const result=await cloneSimulation(this.repo,d,body.name,body.copyPreferences===true);await this.commit([...result.statements,this.audit('simulation_created',{id:result.id,team_id:d.campaign.team_id},null,{source:cid,name:body.name})]);return {id:result.id};
     }
+    async deleteSimulation(cid:string,body:any){
+        requireSuper(this.actor);
+        const d=await this.load(cid);
+        if(d.campaign.scope_key==='live')throw new ApiError('La campaña real no se puede eliminar',403);
+        if(body.version!==d.campaign.version)throw new ApiError('La simulación cambió. Recarga antes de eliminarla.',409);
+        const personIds=[...new Set(d.members.map((m:any)=>m.person_id))] as string[];
+        const ops:Statement[]=[
+            ...cas(cid,d.campaign.version),
+            {sql:'DELETE FROM audit WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM election_states WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM runs WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM parameters WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM campaign_members WHERE campaign_id=?',args:[cid]},
+            ...personIds.map(personId=>({sql:'DELETE FROM people WHERE id=? AND NOT EXISTS(SELECT 1 FROM campaign_members WHERE person_id=?) AND NOT EXISTS(SELECT 1 FROM controller_accounts WHERE person_id=?)',args:[personId,personId,personId]})),
+            {sql:"DELETE FROM campaigns WHERE id=? AND scope_key<>'live'",args:[cid]},
+            this.audit('simulation_deleted',{team_id:d.campaign.team_id},null,{name:d.campaign.simulation_name,year:d.campaign.year})
+        ];
+        await this.commit(ops);
+        return {ok:true};
+    }
     async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
     async view(cid:string){
@@ -313,7 +336,7 @@ export class Service {
         }
         if(action==='close'&&election.state)ops.push(electionStateStatement(cid,{...election.state,status:'paused'}));
         if(action==='reset_vacations'){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null));}
-        else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic) VALUES(?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0]});}}
+        else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0]});}}
         else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
         ops.push(this.audit(action, c, before, after));
         await this.commit(ops);
@@ -368,7 +391,7 @@ export class Service {
         }
         try{
             for(const row of tables.election_states)validateElectionState(JSON.parse(row.json),tables.campaign_members.filter((m:any)=>m.campaign_id===row.campaign_id));
-            for(const pref of tables.preferences){const member=tables.campaign_members.find((m:any)=>m.id===pref.member_id&&m.campaign_id===pref.campaign_id),campaign=tables.campaigns.find((c:any)=>c.id===pref.campaign_id),config=tables.parameters.find((p:any)=>p.campaign_id===pref.campaign_id);if(!member||!campaign||!config)throw new Error('Preferencias ajenas a la campaña');const dates=JSON.parse(pref.dates_json),validDates=new Set(calendar(campaign.year,campaign.team_id,JSON.parse(config.json)).map(c=>c.date));if(!Array.isArray(dates)||dates.length>100||new Set(dates).size!==dates.length||dates.some(d=>!validDates.has(d))||![0,1].includes(pref.automatic))throw new Error('Preferencias no válidas');}
+            for(const pref of tables.preferences){const member=tables.campaign_members.find((m:any)=>m.id===pref.member_id&&m.campaign_id===pref.campaign_id),campaign=tables.campaigns.find((c:any)=>c.id===pref.campaign_id),config=tables.parameters.find((p:any)=>p.campaign_id===pref.campaign_id);if(!member||!campaign||!config)throw new Error('Preferencias ajenas a la campaña');const dates=JSON.parse(pref.dates_json),validDates=new Set(calendar(campaign.year,campaign.team_id,JSON.parse(config.json)).map(c=>c.date));if(!Array.isArray(dates)||dates.length>100||new Set(dates).size!==dates.length||dates.some(d=>!validDates.has(d))||![0,1].includes(pref.automatic)||(pref.persistent!==undefined&&![0,1].includes(pref.persistent))||(pref.active!==undefined&&![0,1].includes(pref.active)))throw new Error('Preferencias no válidas');}
         }catch(e:any){throw new ApiError('Copia no válida: '+e.message);}
         const token = id(), ops: Statement[] = [{ sql: "UPDATE app_state SET revision=revision+1 WHERE id='main' AND revision=?", args: [expectedRevision] }, { sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] }, { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] }];
         for (const n of [...names].reverse())
@@ -378,7 +401,7 @@ export class Service {
             for (const row of tables[n]) {
                 if (Object.keys(row).some(k => !cols.includes(k)))
                     throw new ApiError('Columna desconocida');
-                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:k==='scope_key'?'live':k==='simulation_name'?'':null)) });
+                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:k==='scope_key'?'live':k==='simulation_name'?'':n==='preferences'&&k==='persistent'?0:n==='preferences'&&k==='active'?1:null)) });
             }
         }
         ops.push(this.audit('restore', null, { revision: expectedRevision }, { sha256: b.sha256 }));

@@ -97,10 +97,9 @@ test('calendario público, permisos y aislamiento',async({page,request,browser})
   await anonymous.close();
 });
 
-test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request},info)=>{
+test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
-  const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);
-  await confirm(page,'Aplazar para elegir dos');
+  const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);await confirm(page,'Aplazar para elegir dos');
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   for(let i=1;i<4;i++){
     await cycle(page,dates[i-1]);await confirm(page,'Confirmar ciclo');
@@ -123,13 +122,35 @@ test('preferencias delegadas y elección automática al llegar el turno',async({
   const s=await setup(request,page),date=s.data.result.cycles[0].date;
   await open(page,s.id);await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
   await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(s.data.members[1].id);
-  await cycle(page,date);await page.getByLabel('Asignar automáticamente desde esta lista cuando llegue mi turno',{exact:true}).check();
+  await cycle(page,date);await expect(page.getByLabel('Asignar automáticamente desde esta lista cuando llegue mi turno')).toHaveCount(0);
   await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
   await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'})).toBeVisible();
   await page.getByRole('button',{name:'Elegir / consultar',exact:true}).click();await activate(page);
   await cycle(page,date);await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
   const d=await read(request,s.id);expect(d.awards).toHaveLength(2);expect(d.awards.some((a:any)=>a.member_id===s.data.members[1].id)).toBeTruthy();
+});
+
+test('guardar preferencias durante el turno avisa antes de adjudicar automáticamente',async({page,request})=>{
+ const s=await setup(request,page),member=s.data.members[0],date=s.data.result.cycles[0].date;
+ await open(page,s.id);await activate(page);
+ await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
+ await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(member.id);
+ await cycle(page,date);
+ await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
+ const dialog=page.getByRole('dialog');
+ await expect(dialog).toContainText('adjudicar inmediatamente');
+ await expect(dialog).toContainText('sin otra confirmación');
+ expect((await read(request,s.id)).awards).toHaveLength(0);
+ await dialog.getByRole('button',{name:'Cancelar',exact:true}).click();
+ await expect(dialog).toHaveCount(0);
+ expect((await read(request,s.id)).awards).toHaveLength(0);
+ await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
+ await dialog.getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ const after=await read(request,s.id);
+ expect(after.awards.filter((a:any)=>a.member_id===member.id).map((a:any)=>a.cycle_date)).toEqual([date]);
+ expect(after.election.preferences.find((p:any)=>p.member_id===member.id)).toMatchObject({dates:[date],automatic:true});
 });
 
 test('bloqueo, descarga y restauración de backup completo',async({page,request},info)=>{
@@ -142,7 +163,7 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
   const backup=await (await request.get('/api/backup')).json();
   await confirm(page,'Cerrar equipo C');await expect(page.getByText('Campaña cerrada',{exact:true})).toBeVisible();
   let d=await read(request,s.id);expect(d.campaign.status).toBe('closed');
-  const blocked=await request.post('/api/election/'+s.id,{data:{action:'preferences',version:d.campaign.version,memberId:d.members[0].id,dates:[],automatic:false},headers:{Origin:origin}});expect(blocked.status()).toBe(400);
+  const blocked=await request.post('/api/election/'+s.id,{data:{action:'preferences',version:d.campaign.version,memberId:d.members[0].id,dates:[]},headers:{Origin:origin}});expect(blocked.status()).toBe(400);
   const current=await (await request.get('/api/backup')).json();
   await post(request,'restore',{backup,revision:current.payload.revision});
   d=await read(request,s.id);expect(d.campaign.status).toBe('open');expect(d.election.state.status).toBe('active');
@@ -171,7 +192,7 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  await expect(page.getByRole('heading',{name:'QA_D elige ahora'})).toBeVisible();
 });
 
-test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',async({page,request},info)=>{
+test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',async({page,request})=>{
   await page.setViewportSize({width:390,height:844});
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   await expect(page.getByRole('button',{name:'Mapa',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -247,4 +268,27 @@ test('sorteo en la app guarda una permutación y no permite repetir',async({page
  const saved=await read(request,s.id),resolution=saved.election.state.tieResolutions[0];expect(resolution.method).toBe('random');expect([...resolution.order].sort()).toEqual(s.data.members.slice(0,3).map((m:any)=>m.id).sort());
  await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);await expect(page.getByRole('heading',{name:saved.members.find((m:any)=>m.id===saved.election.turn.memberId).code+' elige ahora',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Sortear y guardar orden'})).toHaveCount(0);
  expect((await read(request,s.id)).election.state.tieResolutions).toEqual(saved.election.state.tieResolutions);
+});
+
+test('sin equipo en URL no se impone C y el administrador puede borrar una simulación',async({page,request,browser})=>{
+ const s=await setup(request,page);
+ const visitor=await browser.newContext({baseURL:origin});
+ try{
+  const anonymous=await visitor.newPage();
+  await anonymous.goto('/');
+  await expect(anonymous.getByLabel('Equipo',{exact:true})).toHaveValue('');
+  await expect(anonymous.getByRole('heading',{name:'Selecciona un equipo'})).toBeVisible();
+  await anonymous.getByLabel('Equipo',{exact:true}).selectOption('B');
+  await expect(anonymous.getByLabel('Equipo',{exact:true})).toHaveValue('B');
+  await expect(anonymous).toHaveURL(/equipo=B/);
+ }finally{await visitor.close();}
+ await page.goto('/?equipo=C&year=2026');
+ await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
+ await page.getByRole('button',{name:'Administración',exact:true}).click();
+ await page.locator('.scenario-actions summary').click();
+ await page.getByRole('button',{name:'Eliminar simulación'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar'}).click();
+ await expect(page.getByLabel('Escenario',{exact:true})).toHaveValue(s.live.id);
+ await expect(page.getByRole('status').filter({hasText:'Simulación eliminada'})).toBeVisible();
+ expect((await request.get('/api/campaign/'+s.id)).status()).toBe(404);
 });
