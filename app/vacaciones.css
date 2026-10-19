@@ -274,6 +274,58 @@
 .election-history-head .election-workflow-actions{margin:0}
 .election-history-head .election-workflow-actions button{padding:6px 9px}
 .election-selected-summary{overflow-wrap:anywhere}
+
+/* Explicit draft/review/save workflow. The calendar stays available while adding. */
+.is-preparing-preferences .election-side{position:sticky;top:16px;max-height:calc(100dvh - 32px);overflow:auto;scrollbar-gutter:stable}
+.is-preparing-preferences .preferences-panel{padding:0;overflow:hidden;border-color:#b8cec4;display:flex;flex-direction:column;max-height:calc(100dvh - 32px)}
+.is-preparing-preferences .preference-editor-body{overflow-y:auto;min-height:0;overscroll-behavior:contain}
+.is-preparing-preferences .preference-editor-head,.is-preparing-preferences .preference-editor-footer{flex:none}
+.preference-editor-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 18px 12px}
+.preference-editor-head .eyebrow{display:block;margin-bottom:6px;font-size:9px}
+.preference-editor-head h2{font-size:17px}
+.preference-editor-body{padding:0 18px 14px}
+.preference-editor-body>p{font-size:12px;color:#4d635c}
+.preference-state{font-size:12px;font-weight:650;line-height:1.4}
+.preference-state.pending,.preference-dock .pending{color:#895500}
+.preference-state.saved,.preference-dock .saved{color:#25614c}
+.preference-editor-body>.preference-state{padding:9px 10px;border-radius:6px;background:#f2f6f2}
+.preference-editor-body>.preference-state.pending{background:#fff2d6;color:#895500}
+.preference-empty{padding:18px 12px;background:#f5f8f5;border:1px dashed #bbcec2;border-radius:8px;font-size:13px}
+.preference-empty p{font-size:12px;margin-bottom:0}
+.preference-list{padding-left:24px;margin:8px 0 18px}
+.preference-list li{padding:12px 0 12px 4px}
+.preference-list li::marker{font-weight:750;color:#317a69}
+.preference-list li>.preference-date{display:block;margin:0;font-size:12px}
+.preference-date small{display:block;color:#53695f;margin-top:5px}
+.preference-row-actions{display:flex;gap:6px!important;margin-top:10px!important}
+.preference-row-actions button{min-width:44px;min-height:44px;padding:8px 10px;font-size:13px}
+.preference-hidden{padding:10px;background:#f4f2e9;border-radius:6px}
+.preference-consent{font-size:12px;color:#314c40}
+.preference-consent input{flex:none;min-width:18px;min-height:18px;margin:0}
+.preference-editor-footer{position:sticky;bottom:0;display:flex;flex-direction:column;gap:10px;padding:14px 18px;background:#fff;border-top:1px solid var(--line);margin:0;color:#314c40;font-size:12px}
+.preference-editor-footer button{width:100%;min-height:44px;font-size:13px;white-space:normal}
+.preference-feedback:empty{display:none}
+.preference-feedback{color:#234d3b;font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.preference-dock{display:none}
+.vac2-preference-rank{display:block;margin-top:5px;font-size:10px;font-weight:700;color:#205d4b}
+html:has(.preference-dock){scroll-padding-bottom:185px}
+.is-preparing-preferences .vac2-cycle{scroll-margin-bottom:185px}
+.preference-sheet-backdrop{position:fixed;inset:0;background:#15292180;z-index:100;display:flex;align-items:flex-end;justify-content:center}
+.preference-sheet-backdrop .preference-sheet{display:flex;flex-direction:column;width:100%;max-width:620px;max-height:88dvh;max-height:min(88dvh,860px);border-radius:18px 18px 0 0;padding:0;margin:0;box-shadow:0 -10px 40px #15292140}
+.preference-sheet .preference-editor-head{flex:none;border-bottom:1px solid var(--line)}
+.preference-sheet .preference-editor-body{overflow-y:auto;overscroll-behavior:contain;min-height:0;padding-top:4px}
+.preference-sheet .preference-editor-footer{flex:none;padding-bottom:max(14px,env(safe-area-inset-bottom))}
+@media(max-width:900px){
+ .is-preparing-preferences{padding-bottom:175px}
+ .is-preparing-preferences .election-side{position:static;max-height:none;overflow:visible;display:contents}
+ .preference-dock{display:flex;flex-wrap:wrap;position:fixed;bottom:0;left:0;right:0;align-items:center;justify-content:space-between;gap:8px 10px;z-index:25;padding:12px 16px max(12px,env(safe-area-inset-bottom));background:#fff;border-top:1px solid #b8cec4;box-shadow:0 -4px 20px #163a291a}
+ .preference-dock>div{display:grid;gap:4px;font-size:12px;min-width:0}
+ .preference-dock>div>span{font-size:11px}
+ .preference-dock>button{min-height:44px;padding:10px 12px;font-size:12px}
+ .preference-dock .preference-feedback{display:block;flex-basis:100%;font-size:11px;border-top:1px solid var(--line);padding-top:7px}
+ .preference-dock .preference-feedback:empty{display:none}
+ .confirmation-dialog{max-height:90dvh;overflow-y:auto}
+}
 @media(max-width:680px){
  .election-turn.election-workflow-head{padding:10px 12px!important}
  .election-turn-controls{width:100%}

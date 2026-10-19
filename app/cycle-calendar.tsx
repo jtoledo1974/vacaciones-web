@@ -7,7 +7,7 @@ type Cycle={date:string;end:string;score:number;period:number;occupied:number;ma
 type Award={id:string;member_id:string;cycle_date:string};
 type Member={id:string;code:string};
 type View='map'|'calendar'|'members';
-type Props={year:number;cycles:Cycle[];selected:string[];onSelect:(cycle:Cycle)=>void;busy?:boolean;highlighted?:string[];awards?:Award[];members?:Member[];order?:string[];points?:{member_id:string;points:number;cycles:number}[]};
+type Props={year:number;cycles:Cycle[];selected:string[];onSelect:(cycle:Cycle)=>void;preferenceMode?:boolean;busy?:boolean;highlighted?:string[];awards?:Award[];members?:Member[];order?:string[];points?:{member_id:string;points:number;cycles:number}[]};
 
 function slots(c:Cycle){return Math.max(0,c.max-c.occupied);}
 function availabilityClass(c:Cycle){return 'vac2-free-'+Math.min(4,slots(c));}
@@ -15,7 +15,7 @@ function isSummer(c:Cycle){return c.period===1;}
 function monthIndex(date:string){return Number(date.slice(5,7))-1;}
 function cycleTitle(c:Cycle){return formatDate(c.date)+' – '+formatDate(c.end)+' · '+c.score+' puntos · '+slots(c)+' plazas libres';}
 
-export default function CycleCalendar({year,cycles,selected,onSelect,busy=false,highlighted=[],awards=[],members=[],order=[],points=[]}:Props){
+export default function CycleCalendar({year,cycles,selected,onSelect,preferenceMode=false,busy=false,highlighted=[],awards=[],members=[],order=[],points=[]}:Props){
  const [view,setView]=useState<View>('map');
  const [activeMonth,setActiveMonth]=useState(0);
  const byDate=useMemo(()=>new Map(cycles.map(c=>[c.date,c])),[cycles]);
@@ -51,6 +51,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,busy=false,
    className={'vac2-cycle '+availabilityClass(c)+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(highlighted.includes(c.date)?' vac2-person':'')}>
     <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{free} libres</b></span>
     <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{c.occupied}/{c.max} ocupadas</span></span>
+    {preferenceMode&&selected.includes(c.date)&&<span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date)+1}</span>}
     {people.length>0&&<span className="vac2-names" title={people.join(', ')}>{people.join(' · ')}</span>}
    </button>;
  }
@@ -95,7 +96,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,busy=false,
  }
  return <section className="panel vac2-panel" aria-label="Calendario de ciclos">
   <div className="vac2-heading">
-   <div><h2>Disponibilidad y baremo</h2><p className="muted">Selecciona cualquier ciclo para ver detalles y ocupantes.</p></div>
+   <div><h2>Disponibilidad y baremo</h2><p className="muted">{preferenceMode?'Pulsa ciclos para añadirlos a tu lista. Revisa el orden y guarda para confirmarla.':'Selecciona cualquier ciclo para ver detalles y ocupantes.'}</p></div>
    <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
     <button type="button" className={view==='map'?'active':''} aria-pressed={view==='map'} onClick={()=>setView('map')}>Mapa</button>
     <button type="button" className={view==='calendar'?'active':''} aria-pressed={view==='calendar'} onClick={()=>setView('calendar')}>Calendario</button>

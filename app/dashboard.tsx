@@ -33,6 +33,8 @@ function Dashboard() {
     const [sessionEmail,setSessionEmail]=useState('');
     const [sessionLoaded,setSessionLoaded]=useState(false);
     const currentCid=useRef('');
+    const preferenceGuard=useRef<null|(()=>Promise<boolean>)>(null);
+    const canNavigate=async()=>!preferenceGuard.current||await preferenceGuard.current();
     const isBusy=useRef(false);
     const lastRevision=useRef<number|null>(null);
     const syncPending=useRef(false);
@@ -167,7 +169,7 @@ function Dashboard() {
     const sessionDetails = {loaded:sessionLoaded,subject:identity,email:sessionEmail,provider:sessionProvider,role:roleLabel,signinUrl};
     const team = data?.campaign.team_id ?? '', year = data?.campaign.year ?? yearChoice ?? Math.max(2026,...(index?.campaigns??[]).filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)), result = data?.result;
     const links = [['eleccion', 'Vacaciones', CalendarDays], ...(superuser ? [['administracion', 'Administración', ShieldCheck] as const] : []), ['ayuda','Ayuda',BookOpen]] as const;
-    async function go(n: string) { setNav(n); setMenu(false); if (n === 'administracion' && superuser) {
+    async function go(n: string) { if(n!==nav&&!await canNavigate())return; setNav(n); setMenu(false); if (n === 'administracion' && superuser) {
         try {
             setAdmin(await api('admin'));
         }
@@ -195,17 +197,18 @@ function Dashboard() {
         <span>Equipos <ChevronRight size={13}/> <b>{nav==='eleccion'?'Vacaciones':nav==='administracion'?'Administración':'Ayuda'}</b></span>
         <HeaderSession {...sessionDetails} onOpenMenu={()=>{setMenu(true);document.getElementById('session-account')?.scrollIntoView({block:'start',behavior:'smooth'});}}/>
       </header><div className="content"><div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : 'Administración general'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors">
-        <label>Ejercicio<select aria-label="Ejercicio" value={year} onChange={e=>{
-            const selectedYear=Number(e.target.value);setYearChoice(selectedYear);
+        <label>Ejercicio<select aria-label="Ejercicio" value={year} onChange={async e=>{
+            const selectedYear=Number(e.target.value);if(!await canNavigate())return;setYearChoice(selectedYear);
             if(team)setCid(index.campaigns.find((c:any)=>c.year===selectedYear&&c.team_id===team&&c.scope_key==='live')?.id??'');
             else{const u=new URL(location.href);u.searchParams.set('year',String(selectedYear));history.replaceState({},'',u);}
         }}>{Array.from(new Set(index?.campaigns.filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)??[2026])).map((y:any)=><option key={y} value={y}>{y}</option>)}</select></label>
-        <label>Equipo<select aria-label="Equipo" value={team} onChange={e=>{
+        <label>Equipo<select aria-label="Equipo" value={team} onChange={async e=>{
             const nextTeam=e.target.value;
+            if(!await canNavigate())return;
             if(!nextTeam){setCid('');const u=new URL(location.href);u.searchParams.delete('equipo');history.replaceState({},'',u);}
             else setCid(index.campaigns.find((c:any)=>c.team_id===nextTeam&&c.year===year&&c.scope_key==='live')?.id??'');
         }}><option value="">Selecciona un equipo</option>{(index?.teams??'ABCDEFGH'.split('').map(id=>({id,name:'Equipo '+id}))).map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
-        {superuser&&data&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={e=>setCid(e.target.value)}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}
+        {superuser&&data&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={async e=>{const next=e.target.value;if(await canNavigate())setCid(next);}}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}
         {superuser&&data&&nav==='administracion'&&<button type="button" className="secondary scenario-create" onClick={()=>{
             const advanced=document.querySelector('details.admin-advanced') as HTMLDetailsElement|null;
             if(advanced)advanced.open=true;
@@ -213,6 +216,7 @@ function Dashboard() {
         }}><Plus size={15}/>Nueva simulación</button>}
         {superuser&&data?.campaign.scope_key!=='live'&&data&&<details className="scenario-actions"><summary aria-label="Opciones de simulación" title="Opciones de simulación">···</summary><button type="button" disabled={busy} onClick={async e=>{
             e.currentTarget.closest('details')?.removeAttribute('open');
+            if(!await canNavigate())return;
             if(!await confirm(`¿Eliminar definitivamente la simulación «${data.campaign.simulation_name}»? Se borrarán sus elecciones, preferencias e historial. La campaña real no cambiará.`))return;
             await perform(async()=>{
                 await api('simulations/'+cid,{action:'delete',version:data.campaign.version});
@@ -225,7 +229,7 @@ function Dashboard() {
     {error && <div className="alert error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar error">×</button></div>}{notice && <div className="alert success" role="status">{notice}</div>}
         {nav === 'ayuda' ? <Help/> : !index ? <div className="panel empty">Cargando el espacio de trabajo…</div> : !index.teams.length ? <div className="panel empty"><Layers size={36}/><h2>Tu espacio de vacaciones</h2><p>Prepara ocho equipos y una campaña de prueba de 2026.<br />Todos los identificadores iniciales son ficticios.</p>{superuser ? <button className="primary" disabled={busy} onClick={() => perform(async () => { const i = await api('initialize', {}); setCid(''); return i; }, 'Espacio de prueba preparado')}>Preparar campaña de prueba <ArrowUpRight size={16}/></button> : <p>Un superadministrador debe preparar la primera campaña.</p>}</div> : !cid ? <div className="panel empty"><Layers size={36}/><h2>Selecciona un equipo</h2><p>Elige el equipo y ejercicio que quieres consultar.</p></div> : !data ? <div className="panel empty">Cargando campaña…</div> : <>
         <div className="campaign-strip"><span><span className={'status-dot ' + data.campaign.status}/><b>Equipo {team} · {year}</b><span className="status">{labels[data.campaign.status]}</span>{data.campaign.scope_key!=="live"&&<span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>}{data.campaign.data_kind==="demo"&&<span className="tag">Datos de ejemplo</span>}</span><span>{data.editable ? 'Área de gestión' : 'Solo lectura'} <span className="separator">/</span> {'Ocupación actual · Consulta pública'} <span className="separator">/</span> <span aria-live="polite">{syncState==='offline'?'Sin conexión · reintentando':syncState==='checking'?'Conectando…':'Actualización automática · hasta 5 s'}</span></span></div>
-        {nav === 'eleccion' && <><ElectionWorkspace key={cid} data={data} busy={busy} act={mutateElection} legacy={mutate} identity={identity} superuser={superuser} signinUrl={signinUrl}/><section className="panel"><h2>Compartir y exportar</h2><div className="button-row"><button className="secondary" onClick={() => { const url = new URL(location.href); url.searchParams.set('equipo', team); url.searchParams.set('year', year); navigator.clipboard.writeText(url.toString()).then(() => setNotice('Enlace copiado')); }}>Copiar enlace de consulta</button><button className="secondary" onClick={() => { const rows = [['identificador', 'fecha', 'baremo'], ...data.awards.map((a: any) => [data.members.find((m: any) => m.id === a.member_id)?.code, a.cycle_date, result.cycles.find((c: any) => c.date === a.cycle_date)?.score])]; download(`vacaciones-${team}-${year}.csv`, rows.map(r => r.map((s: any) => '"' + String(s ?? '').replaceAll('"', '""') + '"').join(',')).join('\r\n'), 'text/csv'); }}>Exportar adjudicaciones CSV</button></div></section></>}
+        {nav === 'eleccion' && <><ElectionWorkspace onPreferenceEdit={()=>setNotice('')} navigationGuard={preferenceGuard} key={cid} data={data} busy={busy} act={mutateElection} legacy={mutate} identity={identity} superuser={superuser} signinUrl={signinUrl}/><section className="panel"><h2>Compartir y exportar</h2><div className="button-row"><button className="secondary" onClick={() => { const url = new URL(location.href); url.searchParams.set('equipo', team); url.searchParams.set('year', year); navigator.clipboard.writeText(url.toString()).then(() => setNotice('Enlace copiado')); }}>Copiar enlace de consulta</button><button className="secondary" onClick={() => { const rows = [['identificador', 'fecha', 'baremo'], ...data.awards.map((a: any) => [data.members.find((m: any) => m.id === a.member_id)?.code, a.cycle_date, result.cycles.find((c: any) => c.date === a.cycle_date)?.score])]; download(`vacaciones-${team}-${year}.csv`, rows.map(r => r.map((s: any) => '"' + String(s ?? '').replaceAll('"', '""') + '"').join(',')).join('\r\n'), 'text/csv'); }}>Exportar adjudicaciones CSV</button></div></section></>}
 
         {nav === 'administracion' && (superuser ? <><section className="panel"><h2>Campañas anuales</h2><p className="muted">Crea los ocho equipos para el nuevo ejercicio. Elige plantilla y parámetros por separado; no se copian vacaciones.</p><CampaignForm campaigns={index.campaigns} busy={busy} create={(b: any) => perform(() => api('campaigns', b), 'Nuevo ejercicio creado para los ocho equipos')}/><div className="button-row"><button className="secondary" disabled={busy} onClick={async () => { if (await confirm('¿Cerrar esta campaña? Los datos y resultados se conservarán.'))
             mutate({ action: 'close' }, 'Campaña cerrada'); }}>Cerrar equipo {team}</button><button className="secondary" disabled={busy} onClick={async () => { if (await confirm('¿Reabrir esta campaña para editar el borrador? La revisión publicada no se modificará.'))

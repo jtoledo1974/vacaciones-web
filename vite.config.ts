@@ -65,7 +65,7 @@ export default defineConfig(async ({ command }) => {
       sites({ mockAuth: !managedLinux || process.env.VACACIONES_E2E === '1' }),
       connectorPreview(),
       cloudflare({
-        ...(process.env.VACACIONES_E2E === '1' ? { persistState: { path: '.sites-runtime/e2e-state' } } : {}),
+        ...(process.env.VACACIONES_E2E === '1' ? { persistState: { path: process.env.VACACIONES_E2E_STATE ?? '.sites-runtime/e2e-state' } } : {}),
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
         config: {
