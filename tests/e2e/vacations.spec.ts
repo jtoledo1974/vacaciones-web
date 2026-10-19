@@ -20,9 +20,12 @@ async function setup(api:APIRequestContext,page:Page){
   return {id:clone.id,live,baseline,data:d};
 }
 async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(id);await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();}
-async function activate(page:Page){
+async function activate(page:Page,ties=''){
+  await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
   await page.getByText('Preparar el orden de elección',{exact:true}).click();
   await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
+  if(ties)await page.getByLabel('Grupos empatados',{exact:true}).fill(ties);
   await page.getByLabel('Origen del orden').fill('Orden ficticio de Playwright, sin uso operativo');
   await page.getByLabel('Permitir uno o dos aplazamientos', {exact:false}).check();
   await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1', {exact:false}).check();
@@ -201,4 +204,35 @@ test('dos clientes abiertos reciben una adjudicación sin recargar manualmente',
  await second.getByRole('button',{name:'Vacaciones',exact:true}).click();
  await expect(second.getByRole('heading',{name:'QA_C elige ahora'})).toBeVisible({timeout:18000});
  await second.close();
+});
+
+test('empate de tres: registrar orden externo pulsando nombres, persistir y rotar',async({page,request})=>{
+ const s=await setup(request,page);await open(page,s.id);await activate(page,'QA_B, QA_C, QA_D');
+ await cycle(page,s.data.result.cycles[0].date);await confirm(page,'Confirmar ciclo');
+ const panel=page.getByRole('region',{name:'Resolver empate'});
+ await expect(page.getByRole('heading',{name:'Empate pendiente de sorteo'})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('button',{name:'Guardar orden externo',exact:true})).toBeDisabled();
+ for(const code of ['QA_D','QA_B','QA_C'])await page.getByRole('button',{name:'Añadir al sorteo '+code,exact:true}).click();
+ await expect(page.getByRole('list',{name:'Orden del sorteo externo'})).toHaveText('QA_DQA_BQA_C');
+ await confirm(page,'Guardar orden externo');await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
+ await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
+ const saved=await read(request,s.id);expect(saved.election.state.tieResolutions[0].order).toEqual([3,1,2].map(i=>s.data.members[i].id));
+ expect(saved.election.state.tieResolutions[0].method).toBe('external');
+ for(const [i,idx] of [3,1,2].entries())await election(request,s.id,{action:'choose',memberId:s.data.members[idx].id,dates:[s.data.result.cycles[i+1].date]});
+ await election(request,s.id,{action:'choose',memberId:s.data.members[0].id,dates:[s.data.result.cycles[4].date]});
+ expect((await read(request,s.id)).election.turn.memberId).toBe(s.data.members[1].id);
+ expect((await read(request,s.live.id)).campaign).toEqual(s.baseline.campaign);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+});
+
+test('sorteo en la app guarda una permutación y no permite repetir',async({page,request})=>{
+ const s=await setup(request,page);
+ await election(request,s.id,{action:'start',order:s.data.members.map((m:any)=>m.id),tieGroups:[s.data.members.slice(0,3).map((m:any)=>m.id)],source:'Sorteo ficticio para Playwright',rulesConfirmed:true,allowDeferral:true});
+ await open(page,s.id);await expect(page.getByRole('heading',{name:'Empate pendiente de sorteo'})).toBeVisible();
+ await confirm(page,'Sortear y guardar orden');
+ await expect(page.getByRole('heading',{name:'Empate pendiente de sorteo'})).toHaveCount(0);
+ const saved=await read(request,s.id),resolution=saved.election.state.tieResolutions[0];expect(resolution.method).toBe('random');expect([...resolution.order].sort()).toEqual(s.data.members.slice(0,3).map((m:any)=>m.id).sort());
+ await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);await expect(page.getByRole('heading',{name:saved.members.find((m:any)=>m.id===saved.election.turn.memberId).code+' elige ahora',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Sortear y guardar orden'})).toHaveCount(0);
+ expect((await read(request,s.id)).election.state.tieResolutions).toEqual(saved.election.state.tieResolutions);
 });

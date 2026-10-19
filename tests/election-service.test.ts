@@ -80,3 +80,60 @@ test('Criterios 1.1 p.2: turno conjunto: servidor confirma todas las selecciones
  assert.equal(next.awards.length,1);
  assert.equal(next.requests.length,1);
 });
+
+test('empate pendiente bloquea elección, aplazamiento y automatismos; sorteo externo de tres se guarda y rota',async()=>{
+ const {s,cid,d,person,repo}=await setup(),ids=d.members.map((m:any)=>m.id),date=d.result.cycles[0].date;
+ await act(s,cid,{action:'link_account',memberId:ids[0],subject:'person',accountVersion:0});
+ await act(s,cid,{action:'preferences',memberId:ids[0],dates:[date],automatic:true});
+ let next=await act(s,cid,{...start(d),tieGroups:[ids]});
+ assert.equal(next.election.turn.memberId,null);assert.deepEqual(next.election.turn.pendingTie,ids);assert.equal(next.awards.length,0);
+ await assert.rejects(act(s,cid,{action:'choose',memberId:ids[0],dates:[date]}),/turno/);
+ await assert.rejects(act(s,cid,{action:'defer',memberId:ids[0]}),/turno/);
+ await assert.rejects(act(person,cid,{action:'resolve_tie',method:'external',order:ids}),/responsable/);
+ await assert.rejects(act(s,cid,{action:'resolve_tie',method:'external',order:[ids[0],ids[0],ids[1]]}),/una vez/);
+ const order=[ids[2],ids[1],ids[0]],version=(await s.load(cid)).campaign.version;
+ next=await act(s,cid,{action:'resolve_tie',method:'external',order});
+ assert.deepEqual(next.election.state.order,order);assert.equal(next.awards.length,0);assert.equal(next.election.state.tieResolutions[0].actor,owner.id);
+ assert.deepEqual((await new Service(repo,owner).view(cid)).election.state.tieResolutions,next.election.state.tieResolutions);
+ await assert.rejects(s.election().mutate(cid,{action:'resolve_tie',method:'random',version}),/cambió/);
+ await assert.rejects(act(s,cid,{action:'resolve_tie',method:'random'}),/pendiente/);
+ await act(s,cid,{action:'pause'});await assert.rejects(act(s,cid,start(d)),/orden/);await act(s,cid,{action:'resume'});
+ await act(s,cid,{action:'preferences',memberId:ids[0],dates:[date],automatic:false});
+ for(let i=0;i<3;i++)next=await act(s,cid,{action:'choose',memberId:order[i],dates:[d.result.cycles[i].date]});
+ assert.equal(next.election.turn.round,2);assert.equal(next.election.turn.memberId,order[1]);
+ const publicView:any=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.election.state.tieResolutions[0].actor,undefined);
+});
+
+test('sorteo aleatorio solo alcanza al grupo actual y no permite repetirlo',async()=>{
+ const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
+ let next=await act(s,cid,{...start(d),tieGroups:[[ids[1],ids[2]]]});
+ assert.equal(next.election.turn.memberId,ids[0]);await assert.rejects(act(s,cid,{action:'resolve_tie',method:'random'}),/pendiente/);
+ next=await act(s,cid,{action:'choose',memberId:ids[0],dates:[d.result.cycles[0].date]});
+ next=await act(s,cid,{action:'resolve_tie',method:'random'});
+ assert.equal(next.election.state.order[0],ids[0]);assert.deepEqual([...next.election.state.tieResolutions[0].order].sort(),ids.slice(1).sort());assert.equal(next.election.state.tieResolutions[0].method,'random');
+ await assert.rejects(act(s,cid,{action:'resolve_tie',method:'random'}),/pendiente/);
+});
+
+test('puntuaciones guardadas detectan empates sin depender del cliente y rechazan orden incorrecto o datos ausentes',async()=>{
+ const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
+ let next=await s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:{AA:10,BB:20,CC:20},previousScoresSource:'Histórico ficticio para pruebas'}});
+ await assert.rejects(act(s,cid,start(next,[ids[1],ids[0],ids[2]])),/puntuaciones/);
+ next=await act(s,cid,start(next));assert.deepEqual(next.election.state.pendingTieGroups,[ids.slice(1)]);
+ await act(s,cid,{action:'pause'});next=await s.view(cid);
+ next=await s.mutate(cid,{action:'config',version:next.campaign.version,config:{...next.config,previousScores:{AA:10,BB:20}}});
+ await assert.rejects(act(s,cid,start(next)),/Faltan puntuaciones/);
+});
+
+test('simulaciones remapean empates pendientes, turnos conjuntos y actas sin referencias a miembros reales',async()=>{
+ const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
+ let next=await act(s,cid,{...start(d),tieGroups:[ids],jointGroups:[[ids[0],ids[1]]]});
+ let clone=await s.createSimulation(cid,{name:'Pending draw',version:next.campaign.version});
+ let copy=await s.view(clone.id);assert.equal(copy.election.state.status,'paused');
+ assert.ok(copy.election.state.pendingTieGroups[0].every((id:string)=>!ids.includes(id)));
+ copy=await act(s,clone.id,{action:'resume'});assert.equal(copy.election.turn.pendingTie.length,3);
+ next=await act(s,cid,{action:'resolve_tie',method:'external',order:[...ids].reverse()});
+ clone=await s.createSimulation(cid,{name:'Resolved draw',version:next.campaign.version});copy=await s.view(clone.id);
+ assert.deepEqual(copy.election.state.pendingTieGroups,[]);assert.ok(copy.election.state.tieResolutions[0].order.every((id:string)=>!ids.includes(id)));
+ copy=await act(s,clone.id,{action:'resume'});assert.ok(copy.election.turn.memberId);
+ assert.deepEqual((await s.view(cid)).election.state,next.election.state);
+});
