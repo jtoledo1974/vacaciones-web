@@ -28,7 +28,7 @@ Antes de que el primer integrante de cada grupo empatado pueda elegir, la aplica
 
 ## Listas propias y delegadas
 
-En Administración, vincula el identificador de cuenta de ChatGPT a una persona. La cuenta recibe acceso a sus preferencias y a elegir en su turno; no administración. Una cuenta corresponde a una persona, con identidad conservada entre ejercicios y traslados.
+En Administración → Plantilla del equipo, edita las columnas «ID de acceso» y «Autenticación» de cada controlador y pulsa «Guardar cambios». Elige ChatGPT Sites o Firebase y usa el identificador estable de sesión correspondiente (no el correo). Vacía el ID para desvincular. La cuenta recibe acceso a sus preferencias y a elegir en su turno; no administración. Una cuenta corresponde a una persona, con identidad conservada entre ejercicios y traslados.
 
 En **Preparar preferencias**, el administrador puede seleccionar a cualquier controlador del equipo e introducir su lista. Las flechas establecen prioridad. El consentimiento de automatización es explícito y se guarda con la lista. Se prueban las opciones en orden cuando llega su turno; las elecciones previas se respetan. Para una elección doble se busca una pareja válida y se confirma de forma conjunta, o se espera.
 
@@ -58,7 +58,7 @@ En **Revisiones y cierre del ejercicio**, calcular y guardar el resultado final 
 
 Las altas, bajas y cambios de grupo afectan solo al año seleccionado. Los años ya creados no cambian. Los futuros pueden copiar la plantilla de un ejercicio concreto, la última anterior de cada equipo o empezar vacíos, independientemente de sus parámetros. No copian vacaciones ni preferencias.
 
-Guarda las ediciones de plantilla antes de dar bajas o trasladar. Resuelve previamente las elecciones y preferencias de la persona. Una antigüedad vacía significa desconocida.
+La tabla permite editar también las vinculaciones de acceso. Para dar de baja o trasladar, abre el menú «···» de la fila; primero guarda cualquier edición pendiente. Resuelve previamente las elecciones y preferencias de la persona. Una antigüedad vacía significa desconocida.
 
 ## Copias y restauración
 
