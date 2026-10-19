@@ -244,7 +244,7 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
-  await expect(page.getByText('Últimas adjudicaciones')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Últimos turnos y adjudicaciones',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
 });
 
