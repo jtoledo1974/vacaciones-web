@@ -1,4 +1,5 @@
-import { env } from 'cloudflare:workers';
+import {notificationSettings,updateSubscription,dispatchNotifications} from '../../../server/notifications';
+import { env, waitUntil } from 'cloudflare:workers';
 import { federatedAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
 import { Service, principal, ApiError } from '../../../server/service';
@@ -17,6 +18,11 @@ async function serve(request: Request) {
             if(path[1]==='login')return localAdminLogin(request,bindings,repo);
             if(path[1]==='logout')return localAdminLogout(request,bindings,repo);
         }
+        if(path[0]==='notifications'&&path[1]==='dispatch'&&request.method==='POST'){
+            const secret=bindings.NOTIFICATIONS_DISPATCH_SECRET;
+            if(!secret||request.headers.get('Authorization')!== 'Bearer '+secret)return reply({error:'No autorizado'},403);
+            return reply(await dispatchNotifications(repo,bindings));
+        }
         const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '',bindings,repo).authenticate(request);
         const actor = await principal(repo,user,bindings.SUPERADMIN_EMAILS ?? '');
         const service = new Service(repo, actor);
@@ -30,6 +36,7 @@ async function serve(request: Request) {
                     appId:bindings.FIREBASE_APP_ID??undefined
                 }:null
             });
+            if(path[0]==='notifications')return reply(await notificationSettings(repo,actor,bindings));
             if(path[0]==='revision'){
                 const rows=await repo.all("SELECT revision FROM app_state WHERE id='main'");
                 return reply({revision:rows[0]?.revision??0});
@@ -75,12 +82,25 @@ async function serve(request: Request) {
         catch {
             throw new ApiError('Contenido JSON no válido');
         }
+        if(path[0]==='notifications')return reply(await updateSubscription(repo,actor,b,bindings));
         if (path[0] === 'initialize')
             return reply(await service.init());
         if (path[0] === 'campaigns')
             return reply(await service.createCampaigns(b.year, b.copyYear ?? null, b.rosterYear===undefined?'latest':b.rosterYear));
         if(path[0]==='simulations'&&path[1])return reply(b.action==='delete'?await service.deleteSimulation(path[1],b):await service.createSimulation(path[1],b));
-        if(path[0]==='election'&&path[1]){await service.election().mutate(path[1],b);return reply(await service.view(path[1]));}
+        if(path[0]==='election'&&path[1]){
+            const changed=await service.election().mutate(path[1],b);
+            const view=await service.view(path[1]);
+            // The election is committed and its response prepared before any push work.
+            if(changed?.changed){
+                try{
+                    waitUntil(dispatchNotifications(repo,bindings,path[1]).then(result=>{
+                        if(result.errors)console.warn('Notification dispatcher reported errors',result.errors);
+                    }).catch(()=>console.warn('Notification background dispatch failed')));
+                }catch{ /* Cron retry handles an unavailable background scheduler. */ }
+            }
+            return reply(view);
+        }
         if (path[0] === 'campaign' && path[1])
             return reply(await service.mutate(path[1], b));
         if (path[0] === 'users')
