@@ -114,13 +114,35 @@ test('preferencias delegadas y elección automática al llegar el turno',async({
   const s=await setup(request,page),date=s.data.result.cycles[0].date;
   await open(page,s.id);await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
   await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(s.data.members[1].id);
-  await cycle(page,date);await page.getByLabel('Asignar automáticamente desde esta lista cuando llegue mi turno',{exact:true}).check();
+  await cycle(page,date);await expect(page.getByLabel('Asignar automáticamente desde esta lista cuando llegue mi turno')).toHaveCount(0);
   await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
   await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'})).toBeVisible();
   await page.getByRole('button',{name:'Elegir / consultar',exact:true}).click();await activate(page);
   await cycle(page,date);await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
   const d=await read(request,s.id);expect(d.awards).toHaveLength(2);expect(d.awards.some((a:any)=>a.member_id===s.data.members[1].id)).toBeTruthy();
+});
+
+test('guardar preferencias durante el turno avisa antes de adjudicar automáticamente',async({page,request})=>{
+ const s=await setup(request,page),member=s.data.members[0],date=s.data.result.cycles[0].date;
+ await open(page,s.id);await activate(page);
+ await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
+ await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(member.id);
+ await cycle(page,date);
+ await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
+ const dialog=page.getByRole('dialog');
+ await expect(dialog).toContainText('adjudicar inmediatamente');
+ await expect(dialog).toContainText('sin otra confirmación');
+ expect((await read(request,s.id)).awards).toHaveLength(0);
+ await dialog.getByRole('button',{name:'Cancelar',exact:true}).click();
+ await expect(dialog).toHaveCount(0);
+ expect((await read(request,s.id)).awards).toHaveLength(0);
+ await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
+ await dialog.getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ const after=await read(request,s.id);
+ expect(after.awards.filter((a:any)=>a.member_id===member.id).map((a:any)=>a.cycle_date)).toEqual([date]);
+ expect(after.election.preferences.find((p:any)=>p.member_id===member.id)).toMatchObject({dates:[date],automatic:true});
 });
 
 test('bloqueo, descarga y restauración de backup completo',async({page,request},info)=>{
@@ -133,7 +155,7 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
   const backup=await (await request.get('/api/backup')).json();
   await confirm(page,'Cerrar equipo C');await expect(page.getByText('Campaña cerrada',{exact:true})).toBeVisible();
   let d=await read(request,s.id);expect(d.campaign.status).toBe('closed');
-  const blocked=await request.post('/api/election/'+s.id,{data:{action:'preferences',version:d.campaign.version,memberId:d.members[0].id,dates:[],automatic:false},headers:{Origin:origin}});expect(blocked.status()).toBe(400);
+  const blocked=await request.post('/api/election/'+s.id,{data:{action:'preferences',version:d.campaign.version,memberId:d.members[0].id,dates:[]},headers:{Origin:origin}});expect(blocked.status()).toBe(400);
   const current=await (await request.get('/api/backup')).json();
   await post(request,'restore',{backup,revision:current.payload.revision});
   d=await read(request,s.id);expect(d.campaign.status).toBe('open');expect(d.election.state.status).toBe('active');
