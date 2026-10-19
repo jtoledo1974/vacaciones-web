@@ -25,7 +25,7 @@ Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script.
 
 `Identity` identifica proveedor y sujeto; `principal` resuelve los permisos; `Service` autoriza cada operación. ChatGPT proporciona identidad verificada a través de su proxy. No publicar el Worker con estos encabezados como autenticación directamente en un alojamiento que permita al visitante falsificarlos.
 
-`SUPERADMIN_EMAILS` se configura en el entorno de Sites, nunca en el frontend. Las dos cuentas solicitadas están autorizadas mediante ese entorno. Los sujetos estables de otras cuentas pueden asignarse a equipos desde Administración. Las delegaciones admiten fecha de caducidad. El superadministrador no se concede desde el navegador ni por pertenecer simplemente al Site.
+`SUPERADMIN_EMAILS` se configura en el entorno de Sites, nunca en el frontend. Las dos cuentas solicitadas están autorizadas mediante ese entorno. Los permisos de otras cuentas ChatGPT Sites se asignan por correo electrónico autenticado desde Administración (Firebase continúa usando UID). Los vínculos anteriores por sujeto estable se siguen admitiendo. Las delegaciones admiten fecha de caducidad. El superadministrador no se concede desde el navegador ni por pertenecer simplemente al Site.
 
 El Site tiene además una lista de visitantes de la plataforma. Esta lista y los permisos de la aplicación son independientes. La consulta pública muestra asignaciones actuales y códigos abreviados sin requerir cierre final. No entrega preferencias, antigüedad, nombres completos, cuentas, origen privado del orden ni configuración. Las simulaciones son privadas. Una cuenta vinculada modifica solo su lista y elige solo cuando le corresponde; la administración no se concede por iniciar sesión.
 
