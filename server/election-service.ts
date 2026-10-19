@@ -55,7 +55,7 @@ export class ElectionService{
  }
  async options(cid:string,selected:string[]){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
-  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id))throw new ApiError('Simulación reservada a administradores',403);
+  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
@@ -99,7 +99,7 @@ export class ElectionService{
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
   if(this.actor.preview&&!this.actor.preview.writable)throw new ApiError('La vista previa de la campaña real no permite guardar',403);
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
-  if(c.scope_key!=='live'&&!manage)throw new ApiError('Simulación reservada a administradores',403);
+  if(c.scope_key!=='live'&&!manage&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
   if(!this.actor.id)throw new ApiError('Inicia sesión para guardar preferencias',401);
   if(!manage&&!mine)throw new ApiError('Tu cuenta no está vinculada a un controlador de este equipo',403);
   if(c.status!=='open')throw new ApiError('La campaña está cerrada');

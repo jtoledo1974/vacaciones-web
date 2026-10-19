@@ -88,3 +88,21 @@ API: GET `/api/campaign/:id` para la consulta actual, GET con `?published=1` par
 Los automatismos se procesan en lotes acotados y la web continúa hasta el siguiente turno manual. Si se interrumpe la cadena, otra sesión autorizada puede continuarla. Deshacer y rehacer recuperan el último lote, incluyendo cola y preferencias. El reinicio vacía también el estado de elección; los escenarios separados permiten varias simulaciones simultáneas.
 
 Pruebas de interfaz: pnpm test:e2e. Preparación, aislamiento y diagnóstico de fallos en docs/PRUEBAS.md.
+
+## Vista como controlador (superadmin)
+
+Añade `verComo=CODIGO` a la URL, por ejemplo `/?equipo=B&year=2027&verComo=B05`.
+La identidad **real** sigue siendo la del superadministrador y el backend valida el permiso
+y el código en la plantilla **del ejercicio y campaña seleccionados**.
+
+- En campañas reales, la interfaz representa a ese controlador (su turno, sus preferencias
+  privadas y sus controles), permite probar selecciones y cambios locales, pero **no guarda**
+  nada. El servidor rechaza todas las escrituras y los botones de confirmación están desactivados.
+- En simulaciones privadas, se puede interactuar y guardar **como el controlador**. Solo
+  se autorizan sus preferencias y las elecciones que realmente le correspondan; nunca
+  adquiere privilegios de administración. Las escrituras se auditan bajo la identidad real
+  del superadministrador.
+- Para entrar en una simulación desde la URL se conserva `escenario=ID_DE_CAMPAÑA` al
+  elegirla. Después se añade `verComo=CODIGO`; el enlace sigue apuntando al escenario.
+- Una barra indica el modo y ofrece «Salir de vista previa». Las sesiones de otras personas
+  no se ven afectadas. No se suplantan credenciales externas de Google o ChatGPT.
