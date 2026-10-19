@@ -21,7 +21,9 @@ export default function ReconstructionPanel({data,busy,act}:any){
   setManualKind(choice?.pendingTie?'resolve_tie':(choice?.participants?.length??0)>1?'choose_joint':'choose');
   setSelected([]);setEntries({});setOrder([]);setManualDate('');setJointDate({});
  },[stepKey]);
- if(!r)return null;
+ // Do not push the election calendar and the preferences save button below the fold
+ // when the campaign does not have a single decision that can be reconstructed.
+ if(!r||(!active&&r.status!=='completed'&&!candidates.length))return null;
  const available=choice?.available??[];
  const originalKind=choice?.originalAction==='defer'?'defer':choice?.originalAction==='resolve_tie'?'resolve_tie':(choice?.participants?.length??0)>1?'choose_joint':'choose';
  const canSend=mode==='preference'?!!choice?.historicalPreference:
