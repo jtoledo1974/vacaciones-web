@@ -334,3 +334,24 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .election-layout.has-active-detail .election-side .vac2-choice-card .button-row{flex-direction:row;flex-wrap:wrap}
  .election-layout.has-active-detail .election-side .vac2-choice-card .button-row button{flex:1}
 }
+
+/* Guided administrative reconstruction: visible and usable on desktop and mobile. */
+.reconstruction-panel{display:grid;gap:14px;border:1px solid #b5c9bd;background:#fbfcfa}
+.reconstruction-panel h2,.reconstruction-panel h3{margin:2px 0 8px}
+.reconstruction-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.reconstruction-panel .eyebrow{display:block;margin-bottom:5px}
+.reconstruction-panel progress{height:8px;accent-color:#317a69}
+.reconstruction-panel>label,.reconstruction-manual label{display:grid;gap:7px}
+.reconstruction-panel select{width:100%;max-width:100%;padding:9px;min-height:44px}
+.reconstruction-step{border:1px solid var(--line);border-radius:12px;padding:18px;background:white;display:grid;gap:12px}
+.reconstruction-options{display:grid;gap:4px;padding:8px 0;border-bottom:1px solid var(--line)}
+.reconstruction-options p{margin:4px 0}
+.reconstruction-decisions{border:0;padding:0;margin:0;display:grid;gap:14px}
+.reconstruction-decisions legend{font-weight:700;margin-bottom:10px}
+.reconstruction-decisions label{display:flex;align-items:center;gap:10px;cursor:pointer}
+.reconstruction-decisions input{accent-color:#317a69;min-width:20px;min-height:20px}
+.reconstruction-manual{background:#f4f7f4;border-radius:8px;padding:12px;display:grid;gap:12px}
+.reconstruction-panel .button-row{display:flex;flex-wrap:wrap;gap:8px}
+.reconstruction-panel button{min-height:40px}
+.reconstruction-summary{padding:15px;border:1px solid #b5c9bd;border-radius:8px}
+@media(max-width:680px){.reconstruction-heading{flex-direction:column}.reconstruction-step{padding:12px}.reconstruction-panel .button-row button{flex:1;min-width:130px}}

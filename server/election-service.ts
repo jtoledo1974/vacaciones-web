@@ -3,6 +3,7 @@ import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
+import {ReconstructionService,appliedAudit} from './reconstruction.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
@@ -12,6 +13,7 @@ function insertRows(table:string,columns:string[],rows:unknown[][]):Statement[]{
 }
 export class ElectionService{
  constructor(private repo:Repository,private actor:Principal,private host:Host){}
+ reconstruction(){return new ReconstructionService(this.repo,this.actor,this.host);}
  async read(cid:string){
   const result=await this.repo.batch([{sql:'SELECT json FROM election_states WHERE campaign_id=?',args:[cid]},{sql:'SELECT * FROM preferences WHERE campaign_id=?',args:[cid]}]);
   return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic,persistent:!!p.persistent,active:!!p.active})) as Preference[]};
@@ -35,25 +37,13 @@ export class ElectionService{
  async history(cid:string){
   // Replay the append-only audit to recover independent undo and redo stacks.
   // A new decision after an undo creates a new branch and clears only the redo stack.
-  const rows=await this.repo.all('SELECT id,action,before_json FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
-  const done:any[]=[],redo:{original:any;undo:any}[]=[];
-  for(const row of rows){
-   if(row.action==='election_undo'){
-    const original=done.pop();
-    if(original)redo.push({original,undo:row});
-   }else if(row.action==='election_redo'){
-    const item=redo.pop();
-    if(item)done.push(item.original);
-   }else if(row.before_json&&JSON.parse(row.before_json).format==='election-undo-v1'){
-    done.push(row);redo.length=0;
-   }else if(row.action==='resolve_tie'){
-    redo.length=0;
-   }
-  }
-  return {undo:done.at(-1)??null,redo:redo.at(-1)?.undo??null};
+  const rows=await this.repo.all('SELECT id,action,before_json,after_json FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
+  return appliedAudit(rows);
  }
  async options(cid:string,selected:string[]){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
+  const reconstruction=await this.reconstruction().read(cid);
+  if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('Las elecciones están congeladas durante la reconstrucción',409);
   if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id))throw new ApiError('Simulación reservada a administradores',403);
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
@@ -69,6 +59,7 @@ export class ElectionService{
   const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid):null;
+  const reconstruction=await this.reconstruction().view(d,raw);
   // Build the visible reverse-chronological log from choices still present in this campaign.
   // Undo/redo restores awards, so an undone choice must not appear as a current selection.
   const timeline:any[]=[];
@@ -92,7 +83,7 @@ export class ElectionService{
   }
 
   const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
@@ -101,7 +92,11 @@ export class ElectionService{
   if(!manage&&!mine)throw new ApiError('Tu cuenta no está vinculada a un controlador de este equipo',403);
   if(c.status!=='open')throw new ApiError('La campaña está cerrada');
   if(body.version!==c.version)throw new ApiError('La campaña cambió. Recarga antes de guardar.',409);
-  const action=body.action,ops=cas(cid,c.version),snapshot={format:'election-undo-v1',...raw,awards:d.awards,requests:d.requests};
+  const action=body.action;
+  if(typeof action==='string'&&action.startsWith('reconstruction_'))return this.reconstruction().mutate(d,raw,body);
+  const reconstruction=await this.reconstruction().read(cid);
+  if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('Elección congelada: termina la reconstrucción administrativa antes de continuar',409);
+  const ops=cas(cid,c.version),snapshot={format:'election-undo-v1',...raw,awards:d.awards,requests:d.requests};
   let state=raw.state,preferences=raw.preferences,choices:any[]=[],recordUndo=true;
   const authorizeMember=(memberId:string)=>{if(!d.members.some((m:any)=>m.id===memberId))throw new ApiError('Controlador ajeno al equipo');if(!manage&&memberId!==mine)throw new ApiError('Solo puedes modificar tus propias preferencias o elegir en tu turno',403);};
   try{

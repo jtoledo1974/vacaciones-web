@@ -1,6 +1,6 @@
 # Reconstrucción administrativa de elecciones — especificación acordada
 
-Estado: **diseño funcional; pendiente de implementación**. Este documento no implica que la reconstrucción guiada esté disponible en el Site.
+Estado: **implementación en el PR #20, todavía pendiente de fusión y despliegue**. La implementación y la web desplegada pueden diferir. Se conservan los criterios funcionales acordados.
 
 ## A. Preferencias normales
 
@@ -51,8 +51,17 @@ Durante la reconstrucción:
 7. Un error de validación deja intacto todo el estado de la campaña. Las pruebas comparan instantáneas completas y usan SQLite/D1 real de test además de pruebas puras del motor.
 8. Pruebas de autorización: CTA no modifica nada durante reconstrucción; delegado puede ver solo datos históricos de su equipo en modo autorizado; no hay exposición en consulta pública.
 
-## E. Delimitación de implementación
+## E. Implementación y límites
 
-La primera fase del PR #14 incluye vigencia de preferencias, ocultación reversible, migraciones, snapshots y undo/redo lineal multioperación con ramificación histórica en auditoría.
+- El PR #20 añade **reconstruction_sessions** (migración 0007), guardadas exclusivamente en el servidor y en las copias de seguridad.
+- Permite iniciar una reconstrucción desde cualquier decisión vigente de la auditoría, registrar decisiones individuales, conjuntas, aplazamientos y resultados de empates, deshacer y rehacer pasos, cancelar y restaurar el estado anterior íntegro o finalizar con automatismos aún pausados.
+- La interfaz congela las acciones normales para CTA y administradores mientras dure la sesión y facilita el relevo entre responsables mediante control de versión (CAS). El administrador puede consultar las preferencias históricas incluso de CTA vinculados **solo en el contexto de reconstrucción**.
+- En cada turno se ofrecen primero las preferencias históricas válidas, después la adjudicación original todavía posible y, finalmente, la elección o decisión manual. El motor valida todos los cupos; no se adjudica nada de forma automática en este modo.
+- Se mantienen las listas actuales que hayan cambiado después del punto de retroceso; las anteriores se consultan desde el historial. Se preservan las solicitudes originales ya registradas para el baremo, aunque la adjudicación reconstruida sea distinta.
+- La evaluación de impacto antes de reanudar compara los ciclos válidos de las preferencias de CTA que aún pueden elegir, sin generar notificaciones ni requerir aprobaciones dentro del sistema.
+- Por seguridad la reconstrucción avanza **estrictamente en orden de turno**; todavía no adelanta bloques cuando podría demostrarse que no perjudican a nadie.
+- **Limitación del historial anterior**: las adjudicaciones de una misma operación antigua registradas en un único evento de auditoría pueden no descomponerse en varias decisiones recuperables sin datos adicionales. Los turnos automáticos posteriores al PR #18 ya se registran individualmente.
+- El control de concurrencia evita que dos administradores reescriban simultáneamente la sesión. Las reconstrucciones anteriores se conservan en auditoría, pero la tabla de sesiones mantiene solo la última sesión activa o completada del equipo.
 
-**No incluye todavía** la sesión de reconstrucción multi-ronda, la comparación automática de impacto, la autorización especial a las preferencias históricas ni la pausa explícita de automatismos posterior a la reconstrucción. Esos puntos no pueden considerarse implementados hasta superar los tests indicados.
+No habilitar la reconstrucción en producción hasta completar las pruebas automáticas, verificar la migración de base de datos y desplegar el PR.
+

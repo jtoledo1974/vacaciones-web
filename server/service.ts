@@ -46,6 +46,7 @@ export class Service {
         const ops:Statement[]=[
             ...cas(cid,d.campaign.version),
             {sql:'DELETE FROM audit WHERE campaign_id=?',args:[cid]},
+            {sql:'DELETE FROM reconstruction_sessions WHERE campaign_id=?',args:[cid]},
             {sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},
             {sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},
             {sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},
@@ -135,6 +136,8 @@ export class Service {
     async mutate(cid: string, body: any) {
         const d = await this.load(cid), c = d.campaign;
         requireWrite(this.actor, c.team_id);
+        const rebuilding=await this.election().reconstruction().read(cid);
+        if(rebuilding&&rebuilding.status!=='completed')throw new ApiError('La elección está congelada mientras se reconstruyen los turnos',409);
         if (!Number.isInteger(body.version) || body.version !== c.version)
             throw new ApiError('La campaña cambió. Recarga antes de guardar.', 409);
         const action = body.action;
@@ -375,7 +378,7 @@ export class Service {
         requireSuper(this.actor);
         if (!b?.payload || b.payload.format !== 'vacaciones-backup-v1' || b.sha256 !== await digest(JSON.stringify(b.payload)))
             throw new ApiError('Copia inválida o integridad incorrecta');
-        const tables={...b.payload.tables}; for(const key of ['preferences','election_states','controller_accounts'])if(tables[key]===undefined)tables[key]=[];
+        const tables={...b.payload.tables}; for(const key of ['preferences','election_states','controller_accounts','reconstruction_sessions'])if(tables[key]===undefined)tables[key]=[];
         // Restoring a backup must never resurrect a previously revoked session.
         if(Array.isArray(tables.audit))tables.audit=tables.audit.map((r:any)=>r.action==='local_admin_session'?{...r,action:'local_admin_session_revoked'}:r);
         const names = Object.keys(tableColumns);
