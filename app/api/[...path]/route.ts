@@ -1,4 +1,4 @@
-import {notificationSettings,updateSubscription,dispatchNotifications} from '../../../server/notifications';
+import {notificationSettings,updateSubscription,dispatchNotifications,sendTestPush} from '../../../server/notifications';
 import { env, waitUntil } from 'cloudflare:workers';
 import { federatedAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
@@ -92,6 +92,7 @@ async function serve(request: Request) {
         catch {
             throw new ApiError('Contenido JSON no válido');
         }
+        if(path[0]==='notifications'&&b.action==='test')return reply(await sendTestPush(repo,actor,b.endpoint,bindings));
         if(path[0]==='notifications')return reply(await updateSubscription(repo,actor,b,bindings));
         if (path[0] === 'initialize')
             return reply(await service.init());
