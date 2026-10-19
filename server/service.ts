@@ -14,7 +14,7 @@ function checkedConfig(config:Config,year:number){try{return validateConfig(conf
 function checkedDate(value:string){try{return serial(value);}catch{throw new ApiError('Fecha no válida');}}
 export async function principal(repo: Repository, identity: Identity, superEmails: string): Promise<Principal> { if (!identity)
     return { id: null, role: 'viewer', teams: [] }; const key = identity.provider + ':' + identity.subject;
-    const verifiedEmail=(identity.provider==='chatgpt'||identity.emailVerified===true)&&identity.email?.trim()?identity.email.trim().toLowerCase():null;
+    const verifiedEmail=identity.emailVerified===true&&identity.email?.trim()?identity.email.trim().toLowerCase():null;
     const emailKey=verifiedEmail&&identity.provider==='chatgpt'?'chatgpt-email:'+verifiedEmail:undefined;
     if(identity.provider==='local_admin')return {id:key,role:'superadmin',teams:[]}; if (verifiedEmail&&superEmails.split(',').map(s => s.trim().toLowerCase()).filter(Boolean).includes(verifiedEmail))
     return { id:key,role:'superadmin',teams:[],emailKey };
