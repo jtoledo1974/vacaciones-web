@@ -13,6 +13,10 @@ test('password administration, invalid login, CSRF, bearer precedence, isolation
  await page.getByRole('button',{name:'Entrar como administrador',exact:true}).click();
  const api=page.request;
  await expect.poll(async()=> (await (await api.get('/api/session')).json()).principal.role).toBe('superadmin');
+ const index=await (await api.get('/api/index')).json();
+ if(!index.teams.length)expect((await api.post('/api/initialize',{data:{},headers:{Origin:origin}})).status()).toBe(200);
+ await page.reload();
+ await expect(page.getByText('Administrador local',{exact:true})).toBeAttached();
  const session=await (await api.get('/api/session')).json();expect(session.identity.provider).toBe('local_admin');
  expect((await api.get('/api/admin')).status()).toBe(200);
  expect((await api.get('/api/admin',{headers:{Authorization:'Bearer invalid'}})).status()).toBe(401);
@@ -24,6 +28,7 @@ test('password administration, invalid login, CSRF, bearer precedence, isolation
  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
  await page.getByRole('button',{name:'Administración',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Campañas anuales'})).toBeVisible();
+ if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
  await page.getByRole('button',{name:'Cerrar sesión de administrador local',exact:true}).click();
  await expect.poll(async()=>(await (await api.get('/api/session')).json()).principal.role).toBe('viewer');
  expect((await replay.request.get('/api/admin')).status()).toBe(403);
