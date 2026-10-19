@@ -1,10 +1,10 @@
 /** RFC 8291 aes128gcm Web Push encryption + RFC 8292 VAPID for Cloudflare WebCrypto. */
-function decode(v:string):Uint8Array{const s=atob(v.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-v.length%4)%4));return Uint8Array.from(s,c=>c.charCodeAt(0));}
+function decode(v:string):Uint8Array<ArrayBuffer>{const s=atob(v.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-v.length%4)%4));return Uint8Array.from(s,c=>c.charCodeAt(0));}
 function encode(v:Uint8Array):string{return btoa(String.fromCharCode(...v)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');}
-function bytes(v:ArrayBuffer|Uint8Array):Uint8Array{return new Uint8Array(v instanceof Uint8Array?v:new Uint8Array(v));}
-function join(...parts:Uint8Array[]):Uint8Array{const out=new Uint8Array(parts.reduce((n,a)=>n+a.length,0));let at=0;for(const p of parts){out.set(p,at);at+=p.length;}return out;}
+function bytes(v:ArrayBuffer|Uint8Array):Uint8Array<ArrayBuffer>{return new Uint8Array(v instanceof Uint8Array?v:new Uint8Array(v));}
+function join(...parts:Uint8Array[]):Uint8Array<ArrayBuffer>{const out=new Uint8Array(parts.reduce((n,a)=>n+a.length,0));let at=0;for(const p of parts){out.set(p,at);at+=p.length;}return out;}
 const utf=(s:string)=>new TextEncoder().encode(s);
-async function hkdf(ikm:Uint8Array,salt:Uint8Array,info:Uint8Array,length:number):Promise<Uint8Array>{
+async function hkdf(ikm:Uint8Array,salt:Uint8Array,info:Uint8Array,length:number):Promise<Uint8Array<ArrayBuffer>>{
  const key=await crypto.subtle.importKey('raw',ikm,'HKDF',false,['deriveBits']);
  return bytes(await crypto.subtle.deriveBits({name:'HKDF',hash:'SHA-256',salt,info},key,length*8));
 }
