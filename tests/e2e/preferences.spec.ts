@@ -168,3 +168,23 @@ test('preferencias: lista larga mantiene accesibles cierre, orden y guardado',as
  expect(stored.dates[12]).toBe(s.data.result.cycles[13].date);
  if(!process.env.CI)await page.screenshot({path:info.outputPath('lista-larga.png')});
 });
+
+test('preferencias: guardar tras undo conserva la pausa de automatismos de main',async({page,request},info)=>{
+ const s=await fixture(request,page),dates=s.data.result.cycles.map((c:any)=>c.date);
+ await command(request,s.id,{action:'start',order:s.data.members.map((m:any)=>m.id),source:'Prueba de pausa tras deshacer',rulesConfirmed:true,allowDeferral:true});
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible({timeout:18000});
+ await add(page,dates[0]);let editor=await review(page);
+ await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
+ await page.getByRole('dialog',{name:'Confirmar cambio'}).getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');await close(page);
+ const saved=await read(request,s.id);expect(saved.awards).toHaveLength(1);
+ await command(request,s.id,{action:'election_undo',historyId:saved.election.undo});
+ await expect(page.getByRole('button',{name:'Reanudar automatismos',exact:true})).toBeVisible({timeout:18000});
+ await add(page,dates[1]);editor=await review(page);
+ await expect(editor).toContainText('Guardar conserva la lista sin adjudicar');
+ await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
+ await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');
+ await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toHaveCount(0);
+ const after=await read(request,s.id);expect(after.awards).toHaveLength(0);expect(after.election.state.automaticPaused).toBe(true);
+ if(!process.env.CI)await page.screenshot({path:info.outputPath('preferencias-con-automatismos-pausados.png')});
+});
