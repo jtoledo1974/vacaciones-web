@@ -91,6 +91,8 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
   await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();
   await page.getByRole('button',{name:'Confirmar ciclo',exact:true}).click();
   await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+  const next=simulation.members.find((m:any)=>m.id!==own.id);
+  await expect(page.getByRole('heading',{name:next.code+' elige ahora',exact:true})).toBeVisible();
 
   const after=await read(request,cloned.id);
   expect(after.election.myMemberId).toBe(own.id);
