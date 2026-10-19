@@ -33,6 +33,9 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   test.skip(info.project.name!=='chromium','The four explicit viewport sizes are covered in the desktop project.');
   await page.setViewportSize(size);
   const s=await fixture(request,page),member=s.data.members[0],dates=s.data.result.cycles.slice(0,3).map((c:any)=>c.date);
+  // A campaign with no decisions must not show an empty reconstruction panel:
+  // it pushed the desktop preference-save control below a 900px viewport.
+  await expect(page.getByRole('heading',{name:'Reconstruir elecciones anteriores'})).toHaveCount(0);
   const shot=async(name:string)=>{if(!process.env.CI)await page.screenshot({path:info.outputPath(name+'.png')});};
   if(size.width>900){
    await expect.poll(async()=>{
