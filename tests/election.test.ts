@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {choose,defer,currentTurn,advanceAutomatic,validateOrder,type ElectionState,type ElectionContext} from '../domain/election.ts';
+import {choose,defer,currentTurn,advanceAutomatic,visiblePreferenceDates,validateOrder,type ElectionState,type ElectionContext} from '../domain/election.ts';
 import {defaultConfig} from '../domain/defaults.ts';
 import {calendar} from '../domain/calendar.ts';
 function fixture(){const config={...defaultConfig(2026),cyclesPerPerson:2,summerPerPerson:0};const ctx:ElectionContext={year:2026,team:'C',config,members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[]};const state:ElectionState={status:'active',order:['B','A','C'],cursor:0,credits:{},source:'Orden histórico confirmado',allowDeferral:true};return {ctx,state,dates:calendar(2026,'C',config).map(c=>c.date)};}
