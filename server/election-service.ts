@@ -1,4 +1,4 @@
-import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,choiceIssues,preferredChoice,validateOrder,validateElectionState,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -58,7 +58,7 @@ export class ElectionService{
   }
 
   const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>manage||p.member_id===mine),myMemberId:mine,canManage:manage,available,points,accounts,undo:history&&history.action!=='election_undo'?history.id:null,redo:history?.action==='election_undo'?history.id:null,pendingAutomatic:!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline};
  }
  async mutate(cid:string,body:any){
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
@@ -80,9 +80,27 @@ export class ElectionService{
    }else if(action==='start'){
     requireSuper(this.actor);validateOrder(body.order,d.members);
     if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección provisional admite entre uno y seis ciclos por persona');
-    if(state&&d.awards.length)throw new ApiError('No cambies el orden después de comenzar a elegir. Reanuda la elección o reinicia las vacaciones.');
+    if(state&&(d.awards.length||state.tieResolutions?.length))throw new ApiError('No cambies el orden después de comenzar a elegir. Reanuda la elección o reinicia las vacaciones.');
     if(body.rulesConfirmed!==true||typeof body.source!=='string'||body.source.trim().length<10||body.source.length>500||typeof body.allowDeferral!=='boolean')throw new ApiError('Confirma las reglas y el origen del orden antes de activar la elección');
-    state={status:'active',order:body.order,cursor:0,credits:{},source:body.source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups:body.tieGroups??[],jointGroups:body.jointGroups??[]};validateElectionState(state,d.members);
+    let tieGroups=body.tieGroups??[];
+    if(d.config.previousScores){
+     const scores=d.config.previousScores;
+     if(d.members.some((m:any)=>!Object.hasOwn(scores,m.code)))throw new ApiError('Faltan puntuaciones anteriores: revisa las incorporaciones antes de activar');
+     const ordered=body.order.map((id:string)=>({id,score:scores[d.members.find((m:any)=>m.id===id).code]}));
+     if(ordered.some((m:any,i:number)=>i>0&&m.score<ordered[i-1].score))throw new ApiError('El orden debe respetar las puntuaciones anteriores');
+     const groups=new Map<number,string[]>();for(const m of ordered)groups.set(m.score,[...(groups.get(m.score)??[]),m.id]);
+     tieGroups=[...groups.values()].filter(g=>g.length>1);
+    }
+    state={status:'active',order:body.order,cursor:0,credits:{},source:body.source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:body.jointGroups??[]};validateElectionState(state,d.members);
+   }else if(action==='resolve_tie'){
+    if(!manage)throw new ApiError('Solo el responsable puede registrar el sorteo',403);
+    if(!state)throw new ApiError('No hay una elección configurada');
+    const group=currentTurn(ctx,state).pendingTie;
+    if(!group)throw new ApiError('No hay un empate pendiente en este turno');
+    if(!['random','external'].includes(body.method))throw new ApiError('Método de sorteo no válido');
+    state=resolveTie(ctx,state,body.method==='random'?drawTie(group):body.order,body.method,this.actor.id!,new Date().toISOString());
+    // The result must be visible and reviewable before an automatic choice uses it.
+    automaticAllowed=false;recordUndo=false;
    }else if(action==='choose'||action==='choose_joint'||action==='defer'){
     if(action==='choose_joint'){if(!manage)throw new ApiError('El turno conjunto requiere la confirmación del responsable',403);}else authorizeMember(body.memberId);if(!state)throw new ApiError('El administrador debe confirmar el orden de elección primero');
     if(action==='choose'){if(!Array.isArray(body.dates)||body.dates.some((v:any)=>typeof v!=='string'))throw new ApiError('Selección no válida');const next=choose(ctx,state,body.memberId,body.dates);state=next.state;choices=next.choices;}
@@ -125,7 +143,7 @@ export class ElectionService{
    used.add(slot);newRequests.push([crypto.randomUUID(),cid,a.member_id,slot,a.cycle_date,1]);
   }
   ops.push(...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
-  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{version:c.version+1,choices,memberId:body.memberId??null}));
+  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{version:c.version+1,choices,memberId:body.memberId??null,...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{})}));
   await this.host.commit(ops);return {changed:true};
  }
 }

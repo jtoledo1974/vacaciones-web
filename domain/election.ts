@@ -8,6 +8,8 @@ export type ElectionState={
  source:string;allowDeferral:boolean;policyVersion?:string;
  // Each tied group is contiguous in the initial, drawn order, then rotated each round.
  tieGroups?:string[][];
+ pendingTieGroups?:string[][];
+ tieResolutions?:{order:string[];method:'random'|'external';at:string;actor:string}[];
  // A joint turn is taken at the position of its last participant in each round.
  jointGroups?:string[][];
 };
@@ -39,6 +41,8 @@ export function validateElectionState(state:ElectionState,members:Member[]){
    }
   }
  }
+ if(state.pendingTieGroups!==undefined&&(!Array.isArray(state.pendingTieGroups)||state.pendingTieGroups.some(group=>!Array.isArray(group)||!(state.tieGroups??[]).some(tie=>tie.length===group.length&&tie.every((id,i)=>id===group[i])))))throw new Error('Empates pendientes no válidos');
+ if(state.tieResolutions!==undefined&&(!Array.isArray(state.tieResolutions)||state.tieResolutions.some(r=>!r||!['random','external'].includes(r.method)||typeof r.at!=='string'||typeof r.actor!=='string'||!Array.isArray(r.order)||r.order.length<2||new Set(r.order).size!==r.order.length||r.order.some(id=>!state.order.includes(id)))))throw new Error('Actas de sorteo no válidas');
 }
 export function orderForRound(state:ElectionState,round:number):string[]{
  const result=[...state.order];
@@ -62,6 +66,8 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
   const inRound=orderForRound(state,currentRound),id=inRound[state.cursor%n];
   const remaining=ctx.config.cyclesPerPerson-count(ctx,id);
   if(remaining===0){state.cursor++;continue;}
+  const pendingTie=(state.pendingTieGroups??[]).find(group=>group.includes(id));
+  if(pendingTie)return {state,memberId:null,needed:0,round:currentRound+1,participants:[] as string[],requiredByMember:{} as Record<string,number>,pendingTie};
   const joint=(state.jointGroups??[]).find(g=>g.includes(id));
   const participants=joint?inRound.filter(person=>joint.includes(person)&&count(ctx,person)<ctx.config.cyclesPerPerson):[id];
   if(participants[participants.length-1]!==id){state.cursor++;continue;}
@@ -69,6 +75,24 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
   return {state,memberId:id,needed:Object.values(requiredByMember).reduce((a,b)=>a+b,0),round:currentRound+1,participants,requiredByMember};
  }
  throw new Error('No se ha podido avanzar la elección');
+}
+export function resolveTie(ctx:ElectionContext,input:ElectionState,order:string[],method:'random'|'external',actor:string,at:string){
+ const turn=currentTurn(ctx,input),group=turn.pendingTie;
+ if(!group)throw new Error('No hay un empate pendiente en este turno');
+ if(!Array.isArray(order)||order.length!==group.length||new Set(order).size!==order.length||order.some(id=>!group.includes(id)))throw new Error('El orden debe incluir una vez a cada persona empatada');
+ const state=turn.state,first=state.order.indexOf(group[0]);
+ state.order.splice(first,group.length,...order);
+ state.tieGroups=state.tieGroups!.map(g=>g===group||g.length===group.length&&g.every((id,i)=>id===group[i])?[...order]:g);
+ state.pendingTieGroups=state.pendingTieGroups!.filter(g=>!g.includes(group[0]));
+ state.tieResolutions=[...(state.tieResolutions??[]),{order:[...order],method,actor,at}];
+ validateElectionState(state,ctx.members);return state;
+}
+
+// Unbiased Fisher–Yates, with rejection sampling of cryptographically random integers.
+export function drawTie(group:string[]):string[]{
+ const order=[...group],word=new Uint32Array(1);
+ for(let i=order.length-1;i>0;i--){const size=i+1,limit=0x100000000-0x100000000%size;let value:number;do{crypto.getRandomValues(word);value=word[0];}while(value>=limit);const j=value%size;[order[i],order[j]]=[order[j],order[i]];}
+ return order;
 }
 export function choiceIssues(ctx:ElectionContext,memberId:string,dates:string[]){
  if(!ctx.members.some(m=>m.id===memberId))return ['Controlador ajeno a la campaña'];

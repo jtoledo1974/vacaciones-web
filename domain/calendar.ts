@@ -20,6 +20,8 @@ export type Holiday = {
     corpus?: boolean;
 };
 export type Config = {
+    previousScores?: Record<string,number>;
+    previousScoresSource?: string;
     cycleLength: number;
     cyclesPerPerson: number;
     summerPerPerson: number;
@@ -55,7 +57,10 @@ export type Config = {
     holidays: Holiday[];
 };
 export function validateConfig(c: Config, y: number) { if (!c || !Number.isInteger(y) || y < 2013 || y > 2200)
-    throw new Error('Ejercicio entre 2013 y 2200'); for (const k of ['cycleLength', 'cyclesPerPerson', 'summerPerPerson', 'conventionJanuary'] as const)
+    throw new Error('Ejercicio entre 2013 y 2200');
+    if(c.previousScores!==undefined&&(!c.previousScores||Array.isArray(c.previousScores)||typeof c.previousScores!=='object'||Object.keys(c.previousScores).length>100||Object.entries(c.previousScores).some(([code,score])=>code.length>24||!Number.isFinite(score)||score<0||score>10000)))throw new Error('Puntuaciones anteriores no válidas');
+    if(c.previousScoresSource!==undefined&&(typeof c.previousScoresSource!=='string'||c.previousScoresSource.length>500))throw new Error('Origen de puntuaciones no válido');
+    for (const k of ['cycleLength', 'cyclesPerPerson', 'summerPerPerson', 'conventionJanuary'] as const)
     if (!Number.isInteger(c[k]) || c[k] < 0 || c[k] > 100)
         throw new Error('Parámetro numérico no válido'); if (c.cycleLength !== 8)
     throw new Error('El original solo define la rotación de 8 días. Otros ciclos requieren una regla validada.'); if (c.summerPerPerson > c.cyclesPerPerson)
