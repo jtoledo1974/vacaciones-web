@@ -143,7 +143,8 @@ export function defer(ctx:ElectionContext,input:ElectionState,memberId:string){
 export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferences:Preference[]){
  const turn=currentTurn(ctx,state);
  if(turn.participants.length!==1||!turn.memberId)return null;
- const pref=preferences.find(p=>p.member_id===turn.memberId&&p.automatic);
+ // A saved preference list is an advance instruction to choose; legacy automatic=false is ignored.
+  const pref=preferences.find(p=>p.member_id===turn.memberId);
  if(!pref)return null;
  const needed=turn.needed;
  // Explicit bounded backtracking avoids accepting a pair/triple that breaks joint quota accounting.
