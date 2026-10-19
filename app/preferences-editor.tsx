@@ -63,7 +63,7 @@ export default function PreferencesEditor({data,memberId,dates,setDates,persiste
    })}</ol>}
    {hiddenCount>0&&<p className="preference-hidden">{hiddenCount} ciclo(s) sin cupo ocultos. Se conservan en su posición y reaparecerán si se libera una plaza.</p>}
    <label className="preference-consent"><input type="checkbox" disabled={busy} checked={persistent} onChange={e=>setPersistent(e.target.checked)}/> Mantener estas preferencias en todas las rondas restantes</label>
-   <p className="muted">Sin marcar: solo el próximo turno efectivo, incluso si aplazas. Guardar autoriza la asignación automática; si ya es tu turno, puede ser inmediata.</p>
+   <p className="muted">Sin marcar: solo el próximo turno efectivo, incluso si aplazas. {data.election.state?.automaticPaused?'Los automatismos están detenidos. Guardar conserva la lista sin adjudicar; el responsable debe reanudarlos.':'Guardar autoriza la asignación automática; si ya es tu turno, puede ser inmediata.'}</p>
   </div>
   <footer className="preference-editor-footer"><span className={'preference-state '+(dirty?'pending':'saved')}>{status}</span><div className="preference-feedback" role="status" aria-live="polite" aria-atomic="true">{message}</div><button type="button" className="primary" disabled={busy||(!dirty&&existing?.active!==false)} onClick={save}>{busy?'Guardando…':'Guardar preferencias'}</button></footer>
  </section>;

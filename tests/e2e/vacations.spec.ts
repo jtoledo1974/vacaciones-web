@@ -133,6 +133,33 @@ test('preferencias delegadas y elección automática al llegar el turno',async({
   const d=await read(request,s.id);expect(d.awards).toHaveLength(2);expect(d.awards.some((a:any)=>a.member_id===s.data.members[1].id)).toBeTruthy();
 });
 
+test('undo en navegador deshace solo el último turno automático y permite corregirlo',async({page,request})=>{
+ const s=await setup(request,page),dates=s.data.result.cycles.map((x:any)=>x.date),[a,b,c,d]=s.data.members;
+ await election(request,s.id,{action:'preferences',memberId:b.id,dates:[dates[1]]});
+ await election(request,s.id,{action:'preferences',memberId:c.id,dates:[dates[2]]});
+ await open(page,s.id);await activate(page);
+ await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
+ await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
+ let current=await read(request,s.id);
+ expect(current.awards.map((x:any)=>x.member_id).sort()).toEqual([a.id,b.id,c.id].sort());
+ await confirm(page,'↶ Deshacer');
+ await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'Reanudar automatismos',exact:true})).toBeVisible();
+ current=await read(request,s.id);
+ expect(current.awards.map((x:any)=>x.member_id).sort()).toEqual([a.id,b.id].sort());
+ expect(current.election.state.automaticPaused).toBe(true);
+ expect(current.election.preferences.find((p:any)=>p.member_id===c.id).active).toBe(true);
+ await cycle(page,dates[3]);await confirm(page,'Confirmar ciclo');
+ await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
+ current=await read(request,s.id);
+ expect(current.awards.find((x:any)=>x.member_id===c.id)?.cycle_date).toBe(dates[3]);
+ expect(current.election.state.automaticPaused).toBe(true);
+ await page.getByRole('button',{name:'Reanudar automatismos',exact:true}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Reanudar automatismos',exact:true})).toHaveCount(0);
+ expect((await read(request,s.id)).election.state.automaticPaused).toBe(false);
+});
+
 test('guardar preferencias durante el turno avisa antes de adjudicar automáticamente',async({page,request})=>{
  const s=await setup(request,page),member=s.data.members[0],date=s.data.result.cycles[0].date;
  await open(page,s.id);await activate(page);

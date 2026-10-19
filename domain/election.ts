@@ -5,6 +5,8 @@ import type {Config} from './calendar.ts';
 export const ELECTION_POLICY_VERSION='criterios-vacaciones-1.1-2025';
 export type ElectionState={
  status:'active'|'paused'|'complete';order:string[];cursor:number;credits:Record<string,number>;
+ // Administrators can correct an undone automatic choice without retriggering it.
+ automaticPaused?:boolean;
  source:string;allowDeferral:boolean;policyVersion?:string;
  // Each tied group is contiguous in the initial, drawn order, then rotated each round.
  tieGroups?:string[][];
@@ -33,7 +35,7 @@ export function validateOrder(order:unknown,members:Member[]):asserts order is s
 }
 export function validateElectionState(state:ElectionState,members:Member[]){
  validateOrder(state.order,members);
- if(!['active','paused','complete'].includes(state.status)||!Number.isInteger(state.cursor)||state.cursor<0||state.cursor>1000000||typeof state.source!=='string'||typeof state.allowDeferral!=='boolean'||!state.credits||Object.entries(state.credits).some(([id,credit])=>!state.order.includes(id)||![0,1,2].includes(credit)))
+ if(!['active','paused','complete'].includes(state.status)||!Number.isInteger(state.cursor)||state.cursor<0||state.cursor>1000000||typeof state.source!=='string'||typeof state.allowDeferral!=='boolean'||!state.credits||(state.automaticPaused!==undefined&&typeof state.automaticPaused!=='boolean')||Object.entries(state.credits).some(([id,credit])=>!state.order.includes(id)||![0,1,2].includes(credit)))
   throw new Error('Estado de elección no válido');
  for(const [name,groups] of [['tieGroups',state.tieGroups??[]],['jointGroups',state.jointGroups??[]]] as const){
   if(!Array.isArray(groups))throw new Error('Grupos de elección no válidos');
@@ -150,6 +152,7 @@ export function defer(ctx:ElectionContext,input:ElectionState,memberId:string){
  return currentTurn(ctx,turn.state).state;
 }
 export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferences:Preference[]){
+ if(state.automaticPaused)return null;
  const turn=currentTurn(ctx,state);
  if(turn.participants.length!==1||!turn.memberId)return null;
  // A saved preference list is an advance instruction to choose; legacy automatic=false is ignored.

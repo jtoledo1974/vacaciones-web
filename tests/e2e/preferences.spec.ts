@@ -105,7 +105,8 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   await expect(page.locator('.vac2-cycle').first()).not.toContainText('0 libres',{timeout:18000});
   await review(page);await expect(list.locator('li')).toHaveCount(2);await close(page);
   // The saved list advances A; saving B's new draft must still ask explicitly.
-  await command(request,s.id,{action:'start',order:s.data.members.map((m:any)=>m.id),source:'Orden de prueba visual aislada',rulesConfirmed:true,allowDeferral:true});
+  const started=await command(request,s.id,{action:'start',order:s.data.members.map((m:any)=>m.id),source:'Orden de prueba visual aislada',rulesConfirmed:true,allowDeferral:true});
+  if(started.election.pendingAutomatic)await command(request,s.id,{action:'advance'});
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible({timeout:18000});
   await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(s.data.members[1].id);
   await add(page,dates[2]);await review(page);await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
