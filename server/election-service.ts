@@ -90,9 +90,9 @@ export class ElectionService{
     authorizeMember(body.memberId);
     if(!(await this.preferenceMemberIds(d,mine)).includes(body.memberId))throw new ApiError('Las preferencias de un controlador con cuenta vinculada solo pueden modificarlas su titular o un superadministrador',403);
     const dates=body.dates,validDates=new Set(resultDates(ctx));
-    if(!Array.isArray(dates)||dates.length>100||dates.some(date=>typeof date!=='string'||!validDates.has(date))||new Set(dates).size!==dates.length||typeof body.automatic!=='boolean')throw new ApiError('Lista de preferencias no válida: usa ciclos del calendario, sin duplicados');
-    preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:body.automatic}];
-    ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic) VALUES(?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic',args:[body.memberId,cid,JSON.stringify(dates),body.automatic?1:0]});
+    if(!Array.isArray(dates)||dates.length>100||dates.some(date=>typeof date!=='string'||!validDates.has(date))||new Set(dates).size!==dates.length)throw new ApiError('Lista de preferencias no válida: usa ciclos del calendario, sin duplicados');
+    preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:true}];
+    ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic) VALUES(?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic',args:[body.memberId,cid,JSON.stringify(dates),1]});
    }else if(action==='start'){
     requireSuper(this.actor);validateOrder(body.order,d.members);
     if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección provisional admite entre uno y seis ciclos por persona');
