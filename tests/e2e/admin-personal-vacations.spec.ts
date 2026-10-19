@@ -74,8 +74,9 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
   await expect(page.getByLabel('Preferencias de controlador',{exact:true})).toHaveValue(own.id);
   const date=simulation.result.cycles[0].date;
   await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();
+  if(await page.getByRole('button',{name:'Revisar y guardar',exact:true}).isVisible())await page.getByRole('button',{name:'Revisar y guardar',exact:true}).click();
   await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
-  await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'})).toBeVisible();
+  await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'}).first()).toBeVisible();
   const saved=await read(request,cloned.id);
   expect(saved.election.preferences.find((p:any)=>p.member_id===own.id)).toMatchObject({
    dates:[date],automatic:true,
