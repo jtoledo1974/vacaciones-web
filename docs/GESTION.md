@@ -28,7 +28,7 @@ Antes de que el primer integrante de cada grupo empatado pueda elegir, la aplica
 
 ## Listas propias y delegadas
 
-En Administración → Plantilla del equipo, edita las columnas «ID de acceso» y «Autenticación» de cada controlador y pulsa «Guardar cambios». Elige ChatGPT Sites o Firebase y usa el identificador estable de sesión correspondiente (no el correo). Vacía el ID para desvincular. La cuenta recibe acceso a sus preferencias y a elegir en su turno; no administración. Una cuenta corresponde a una persona, con identidad conservada entre ejercicios y traslados.
+En Administración → Plantilla del equipo, edita las columnas «Correo de acceso / UID» y «Autenticación» de cada controlador y pulsa «Guardar cambios». Para ChatGPT Sites introduce el correo electrónico con el que inicia sesión; el servidor exige que proceda de la autenticación. Para Firebase introduce el UID de su proyecto. Selecciona «Sin vincular» para desvincular. La cuenta recibe acceso a sus preferencias y a elegir en su turno; no administración. Una cuenta corresponde a una persona, con identidad conservada entre ejercicios y traslados.
 
 En **Preparar preferencias**, el administrador puede seleccionar a cualquier controlador del equipo e introducir su lista. Las flechas establecen prioridad. El consentimiento de automatización es explícito y se guarda con la lista. Se prueban las opciones en orden cuando llega su turno; las elecciones previas se respetan. Para una elección doble se busca una pareja válida y se confirma de forma conjunta, o se espera.
 

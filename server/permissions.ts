@@ -8,6 +8,8 @@ export type Principal = {
     id: string | null;
     role: 'viewer' | 'team_admin' | 'superadmin';
     teams: string[];
+    /** Derived only from a provider-verified email; never from client input. */
+    emailKey?: string;
 };
 export function canWrite(p: Principal, team: string) { return p.id !== null && (p.role === 'superadmin' || p.role === 'team_admin' && p.teams.includes(team)); }
 export function requireWrite(p: Principal, team: string) { if (!canWrite(p, team))
