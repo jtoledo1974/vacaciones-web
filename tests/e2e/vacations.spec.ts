@@ -97,9 +97,11 @@ test('calendario público, permisos y aislamiento',async({page,request,browser})
   await anonymous.close();
 });
 
-test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request})=>{
+test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request},info)=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
-  const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);await confirm(page,'Aplazar para elegir dos');
+  const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);
+  await page.screenshot({path:info.outputPath('revision-eleccion-desktop.png'),fullPage:true});
+  await confirm(page,'Aplazar para elegir dos');
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   for(let i=1;i<4;i++){
     await cycle(page,dates[i-1]);await confirm(page,'Confirmar ciclo');
@@ -170,7 +172,7 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  await expect(page.getByRole('heading',{name:'QA_D elige ahora'})).toBeVisible();
 });
 
-test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',async({page,request})=>{
+test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',async({page,request},info)=>{
   await page.setViewportSize({width:390,height:844});
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   await expect(page.getByRole('button',{name:'Mapa',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -185,6 +187,7 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   await cycle(page,s.data.result.cycles[0].date);
   await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toBeVisible();
   await expect(page.locator('.vac2-choice-card')).toHaveCSS('position','fixed');
+  await page.screenshot({path:info.outputPath('revision-eleccion-movil.png'),fullPage:true});
   await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
