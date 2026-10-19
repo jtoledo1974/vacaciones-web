@@ -1,7 +1,7 @@
 // Intentionally empty by default.
 // Add Drizzle tables here when the site actually needs a database.
 // See examples/d1/db/schema.ts for an opt-in example.
-import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
 export const teams = sqliteTable('teams', { id: text('id').primaryKey(), name: text('name').notNull(), version: integer('version').notNull().default(1) });
 export const people = sqliteTable('people', { id: text('id').primaryKey(), teamId: text('team_id').notNull().references(() => teams.id), code: text('code').notNull(),label:text('label').notNull().default(''),position:integer('position').notNull().default(0), seniority: text('seniority').notNull(), active:integer('active').notNull().default(1),version: integer('version').notNull().default(1) }, t => [uniqueIndex('person_team_code').on(t.teamId, t.code)]);
 export const users = sqliteTable('users', { id: text('id').primaryKey(), provider: text('provider').notNull(), subject: text('subject').notNull(), role: text('role').notNull(), version: integer('version').notNull().default(1) }, t => [uniqueIndex('identity_unique').on(t.provider, t.subject)]);
@@ -20,3 +20,8 @@ export const preferences=sqliteTable('preferences',{memberId:text('member_id').p
 export const controllerAccounts=sqliteTable('controller_accounts',{personId:text('person_id').primaryKey().references(()=>people.id),principalKey:text('principal_key').notNull(),version:integer('version').notNull().default(1)},t=>[uniqueIndex('controller_account_identity').on(t.principalKey)]);
 
 
+
+export const pushSubscriptions=sqliteTable('push_subscriptions',{endpoint:text('endpoint').primaryKey(),ownerKey:text('owner_key').notNull(),p256dh:text('p256dh').notNull(),auth:text('auth').notNull(),createdAt:text('created_at').notNull()});
+export const turnNotifications=sqliteTable('turn_notifications',{id:text('id').primaryKey(),ownerKey:text('owner_key').notNull(),campaignId:text('campaign_id').notNull(),memberId:text('member_id').notNull(),round:integer('round').notNull(),createdAt:text('created_at').notNull(),pushStatus:text('push_status').notNull().default('pending')});
+
+export const pushDeliveries=sqliteTable('push_deliveries',{eventId:text('event_id').notNull(),endpoint:text('endpoint').notNull(),status:text('status').notNull().default('pending'),leaseToken:text('lease_token'),leaseExpiresAt:integer('lease_expires_at').notNull().default(0),attempts:integer('attempts').notNull().default(0)},t=>[primaryKey({columns:[t.eventId,t.endpoint]})]);

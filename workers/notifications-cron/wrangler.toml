@@ -1,0 +1,11 @@
+# Deploy this Worker in the user's own Cloudflare Free account.
+# Update SITE_ORIGIN if the ChatGPT Site's domain changes.
+name = "vacaciones-notifications-cron"
+main = "index.js"
+compatibility_date = "2026-10-19"
+
+[triggers]
+crons = ["* * * * *"]
+
+[vars]
+SITE_ORIGIN = "https://vacaciones.lazaro.es"

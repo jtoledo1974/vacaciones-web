@@ -8,7 +8,7 @@ import ElectionWorkspace from './election-workspace';
 import SimulationTools from './simulation-tools';
 import Help from './help';
 import {ConfirmationProvider,useConfirmation} from './confirmation';
-import { CalendarDays, CheckCheck, ShieldCheck, ArrowUpRight, Plus, Download, RefreshCw, ChevronRight, Layers, Menu, X, BookOpen } from 'lucide-react';
+import { CalendarDays, CheckCheck, ShieldCheck, ArrowUpRight, Plus, Download, RefreshCw, ChevronRight, Layers, Menu, X, BookOpen, Bell } from 'lucide-react';
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
 async function api(path:string,body?:any){
  const token=await firebaseBearerToken();
@@ -189,7 +189,7 @@ function Dashboard() {
         <button className="close-mobile" onClick={() => setMenu(false)} aria-label="Cerrar menú"><X /></button>
         <SidebarSession {...sessionDetails}/>
         <div className="nav-caption">ESPACIO DE TRABAJO</div>
-        <nav>{links.map(([key, label, Icon]) => <button key={key} className={nav === key ? 'active' : ''} onClick={() => go(key)}><Icon size={19}/>{label}{nav === key && <ChevronRight size={15}/>}</button>)}</nav>
+        <nav>{links.map(([key, label, Icon]) => <button key={key} className={nav === key ? 'active' : ''} onClick={() => go(key)}><Icon size={19}/>{label}{nav === key && <ChevronRight size={15}/>}</button>)}<a href="/notificaciones" className="notification-nav-link"><Bell size={19}/> Notificaciones</a></nav>
         <div className="sidebar-bottom">
           <div><span className="env-dot"/> Consulta pública disponible</div>
           <div className="sidebar-foot">Gestión anual de equipos<br/>Datos por equipo y ejercicio</div>
