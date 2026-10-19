@@ -71,7 +71,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const previewReadOnly=!!data.preview&&!data.preview.writable;
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
- const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
+ const [historyLimit,setHistoryLimit]=useState(40);
+  const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
  useEffect(()=>{setSelected([]);setJointSelected({});setJointTarget('');setDetail(null);setMessage('');},[turn?.memberId,turn?.round,turn?.needed,state?.status]);
  useEffect(()=>{if(!preferenceMemberIds.includes(memberId))setMemberId(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??'');},[memberId,mine,preferenceMemberIds.join('|')]);
  useEffect(()=>{setDetail((current:any)=>current?data.result.cycles.find((c:any)=>c.date===current.date)??null:null);},[data.campaign.version]);
@@ -179,19 +180,39 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      </>}
     </section>}
     {manage&&<section className="panel election-history-panel">
-     <div className="election-history-head"><h2>Últimas adjudicaciones</h2>
+     <div className="election-history-head"><h2>Últimos turnos y adjudicaciones</h2>
       <div className="election-workflow-actions">
        {(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');}}>↶ Deshacer</button>}
        {(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>↷ Rehacer</button>}
       </div>
      </div>
-     <p className="muted">Más recientes primero. Las elecciones deshechas desaparecen de esta lista.</p>
-     {(election.timeline??[]).length?
-      <ol className="election-log">{(election.timeline??[]).slice(0,40).map((a:any,i:number)=>{
-       const code=data.members.find((m:any)=>m.id===a.member_id)?.code??'?';
-       const cycle=data.result.cycles.find((c:any)=>c.date===a.cycle_date);
-       return <li key={a.member_id+'|'+a.cycle_date}><div><b>{i+1}. {code}</b><br/><span>{formatDate(a.cycle_date)} · {cycle?.score??'—'} puntos{a.legacy?' · importado':''}</span></div></li>;
-      })}</ol>:<p className="muted">Todavía no hay ciclos adjudicados.</p>}
+     <p className="muted">Más recientes primero. Un turno doble aparece como una sola entrada; los cambios deshechos no figuran como vigentes.</p>
+     {(election.timeline??[]).length?<>
+      <ol className="election-log">{(election.timeline??[]).slice(0,historyLimit).map((event:any,i:number)=>{
+       const code=(id:string)=>data.members.find((m:any)=>m.id===id)?.code??'?';
+       const title=event.kind==='tie'?'Sorteo de empate':event.kind==='defer'?code(event.memberIds[0])+' — Aplazamiento':event.memberIds.map(code).join(' + ');
+       return <li key={event.id}><div className="election-log-entry">
+        <div className="election-log-title"><b>{i+1}. {title}</b>{event.round&&<span>Ronda {event.round}</span>}</div>
+        {event.kind==='tie'&&<p className="election-log-note">{event.method==='random'?'Sorteo realizado en la aplicación':'Sorteo externo registrado'} · Orden inicial: {(event.order??[]).map(code).join(' → ')}</p>}
+        {event.kind==='defer'&&<p className="election-log-note">Turno aplazado, sin adjudicación. Acumula un ciclo para la siguiente ronda.</p>}
+        {(event.kind==='choice'||event.kind==='legacy')&&<>
+         {event.choices.map((choice:any)=>{
+          const cycle=data.result.cycles.find((c:any)=>c.date===choice.cycle_date);
+          return <div className="election-log-cycle" key={choice.member_id+'|'+choice.cycle_date}>{event.memberIds.length>1?code(choice.member_id)+' · ':''}{formatDate(choice.cycle_date)} · {cycle?.score??'—'} puntos</div>;
+         })}
+         {event.kind==='legacy'&&<p className="election-log-note">Adjudicación importada o anterior al registro de turnos.</p>}
+         {event.kind==='choice'&&event.memberIds.length>1&&<p className="election-log-note">Turno conjunto de {event.memberIds.length} controladores.</p>}
+         {event.kind==='choice'&&event.deferredTurns>0&&<p className="election-log-note">Turno {event.deferredTurns===1?'doble':'triple'}: recupera {event.deferredTurns} aplazamiento(s) anterior(es).</p>}
+         {(event.ties??[]).map((tie:any)=>{
+          const memberCode=code(tie.memberId),previous=data.config?.previousScores?.[memberCode];
+          return <p className="election-log-note election-log-tie" key={tie.memberId}>Empate{previous!==undefined?' a '+previous+' puntos':''} · {memberCode}: {tie.position}.º de {tie.total} · Orden de esta ronda: {tie.order.map(code).join(' → ')}</p>;
+         })}
+        </>}
+       </div></li>;
+      })}</ol>
+      {(election.timeline??[]).length>historyLimit&&<button type="button" className="secondary election-show-more" onClick={()=>setHistoryLimit(n=>n+40)}>Mostrar anteriores ({Math.min(40,election.timeline.length-historyLimit)})</button>}
+      {historyLimit>40&&<button type="button" className="secondary election-show-more" onClick={()=>setHistoryLimit(40)}>Mostrar menos</button>}
+     </>:<p className="muted">Todavía no hay turnos registrados ni ciclos adjudicados.</p>}
     </section>}
     <section id="puntos-equipo" className="panel election-order-panel">
      <h2>{state?'Orden de elección':'Controladores del equipo'}</h2>
