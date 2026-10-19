@@ -23,6 +23,7 @@ async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026')
 async function activate(page:Page,ties=''){
   await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await page.getByText('Preparar el orden de elección',{exact:true}).click();
   await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
   if(ties)await page.getByLabel('Grupos empatados',{exact:true}).fill(ties);
@@ -33,7 +34,14 @@ async function activate(page:Page,ties=''){
   await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
-async function confirm(page:Page,button:string){await page.getByRole('button',{name:button,exact:true}).click();await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();}
+async function confirm(page:Page,button:string){
+ const target=page.getByRole('button',{name:button,exact:true});
+ if(button.startsWith('Aplazar')&&!await target.isVisible())await page.locator('.election-more-actions > summary').click();
+ await target.click();
+ if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+ }else await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+}
 
 test('integración: dos aplazamientos permiten elegir tres ciclos desde el calendario',async({page,request},info)=>{
  const s=await setup(request,page);await open(page,s.id);await activate(page);
@@ -197,7 +205,10 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   await expect(page.locator('.vac2-member-card').first()).toBeVisible();
   await page.getByRole('button',{name:'Mapa',exact:true}).click();
   await cycle(page,s.data.result.cycles[0].date);
+  await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toBeVisible();
+  await expect(page.locator('.vac2-choice-card')).toHaveCSS('position','fixed');
   await confirm(page,'Confirmar ciclo');
+  await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   await expect(page.getByText('Últimas adjudicaciones')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
@@ -257,4 +268,28 @@ test('sorteo en la app guarda una permutación y no permite repetir',async({page
  const saved=await read(request,s.id),resolution=saved.election.state.tieResolutions[0];expect(resolution.method).toBe('random');expect([...resolution.order].sort()).toEqual(s.data.members.slice(0,3).map((m:any)=>m.id).sort());
  await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);await expect(page.getByRole('heading',{name:saved.members.find((m:any)=>m.id===saved.election.turn.memberId).code+' elige ahora',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Sortear y guardar orden'})).toHaveCount(0);
  expect((await read(request,s.id)).election.state.tieResolutions).toEqual(saved.election.state.tieResolutions);
+});
+
+test('sin equipo en URL no se impone C y el administrador puede borrar una simulación',async({page,request,browser})=>{
+ const s=await setup(request,page);
+ const visitor=await browser.newContext({baseURL:origin});
+ try{
+  const anonymous=await visitor.newPage();
+  await anonymous.goto('/');
+  await expect(anonymous.getByLabel('Equipo',{exact:true})).toHaveValue('');
+  await expect(anonymous.getByRole('heading',{name:'Selecciona un equipo'})).toBeVisible();
+  await anonymous.getByLabel('Equipo',{exact:true}).selectOption('B');
+  await expect(anonymous.getByLabel('Equipo',{exact:true})).toHaveValue('B');
+  await expect(anonymous).toHaveURL(/equipo=B/);
+ }finally{await visitor.close();}
+ await page.goto('/?equipo=C&year=2026');
+ await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
+ if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
+ await page.getByRole('button',{name:'Administración',exact:true}).click();
+ await page.locator('.scenario-actions summary').click();
+ await page.getByRole('button',{name:'Eliminar simulación'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar'}).click();
+ await expect(page.getByLabel('Escenario',{exact:true})).toHaveValue(s.live.id);
+ await expect(page.getByRole('status').filter({hasText:'Simulación eliminada'})).toBeVisible();
+ expect((await request.get('/api/campaign/'+s.id)).status()).toBe(404);
 });

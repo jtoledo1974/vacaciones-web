@@ -13,7 +13,15 @@
 
 .election-turn{display:flex;justify-content:space-between;gap:24px;align-items:center}.election-turn h2{margin:8px 0}.election-turn p{max-width:660px}.election-layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:22px;align-items:start}.election-layout .calendar-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.election-side{min-width:0}.election-history{margin:0 0 20px}.turn-list{padding-left:24px;margin:16px 0}.turn-list li{padding:9px 6px;border-bottom:1px solid #edf0ef}.turn-list li span{display:block;font-size:12px;color:#64766d;margin-top:3px}.turn-list .current-turn{background:#e6f2ec;border-radius:6px}.preference-list{padding-left:24px}.preference-list li{padding:9px 0;border-bottom:1px solid #edf0ef}.preference-list li>div{display:flex;gap:4px;margin-top:5px}.preference-consent{display:flex!important;flex-direction:row!important;gap:10px;align-items:start;line-height:1.4;margin:18px 0}.preference-consent input{width:auto!important}.preference-member{max-width:380px;margin-bottom:20px;display:flex;flex-direction:column;gap:8px}.cycle-selection .person-chip{margin:4px}.election-layout .panel{padding:24px}details.panel>summary{cursor:pointer;font-weight:650;margin-bottom:12px}details.panel textarea{width:100%;margin:12px 0}details.panel form>label{display:flex;flex-direction:column;gap:8px;margin:16px 0}@media(max-width:1200px){.election-layout{grid-template-columns:minmax(0,1fr) 280px}.election-layout .calendar-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:900px){.election-layout{grid-template-columns:1fr}.election-turn{display:block}.election-turn .button-row{margin-top:16px}.election-side{display:grid;grid-template-columns:1fr 1fr;gap:16px}}@media(max-width:600px){.election-side{display:block}.election-layout .calendar-grid{grid-template-columns:1fr 1fr}.election-layout .panel{padding:16px}.day{min-width:0}}@media(max-width:390px){.election-layout .calendar-grid{grid-template-columns:1fr}}
 
-.simulation-tag{background:#eee8fa;color:#65488a}.selectors{flex-wrap:wrap}
+.simulation-tag{background:#eee8fa;color:#65488a}.selectors{flex-wrap:wrap;align-items:flex-end}
+.selectors .scenario-create{align-self:flex-end;min-height:39px}
+.selectors .scenario-actions{position:relative;align-self:flex-end;border:0;margin:0;padding:0;z-index:4}
+.scenario-actions>summary{list-style:none;display:grid;place-items:center;cursor:pointer;border:1px solid #dce5df;border-radius:7px;background:#fff;color:#405d4a;font-size:21px;width:39px;height:39px}
+.scenario-actions>summary::-webkit-details-marker{display:none}
+.scenario-actions>summary:focus-visible{outline:3px solid #82bcb0;outline-offset:3px}
+.scenario-actions>button{position:absolute;right:0;top:43px;width:max-content;background:#fff;color:#a03f34;border:1px solid #e1cfca;box-shadow:0 8px 22px #142a2c20;border-radius:7px;padding:12px 15px;z-index:5}
+.scenario-actions>button:hover{background:#fff1ed}
+@media(max-width:580px){.selectors .scenario-create{white-space:normal}}
 
 .cycle-selection{position:sticky;top:82px;z-index:2;box-shadow:0 8px 24px #183a2920}.election-side{position:sticky;top:82px;max-height:calc(100vh - 96px);overflow:auto}@media(max-width:900px){.election-side{position:static;max-height:none;overflow:visible}.cycle-selection{top:72px}}
 
@@ -242,4 +250,35 @@
  .header-account{min-width:0}
  .header-account-info strong{font-size:11px}
  .header-account-info small{font-size:10px}
+}
+
+/* Election: slim status bar and detail only after a calendar interaction. */
+.election-turn.election-workflow-head{padding:12px 16px;margin-bottom:16px;gap:10px;position:static}
+.election-turn-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;min-width:0}
+.election-turn-status .eyebrow{margin:0;font-size:9px}
+.election-turn.election-workflow-head h2{font-size:14px;margin:0;line-height:1.4}
+.election-turn-status .muted{font-size:11px}
+.election-turn-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.election-turn-controls>button{padding:7px 10px}
+.election-more-actions{position:relative;border:0;margin:0;padding:0}
+.election-more-actions>summary{list-style:none;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;white-space:nowrap}
+.election-more-actions>summary::-webkit-details-marker{display:none}
+.election-more-menu{position:absolute;top:calc(100% + 6px);right:0;z-index:10;display:grid;gap:6px;min-width:220px;padding:10px;background:white;border:1px solid var(--line);border-radius:9px;box-shadow:0 6px 20px #183a2920}
+.election-more-menu button{white-space:normal}
+.election-side{position:static;max-height:none;overflow:visible}
+.election-side .vac2-choice-card{position:static;top:auto;z-index:auto;box-shadow:none}
+.election-choice-heading,.election-history-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.election-choice-heading .eyebrow{margin:0}
+.election-choice-heading .icon-button{font-size:20px}
+.election-history-head{flex-wrap:wrap}
+.election-history-head .election-workflow-actions{margin:0}
+.election-history-head .election-workflow-actions button{padding:6px 9px}
+.election-selected-summary{overflow-wrap:anywhere}
+@media(max-width:680px){
+ .election-turn.election-workflow-head{padding:10px 12px!important}
+ .election-turn-controls{width:100%}
+ .election-turn-controls>button{flex:1}
+ .election-layout.has-active-detail .election-side .vac2-choice-card{position:fixed;top:auto;bottom:8px;left:8px;right:8px;width:auto;z-index:15;max-height:50dvh;overflow-y:auto;margin:0;padding:12px;box-shadow:0 6px 30px #183a2950}
+ .election-layout.has-active-detail .election-side .vac2-choice-card .button-row{flex-direction:row;flex-wrap:wrap}
+ .election-layout.has-active-detail .election-side .vac2-choice-card .button-row button{flex:1}
 }

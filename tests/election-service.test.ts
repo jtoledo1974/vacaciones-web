@@ -106,6 +106,50 @@ test('aplazar no consume una lista que se guarda antes del siguiente turno efect
  assert.equal(current.awards.filter((award:any)=>award.member_id===a.id).length,2);
  assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,false);
 });
+test('el administrador del equipo puede deshacer y rehacer elecciones, pero no otro equipo',async()=>{
+ const {repo,s,cid,d}=await setup(),member=d.members[0],date=d.result.cycles[0].date;
+ const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
+ const outsider=new Service(repo,{id:'chatgpt:outsider',role:'team_admin',teams:['B']});
+ await act(s,cid,{action:'link_account',memberId:member.id,subject:'person@example.test',accountVersion:0});
+ await act(s,cid,start(d));
+ let next=await act(s,cid,{action:'choose',memberId:member.id,dates:[date]});
+ assert.equal((await delegate.view(cid)).election.canManage,true);
+ await assert.rejects(act(outsider,cid,{action:'election_undo',historyId:next.election.undo}),/vinculada|responsable/);
+ next=await act(delegate,cid,{action:'election_undo',historyId:next.election.undo});
+ assert.equal(next.awards.length,0);
+ assert.equal(next.election.turn.memberId,member.id);
+ next=await act(delegate,cid,{action:'election_redo',historyId:next.election.redo});
+ assert.equal(next.awards.length,1);
+ assert.equal(next.awards[0].member_id,member.id);
+});
+test('el administrador de equipo no puede deshacer preferencias privadas vinculadas',async()=>{
+ const {repo,s,cid,d}=await setup(),member=d.members[0],date=d.result.cycles[0].date;
+ const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
+ await act(s,cid,{action:'link_account',memberId:member.id,subject:'person@example.test',accountVersion:0});
+ const next=await act(s,cid,{action:'preferences',memberId:member.id,dates:[date],persistent:false});
+ await assert.rejects(act(delegate,cid,{action:'election_undo',historyId:next.election.undo}),/restaurar preferencias/);
+ assert.equal((await s.view(cid)).election.preferences.length,1);
+ const undone=await act(s,cid,{action:'election_undo',historyId:next.election.undo});
+ assert.equal(undone.election.preferences.length,0);
+});
+test('el delegado puede deshacer y rehacer una elección que consume preferencias ajenas sin cambiar su lista',async()=>{
+ const {repo,s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;
+ const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
+ await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});
+ let current=await act(s,cid,{action:'preferences',memberId:a.id,dates:[date],persistent:false});
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,true);
+ current=await act(s,cid,start(d));
+ assert.equal(current.awards.filter((x:any)=>x.member_id===a.id).length,1);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,false);
+ current=await act(delegate,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.awards.filter((x:any)=>x.member_id===a.id).length,0);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id),undefined);
+ assert.equal((await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id).active,true);
+ current=await act(delegate,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.equal(current.awards.filter((x:any)=>x.member_id===a.id).length,1);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id),undefined);
+ assert.equal((await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id).active,false);
+});
 test('cerrar un equipo bloquea preferencias, elecciones y correcciones y permite seguir consultando',async()=>{
  const {s,cid,d,person}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,start(d));let next=await s.view(cid);next=await s.mutate(cid,{action:'close',version:next.campaign.version});assert.equal(next.election.state.status,'paused');
  await assert.rejects(act(person,cid,{action:'preferences',memberId:a.id,dates:[date],automatic:true}),/cerrada/);await assert.rejects(act(s,cid,{action:'choose',memberId:a.id,dates:[date]}),/cerrada/);await assert.rejects(s.mutate(cid,{action:'delete_award',id:'x',version:next.campaign.version}),/cerrada/);assert.equal((await s.view(cid)).campaign.status,'closed');
