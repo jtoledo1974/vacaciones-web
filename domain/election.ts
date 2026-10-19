@@ -15,6 +15,10 @@ export type ElectionState={
 };
 export type Preference={member_id:string;dates:string[];automatic:boolean;persistent?:boolean;active?:boolean};
 // A one-turn list is consumed by a confirmed choice, not by a deferral.
+export function visiblePreferenceDates(dates:string[],cycles:{date:string;occupied:number;max:number}[]):string[]{
+ const byDate=new Map(cycles.map(c=>[c.date,c]));
+ return dates.filter(date=>{const cycle=byDate.get(date);return !!cycle&&cycle.occupied<cycle.max;});
+}
 export function consumePreferences(preferences:Preference[],memberIds:string[]):Preference[]{
  const consumed=new Set(memberIds);
  return preferences.map(p=>consumed.has(p.member_id)&&!p.persistent?{...p,active:false}:p);
