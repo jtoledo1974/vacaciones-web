@@ -10,7 +10,7 @@ Los puntos mostrados son la suma del baremo de los ciclos elegidos, sin ponderar
 
 ## Tu cuenta y tu lista
 
-Inicia sesión y facilita al administrador el identificador de cuenta que aparece en Vacaciones. Debe vincularlo expresamente a tu nick; iniciar sesión no concede administración ni permite escoger la identidad de otra persona.
+Inicia sesión con ChatGPT utilizando el correo que el administrador ha registrado junto a tu nick en la plantilla. La web comprueba ese correo autenticado; no debes enviar ningún identificador de sesión. Iniciar sesión no concede administración ni permite escoger la identidad de otra persona.
 
 Con tu cuenta vinculada puedes **Preparar preferencias**. Añade ciclos pulsando el calendario y ordénalos con las flechas. Puedes incluir alternativas que ahora están ocupadas: al llegar tu turno se omitirán las que no sean válidas. Marca la asignación automática solo si autorizas que se elija desde esa lista al llegar tu turno, y guarda.
 

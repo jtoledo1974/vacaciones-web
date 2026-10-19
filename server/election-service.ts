@@ -16,7 +16,13 @@ export class ElectionService{
   const result=await this.repo.batch([{sql:'SELECT json FROM election_states WHERE campaign_id=?',args:[cid]},{sql:'SELECT * FROM preferences WHERE campaign_id=?',args:[cid]}]);
   return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic})) as Preference[]};
  }
- async memberForAccount(d:any){if(!this.actor.id)return null;return (await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=? AND a.principal_key=?',[d.campaign.id,this.actor.id]))[0]?.id??null;}
+ async memberForAccount(d:any){
+  if(!this.actor.id)return null;
+  const keys=[this.actor.id,...(this.actor.emailKey?[this.actor.emailKey]:[])];
+  const matches=await this.repo.all(`SELECT DISTINCT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=? AND a.principal_key IN (${keys.map(()=>'?').join(',')})`,[d.campaign.id,...keys]);
+  // Refuse ambiguous mappings (for example an old UID linked to another person's email).
+  return matches.length===1?matches[0].id:null;
+ }
  // A linked controller owns their preferences even when a team administrator manages the team.
  // Superadministrators retain access; team administrators may assist only unlinked users.
  async preferenceMemberIds(d:any,mine:string|null):Promise<string[]>{
@@ -127,17 +133,20 @@ export class ElectionService{
     const member=d.members.find((m:any)=>m.id===body.memberId),existing=(await this.repo.all('SELECT * FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
     if((existing?.version??0)!==body.accountVersion)throw new ApiError('La vinculación cambió. Recarga antes de guardar.',409);
     const subject=String(body.subject??'').trim(),provider=body.provider??'chatgpt';
-    if(!['chatgpt','firebase'].includes(provider)||subject.length>250||/[\s\r\n:]/.test(subject))
-     throw new ApiError('Identificador o proveedor de cuenta no válido');
-    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider+':'+subject]});
+    const email=subject.toLowerCase();
+    const isEmail=provider==='chatgpt'&&/^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(email)&&email.length<=250;
+    const isFirebaseUid=provider==='firebase'&&subject.length<=250&&subject.length>0&&!/[\s\r\n:]/.test(subject);
+    if(subject&&!isEmail&&!isFirebaseUid||!['chatgpt','firebase'].includes(provider))
+     throw new ApiError('Introduce un correo válido de ChatGPT Sites o un UID de Firebase');
+    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider==='chatgpt'?'chatgpt-email:'+email:'firebase:'+subject]});
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
     if(!manage)throw new ApiError('Solo el responsable del equipo puede deshacer o rehacer elecciones',403);
     automaticAllowed=false;const entry=await this.history(cid,c.version);
     if(!entry||entry.id!==body.historyId||(action==='election_redo')!==(entry.action==='election_undo'))throw new ApiError('El cambio ya no está disponible para deshacer o rehacer',409);
     const prior=JSON.parse(entry.before_json);
-    // A team administrator may undo elections, but not overwrite the private
-    // preferences of a linked controller (except their own account).
+    // A delegated team administrator may undo elections, but must not
+    // overwrite preferences belonging to a different linked controller.
     if(this.actor.role!=='superadmin'){
      const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]);
      if(linked.some((m:any)=>m.id!==mine&&JSON.stringify((prior.preferences??[]).find((p:any)=>p.member_id===m.id)??null)!==JSON.stringify(preferences.find(p=>p.member_id===m.id)??null)))
