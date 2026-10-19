@@ -143,10 +143,12 @@ test('el delegado puede deshacer y rehacer una elección que consume preferencia
  assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,false);
  current=await act(delegate,cid,{action:'election_undo',historyId:current.election.undo});
  assert.equal(current.awards.filter((x:any)=>x.member_id===a.id).length,0);
- assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,true);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id),undefined);
+ assert.equal((await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id).active,true);
  current=await act(delegate,cid,{action:'election_redo',historyId:current.election.redo});
  assert.equal(current.awards.filter((x:any)=>x.member_id===a.id).length,1);
- assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id).active,false);
+ assert.equal(current.election.preferences.find((p:any)=>p.member_id===a.id),undefined);
+ assert.equal((await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id).active,false);
 });
 test('cerrar un equipo bloquea preferencias, elecciones y correcciones y permite seguir consultando',async()=>{
  const {s,cid,d,person}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});await act(s,cid,start(d));let next=await s.view(cid);next=await s.mutate(cid,{action:'close',version:next.campaign.version});assert.equal(next.election.state.status,'paused');
