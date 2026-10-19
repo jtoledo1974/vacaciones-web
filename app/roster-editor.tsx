@@ -17,20 +17,24 @@ type Row = {
   provider:Provider;
   subject:string;
   accountVersion:number;
+  legacyKey?:string;
 };
 type AccountChange = Pick<Row,'memberId'|'code'|'provider'|'subject'|'accountVersion'>;
 
-function accountKey(row:Pick<Row,'provider'|'subject'>):string {
-  return row.subject.trim()&&row.provider ? row.provider+':'+row.subject.trim() : '';
+function accountKey(row:Pick<Row,'provider'|'subject'|'legacyKey'>):string {
+  const subject=row.subject.trim();
+  if(!subject)return row.provider==='chatgpt'?row.legacyKey??'':'';
+  return row.provider==='chatgpt'?'chatgpt-email:'+subject.toLowerCase():row.provider==='firebase'?'firebase:'+subject:'';
 }
 function initialRows(data:any):Row[] {
   return data.members.map((m:any)=>{
     const account=data.election.accounts.find((a:any)=>a.member_id===m.id);
     const key=String(account?.principal_key??'');
-    const provider:Provider=key.startsWith('firebase:')?'firebase':key.startsWith('chatgpt:')?'chatgpt':'';
+    const provider:Provider=key.startsWith('firebase:')?'firebase':key.startsWith('chatgpt-email:')||key.startsWith('chatgpt:')?'chatgpt':'';
+    const legacyKey=key.startsWith('chatgpt:')?key:undefined;
     return {
       memberId:m.id,code:m.code,label:m.label??'',seniority:m.seniority??'',
-      provider,subject:provider?key.slice(provider.length+1):'',accountVersion:account?.version??0,
+      provider,subject:key.startsWith('chatgpt-email:')?key.slice('chatgpt-email:'.length):provider==='firebase'?key.slice('firebase:'.length):'',accountVersion:account?.version??0,legacyKey,
     };
   });
 }
@@ -77,9 +81,11 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     setError('');
     for(const r of rows){
       if(r.subject.trim()&&!r.provider){setError('Selecciona un sistema de autenticación para '+r.code);return;}
-      if(r.subject.trim()&&(/[\s\r\n:]/.test(r.subject.trim())||r.subject.trim().length>250)){
-        setError('El ID de acceso de '+r.code+' no puede contener espacios ni dos puntos (máximo 250 caracteres).');
-        return;
+      if(r.subject.trim()&&r.provider==='chatgpt'&&(!/^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(r.subject.trim())||r.subject.trim().length>250)){
+        setError('Introduce un correo electrónico válido para '+r.code+'.');return;
+      }
+      if(r.subject.trim()&&r.provider==='firebase'&&(/[\s\r\n:]/.test(r.subject.trim())||r.subject.trim().length>250)){
+        setError('El UID de Firebase de '+r.code+' no es válido.');return;
       }
     }
     void save(rows.map(({memberId,code,label,seniority})=>({memberId,code,label,seniority})),changedAccounts,rosterDirty);
@@ -105,15 +111,15 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     {error&&<div className="alert error" role="alert">{error}</div>}
     <div className="table-wrap roster-table-wrap"><table className="roster-table">
       <thead><tr><th>Nick</th><th>Nombre</th><th>Antigüedad</th>
-        {live&&<><th>ID de acceso</th><th>Autenticación</th></>}
+        {live&&<><th>Correo de acceso / UID</th><th>Autenticación</th></>}
         <th><span className="sr-only">Acciones</span></th></tr></thead>
       <tbody>{rows.map((r,i)=><tr key={r.memberId??'new-'+i}>
         <td><input className="roster-code" aria-label={'Identificador fila '+(i+1)} value={r.code} maxLength={24} disabled={locked} onChange={e=>change(i,'code',e.target.value)}/></td>
         <td><input className="roster-name" aria-label={'Nombre fila '+(i+1)} value={r.label} maxLength={120} disabled={locked} onChange={e=>change(i,'label',e.target.value)}/></td>
         <td><input className="roster-date" aria-label={'Antigüedad fila '+(i+1)} type="date" value={r.seniority} disabled={locked} onChange={e=>change(i,'seniority',e.target.value)}/></td>
         {live&&<>
-          <td><input className="roster-subject" aria-label={'ID de acceso de '+r.code} value={r.subject} maxLength={250} placeholder="Sin vincular" disabled={locked} autoComplete="off" onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,subject:e.target.value,provider:e.target.value&&!row.provider?'chatgpt':row.provider}:row))}/></td>
-          <td><select className="roster-provider" aria-label={'Autenticación de '+r.code} value={r.provider} disabled={locked} onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,provider:e.target.value as Provider,subject:e.target.value?row.subject:''}:row))}>
+          <td><input className="roster-subject" aria-label={'Correo de acceso o UID de '+r.code} value={r.subject} maxLength={250} placeholder={r.legacyKey?'Vínculo anterior activo':r.provider==='firebase'?'UID Firebase':'correo@ejemplo.es' disabled={locked} autoComplete="off" onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,subject:e.target.value,legacyKey:undefined,provider:e.target.value&&!row.provider?'chatgpt':row.provider}:row))}/></td>
+          <td><select className="roster-provider" aria-label={'Autenticación de '+r.code} value={r.provider} disabled={locked} onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,provider:e.target.value as Provider,subject:e.target.value?row.subject:'',legacyKey:e.target.value==='chatgpt'?row.legacyKey:undefined}:row))}>
             <option value="">Sin vincular</option><option value="chatgpt">ChatGPT Sites</option><option value="firebase">Firebase</option>
           </select></td>
         </>}
@@ -152,6 +158,6 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
         <button className="secondary" disabled={busy} onClick={paste}>Llevar a la tabla</button>
       </details>
     </>}
-    {live&&<p className="roster-footnote">El ID corresponde al identificador de sesión de ChatGPT Sites o al UID de Firebase (no al correo). Deja el ID vacío para desvincular. Los accesos se comparten entre ejercicios de la misma persona.</p>}
+    {live&&<p className="roster-footnote">Para ChatGPT Sites basta con el correo electrónico de acceso; debe coincidir con la cuenta autenticada. Firebase sigue usando UID. «Sin vincular» elimina la asociación. Los vínculos antiguos siguen funcionando hasta que se sustituyan por correo. Los accesos se comparten entre ejercicios de la misma persona.</p>}
   </section>;
 }
