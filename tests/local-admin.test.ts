@@ -41,7 +41,7 @@ test('local password login returns a signed HttpOnly session with superadmin per
  const forged=new Request('https://vacaciones.example.test/api/session',{headers:{Cookie:cookie.replace('v2.','v2.9')}});
  assert.equal(await localAdminIdentity(forged,config,repo),null);
  const signedPart=cookie.split('.');
- const tampered=new Request('https://vacaciones.example.test/api/session',{headers:{Cookie:[signedPart[0],signedPart[1],'A'+signedPart[2].slice(1)].join('.')}});
+ const tampered=new Request('https://vacaciones.example.test/api/session',{headers:{Cookie:[signedPart[0],signedPart[1],signedPart[2],(signedPart[3][0]==='A'?'B':'A')+signedPart[3].slice(1)].join('.')}});
  assert.equal(await localAdminIdentity(tampered,config,repo),null);
  const logout=await localAdminLogout(new Request(url,{method:'POST',headers:{Origin:'https://vacaciones.example.test',Cookie:cookie}}),config,repo);
  assert.equal(logout.status,200);
