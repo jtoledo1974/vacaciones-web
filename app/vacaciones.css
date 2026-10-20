@@ -362,3 +362,14 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .reconstruction-panel button{min-height:40px}
 .reconstruction-summary{padding:15px;border:1px solid #b5c9bd;border-radius:8px}
 @media(max-width:680px){.reconstruction-heading{flex-direction:column}.reconstruction-step{padding:12px}.reconstruction-panel .button-row button{flex:1;min-width:130px}}
+
+/* Keep account identity visible beside permission actions on narrow screens. */
+@media (max-width: 760px) {
+ .permissions-list { overflow: visible; }
+ .permissions-list table { min-width: 0; width: 100%; }
+ .permissions-list thead { display: none; }
+ .permissions-list tbody, .permissions-list tr, .permissions-list td { display: block; width: 100%; }
+ .permissions-list tr { border-bottom: 1px solid #dce5dc; padding: 12px 0; }
+ .permissions-list td { border: 0; padding: 6px 0; white-space: normal; overflow-wrap: anywhere; }
+ .permissions-list td:last-child { display: flex; flex-wrap: wrap; gap: 8px; }
+}
