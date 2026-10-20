@@ -223,7 +223,8 @@ test('guardar preferencias durante el turno avisa antes de adjudicar automática
  expect(after.election.preferences.find((p:any)=>p.member_id===member.id)).toMatchObject({dates:[date],automatic:true});
 });
 
-test('reconstrucción guiada: tercera elección distinta y cuarta por preferencias anteriores',async({page,request})=>{
+test('reconstrucción guiada: tercera elección distinta y cuarta por preferencias anteriores',async({page,request},info)=>{
+ if(info.project.name==='chromium')await page.setViewportSize({width:1440,height:900});
  const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date),ids=s.data.members.map((m:any)=>m.id);
  await election(request,s.id,{action:'preferences',memberId:ids[3],dates:[dates[4]]});
  await election(request,s.id,{action:'start',order:ids,source:'Orden ficticio para reconstrucción UI Playwright',rulesConfirmed:true,allowDeferral:true});
@@ -241,11 +242,38 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
  expect(point).toBeTruthy();
  await historyPanel.getByRole('button',{name:'Reconstruir desde QA_C (ronda 1)'}).click();
  await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
- await expect(page.getByText('Elección congelada',{exact:true})).toBeVisible();
+ await expect(page.locator('.reconstruction-status')).toContainText('Elección congelada');
  await expect(page.getByText('Decisión del administrador',{exact:true})).toBeVisible();
+ const editor=page.getByRole('region',{name:'Reconstrucción guiada'}),calendar=page.locator('.election-calendar-wrap');
+ await expect(editor.locator('.reconstruction-decisions label').first()).toHaveCSS('flex-direction','row');
+ await expect(page.locator('.reconstruction-status')).toContainText('Reconstrucción en curso');
+ await expect(page.getByRole('region',{name:'Turno de elección'})).toHaveCount(0);
+ const checkLayout=async(side:boolean)=>{
+  const panelBox=await editor.boundingBox(),calendarBox=await calendar.boundingBox();
+  expect(panelBox).toBeTruthy();expect(calendarBox).toBeTruthy();
+  if(side){expect(panelBox!.x).toBeGreaterThanOrEqual(calendarBox!.x+calendarBox!.width);expect(panelBox!.width).toBeLessThanOrEqual(361);}
+  else expect(panelBox!.y+panelBox!.height).toBeLessThanOrEqual(calendarBox!.y);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+ };
+ await checkLayout(info.project.name==='chromium');
+ await page.screenshot({path:info.outputPath('reconstruction-initial.png'),fullPage:true});
+ await editor.screenshot({path:info.outputPath('reconstruction-panel.png')});
  await page.getByLabel('Registrar otra decisión').check();
  await page.getByLabel('Ciclo alternativo').selectOption(dates[3]);
  await page.getByRole('button',{name:'Añadir ciclo'}).click();
+ if(info.project.name==='chromium'){
+  for(const viewport of [{width:1280,height:720},{width:1440,height:650},{width:768,height:1024}]){
+   await page.setViewportSize(viewport);await checkLayout(viewport.width>900);
+   await editor.scrollIntoViewIfNeeded();
+   await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeInViewport();
+   await page.screenshot({path:info.outputPath('reconstruction-'+viewport.width+'x'+viewport.height+'.png'),fullPage:true});
+  }
+  await page.setViewportSize({width:1440,height:900});
+  await page.evaluate(()=>window.scrollTo(0,650));
+  await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeInViewport();
+  expect((await editor.boundingBox())!.y).toBeGreaterThanOrEqual(15);
+  await page.screenshot({path:info.outputPath('reconstruction-sticky.png')});
+ }
  await page.getByRole('button',{name:'Registrar decisión y continuar'}).click();
  await expect(page.getByText('Mejor preferencia histórica:')).toBeVisible();
  await page.getByRole('button',{name:'Registrar decisión y continuar'}).click();
@@ -257,7 +285,35 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
  expect(result.awards.find((a:any)=>a.member_id===ids[3]).cycle_date).toBe(dates[4]);
  expect(result.election.state.automaticPaused).toBe(true);
  await expect(page.getByRole('heading',{name:'Reconstruir elecciones anteriores'})).toHaveCount(0);
+ await expect(editor).toHaveCount(0);
+ await expect(page.locator('.reconstruction-status')).toHaveCount(0);
  await expect(historyPanel.getByText(/Última reconstrucción/)).toBeVisible();
+});
+
+test('reconstrucción lateral: deshacer, rehacer y cancelar restaura las adjudicaciones',async({page,request})=>{
+ const s=await setup(request,page),ids=s.data.members.map((m:any)=>m.id),dates=s.data.result.cycles.map((c:any)=>c.date);
+ await election(request,s.id,{action:'start',order:ids,source:'Orden ficticio para restauración de reconstrucción lateral',rulesConfirmed:true,allowDeferral:true});
+ for(let i=0;i<3;i++)await election(request,s.id,{action:'choose',memberId:ids[i],dates:[dates[i]]});
+ const before=await read(request,s.id),point=before.election.reconstruction.candidates.find((c:any)=>c.memberIds.includes(ids[1]));
+ await election(request,s.id,{action:'reconstruction_start',historyId:point.id});
+ await open(page,s.id);
+ const editor=page.getByRole('region',{name:'Reconstrucción guiada'});
+ await editor.getByLabel('Recuperar elección anterior').check();
+ await editor.getByRole('button',{name:'Registrar decisión y continuar'}).click();
+ await expect(editor.getByRole('heading',{name:/QA_C/})).toBeVisible();
+ await editor.getByRole('button',{name:'Deshacer paso'}).click();
+ await expect(editor.getByRole('heading',{name:/QA_B/})).toBeVisible();
+ await editor.getByRole('button',{name:'Rehacer paso'}).click();
+ await expect(editor.getByRole('heading',{name:/QA_C/})).toBeVisible();
+ await editor.getByRole('button',{name:'Cancelar y restaurar estado original'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Cancelar',exact:true}).click();
+ await expect(editor).toBeVisible();
+ await editor.getByRole('button',{name:'Cancelar y restaurar estado original'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(editor).toHaveCount(0);
+ const after=await read(request,s.id);
+ expect(after.awards.map((a:any)=>[a.member_id,a.cycle_date]).sort()).toEqual(before.awards.map((a:any)=>[a.member_id,a.cycle_date]).sort());
+ expect(after.election.state).toEqual(before.election.state);
 });
 test('un administrador puede iniciar reconstrucción desde una rama abandonada del historial',async({page,request})=>{
  const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date),ids=s.data.members.map((m:any)=>m.id);
@@ -284,7 +340,7 @@ test('un administrador puede iniciar reconstrucción desde una rama abandonada d
  expect(state.election.reconstruction.active).toBe(true);
  expect(state.election.reconstruction.current.memberId).toBe(ids[2]);
  expect(state.awards).toHaveLength(2);
- await expect(page.getByText('Elección congelada',{exact:true})).toBeVisible();
+ await expect(page.locator('.reconstruction-status')).toContainText('Elección congelada');
 });
 test('bloqueo, descarga y restauración de backup completo',async({page,request},info)=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);

@@ -1,7 +1,10 @@
 import {test,expect} from '@playwright/test';
 test('editar permisos, revocar y eliminar desde el listado',async({page})=>{
- const api=page.request,headers={Origin:'http://127.0.0.1:5199'};
- expect((await api.post('/api/local-admin/login',{headers,data:{username:'qa-superadmin',password:'Only-for-isolated-e2e-testing-12345'}})).ok()).toBeTruthy();
+ // A separate fixture client avoids consuming the security test's shared login budget.
+ // This reserved test IP is only sent to the isolated loopback server.
+ const api=page.request,headers={Origin:'http://127.0.0.1:5199','CF-Connecting-IP':'192.0.2.50'};
+ const login=await api.post('/api/local-admin/login',{headers,data:{username:'qa-superadmin',password:'Only-for-isolated-e2e-testing-12345'}});
+ expect(login.ok(),await login.text()).toBeTruthy();
  await api.post('/api/initialize',{headers,data:{}});
  const email='permissions-'+test.info().project.name+'@example.test';
  await api.post('/api/users',{headers,data:{subject:email,role:'team_admin',teams:['B'],version:0}});

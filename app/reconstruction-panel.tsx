@@ -12,14 +12,13 @@ export default function ReconstructionPanel({data,busy,act}:any){
  const [mode,setMode]=useState('preference'),[manualKind,setManualKind]=useState('choose');
  const [selected,setSelected]=useState<string[]>([]),[entries,setEntries]=useState<Record<string,string[]>>({}),[order,setOrder]=useState<string[]>([]);
  const [manualDate,setManualDate]=useState(''),[jointDate,setJointDate]=useState<Record<string,string>>({});
- const choice=r?.current,active=r?.active,stepKey=(r?.progress??0)+'|'+(choice?.round??'')+'|'+(choice?.memberId??'');
+ const choice=r?.current,stepKey=(r?.progress??0)+'|'+(choice?.round??'')+'|'+(choice?.memberId??'');
  useEffect(()=>{
   setMode(choice?.historicalPreference?'preference':choice?.originalPossible?'original':'manual');
   setManualKind(choice?.pendingTie?'resolve_tie':(choice?.participants?.length??0)>1?'choose_joint':'choose');
   setSelected([]);setEntries({});setOrder([]);setManualDate('');setJointDate({});
  },[stepKey]);
- // The launcher now lives in the existing timeline. Show this substantial panel
- // only while an administrative reconstruction is actually in progress.
+ // The history launches reconstruction; this editor only exists during a session.
  if(!r?.active)return null;
  const available=choice?.available??[];
  const originalKind=choice?.originalAction==='defer'?'defer':choice?.originalAction==='resolve_tie'?'resolve_tie':(choice?.participants?.length??0)>1?'choose_joint':'choose';
@@ -34,22 +33,19 @@ export default function ReconstructionPanel({data,busy,act}:any){
   await act({action:'reconstruction_step',kind,mode,...(mode==='manual'?{dates:selected,entries:(choice?.participants??[]).map((id:string)=>({member_id:id,dates:entries[id]??[]})),order}: {})},'Decisión reconstruida');
  }
  const impact=(r?.impact??[]) as any[];
+ const originalText=choice?.originalChoice?.flatMap((entry:any)=>entry.dates.map((date:string)=>code(entry.member_id)+' '+dateText(date))).join(' · ')||label(choice?.originalAction??'Sin elección histórica');
  return <section className="panel reconstruction-panel" aria-label="Reconstrucción guiada">
-  {active&&<>
-   <div className="reconstruction-heading"><div><span className="eyebrow">RECONSTRUCCIÓN EN CURSO</span><h2>Equipo {data.campaign.team_id} · {choice?.round?'Ronda '+choice.round:'Revisión final'}</h2></div><span className="tag">Elección congelada</span></div>
-   <p><strong>{r.progress} decisiones reconstruidas</strong> · {r.total} decisiones anteriores como referencia</p>
-   <progress max={Math.max(1,r.total)} value={Math.min(r.progress,r.total)} style={{width:'100%'}}/>
-   <p className="muted">El responsable puede elegir por cada CTA tras consultarle fuera de la aplicación. Las preferencias no pueden editarse y las adjudicaciones automáticas están suspendidas.</p>
+   <header className="reconstruction-heading"><span className="eyebrow">EQUIPO {data.campaign.team_id} · {choice?.round?'RONDA '+choice.round:'REVISIÓN FINAL'}</span>
+    <p>{r.progress} decisiones reconstruidas · {r.total} anteriores como referencia</p>
+    <progress aria-label="Decisiones reconstruidas" max={Math.max(1,r.total)} value={Math.min(r.progress,r.total)}/>
+   </header>
+   <div className="reconstruction-body">
    {choice&&r.status==='active'&&<div className="reconstruction-step">
-    <h3>{choice.pendingTie?'Empate pendiente':choice.participants?.map(code).join(' + ')+' · Elegir '+choice.needed+' ciclo(s)'}</h3>
-    <div className="reconstruction-options">
-     <p><strong>Elección anterior:</strong> {choice.originalChoice?.flatMap((entry:any)=>entry.dates.map((date:string)=>code(entry.member_id)+' '+dateText(date))).join(' · ')||label(choice.originalAction??'Sin elección histórica')} {choice.originalPossible?'· Sigue siendo posible':'· No disponible o incompatible'}</p>
-     <p><strong>Mejor preferencia histórica:</strong> {choice.historicalPreference?.length?choice.historicalPreference.map(dateText).join(' + '):'No hay combinación válida registrada'}</p>
-     {choice.preferences?.length>0&&<details><summary>Consultar lista histórica completa</summary>{choice.preferences.map((p:any)=><p key={p.member_id}>{code(p.member_id)}: {p.dates.map(dateText).join(' → ')}</p>)}</details>}
-    </div>
+    <h2>{choice.pendingTie?'Empate pendiente':choice.participants?.map(code).join(' + ')+' · Elegir '+choice.needed+' ciclo(s)'}</h2>
+    <p className="muted reconstruction-consult">Consulta al controlador antes de registrar su decisión.</p>
     <fieldset className="reconstruction-decisions"><legend>Decisión del administrador</legend>
-     {!!choice.historicalPreference&&<label><input type="radio" name="reconstruction-decision" checked={mode==='preference'} onChange={()=>setMode('preference')}/> Aplicar preferencia histórica válida</label>}
-     {choice.originalPossible&&<label><input type="radio" name="reconstruction-decision" checked={mode==='original'} onChange={()=>setMode('original')}/> Recuperar elección anterior</label>}
+     {!!choice.historicalPreference&&<label><input type="radio" name="reconstruction-decision" checked={mode==='preference'} onChange={()=>setMode('preference')}/><span>Aplicar preferencia histórica válida<small><strong>Mejor preferencia histórica:</strong> {choice.historicalPreference.map(dateText).join(' + ')}</small></span></label>}
+     {choice.originalPossible&&<label><input type="radio" name="reconstruction-decision" checked={mode==='original'} onChange={()=>setMode('original')}/><span>Recuperar elección anterior<small>{originalText} · Sigue siendo posible</small></span></label>}
      <label><input type="radio" name="reconstruction-decision" checked={mode==='manual'} onChange={()=>setMode('manual')}/> Registrar otra decisión</label>
     </fieldset>
     {mode==='manual'&&<div className="reconstruction-manual">
@@ -68,18 +64,25 @@ export default function ReconstructionPanel({data,busy,act}:any){
        <p>{(entries[id]??[]).map(dateText).join(' + ')}</p></div>)}
      </>}
     </div>}
-    <button className="primary" disabled={busy||!canSend} onClick={commit}>Registrar decisión y continuar</button>
+    <details className="reconstruction-reference"><summary>Consultar referencia histórica</summary>
+     <p><strong>Elección anterior:</strong> {originalText} · {choice.originalPossible?'Sigue siendo posible':'No disponible o incompatible'}</p>
+     {!choice.historicalPreference&&<p>No hay combinación válida registrada en las preferencias históricas.</p>}
+     {choice.preferences?.map((p:any)=><p key={p.member_id}>{code(p.member_id)}: {p.dates.map(dateText).join(' → ')}</p>)}
+    </details>
    </div>}
    {r.status==='review'&&<><h3>Turnos reconstruidos</h3><p>Se ha alcanzado el punto hasta el que había avanzado la elección. Revisa los cambios y finaliza; los automatismos permanecerán detenidos.</p>
     <p>CTA potencialmente afectados por cambios de disponibilidad: <strong>{impact.length}</strong></p>
-    <button className="primary" disabled={busy} onClick={async()=>{if(await confirm('¿Finalizar la reconstrucción? Los automatismos NO se reanudarán hasta que el responsable lo autorice expresamente.'))await act({action:'reconstruction_finish'},'Reconstrucción finalizada, automatismos detenidos');}}>Finalizar reconstrucción</button>
    </>}
    {impact.length>0&&<details><summary>Examinar CTA afectados ({impact.length})</summary><ul>{impact.map((a:any)=><li key={a.memberId}><strong>{code(a.memberId)}</strong> · Primera preferencia válida: {dateText(a.previousFirst)} → {dateText(a.currentFirst)}</li>)}</ul></details>}
+   </div>
+   <footer className="reconstruction-footer">
+   {choice&&r.status==='active'&&<button className="primary" disabled={busy||!canSend} onClick={commit}>Registrar decisión y continuar</button>}
+   {r.status==='review'&&<button className="primary" disabled={busy} onClick={async()=>{if(await confirm('¿Finalizar la reconstrucción? Los automatismos NO se reanudarán hasta que el responsable lo autorice expresamente.'))await act({action:'reconstruction_finish'},'Reconstrucción finalizada, automatismos detenidos');}}>Finalizar reconstrucción</button>}
    <div className="button-row">
     <button className="secondary" disabled={busy||!r.canBack} onClick={()=>act({action:'reconstruction_back'},'Última decisión reconstruida deshecha')}>↶ Deshacer paso</button>
     <button className="secondary" disabled={busy||!r.canForward} onClick={()=>act({action:'reconstruction_forward'},'Paso reconstruido nuevamente')}>↷ Rehacer paso</button>
-    <button className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Cancelar toda la reconstrucción y restaurar el estado exactamente anterior a iniciarla?'))await act({action:'reconstruction_cancel'},'Reconstrucción cancelada y situación anterior recuperada');}}>Cancelar y restaurar estado original</button>
    </div>
-  </>}
+   <button className="reconstruction-cancel" disabled={busy} onClick={async()=>{if(await confirm('¿Cancelar toda la reconstrucción y restaurar el estado exactamente anterior a iniciarla?'))await act({action:'reconstruction_cancel'},'Reconstrucción cancelada y situación anterior recuperada');}}>Cancelar y restaurar estado original</button>
+   </footer>
  </section>;
 }
