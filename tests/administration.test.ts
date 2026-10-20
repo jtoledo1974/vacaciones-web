@@ -40,3 +40,37 @@ test('no se retira ni se traslada una persona con vacaciones registradas',async(
  await assert.rejects(s.mutate(source.id,{action:'retire_member',version:d.campaign.version,memberId}),/solicitudes/);await assert.rejects(s.mutate(source.id,{action:'transfer_member',version:d.campaign.version,memberId,targetTeam:'A',targetVersion:target.version}),/vacaciones/);assert.deepEqual(await s.load(source.id),baseline);
 });
 
+
+test('edita registro legado, corrige correo y revoca o elimina permisos con control de versión',async()=>{
+ const repo=new Repo(),s=new Service(repo,owner);await s.init();
+ const legacy='chatgpt:delegate@example.test';
+ await repo.batch([{sql:'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)',args:[legacy,'chatgpt','delegate@example.test','team_admin']}]);
+ const body={id:legacy,provider:'chatgpt',subject:'correct@example.test',role:'team_admin',teams:['B'],version:1};
+ await s.configureUser(body);
+ const uid='chatgpt:email:correct@example.test';
+ assert.equal((await repo.all('SELECT * FROM users WHERE id=?',[legacy])).length,0);
+ assert.deepEqual((await repo.all('SELECT team_id FROM grants WHERE user_id=?',[uid])).map(g=>g.team_id),['B']);
+ await assert.rejects(s.configureUser({...body,id:uid}),/cambiaron/);
+ await s.configureUser({...body,id:uid,role:'viewer',version:2});
+ assert.equal((await repo.all('SELECT * FROM grants')).length,0);
+ await assert.rejects(new Service(repo,{id:'reader',role:'viewer',teams:[]}).deleteUser({id:uid,version:3}),/superadministrador/);
+ await assert.rejects(s.deleteUser({id:uid,version:2}),/cambiaron/);
+ await s.deleteUser({id:uid,version:3});
+ assert.equal((await repo.all('SELECT * FROM users')).length,0);
+ assert.equal((await repo.all("SELECT * FROM audit WHERE action='delete_permissions'")).length,1);
+});
+
+test('corregir correo no sobrescribe otra cuenta ni modifica sus equipos',async()=>{
+ const repo=new Repo(),s=new Service(repo,owner);await s.init();
+ await s.configureUser({subject:'one@example.test',role:'team_admin',teams:['A'],version:0});
+ await s.configureUser({subject:'two@example.test',role:'team_admin',teams:['B'],version:0});
+ const before=await s.admin();
+ await assert.rejects(s.configureUser({id:'chatgpt:email:one@example.test',subject:'two@example.test',role:'viewer',teams:[],version:1}),/ya tiene permisos/);
+ assert.deepEqual((await s.admin()).users,before.users);assert.deepEqual((await s.admin()).grants,before.grants);
+});
+
+test('responsable sin equipos se rechaza sin crear un registro incompleto',async()=>{
+ const repo=new Repo(),s=new Service(repo,owner);await s.init();
+ await assert.rejects(s.configureUser({subject:'empty@example.test',role:'team_admin',teams:[],version:0}),/al menos un equipo/);
+ assert.equal((await repo.all('SELECT * FROM users')).length,0);
+});
