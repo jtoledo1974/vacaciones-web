@@ -57,6 +57,8 @@ test('integración: dos aplazamientos permiten elegir tres ciclos desde el calen
  await expect(page.locator('.vac2-cycle[data-cycle-date="'+dates[8]+'"]').first()).toBeEnabled();
  await cycle(page,dates[8]);await confirm(page,'Confirmar tres ciclos');
  await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ await expect(page.getByText(/Turno triple: recupera 2 aplazamiento/)).toBeVisible();
+ await expect(page.getByText('Turno aplazado, sin adjudicación. Acumula un ciclo para la siguiente ronda.')).toHaveCount(2);
  const result=await read(request,s.id);
  expect(result.awards.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
  expect(result.requests.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
@@ -271,7 +273,7 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
-  await expect(page.getByText('Últimas adjudicaciones')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Últimos turnos y adjudicaciones',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
 });
 
@@ -310,12 +312,15 @@ test('empate de tres: registrar orden externo pulsando nombres, persistir y rota
  for(const code of ['QA_D','QA_B','QA_C'])await page.getByRole('button',{name:'Añadir al sorteo '+code,exact:true}).click();
  await expect(page.getByRole('list',{name:'Orden del sorteo externo'})).toHaveText('QA_DQA_BQA_C');
  await confirm(page,'Guardar orden externo');await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
+ await expect(page.getByText('Sorteo externo registrado · Orden inicial: QA_D → QA_B → QA_C')).toBeVisible();
  await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);await expect(page.getByRole('heading',{name:'QA_D elige ahora',exact:true})).toBeVisible();
  const saved=await read(request,s.id);expect(saved.election.state.tieResolutions[0].order).toEqual([3,1,2].map(i=>s.data.members[i].id));
  expect(saved.election.state.tieResolutions[0].method).toBe('external');
  for(const [i,idx] of [3,1,2].entries())await election(request,s.id,{action:'choose',memberId:s.data.members[idx].id,dates:[s.data.result.cycles[i+1].date]});
  await election(request,s.id,{action:'choose',memberId:s.data.members[0].id,dates:[s.data.result.cycles[4].date]});
  expect((await read(request,s.id)).election.turn.memberId).toBe(s.data.members[1].id);
+ await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
+ await expect(page.getByText('Empate · QA_D: 1.º de 3 · Orden de esta ronda: QA_D → QA_B → QA_C')).toBeVisible();
  expect((await read(request,s.live.id)).campaign).toEqual(s.baseline.campaign);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
 });
