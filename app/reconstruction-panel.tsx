@@ -9,21 +9,18 @@ const dateText=(date:string)=>date?new Date(date+'T12:00:00').toLocaleDateString
 export default function ReconstructionPanel({data,busy,act}:any){
  const confirm=useConfirmation(),r=data.election.reconstruction;
  const code=(id:string)=>data.members.find((m:any)=>m.id===id)?.code??'?';
- const [target,setTarget]=useState('');
  const [mode,setMode]=useState('preference'),[manualKind,setManualKind]=useState('choose');
  const [selected,setSelected]=useState<string[]>([]),[entries,setEntries]=useState<Record<string,string[]>>({}),[order,setOrder]=useState<string[]>([]);
  const [manualDate,setManualDate]=useState(''),[jointDate,setJointDate]=useState<Record<string,string>>({});
  const choice=r?.current,active=r?.active,stepKey=(r?.progress??0)+'|'+(choice?.round??'')+'|'+(choice?.memberId??'');
- const candidates=r?.candidates??[];
- useEffect(()=>{if(!target||!candidates.some((c:any)=>c.id===target))setTarget(candidates[0]?.id??'');},[target,candidates.map((c:any)=>c.id).join('|')]);
  useEffect(()=>{
   setMode(choice?.historicalPreference?'preference':choice?.originalPossible?'original':'manual');
   setManualKind(choice?.pendingTie?'resolve_tie':(choice?.participants?.length??0)>1?'choose_joint':'choose');
   setSelected([]);setEntries({});setOrder([]);setManualDate('');setJointDate({});
  },[stepKey]);
- // Do not push the election calendar and the preferences save button below the fold
- // when the campaign does not have a single decision that can be reconstructed.
- if(!r||(!active&&r.status!=='completed'&&!candidates.length))return null;
+ // The launcher now lives in the existing timeline. Show this substantial panel
+ // only while an administrative reconstruction is actually in progress.
+ if(!r?.active)return null;
  const available=choice?.available??[];
  const originalKind=choice?.originalAction==='defer'?'defer':choice?.originalAction==='resolve_tie'?'resolve_tie':(choice?.participants?.length??0)>1?'choose_joint':'choose';
  const canSend=mode==='preference'?!!choice?.historicalPreference:
@@ -38,18 +35,6 @@ export default function ReconstructionPanel({data,busy,act}:any){
  }
  const impact=(r?.impact??[]) as any[];
  return <section className="panel reconstruction-panel" aria-label="Reconstrucción guiada">
-  {!active&&<>
-   <h2>Reconstruir elecciones anteriores</h2>
-   <p>Elige el turno donde se produjo el error. Se conservarán las decisiones posteriores para revisarlas, sin adjudicar vacaciones automáticamente durante la reconstrucción. Si ya hiciste undo y elegiste otra cosa, busca las decisiones marcadas como «Rama anterior».</p>
-   {!candidates.length?<p className="muted">Todavía no hay decisiones recuperables.</p>:<>
-    <label>Retroceder hasta
-     <select aria-label="Punto de reconstrucción" value={target} onChange={e=>setTarget(e.target.value)}>
-      {candidates.map((c:any)=><option key={c.id} value={c.id}>Ronda {c.round} · {c.memberIds.map(code).join(' + ')} · {c.archived?'Rama anterior · ':''}{label(c.action)} {c.choices?.length?' · '+c.choices.map((p:any)=>dateText(p.cycle_date)).join(', '):''}</option>)}
-     </select>
-    </label>
-    <button className="secondary" disabled={busy||!target} onClick={async()=>{if(await confirm('¿Iniciar reconstrucción desde este turno? La elección quedará congelada para los controladores y se recuperarán las decisiones posteriores una a una.'))await act({action:'reconstruction_start',historyId:target},'Reconstrucción iniciada');}}>Iniciar reconstrucción guiada</button>
-   </>}
-  </>}
   {active&&<>
    <div className="reconstruction-heading"><div><span className="eyebrow">RECONSTRUCCIÓN EN CURSO</span><h2>Equipo {data.campaign.team_id} · {choice?.round?'Ronda '+choice.round:'Revisión final'}</h2></div><span className="tag">Elección congelada</span></div>
    <p><strong>{r.progress} decisiones reconstruidas</strong> · {r.total} decisiones anteriores como referencia</p>
@@ -96,6 +81,5 @@ export default function ReconstructionPanel({data,busy,act}:any){
     <button className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Cancelar toda la reconstrucción y restaurar el estado exactamente anterior a iniciarla?'))await act({action:'reconstruction_cancel'},'Reconstrucción cancelada y situación anterior recuperada');}}>Cancelar y restaurar estado original</button>
    </div>
   </>}
-  {r.status==='completed'&&<div className="reconstruction-summary"><h2>Reconstrucción finalizada</h2><p>Se registraron {r.progress} decisiones. <strong>Los automatismos continúan detenidos</strong> hasta su reanudación por el responsable del equipo.</p>{impact.length>0&&<details><summary>CTA con cambios en disponibilidad ({impact.length})</summary>{impact.map((a:any)=><p key={a.memberId}>{code(a.memberId)}: {dateText(a.previousFirst)} → {dateText(a.currentFirst)}</p>)}</details>}</div>}
  </section>;
 }
