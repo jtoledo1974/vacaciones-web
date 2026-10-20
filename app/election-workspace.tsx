@@ -73,6 +73,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
  const [historyLimit,setHistoryLimit]=useState(40);
+ const [choosingReconstructionStart,setChoosingReconstructionStart]=useState(false);
+ const [archivedTarget,setArchivedTarget]=useState('');
  const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
  useEffect(()=>{setSelected([]);setJointSelected({});setJointTarget('');setDetail(null);setMessage('');},[turn?.memberId,turn?.round,turn?.needed,state?.status]);
  useEffect(()=>{if(!preferenceMemberIds.includes(memberId))setMemberId(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??'');},[memberId,mine,preferenceMemberIds.join('|')]);
@@ -124,6 +126,21 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   return ()=>{active=false;setLoadingOptions(false);};
  },[selected.join(','),turn?.needed,data.campaign.version]);
  const canChoose=open&&!frozen&&state?.status==='active'&&!!turn?.memberId&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&!frozen&&preferenceMemberIds.length>0;
+ const reconstructionCandidates:any[]=election.reconstruction?.candidates??[];
+ const candidatesById=new Map<string,any>(reconstructionCandidates.filter((candidate:any)=>!candidate.archived).map((candidate:any)=>[candidate.id,candidate]));
+ const archivedCandidates=reconstructionCandidates.filter((candidate:any)=>candidate.archived);
+ const canOpenReconstruction=manage&&open&&!frozen&&!previewReadOnly&&reconstructionCandidates.length>0;
+ const codeFor=(id:string)=>data.members.find((member:any)=>member.id===id)?.code??'?';
+ useEffect(()=>{if(frozen||!canOpenReconstruction){setChoosingReconstructionStart(false);setArchivedTarget('');}},[frozen,canOpenReconstruction]);
+ async function startReconstructionFrom(candidate:any){
+  if(!candidate||busy||!canOpenReconstruction)return;
+  const names=candidate.memberIds.map(codeFor).join(' + ');
+  const subject=candidate.action==='resolve_tie'?'el sorteo de '+names:'la decisión de '+names;
+  const source=candidate.archived?' (rama anterior)':'';
+  if(!await confirm('¿Reconstruir desde '+subject+', ronda '+candidate.round+source+'? Se volverá al estado anterior a esa decisión y se revisarán los turnos posteriores. Durante la sesión, los controladores no podrán elegir ni editar preferencias y los automatismos permanecerán detenidos. Podrás cancelar para restaurar el estado actual.'))return;
+  const result=await act({action:'reconstruction_start',historyId:candidate.id},'Reconstrucción iniciada');
+  if(result?.election?.reconstruction?.active){setChoosingReconstructionStart(false);setArchivedTarget('');}
+ }
  const roundOrder=state?orderForRound(state,Math.max(0,(turn?.round??1)-1)):data.members.map((m:any)=>m.id);
  function clickCycle(c:any){if(mode==='choose')setDetail(c);setMessage('');
  if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
@@ -182,13 +199,25 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       </div>
      </>}
     </section>}
-    {manage&&<section className="panel election-history-panel">
+    {manage&&<section className="panel election-history-panel" aria-label="Historial de elección">
      <div className="election-history-head"><h2>Últimos turnos y adjudicaciones</h2>
       <div className="election-workflow-actions">
        {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');}}>↶ Deshacer</button>}
        {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>↷ Rehacer</button>}
+       {canOpenReconstruction&&!choosingReconstructionStart&&<details className="election-more-actions election-history-more"><summary aria-label="Más acciones del historial">Más ⋯</summary><div className="election-more-menu"><button type="button" className="secondary" onClick={()=>setChoosingReconstructionStart(true)}>Reconstruir desde un turno…</button></div></details>}
       </div>
      </div>
+     {choosingReconstructionStart&&canOpenReconstruction&&<div className="history-reconstruction-picker" role="region" aria-label="Elegir inicio de reconstrucción">
+      <div className="history-reconstruction-picker-head"><strong>¿Desde qué turno quieres reconstruir?</strong><button type="button" className="secondary" onClick={()=>{setChoosingReconstructionStart(false);setArchivedTarget('');}}>Cancelar</button></div>
+      <p>Busca el turno en este historial y pulsa «Desde aquí». No se cambiará ninguna adjudicación hasta que confirmes.</p>
+      {archivedCandidates.length>0&&<details className="history-archived-choices"><summary>Decisiones de ramas anteriores ({archivedCandidates.length})</summary>
+       <p>Estas decisiones fueron deshechas o sustituidas y ya no están vigentes. Puedes recuperarlas como referencia para una nueva reconstrucción.</p>
+       <label>Decisión anterior<select aria-label="Elegir decisión de rama anterior" value={archivedCandidates.some((candidate:any)=>candidate.id===archivedTarget)?archivedTarget:archivedCandidates[0].id} onChange={event=>setArchivedTarget(event.target.value)}>
+        {archivedCandidates.map((candidate:any)=><option key={candidate.id} value={candidate.id}>Ronda {candidate.round} · {candidate.memberIds.map(codeFor).join(' + ')} · {candidate.action==='defer'?'Aplazamiento':candidate.action==='resolve_tie'?'Sorteo':'Elección'} · {candidate.choices.map((choice:any)=>formatDate(choice.cycle_date)).join(' + ')}</option>)}
+       </select></label>
+       <button type="button" className="secondary" disabled={busy} onClick={()=>startReconstructionFrom(archivedCandidates.find((candidate:any)=>candidate.id===(archivedTarget||archivedCandidates[0].id)))}>Reconstruir desde la decisión anterior</button>
+      </details>}
+     </div>}
      <p className="muted">Más recientes primero. Un turno doble aparece como una sola entrada; los cambios deshechos no figuran como vigentes.</p>
      {(election.timeline??[]).length?<>
       <ol className="election-log">{(election.timeline??[]).slice(0,historyLimit).map((event:any,i:number)=>{
@@ -211,11 +240,17 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
           return <p className="election-log-note election-log-tie" key={tie.memberId}>Empate{previous!==undefined?' a '+previous+' puntos':''} · {memberCode}: {tie.position}.º de {tie.total} · Orden de esta ronda: {tie.order.map(code).join(' → ')}</p>;
          })}
         </>}
+        {choosingReconstructionStart&&canOpenReconstruction&&candidatesById.has(event.id)&&<button type="button" className="secondary election-reconstruction-row-action" disabled={busy} aria-label={'Reconstruir desde '+(event.kind==='tie'?'sorteo de ':'')+event.memberIds.map(codeFor).join(' + ')+' (ronda '+event.round+')'} onClick={()=>startReconstructionFrom(candidatesById.get(event.id))}>Desde aquí <span aria-hidden="true">→</span></button>}
        </div></li>;
       })}</ol>
       {(election.timeline??[]).length>historyLimit&&<button type="button" className="secondary election-show-more" onClick={()=>setHistoryLimit(n=>n+40)}>Mostrar anteriores ({Math.min(40,election.timeline.length-historyLimit)})</button>}
       {historyLimit>40&&<button type="button" className="secondary election-show-more" onClick={()=>setHistoryLimit(40)}>Mostrar menos</button>}
      </>:<p className="muted">Todavía no hay turnos registrados ni ciclos adjudicados.</p>}
+     {election.reconstruction?.status==='completed'&&state?.automaticPaused&&<details className="election-last-reconstruction"><summary>Última reconstrucción · {election.reconstruction.progress} decisiones revisadas</summary>
+      <p>La reconstrucción ha terminado y los automatismos siguen detenidos. Puedes reanudarlos en el control administrativo de la parte superior.</p>
+      {(election.reconstruction.impact??[]).length>0&&<><p>Disponibilidad modificada para {(election.reconstruction.impact??[]).length} controlador(es) que aún podían elegir:</p>
+       <ul>{election.reconstruction.impact.map((entry:any)=><li key={entry.memberId}><strong>{codeFor(entry.memberId)}</strong>: primera preferencia válida {entry.previousFirst?formatDate(entry.previousFirst):'ninguna'} → {entry.currentFirst?formatDate(entry.currentFirst):'ninguna'}</li>)}</ul></>}
+     </details>}
     </section>}
     <section id="puntos-equipo" className="panel election-order-panel">
      <h2>{state?'Orden de elección':'Controladores del equipo'}</h2>
