@@ -99,7 +99,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    <div><h2>Disponibilidad y baremo</h2><p className="muted">{preferenceMode?'Pulsa ciclos para añadirlos a tu lista. Revisa el orden y guarda para confirmarla.':'Selecciona cualquier ciclo para ver detalles y ocupantes.'}</p></div>
    <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
     <button type="button" className={view==='map'?'active':''} aria-pressed={view==='map'} onClick={()=>setView('map')}>Mapa</button>
-    <button type="button" className={view==='calendar'?'active':''} aria-pressed={view==='calendar'} onClick={()=>setView('calendar')}>Calendario</button>
+    <button type="button" className={view==='calendar'?'active':''} aria-pressed={view==='calendar'} onClick={()=>setView('calendar')}>Meses</button>
     <button type="button" className={view==='members'?'active':''} aria-pressed={view==='members'} onClick={()=>setView('members')}>Por CTA</button>
    </div>
   </div>

@@ -355,26 +355,47 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .election-layout.has-active-detail .election-side .vac2-choice-card .button-row button{flex:1}
 }
 
-/* Guided administrative reconstruction: visible and usable on desktop and mobile. */
-.reconstruction-panel{display:grid;gap:14px;border:1px solid #b5c9bd;background:#fbfcfa}
-.reconstruction-panel h2,.reconstruction-panel h3{margin:2px 0 8px}
-.reconstruction-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.reconstruction-panel .eyebrow{display:block;margin-bottom:5px}
-.reconstruction-panel progress{height:8px;accent-color:#317a69}
-.reconstruction-panel>label,.reconstruction-manual label{display:grid;gap:7px}
+/* Reconstruction keeps the calendar in view and the current decision close by. */
+.reconstruction-status{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:12px 16px;margin-bottom:16px;border-radius:8px;background:#eaf3ee;color:#285c4d;font-size:12px}
+.reconstruction-status>span:last-child{color:#4b665a}
+.is-reconstructing{grid-template-columns:minmax(0,1fr) 360px;align-items:start}
+.is-reconstructing>.election-calendar-wrap{grid-column:1;grid-row:1;min-width:0}
+.is-reconstructing>.election-side{grid-column:1;grid-row:2;min-width:0;display:block}
+.is-reconstructing>.reconstruction-panel{grid-column:2;grid-row:1 / span 2;position:sticky;top:16px;max-height:calc(100dvh - 32px);min-width:0;margin:0;padding:0;display:flex;flex-direction:column;border:1px solid #b8cec4;background:#fff;overflow:hidden;box-shadow:0 8px 24px #183a2910}
+.reconstruction-panel h2,.reconstruction-panel h3{margin:0 0 10px;font-size:17px;line-height:1.4}
+.reconstruction-heading{flex:none;padding:18px 18px 12px}
+.reconstruction-panel .eyebrow{display:block;margin-bottom:8px;font-size:10px}
+.reconstruction-heading p{font-size:12px;color:#53695e;margin:0 0 10px}
+.reconstruction-panel progress{display:block;width:100%;height:5px;accent-color:#317a69}
+.reconstruction-body{min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 18px 14px;font-size:12px;overflow-wrap:anywhere}
+.reconstruction-consult{margin:0 0 16px;font-size:12px}
+.reconstruction-manual label{display:grid;gap:7px}
 .reconstruction-panel select{width:100%;max-width:100%;padding:9px;min-height:44px}
-.reconstruction-step{border:1px solid var(--line);border-radius:12px;padding:18px;background:white;display:grid;gap:12px}
-.reconstruction-options{display:grid;gap:4px;padding:8px 0;border-bottom:1px solid var(--line)}
-.reconstruction-options p{margin:4px 0}
-.reconstruction-decisions{border:0;padding:0;margin:0;display:grid;gap:14px}
-.reconstruction-decisions legend{font-weight:700;margin-bottom:10px}
-.reconstruction-decisions label{display:flex;align-items:center;gap:10px;cursor:pointer}
-.reconstruction-decisions input{accent-color:#317a69;min-width:20px;min-height:20px}
+.reconstruction-decisions{min-width:0;border:0;padding:0;margin:0;display:grid}
+.reconstruction-decisions legend{font-weight:650;margin-bottom:6px;font-size:12px}
+.reconstruction-decisions label{display:flex;flex-direction:row;align-items:flex-start;gap:10px;padding:12px 0;border-top:1px solid var(--line);cursor:pointer;font-size:13px;line-height:1.5}
+.reconstruction-decisions label:has(input:checked){color:#245f4c}
+.reconstruction-decisions small{display:block;font-size:12px;color:#53695e;margin-top:4px}
+.reconstruction-decisions input{flex:none;accent-color:#317a69;width:18px;height:18px;margin:2px 0 0}
 .reconstruction-manual{background:#f4f7f4;border-radius:8px;padding:12px;display:grid;gap:12px}
-.reconstruction-panel .button-row{display:flex;flex-wrap:wrap;gap:8px}
+.reconstruction-reference{margin-top:14px}
+.reconstruction-reference p{margin:10px 0 0}
+.reconstruction-footer{flex:none;margin:0;padding:14px 18px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);background:white}
+.reconstruction-footer>.primary{width:100%;white-space:normal}
+.reconstruction-panel .button-row{display:flex;flex-direction:row;flex-wrap:wrap;gap:8px;margin:0}
+.reconstruction-panel .button-row button{flex:1;min-width:0;padding:8px;font-size:12px;white-space:normal}
 .reconstruction-panel button{min-height:40px}
-.reconstruction-summary{padding:15px;border:1px solid #b5c9bd;border-radius:8px}
-@media(max-width:680px){.reconstruction-heading{flex-direction:column}.reconstruction-step{padding:12px}.reconstruction-panel .button-row button{flex:1;min-width:130px}}
+.reconstruction-cancel{background:transparent;border:0;color:#64766d;padding:4px 0;text-decoration:underline;text-align:left;font-size:12px;white-space:normal}
+@media(max-width:1100px) and (min-width:901px){.is-reconstructing{grid-template-columns:minmax(0,1fr) 320px;gap:16px}.is-reconstructing .vac2-month-grid{grid-template-columns:1fr}}
+@media(max-width:900px){
+ .is-reconstructing{display:flex;flex-direction:column;gap:16px}
+ .is-reconstructing>.reconstruction-panel{position:static;max-height:none;width:100%;order:0}
+ .is-reconstructing>.election-calendar-wrap{order:1;width:100%}
+ .is-reconstructing>.election-side{order:2;width:100%}
+ .is-reconstructing .reconstruction-body{overflow:visible}
+ .reconstruction-status{align-items:flex-start}
+ .reconstruction-status>span:last-child{flex-basis:100%}
+}
 
 /* Keep account identity visible beside permission actions on narrow screens. */
 @media (max-width: 760px) {

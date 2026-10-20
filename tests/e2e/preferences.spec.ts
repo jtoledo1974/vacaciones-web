@@ -82,7 +82,7 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   await editor.getByRole('button',{name:'Quitar preferencia 2',exact:true}).click();
   await expect(editor).toContainText('Cambios sin guardar');await shot('06-modificar-guardadas');
   await close(page);
-  await page.getByRole('button',{name:'Calendario',exact:true}).click();
+  await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
   await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toContainText('sin guardar');await shot('07-proteger-cambio-modo');
   await page.getByRole('dialog').getByRole('button',{name:'Cancelar',exact:true}).click();
   await expect(page.getByRole('button',{name:'Preferencias',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -152,7 +152,7 @@ test('preferencias: fallo de guardado conserva borrador y cancelar salida no lo 
  await page.getByLabel('Equipo',{exact:true}).selectOption('B');
  await page.getByRole('dialog',{name:'Confirmar cambio'}).getByRole('button',{name:'Cancelar',exact:true}).click();
  await expect(page.getByLabel('Equipo',{exact:true})).toHaveValue('C');
- await page.getByRole('button',{name:'Calendario',exact:true}).click();
+ await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
  await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
  await page.getByRole('button',{name:'Preferencias',exact:true}).click();await review(page);
  await expect(editor.getByRole('listitem')).toHaveCount(0);
