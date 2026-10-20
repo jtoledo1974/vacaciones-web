@@ -65,3 +65,15 @@ Durante la reconstrucción:
 
 No habilitar la reconstrucción en producción hasta completar las pruebas automáticas, verificar la migración de base de datos y desplegar el PR.
 
+
+## F. Acceso desde el timeline (UX)
+
+El administrador trabaja en la vista ordinaria sin ver el formulario de reconstrucción. La sección **Últimos turnos y adjudicaciones**, que muestra en orden inverso elecciones, aplazamientos y sorteos, conserva los controles habituales de deshacer y rehacer. Una opción secundaria **Más ⋯ → Reconstruir desde un turno…** abre temporalmente el modo de selección del punto histórico.
+
+En ese modo, las entradas recuperables del timeline incorporan **Desde aquí**. El identificador seleccionado es el ID de auditoría del evento: no se infiere a partir del orden visual (una elección conjunta o un turno doble son una única decisión). Los eventos importados o sin snapshot recuperable no presentan una acción engañosa.
+
+Las elecciones deshechas o reemplazadas que ya no forman parte de la secuencia vigente **no se mezclan** con el timeline; se consultan dentro de **Decisiones de ramas anteriores**, accesible únicamente en modo de corrección. Se informa expresamente de que ya no están vigentes.
+
+Al seleccionar el punto se solicita confirmación antes de retroceder y congelar las elecciones. Solo entonces aparece el panel de reconstrucción. Si se cancela el diálogo, no se modifica nada. Durante la sesión se mantiene el asistente visible; al finalizar se oculta y el resumen puede consultarse plegado dentro del historial mientras los automatismos permanezcan detenidos. Se sigue exigiendo la acción independiente para reanudarlos.
+
+Las acciones de reconstrucción solo están disponibles para administradores autorizados, nunca para las vistas previas como controlador ni para los usuarios ordinarios.
