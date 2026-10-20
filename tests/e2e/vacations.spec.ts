@@ -223,6 +223,33 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
  await expect(page.getByRole('heading',{name:'Reconstruir elecciones anteriores'})).toHaveCount(0);
  await expect(historyPanel.getByText(/Última reconstrucción/)).toBeVisible();
 });
+test('un administrador puede iniciar reconstrucción desde una rama abandonada del historial',async({page,request})=>{
+ const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date),ids=s.data.members.map((m:any)=>m.id);
+ await election(request,s.id,{action:'start',order:ids,source:'Orden ficticio para probar el historial de ramas',rulesConfirmed:true,allowDeferral:false});
+ for(let i=0;i<4;i++)await election(request,s.id,{action:'choose',memberId:ids[i],dates:[dates[i]]});
+ let state=await read(request,s.id);
+ state=await election(request,s.id,{action:'election_undo',historyId:state.election.undo});
+ state=await election(request,s.id,{action:'election_undo',historyId:state.election.undo});
+ await election(request,s.id,{action:'choose',memberId:ids[2],dates:[dates[6]]});
+ state=await read(request,s.id);
+ expect(state.election.redo).toBeNull();
+ const archived=state.election.reconstruction.candidates.find((candidate:any)=>candidate.archived&&candidate.memberIds.includes(ids[2]));
+ expect(archived).toBeTruthy();
+ await open(page,s.id);
+ const historyPanel=page.getByRole('region',{name:'Historial de elección'});
+ await expect(historyPanel.getByText(/Decisiones de ramas anteriores/)).toHaveCount(0);
+ await historyPanel.locator('summary[aria-label="Más acciones del historial"]').click();
+ await historyPanel.getByRole('button',{name:'Reconstruir desde un turno…'}).click();
+ await historyPanel.locator('.history-archived-choices summary').click();
+ await historyPanel.getByLabel('Elegir decisión de rama anterior').selectOption(archived.id);
+ await historyPanel.getByRole('button',{name:'Reconstruir desde la decisión anterior'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ state=await read(request,s.id);
+ expect(state.election.reconstruction.active).toBe(true);
+ expect(state.election.reconstruction.current.memberId).toBe(ids[2]);
+ expect(state.awards).toHaveLength(2);
+ await expect(page.getByText('Elección congelada',{exact:true})).toBeVisible();
+});
 test('bloqueo, descarga y restauración de backup completo',async({page,request},info)=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
