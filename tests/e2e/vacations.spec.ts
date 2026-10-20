@@ -102,6 +102,26 @@ test('integración: dos aplazamientos permiten elegir tres ciclos desde el calen
  await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
 });
 
+test('móvil: el menú Más acciones permanece dentro de la pantalla',async({page,request})=>{
+ const s=await setup(request,page);await open(page,s.id);await activate(page);
+ const actions=page.locator('.election-turn-controls > .election-more-actions');
+ const summary=actions.locator('summary');
+ for(const width of [320,375,430]){
+  await page.setViewportSize({width,height:640});
+  await summary.click();
+  const menu=actions.locator('.election-more-menu');
+  const defer=menu.getByRole('button',{name:'Aplazar para elegir dos'});
+  await expect(defer).toBeVisible();
+  await defer.scrollIntoViewIfNeeded();
+  const bounds=await menu.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width+1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+  await summary.click();
+ }
+});
+
 test('integración: administración agrupada y navegación pública en escritorio y móvil',async({page,request,browser},info)=>{
  const s=await setup(request,page);await open(page,s.id);
  await expect(page.getByRole('button',{name:'Exportar adjudicaciones CSV'})).toBeVisible();
