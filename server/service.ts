@@ -355,22 +355,43 @@ export class Service {
         if(!['chatgpt','firebase'].includes(provider)||(!validEmail&&!validUid)||!['viewer','team_admin'].includes(body.role)
         ||!Array.isArray(body.teams)||body.teams.some((t:string)=>!('ABCDEFGH'.includes(t)&&t.length===1)))
             throw new ApiError('Usuario o permisos no válidos');
+        if(body.role==='team_admin'&&!body.teams.length)throw new ApiError('Selecciona al menos un equipo para el responsable');
         if(body.expiresAt&&(!Number.isFinite(Date.parse(body.expiresAt))||Date.parse(body.expiresAt)<=Date.now()))
             throw new ApiError('Caducidad no válida');
         const uid=provider+':'+subject;
-        const old=(await this.repo.all('SELECT * FROM users WHERE id=?',[uid]))[0]??null;
-        const oldGrants=await this.repo.all('SELECT * FROM grants WHERE user_id=?',[uid]);
+        const sourceId=body.id??uid;
+        const old=(await this.repo.all('SELECT * FROM users WHERE id=?',[sourceId]))[0]??null;
+        if(body.id&&!old)throw new ApiError('El usuario ya no existe. Recarga.',409);
+        if(old&&old.provider!==provider)throw new ApiError('No se puede cambiar el proveedor');
+        if(sourceId!==uid&&(await this.repo.all('SELECT id FROM users WHERE id=?',[uid])).length)
+            throw new ApiError('Ese correo ya tiene permisos. Edita su entrada.',409);
+        const oldGrants=await this.repo.all('SELECT * FROM grants WHERE user_id=?',[sourceId]);
         const expected=Number(body.version??0);
         if((old?.version??0)!==expected)throw new ApiError('Los permisos cambiaron. Recarga.',409);
         const token=id(),ops:Statement[]=old
-            ?[{sql:'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?',args:[body.role,uid,expected]}]
+            ?[{sql:'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?',args:[body.role,sourceId,expected]}]
             :[{sql:'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)',args:[uid,provider,subject,body.role]}];
         ops.push({sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
             {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},
-            {sql:'DELETE FROM grants WHERE user_id=?',args:[uid]});
-        for(const t of new Set(body.teams))ops.push({sql:'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',args:[id(),uid,t,body.expiresAt??null]});
-        ops.push(this.audit('permissions',null,{user:old,grants:oldGrants},{provider,subject,role:body.role,teams:body.teams}));
+            {sql:'DELETE FROM grants WHERE user_id=?',args:[sourceId]});
+        if(old)ops.push({sql:'UPDATE users SET id=?,subject=? WHERE id=?',args:[uid,subject,sourceId]});
+        for(const t of new Set(body.role==='team_admin'?body.teams:[]))ops.push({sql:'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',args:[id(),uid,t,body.expiresAt??null]});
+        ops.push(this.audit('permissions',null,{user:old,grants:oldGrants},{provider,subject,role:body.role,teams:body.role==='team_admin'?body.teams:[]}));
         await this.commit(ops);return {ok:true};
+    }
+    async deleteUser(body:any){
+        requireSuper(this.actor);
+        const user=(await this.repo.all('SELECT * FROM users WHERE id=?',[body.id]))[0];
+        if(!user||user.version!==body.version)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        const grants=await this.repo.all('SELECT * FROM grants WHERE user_id=?',[user.id]),token=id();
+        await this.commit([
+            {sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[user.id,body.version]},
+            {sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
+            {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},
+            {sql:'DELETE FROM grants WHERE user_id=?',args:[user.id]},
+            {sql:'DELETE FROM users WHERE id=?',args:[user.id]},
+            this.audit('delete_permissions',null,{user,grants},null)
+        ]);return {ok:true};
     }
     async admin() { requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
     async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }

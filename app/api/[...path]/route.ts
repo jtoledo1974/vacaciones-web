@@ -115,7 +115,7 @@ async function serve(request: Request) {
         if (path[0] === 'campaign' && path[1])
             return reply(await service.mutate(path[1], b));
         if (path[0] === 'users')
-            return reply(await service.configureUser(b));
+            return reply(await (b.action==='delete'?service.deleteUser(b):service.configureUser(b)));
         if (path[0] === 'restore')
             return reply(await service.restore(b.backup, b.revision));
         throw new ApiError('Ruta no encontrada', 404);
