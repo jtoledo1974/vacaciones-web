@@ -94,10 +94,17 @@
 .election-workflow-card p{font-size:11px;margin:5px 0 0}
 .election-workflow-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
 .election-workflow-actions button{padding:9px 11px}
-.election-log{padding-left:0;list-style:none;max-height:315px;overflow:auto;margin:10px 0 0}
-.election-log li{display:flex;gap:7px;justify-content:space-between;align-items:baseline;padding:8px 0;border-top:1px solid #ebefe9;font-size:11px}
+.election-log{padding-left:0;list-style:none;max-height:410px;overflow:auto;margin:10px 0 0}
+.election-log li{display:block;padding:9px 0;border-top:1px solid #ebefe9;font-size:11px}
 .election-log li b{font-size:11px}
 .election-log li span{color:#718479;font-size:10px}
+.election-log-entry{min-width:0;overflow-wrap:anywhere}
+.election-log-title{display:flex;justify-content:space-between;gap:6px;align-items:baseline}
+.election-log-title span{flex-shrink:0}
+.election-log-cycle{margin-top:4px;color:#64766d}
+.election-log .election-log-note{font-size:10px;line-height:1.5;color:#64766d;margin:5px 0 0}
+.election-log .election-log-tie{padding-left:8px;border-left:2px solid #a6cbb4}
+.election-show-more{margin:8px 8px 0 0;font-size:11px}
 .election-side .vac2-choice-card{position:sticky;top:82px;z-index:3}
 .election-side .vac2-choice-card h2{font-size:14px}
 .election-side .vac2-choice-card .button-row{gap:6px}

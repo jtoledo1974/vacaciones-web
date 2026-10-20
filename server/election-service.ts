@@ -3,6 +3,7 @@ import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
+import {buildElectionTimeline} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
@@ -61,26 +62,12 @@ export class ElectionService{
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid):null;
   const reconstruction=await this.reconstruction().view(d,raw);
-  // Build the visible reverse-chronological log from choices still present in this campaign.
-  // Undo/redo restores awards, so an undone choice must not appear as a current selection.
-  const timeline:any[]=[];
+  // Replay persisted actions rather than inferring turns from individual awards.
+  // Return all events; the UI reveals older entries incrementally.
+  let timeline:ReturnType<typeof buildElectionTimeline>=[];
   if(manage){
-   const active=new Set(d.awards.map((a:any)=>a.member_id+'|'+a.cycle_date));
-   const seen=new Set<string>();
-   const rows=await this.repo.all('SELECT after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 500',[cid]);
-   for(const row of rows){
-    let after:any;try{after=JSON.parse(row.after_json??'{}');}catch{continue;}
-    const choices=Array.isArray(after?.choices)?after.choices:[];
-    for(const choice of [...choices].reverse()){
-     const key=choice.member_id+'|'+choice.cycle_date;
-     if(active.has(key)&&!seen.has(key)){seen.add(key);timeline.push({member_id:choice.member_id,cycle_date:choice.cycle_date,created_at:row.created_at});}
-    }
-   }
-   // Imported/legacy awards may lack a corresponding sequential audit record.
-   for(const award of d.awards){
-    const key=award.member_id+'|'+award.cycle_date;
-    if(!seen.has(key)){timeline.push({member_id:award.member_id,cycle_date:award.cycle_date,legacy:true});seen.add(key);}
-   }
+   const rows=await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
+   timeline=buildElectionTimeline(rows as any,ctx,raw.state);
   }
 
   const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
