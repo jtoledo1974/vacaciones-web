@@ -362,3 +362,22 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .reconstruction-panel button{min-height:40px}
 .reconstruction-summary{padding:15px;border:1px solid #b5c9bd;border-radius:8px}
 @media(max-width:680px){.reconstruction-heading{flex-direction:column}.reconstruction-step{padding:12px}.reconstruction-panel .button-row button{flex:1;min-width:130px}}
+
+/* Timeline corrections stay hidden until an administrator explicitly asks for them. */
+.election-history-more{position:relative}
+.election-history-more>summary{padding:6px 9px;font-size:11px;cursor:pointer}
+.election-history-more .election-more-menu{z-index:12}
+.history-reconstruction-picker{margin:12px 0;padding:12px;border:1px solid #b5c9bd;border-radius:9px;background:#f4f8f3}
+.history-reconstruction-picker-head{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.history-reconstruction-picker-head button{flex:none}
+.history-reconstruction-picker p{font-size:11px;margin:8px 0;line-height:1.5}
+.history-archived-choices{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+.history-archived-choices summary{cursor:pointer;font-weight:650;font-size:12px}
+.history-archived-choices label{display:grid;gap:6px;margin:10px 0;font-size:11px}
+.history-archived-choices select{width:100%;min-width:0;padding:8px}
+.history-archived-choices button{white-space:normal}
+.election-reconstruction-row-action{margin-top:9px;font-size:11px;padding:6px 9px}
+.election-last-reconstruction{margin-top:12px;border-top:1px solid var(--line);padding-top:10px;font-size:11px}
+.election-last-reconstruction summary{cursor:pointer;font-weight:650}
+.election-last-reconstruction p{font-size:11px;line-height:1.5}
+@media(max-width:580px){.history-reconstruction-picker-head{align-items:flex-start}.history-reconstruction-picker-head button{min-height:38px}}
