@@ -2,6 +2,7 @@ import {test,expect} from '@playwright/test';
 const origin='http://127.0.0.1:5199';
 const credentials={username:'qa-superadmin',password:'Only-for-isolated-e2e-testing-12345'};
 test('password administration, invalid login, CSRF, bearer precedence, isolation and logout replay',async({page,browser})=>{
+ const pageErrors:string[]=[];page.on('pageerror',error=>pageErrors.push(error.message));
  await page.goto('/');
  // auth-config is loaded by an effect: wait for hydration before opening the mobile menu.
  await expect(page.getByText('Acceso administrador con contraseña',{exact:true})).toBeAttached();
@@ -46,5 +47,6 @@ test('password administration, invalid login, CSRF, bearer precedence, isolation
   await expect.poll(async()=>(await (await api.get('/api/session')).json()).principal.role).toBe('viewer');
   expect((await replay.request.get('/api/admin')).status()).toBe(403);
  });
+ expect(pageErrors).toEqual([]);
  await anonymous.close();await replay.close();
 });

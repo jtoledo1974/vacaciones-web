@@ -209,14 +209,14 @@ function Dashboard() {
         <button type="button" className="secondary" onClick={()=>{const target=new URL(location.href);target.searchParams.delete('verComo');location.assign(target.toString());}}>Salir de vista previa</button>
       </div>}
       <div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : 'Administración general'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors">
-        <label>Ejercicio<select aria-label="Ejercicio" value={year} onChange={async e=>{
-            const selectedYear=Number(e.target.value);if(!await canNavigate())return;setYearChoice(selectedYear);
+        <label>Ejercicio<select aria-label="Ejercicio" value={year} disabled={!index} onChange={async e=>{
+            const selectedYear=Number(e.target.value);if(!index||!await canNavigate())return;setYearChoice(selectedYear);
             if(team)setCid(index.campaigns.find((c:any)=>c.year===selectedYear&&c.team_id===team&&c.scope_key==='live')?.id??'');
             else{const u=new URL(location.href);u.searchParams.set('year',String(selectedYear));history.replaceState({},'',u);}
         }}>{Array.from(new Set(index?.campaigns.filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)??[2026])).map((y:any)=><option key={y} value={y}>{y}</option>)}</select></label>
-        <label>Equipo<select aria-label="Equipo" value={team} onChange={async e=>{
+        <label>Equipo<select aria-label="Equipo" value={team} disabled={!index} onChange={async e=>{
             const nextTeam=e.target.value;
-            if(!await canNavigate())return;
+            if(!index||!await canNavigate())return;
             if(!nextTeam){setCid('');const u=new URL(location.href);u.searchParams.delete('equipo');history.replaceState({},'',u);}
             else setCid(index.campaigns.find((c:any)=>c.team_id===nextTeam&&c.year===year&&c.scope_key==='live')?.id??'');
         }}><option value="">Selecciona un equipo</option>{(index?.teams??'ABCDEFGH'.split('').map(id=>({id,name:'Equipo '+id}))).map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
