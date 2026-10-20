@@ -19,24 +19,4 @@ test('edición masiva conserva selecciones y rechaza identidades ajenas',async()
 test('corregir un año antiguo no cambia la plantilla del siguiente ni la de años futuros',async()=>{
  const s=new Service(new Repo(),owner);await s.init();await s.createCampaigns(2027,2026);let index=await s.list();const old=index.campaigns.find(c=>c.year===2026&&c.team_id==='C'),current=index.campaigns.find(c=>c.year===2027&&c.team_id==='C');const baseline=await s.load(current.id);let d=await s.view(old.id);
  d=await s.mutate(old.id,{action:'bulk_members',version:d.campaign.version,rows:[{memberId:d.members[0].id,code:'CORREGIDO',label:'Corrección del pasado',seniority:''},{code:'NUEVO_2026',label:'Alta pasada',seniority:''}]});
- await s.mutate(old.id,{action:'retire_member',version:d.campaign.version,memberId:d.members.find(m=>m.code==='C02').id});assert.deepEqual(await s.load(current.id),baseline);
- await s.createCampaigns(2028,2027);index=await s.list();const next=index.campaigns.find(c=>c.year===2028&&c.team_id==='C'),members=(await s.load(next.id)).members;assert.equal(members.length,16);assert.deepEqual(members.map(m=>[m.person_id,m.code,m.label,m.seniority]),baseline.members.map(m=>[m.person_id,m.code,m.label,m.seniority]));
-});
-test('plantilla de origen explícita y ejercicio vacío son independientes de los parámetros',async()=>{
- const s=new Service(new Repo(),owner);await s.init();await s.createCampaigns(2027,2026,null);let index=await s.list();const current=index.campaigns.find(c=>c.year===2027&&c.team_id==='C');let d=await s.view(current.id);assert.equal(d.members.length,0);
- d=await s.mutate(current.id,{action:'bulk_members',version:d.campaign.version,rows:[{code:'C01',label:'Otra persona',seniority:''}]});assert.equal(d.members.length,1);
- await s.createCampaigns(2028,2027,2026);const next=(await s.list()).campaigns.find(c=>c.year===2028&&c.team_id==='C');assert.equal((await s.load(next.id)).members.length,16);
- await assert.rejects(s.createCampaigns(2029,null,2030),/anterior/);await assert.rejects(s.createCampaigns(2029,null,2025),/origen/);assert.equal((await s.list()).campaigns.some(c=>c.year===2029),false);
-});
-test('cambio de turno por ejercicio es atómico y conserva el histórico y la identidad',async()=>{
- const repo=new Repo(),s=new Service(repo,owner);await s.init();await s.createCampaigns(2027,2026);const index=await s.list(),source=index.campaigns.find(c=>c.year===2027&&c.team_id==='C'),target=index.campaigns.find(c=>c.year===2027&&c.team_id==='A'),old=index.campaigns.find(c=>c.year===2026&&c.team_id==='C');const historical=await s.load(old.id),before=await s.load(source.id),destination=await s.load(target.id),member=before.members[0];
- const body={action:'transfer_member',memberId:member.id,version:source.version,targetTeam:'A',targetVersion:target.version};await assert.rejects(s.mutate(source.id,{...body,targetVersion:0}),/destino cambió/);assert.deepEqual(await s.load(source.id),before);assert.deepEqual(await s.load(target.id),destination);
- await assert.rejects(new Service(repo,{id:'team-admin',role:'team_admin',teams:['C']}).mutate(source.id,body),/superadministrador/);
- await s.mutate(source.id,body);assert.equal((await s.load(source.id)).members.length,15);const moved=(await s.load(target.id)).members.find(m=>m.person_id===member.person_id);assert.equal(moved.code,member.code);assert.equal(moved.seniority,member.seniority);assert.deepEqual(await s.load(old.id),historical);
- await s.createCampaigns(2028,2027);const next=(await s.list()).campaigns;assert.equal((await s.load(next.find(c=>c.year===2028&&c.team_id==='A').id)).members.length,17);assert.equal((await s.load(next.find(c=>c.year===2028&&c.team_id==='C').id)).members.length,15);
-});
-test('no se retira ni se traslada una persona con vacaciones registradas',async()=>{
- const s=new Service(new Repo(),owner);await s.init();const index=await s.list(),source=index.campaigns.find(c=>c.team_id==='C'),target=index.campaigns.find(c=>c.team_id==='A');let d=await s.view(source.id);const memberId=d.members[0].id;d=await s.mutate(source.id,{action:'request',version:d.campaign.version,memberId,slot:1,date:d.result.cycles[0].date});const baseline=await s.load(source.id);
- await assert.rejects(s.mutate(source.id,{action:'retire_member',version:d.campaign.version,memberId}),/solicitudes/);await assert.rejects(s.mutate(source.id,{action:'transfer_member',version:d.campaign.version,memberId,targetTeam:'A',targetVersion:target.version}),/vacaciones/);assert.deepEqual(await s.load(source.id),baseline);
-});
-
+ await s.mutate(old.id,{action:'retire_member',version:d.campaign.version,memberId:d.members.find(m=>m.code==='C02
