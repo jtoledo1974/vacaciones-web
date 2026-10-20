@@ -2,6 +2,9 @@
 import {useEffect,useState} from 'react';
 import {useConfirmation} from './confirmation';
 
+function label(action:string){
+ return ({choose:'Elección individual',choose_joint:'Elección conjunta',advance:'Adjudicación automática',defer:'Aplazamiento',resolve_tie:'Resolución de empate',reconstruction_step:'Elección reconstruida'} as Record<string,string>)[action]??action;
+}
 const dateText=(date:string)=>date?new Date(date+'T12:00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'}):'—';
 export default function ReconstructionPanel({data,busy,act}:any){
  const confirm=useConfirmation(),r=data.election.reconstruction;
