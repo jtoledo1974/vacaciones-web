@@ -102,6 +102,48 @@ test('integración: dos aplazamientos permiten elegir tres ciclos desde el calen
  await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
 });
 
+test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
+ const s=await setup(request,page);await open(page,s.id);
+ const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
+ const calendar=switcher.getByRole('button',{name:'Calendario',exact:true});
+ const preferences=switcher.getByRole('button',{name:'Preferencias',exact:true});
+ await expect(calendar).toHaveAttribute('aria-pressed','true');
+ await expect(preferences).toHaveAttribute('aria-pressed','false');
+ await preferences.click();
+ await expect(preferences).toHaveAttribute('aria-pressed','true');
+ await calendar.click();
+ await expect(calendar).toHaveAttribute('aria-pressed','true');
+ for(const width of [320,375,430]){
+  await page.setViewportSize({width,height:640});
+  const bounds=await switcher.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.height).toBeLessThan(44);
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width+1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+ }
+});
+
+test('móvil: el menú Más acciones permanece dentro de la pantalla',async({page,request})=>{
+ const s=await setup(request,page);await open(page,s.id);await activate(page);
+ const actions=page.locator('.election-turn-controls > .election-more-actions');
+ const summary=actions.locator('summary');
+ for(const width of [320,375,430]){
+  await page.setViewportSize({width,height:640});
+  await summary.click();
+  const menu=actions.locator('.election-more-menu');
+  const defer=menu.getByRole('button',{name:'Aplazar para elegir dos'});
+  await expect(defer).toBeVisible();
+  await defer.scrollIntoViewIfNeeded();
+  const bounds=await menu.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x).toBeGreaterThanOrEqual(0);
+  expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width+1);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+  await summary.click();
+ }
+});
+
 test('integración: administración agrupada y navegación pública en escritorio y móvil',async({page,request,browser},info)=>{
  const s=await setup(request,page);await open(page,s.id);
  await expect(page.getByRole('button',{name:'Exportar adjudicaciones CSV'})).toBeVisible();
@@ -158,14 +200,14 @@ test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request}
 
 test('preferencias delegadas y elección automática al llegar el turno',async({page,request})=>{
   const s=await setup(request,page),date=s.data.result.cycles[0].date;
-  await open(page,s.id);await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
+  await open(page,s.id);await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
   await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(s.data.members[1].id);
   await cycle(page,date);await expect(page.getByLabel('Asignar automáticamente desde esta lista cuando llegue mi turno')).toHaveCount(0);
   if(!await page.locator('.preference-sheet').isVisible()&&await page.getByRole('button',{name:'Revisar y guardar',exact:true}).isVisible())await page.getByRole('button',{name:'Revisar y guardar',exact:true}).click();
   await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
   await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'}).first()).toBeVisible();
   if(await page.getByRole('button',{name:'Cerrar revisión de preferencias',exact:true}).isVisible())await page.getByRole('button',{name:'Cerrar revisión de preferencias',exact:true}).click();
-  await page.getByRole('button',{name:'Elegir / consultar',exact:true}).click();await activate(page);
+  await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();await activate(page);
   await cycle(page,date);await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
   const d=await read(request,s.id);expect(d.awards).toHaveLength(2);expect(d.awards.some((a:any)=>a.member_id===s.data.members[1].id)).toBeTruthy();
@@ -201,7 +243,7 @@ test('undo en navegador deshace solo el último turno automático y permite corr
 test('guardar preferencias durante el turno avisa antes de adjudicar automáticamente',async({page,request})=>{
  const s=await setup(request,page),member=s.data.members[0],date=s.data.result.cycles[0].date;
  await open(page,s.id);await activate(page);
- await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
+ await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
  await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(member.id);
  await cycle(page,date);
  if(!await page.locator('.preference-sheet').isVisible()&&await page.getByRole('button',{name:'Revisar y guardar',exact:true}).isVisible())await page.getByRole('button',{name:'Revisar y guardar',exact:true}).click();
@@ -386,7 +428,7 @@ test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',as
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   await expect(page.getByRole('button',{name:'Mapa',exact:true})).toHaveAttribute('aria-pressed','true');
   await expect(page.getByRole('button',{name:'Por CTA',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Calendario',exact:true}).click();
+  await page.getByRole('group',{name:'Vista del calendario'}).getByRole('button',{name:'Meses',exact:true}).click();
   await expect(page.getByRole('button',{name:'Siguiente →'})).toBeVisible();
   await page.getByRole('button',{name:'Siguiente →'}).click();
   await expect(page.getByRole('button',{name:'← Anterior'})).toBeEnabled();

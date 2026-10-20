@@ -70,7 +70,7 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
   await expect(page.getByRole('heading',{name:'Plantilla del equipo C'})).toBeVisible();
   await navigate(page,'Vacaciones');
 
-  await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
+  await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
   await expect(page.getByLabel('Preferencias de controlador',{exact:true})).toHaveValue(own.id);
   const date=simulation.result.cycles[0].date;
   await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();

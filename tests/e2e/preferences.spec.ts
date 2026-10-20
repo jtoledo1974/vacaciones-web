@@ -15,7 +15,7 @@ async function fixture(api:APIRequestContext,page:Page){
  data=await post(api,'campaign/'+clone.id,{action:'import_roster',version:data.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:['QA_A','QA_B','QA_C','QA_D'].map(code=>({code,label:'Ficticio '+code,seniority:''}))}});
  await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(clone.id);
  await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();
- await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
+ await page.getByRole('button',{name:'Preferencias',exact:true}).click();
  return {id:clone.id,data,live,baseline};
 }
 async function review(page:Page){
@@ -82,10 +82,10 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   await editor.getByRole('button',{name:'Quitar preferencia 2',exact:true}).click();
   await expect(editor).toContainText('Cambios sin guardar');await shot('06-modificar-guardadas');
   await close(page);
-  await page.getByRole('button',{name:'Elegir / consultar',exact:true}).click();
+  await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
   await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toContainText('sin guardar');await shot('07-proteger-cambio-modo');
   await page.getByRole('dialog').getByRole('button',{name:'Cancelar',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Preparar preferencias',exact:true})).toHaveAttribute('aria-pressed','true');
+  await expect(page.getByRole('button',{name:'Preferencias',exact:true})).toHaveAttribute('aria-pressed','true');
   // Changing controller and campaign both require a decision; cancellation retains the draft.
   await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(s.data.members[1].id);
   await page.getByRole('dialog').getByRole('button',{name:'Cancelar',exact:true}).click();
@@ -97,7 +97,7 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');await expect(editor.getByRole('button',{name:'Guardar preferencias',exact:true})).toBeDisabled();await close(page);
   // Reload proves persistence, rather than only checking the React draft.
   await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
-  await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();
+  await page.getByRole('button',{name:'Preferencias',exact:true}).click();
   await review(page);await expect(list.locator('li')).toHaveCount(2);await close(page);
   // Presentation hides exhausted cycles, without changing their stored order.
   let data=await read(request,s.id);const config=structuredClone(data.config);
@@ -152,9 +152,9 @@ test('preferencias: fallo de guardado conserva borrador y cancelar salida no lo 
  await page.getByLabel('Equipo',{exact:true}).selectOption('B');
  await page.getByRole('dialog',{name:'Confirmar cambio'}).getByRole('button',{name:'Cancelar',exact:true}).click();
  await expect(page.getByLabel('Equipo',{exact:true})).toHaveValue('C');
- await page.getByRole('button',{name:'Elegir / consultar',exact:true}).click();
+ await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
  await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
- await page.getByRole('button',{name:'Preparar preferencias',exact:true}).click();await review(page);
+ await page.getByRole('button',{name:'Preferencias',exact:true}).click();await review(page);
  await expect(editor.getByRole('listitem')).toHaveCount(0);
 });
 

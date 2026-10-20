@@ -266,7 +266,11 @@
 .election-turn.election-workflow-head h2{font-size:14px;margin:0;line-height:1.4}
 .election-turn-status .muted{font-size:11px}
 .election-turn-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.election-turn-controls>button{padding:7px 10px}
+.election-view-switch{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid #d9e3dc;background:#eef3ef;border-radius:9px;min-width:0}
+.election-view-option{border:0;border-radius:6px;background:transparent;color:#557465;padding:6px 11px;font-size:11px;font-weight:650;line-height:1.4;white-space:nowrap}
+.election-view-option[aria-pressed="true"]{background:white;color:#245d4b;box-shadow:0 1px 3px #183a291f}
+.election-view-option:hover:not([aria-pressed="true"]){background:#e0eae2}
+.election-turn-controls .election-more-ellipsis{display:none}
 .election-more-actions{position:relative;border:0;margin:0;padding:0}
 .election-more-actions>summary{list-style:none;border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;white-space:nowrap}
 .election-more-actions>summary::-webkit-details-marker{display:none}
@@ -335,8 +339,17 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 }
 @media(max-width:680px){
  .election-turn.election-workflow-head{padding:10px 12px!important}
- .election-turn-controls{width:100%}
- .election-turn-controls>button{flex:1}
+ .election-turn-controls{width:100%;flex-wrap:nowrap;gap:6px}
+ .election-view-switch{flex:0 1 auto}
+ .election-view-option{padding:7px 9px}
+ /* Keep the rarely used overflow menu on the same row. Constrain its
+    floating panel to the viewport, including narrow phone screens. */
+ .election-turn-controls>.election-more-actions{flex:0 0 40px;min-width:40px;margin-left:auto}
+ .election-turn-controls>.election-more-actions>summary{display:grid;place-items:center;width:40px;min-height:36px;cursor:pointer;padding:4px}
+ .election-turn-controls .election-more-label{display:none}
+ .election-turn-controls .election-more-ellipsis{display:inline;font-size:22px;line-height:1}
+ .election-turn-controls>.election-more-actions .election-more-menu{position:absolute;top:calc(100% + 6px);right:0;width:min(250px,calc(100vw - 42px));min-width:0;max-height:min(55dvh,420px);overflow-y:auto}
+ .election-turn-controls>.election-more-actions .election-more-menu button{width:100%;min-height:44px;text-align:left}
  .election-layout.has-active-detail .election-side .vac2-choice-card{position:fixed;top:auto;bottom:8px;left:8px;right:8px;width:auto;z-index:15;max-height:50dvh;overflow-y:auto;margin:0;padding:12px;box-shadow:0 6px 30px #183a2950}
  .election-layout.has-active-detail .election-side .vac2-choice-card .button-row{flex-direction:row;flex-wrap:wrap}
  .election-layout.has-active-detail .election-side .vac2-choice-card .button-row button{flex:1}
