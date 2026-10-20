@@ -36,7 +36,8 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
  const done=appliedAudit(rows).done as AuditRow[];
  const draws=rows.filter(row=>row.action==='resolve_tie');
  const lastStart=done.findLastIndex(row=>row.action==='start');
- const active=lastStart>=0?done.slice(lastStart+1):[];
+ // Simulations inherit a paused order without a local `start` audit entry.
+ const active=lastStart>=0?done.slice(lastStart+1):done;
  const awardKeys=new Set(ctx.awards.map(a=>a.member_id+'|'+a.cycle_date));
  const accounted=new Set<string>();
  const indices=new Map(rows.map((row,i)=>[row.id,i]));

@@ -4,6 +4,7 @@ import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
 import {newcomerScore} from '../domain/historical-order';
 import {orderForRound} from '../domain/election';
+import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 
@@ -73,6 +74,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
  const [historyLimit,setHistoryLimit]=useState(40);
+ const cycleNumbers=numberTimelineCycles(election.timeline??[]);
  const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
  useEffect(()=>{setSelected([]);setJointSelected({});setJointTarget('');setDetail(null);setMessage('');},[turn?.memberId,turn?.round,turn?.needed,state?.status]);
  useEffect(()=>{if(!preferenceMemberIds.includes(memberId))setMemberId(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??'');},[memberId,mine,preferenceMemberIds.join('|')]);
@@ -172,7 +174,9 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      {message&&<p role="status" className="alert warning">{message}</p>}
      {mode==='choose'&&canChoose&&<>
       {turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}
-      <p className="election-selected-summary"><strong>Elección:</strong> {turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | '):selected.length?selected.map(formatDate).join(' + '):'ningún ciclo elegido'}</p>
+      <p className="election-selected-summary">Elige <strong>{turn?.participants?.length>1?data.members.find((m:any)=>m.id===(jointTarget||turn.participants[0]))?.code:current?.code}</strong></p>
+      {turn.needed>1&&turn?.participants?.length===1&&<p className="election-multiple-summary">{selected.length}/{turn.needed} ciclos seleccionados: {selected.map(formatDate).join(' + ')||'ninguno'}</p>}
+      {turn?.participants?.length>1&&<p className="election-multiple-summary">{turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | ')}</p>}
       <div className="button-row">
        <button type="button" className="primary" disabled={busy||previewReadOnly||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={()=>{
         if(turn?.participants?.length>1){const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));act({action:'choose_joint',entries},'Turno conjunto confirmado');}
@@ -189,19 +193,19 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
        {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>↷ Rehacer</button>}
       </div>
      </div>
-     <p className="muted">Más recientes primero. Un turno doble aparece como una sola entrada; los cambios deshechos no figuran como vigentes.</p>
+     <p className="muted">Más recientes primero. R1 · 1 indica el primer ciclo adjudicado en la ronda 1. Sorteos y aplazamientos no se numeran; los cambios deshechos no figuran como vigentes.</p>
      {(election.timeline??[]).length?<>
-      <ol className="election-log">{(election.timeline??[]).slice(0,historyLimit).map((event:any,i:number)=>{
+      <ol className="election-log">{(election.timeline??[]).slice(0,historyLimit).map((event:any)=>{
        const code=(id:string)=>data.members.find((m:any)=>m.id===id)?.code??'?';
        const title=event.kind==='tie'?'Sorteo de empate':event.kind==='defer'?code(event.memberIds[0])+' — Aplazamiento':event.memberIds.map(code).join(' + ');
        return <li key={event.id}><div className="election-log-entry">
-        <div className="election-log-title"><b>{i+1}. {title}</b>{event.round&&<span>Ronda {event.round}</span>}</div>
+        <div className="election-log-title"><b>{title}</b>{event.round&&<span>Ronda {event.round}</span>}</div>
         {event.kind==='tie'&&<p className="election-log-note">{event.method==='random'?'Sorteo realizado en la aplicación':'Sorteo externo registrado'} · Orden inicial: {(event.order??[]).map(code).join(' → ')}</p>}
         {event.kind==='defer'&&<p className="election-log-note">Turno aplazado, sin adjudicación. Acumula un ciclo para la siguiente ronda.</p>}
         {(event.kind==='choice'||event.kind==='legacy')&&<>
-         {event.choices.map((choice:any)=>{
+         {event.choices.map((choice:any,index:number)=>{
           const cycle=data.result.cycles.find((c:any)=>c.date===choice.cycle_date);
-          return <div className="election-log-cycle" key={choice.member_id+'|'+choice.cycle_date}>{event.memberIds.length>1?code(choice.member_id)+' · ':''}{formatDate(choice.cycle_date)} · {cycle?.score??'—'} puntos</div>;
+          return <div className="election-log-cycle" key={choice.member_id+'|'+choice.cycle_date}>{cycleNumbers.get(event.id)&&<strong className="election-cycle-number">R{event.round} · {cycleNumbers.get(event.id)![index]} — </strong>}{event.memberIds.length>1?code(choice.member_id)+' · ':''}{formatDate(choice.cycle_date)} · {cycle?.score??'—'} puntos</div>;
          })}
          {event.kind==='legacy'&&<p className="election-log-note">Adjudicación importada o anterior al registro de turnos.</p>}
          {event.kind==='choice'&&event.memberIds.length>1&&<p className="election-log-note">Turno conjunto de {event.memberIds.length} controladores.</p>}
@@ -215,6 +219,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       })}</ol>
       {(election.timeline??[]).length>historyLimit&&<button type="button" className="secondary election-show-more" onClick={()=>setHistoryLimit(n=>n+40)}>Mostrar anteriores ({Math.min(40,election.timeline.length-historyLimit)})</button>}
       {historyLimit>40&&<button type="button" className="secondary election-show-more" onClick={()=>setHistoryLimit(40)}>Mostrar menos</button>}
+      {historyLimit>=(election.timeline??[]).length&&<p className="muted">Inicio del historial · No hay eventos anteriores.</p>}
      </>:<p className="muted">Todavía no hay turnos registrados ni ciclos adjudicados.</p>}
     </section>}
     <section id="puntos-equipo" className="panel election-order-panel">

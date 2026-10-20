@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {buildElectionTimeline} from '../server/election-timeline.ts';
 import {orderForRound,type ElectionContext,type ElectionState} from '../domain/election.ts';
 import {defaultConfig} from '../domain/defaults.ts';
+import {numberTimelineCycles} from '../domain/timeline-numbering.ts';
 
 const resolution={order:['A','B','C'],method:'external' as const,at:'2026-10-20T10:00:00.000Z',actor:'admin'};
 const state=(cursor:number,credits:Record<string,number>={}):ElectionState=>({
@@ -51,6 +52,31 @@ test('historial: sorteo triple, aplazamiento, turno doble y rotación real en ro
  assert.deepEqual(events.find(e=>e.id==='one')?.ties[0].order,['A','B','C']);
  assert.equal(events.find(e=>e.id==='draw')?.kind,'tie');
  assert.deepEqual(events.find(e=>e.id==='draw')?.order,['A','B','C']);
+ const numbers=numberTimelineCycles(events);
+ assert.deepEqual(numbers.get('one'),[1]);
+ assert.deepEqual(numbers.get('three'),[2]);
+ assert.deepEqual(numbers.get('double'),[1,2]);
+ assert.deepEqual(numbers.get('five'),[3]);
+ assert.deepEqual(numbers.get('seven'),[1]);
+ assert.equal(numbers.has('draw'),false);
+ assert.equal(numbers.has('skip'),false);
+});
+
+test('simulación con orden heredado sin start local conserva adjudicaciones después del sorteo',()=>{
+ const a=award('a','A','2026-01-01'),b=award('b','B','2026-01-09');
+ const ctx:ElectionContext={year:2026,team:'C',config:defaultConfig(2026),
+  members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[a,b]};
+ const rows=[
+  row('resume','resume',snap(0,[]),{}),
+  row('draw','resolve_tie',null,{resolution}),
+  row('first','choose',snap(0,[]),{choices:[choice('A',a.cycle_date)]}),
+  row('second','advance',snap(1,[a]),{choices:[choice('B',b.cycle_date)]})
+ ];
+ const events=buildElectionTimeline(rows,ctx,state(2));
+ assert.deepEqual(events.map(e=>[e.id,e.kind]),[['second','choice'],['first','choice'],['draw','tie']]);
+ assert.deepEqual(numberTimelineCycles(events).get('second'),[2]);
+ const undone=buildElectionTimeline([...rows,row('undo','election_undo',null,{})],{...ctx,awards:[a]},state(1));
+ assert.deepEqual(undone.map(e=>e.id),['first','draw']);
 });
 
 test('deshacer, rehacer y bifurcar no muestran adjudicaciones anuladas',()=>{

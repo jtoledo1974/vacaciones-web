@@ -1,6 +1,42 @@
 import {test,expect,type APIRequestContext,type Page} from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin='http://127.0.0.1:5199';
+
+test('historial heredado: adjudicaciones tras sorteo y cuadro con destinatario sin fecha duplicada',async({page,request},info)=>{
+ const source=await setup(request,page);
+ const ids=source.data.members.map((m:any)=>m.id);
+ await election(request,source.id,{action:'start',order:ids,tieGroups:[ids.slice(0,2)],jointGroups:[],source:'Orden ficticio para regresión de simulación heredada',rulesConfirmed:true,allowDeferral:true});
+ const base=await read(request,source.id);
+ const clone=await post(request,'simulations/'+source.id,{name:'Historial heredado QA',version:base.campaign.version});
+ await election(request,clone.id,{action:'resume'});
+ const before=await read(request,clone.id),members=before.members;
+ await election(request,clone.id,{action:'resolve_tie',method:'external',order:members.slice(0,2).map((m:any)=>m.id)});
+ const dates=before.result.cycles.map((c:any)=>c.date);
+ await election(request,clone.id,{action:'choose',memberId:members[0].id,dates:[dates[0]]});
+ await election(request,clone.id,{action:'choose',memberId:members[1].id,dates:[dates[1]]});
+ await open(page,clone.id);
+ const log=page.locator('.election-log');
+ await expect(log.locator('li')).toHaveCount(3);
+ await expect(log.locator('li').first()).toContainText('R1 · 2');
+ await expect(log.locator('li').nth(1)).toContainText('R1 · 1');
+ await expect(log.locator('li').last()).toContainText('Sorteo de empate');
+ await expect(log.locator('li').last().locator('.election-cycle-number')).toHaveCount(0);
+ await expect(page.getByText('Inicio del historial · No hay eventos anteriores.')).toBeVisible();
+ // Choose a cycle already occupied, preserving its occupant and capacity details.
+ await cycle(page,dates[0]);
+ const card=page.getByRole('region',{name:'Detalle del ciclo seleccionado'});
+ await expect(card.locator('.election-selected-summary')).toHaveText('Elige QA_C');
+ await expect(card.locator('.person-chip')).toContainText('QA_A');
+ await expect(card).toContainText('plazas ocupadas');
+ await expect(card).toContainText('puntos');
+ await expect(card.getByRole('button',{name:'Confirmar ciclo',exact:true})).toBeEnabled();
+ await expect(card.getByRole('button',{name:'Cancelar selección',exact:true})).toBeVisible();
+ await page.screenshot({path:info.outputPath('historial-y-destinatario.png'),fullPage:true});
+ await card.screenshot({path:info.outputPath('cuadro-destinatario.png')});
+ await card.getByRole('button',{name:'Cancelar selección',exact:true}).click();
+ await expect(card).toHaveCount(0);
+ expect((await read(request,clone.id)).awards).toHaveLength(2);
+});
 async function post(api:APIRequestContext,path:string,body:unknown){
   const r=await api.post('/api/'+path,{data:body,headers:{Origin:origin}});
   expect(r.ok(),await r.text()).toBeTruthy();return r.json();
