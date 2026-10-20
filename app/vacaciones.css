@@ -336,7 +336,14 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 @media(max-width:680px){
  .election-turn.election-workflow-head{padding:10px 12px!important}
  .election-turn-controls{width:100%}
- .election-turn-controls>button{flex:1}
+ .election-turn-controls>button{flex:1;min-width:0;white-space:normal}
+ /* On narrow screens, keep the actions menu in normal document flow.
+    A 220px absolute dropdown aligned to a wrapped trigger can otherwise
+    extend beyond the left edge of the viewport. */
+ .election-turn-controls>.election-more-actions{flex:0 0 100%;min-width:0}
+ .election-turn-controls>.election-more-actions>summary{display:block;width:max-content;max-width:100%;margin-left:auto;cursor:pointer}
+ .election-turn-controls>.election-more-actions .election-more-menu{position:static;top:auto;right:auto;width:100%;min-width:0;margin-top:8px;box-shadow:none}
+ .election-turn-controls>.election-more-actions .election-more-menu button{width:100%;min-height:44px;text-align:left}
  .election-layout.has-active-detail .election-side .vac2-choice-card{position:fixed;top:auto;bottom:8px;left:8px;right:8px;width:auto;z-index:15;max-height:50dvh;overflow-y:auto;margin:0;padding:12px;box-shadow:0 6px 30px #183a2950}
  .election-layout.has-active-detail .election-side .vac2-choice-card .button-row{flex-direction:row;flex-wrap:wrap}
  .election-layout.has-active-detail .election-side .vac2-choice-card .button-row button{flex:1}
