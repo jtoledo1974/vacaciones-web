@@ -247,6 +247,7 @@ export class Service {
             after = { status: action === 'close' ? 'closed' : 'open' };
         }
         else if(action==='import_roster'){
+            if(c.scope_key==='live'&&this.actor.role!=='superadmin'&&(await this.repo.all('SELECT 1 FROM preferences p JOIN campaign_members m ON m.id=p.member_id JOIN controller_accounts a ON a.person_id=m.person_id WHERE p.campaign_id=? LIMIT 1',[cid])).length)throw new ApiError('No se puede sustituir la plantilla mientras existan preferencias privadas de controladores vinculados',403);
             const source=body.source;
             if(!source||source.format!=='vacaciones-roster-v1'||source.team!==c.team_id||source.year!==c.year)throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
             const importedConfig=source.config?checkedConfig(source.config,c.year):d.config;
@@ -338,7 +339,7 @@ export class Service {
             after={...after,version:c.version+1};
         }
         if(action==='close'&&election.state)ops.push(electionStateStatement(cid,{...election.state,status:'paused'}));
-        if(action==='reset_vacations'){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null));}
+        if(action==='reset_vacations'){ops.push({sql:c.scope_key==='live'&&this.actor.role!=='superadmin'?'DELETE FROM preferences WHERE campaign_id=? AND member_id NOT IN (SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?)':'DELETE FROM preferences WHERE campaign_id=?',args:c.scope_key==='live'&&this.actor.role!=='superadmin'?[cid,cid]:[cid]},electionStateStatement(cid,null));}
         else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0]});}}
         else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
         ops.push(this.audit(action, c, before, after));
