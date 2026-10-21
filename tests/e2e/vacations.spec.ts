@@ -556,45 +556,28 @@ test('sorteo en la app guarda una permutación y no permite repetir',async({page
 
 test('sin equipo en URL no se impone C y el administrador puede borrar una simulación',async({page,request,browser})=>{
  const s=await setup(request,page);
- page.setDefaultTimeout(9000);
- console.log('[E2E scenario] setup complete',s.id);
  const visitor=await browser.newContext({baseURL:origin});
  try{
   const anonymous=await visitor.newPage();
-  anonymous.setDefaultTimeout(9000);
-  console.log('[E2E scenario] anonymous context ready');
   await anonymous.goto('/');
   await expect(anonymous.getByLabel('Equipo',{exact:true})).toHaveValue('');
   await expect(anonymous.getByRole('heading',{name:'Selecciona un equipo'})).toBeVisible();
   await anonymous.getByLabel('Equipo',{exact:true}).selectOption('B');
   await expect(anonymous.getByLabel('Equipo',{exact:true})).toHaveValue('B');
   await expect(anonymous).toHaveURL(/equipo=B/);
-  console.log('[E2E scenario] anonymous team switch successful');
  }finally{await visitor.close();}
- console.log('[E2E scenario] opening admin page');
  await page.goto('/?equipo=C&year=2026');
- console.log('[E2E scenario] admin page loaded');
  await expect(page.getByLabel('Escenario',{exact:true})).toBeVisible();
- console.log('[E2E scenario] scenario selector ready');
  await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
- console.log('[E2E scenario] selected scenario');
  // Wait for the selected scenario to load; do not race its asynchronous campaign fetch.
  await expect(page.getByText('Simulación privada: '+s.data.campaign.simulation_name,{exact:true})).toBeVisible();
- console.log('[E2E scenario] selected scenario rendered');
  // Simulation actions are available directly in the header, independent of navigation.
  await expect(page.locator('.scenario-actions summary')).toBeVisible();
- console.log('[E2E scenario] actions rendered');
  await page.locator('.scenario-actions summary').click();
- console.log('[E2E scenario] actions menu opened');
  await page.getByRole('button',{name:'Eliminar simulación'}).click();
- console.log('[E2E scenario] delete button clicked');
  await expect(page.getByRole('dialog')).toBeVisible();
- console.log('[E2E scenario] delete confirmation visible');
  await page.getByRole('dialog').getByRole('button',{name:'Confirmar'}).click();
- console.log('[E2E scenario] deletion confirmed');
  await expect(page.getByLabel('Escenario',{exact:true})).toHaveValue(s.live.id);
- console.log('[E2E scenario] returned to live');
  await expect(page.getByRole('status').filter({hasText:'Simulación eliminada'})).toBeVisible();
- console.log('[E2E scenario] complete');
  expect((await request.get('/api/campaign/'+s.id)).status()).toBe(404);
 });
