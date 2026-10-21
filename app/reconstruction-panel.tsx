@@ -11,12 +11,11 @@ export default function ReconstructionPanel({data,busy,act}:any){
  const code=(id:string)=>data.members.find((m:any)=>m.id===id)?.code??'?';
  const [mode,setMode]=useState('preference'),[manualKind,setManualKind]=useState('choose');
  const [selected,setSelected]=useState<string[]>([]),[entries,setEntries]=useState<Record<string,string[]>>({}),[order,setOrder]=useState<string[]>([]);
- const [manualDate,setManualDate]=useState(''),[jointDate,setJointDate]=useState<Record<string,string>>({});
  const choice=r?.current,stepKey=(r?.progress??0)+'|'+(choice?.round??'')+'|'+(choice?.memberId??'');
  useEffect(()=>{
   setMode(choice?.historicalPreference?'preference':choice?.originalPossible?'original':'manual');
   setManualKind(choice?.pendingTie?'resolve_tie':(choice?.participants?.length??0)>1?'choose_joint':'choose');
-  setSelected([]);setEntries({});setOrder([]);setManualDate('');setJointDate({});
+  setSelected([]);setEntries({});setOrder([]);
  },[stepKey]);
  // The history launches reconstruction; this editor only exists during a session.
  if(!r?.active)return null;
@@ -53,15 +52,39 @@ export default function ReconstructionPanel({data,busy,act}:any){
       <div className="button-row">{choice.pendingTie.filter((id:string)=>!order.includes(id)).map((id:string)=><button className="secondary" key={id} disabled={busy} onClick={()=>setOrder([...order,id])}>{code(id)}</button>)}<button className="secondary" onClick={()=>setOrder(order.slice(0,-1))}>Quitar último</button></div><p>{order.map(code).join(' → ')||'Sin orden seleccionado'}</p>
      </>:<>
       {choice.participants?.length===1&&choice.originalAction==='defer'&&<label><input type="checkbox" checked={manualKind==='defer'} onChange={e=>setManualKind(e.target.checked?'defer':'choose')}/> Aplazar este turno</label>}
-      {choice.participants?.length===1&&manualKind!=='defer'&&<div><label>Ciclo disponible <select aria-label="Ciclo alternativo" value={manualDate} onChange={e=>setManualDate(e.target.value)}><option value="">Selecciona un ciclo</option>{available.map((date:string)=><option key={date} value={date}>{dateText(date)}</option>)}</select></label>
-       <button className="secondary" type="button" disabled={!manualDate||selected.includes(manualDate)||selected.length>=choice.needed} onClick={()=>{setSelected([...selected,manualDate]);setManualDate('');}}>Añadir ciclo</button>
-       <p>{selected.map(dateText).join(' + ')||'Sin ciclos elegidos'} · {selected.length}/{choice.needed}</p>
-       {selected.length>0&&<button className="secondary" onClick={()=>setSelected(selected.slice(0,-1))}>Quitar último</button>}
+      {choice.participants?.length===1&&manualKind!=='defer'&&<div className="reconstruction-choice-block">
+       <p className="reconstruction-selection-count" aria-live="polite">{selected.length}/{choice.needed} ciclos seleccionados</p>
+       {selected.length>0&&<ul className="reconstruction-selection-list" aria-label="Ciclos seleccionados">
+        {selected.map((date:string,index:number)=><li className="reconstruction-selection-item" key={date}>
+         <span><strong>{dateText(date)}</strong><small>Pendiente de registrar</small></span>
+         <button className="secondary" type="button" disabled={busy} aria-label={'Cambiar ciclo '+(index+1)} onClick={()=>setSelected(selected.filter((_:string,i:number)=>i!==index))}>Cambiar</button>
+        </li>)}
+       </ul>}
+       {selected.length<choice.needed&&<label>{selected.length?'Selecciona otro ciclo':'Selecciona un ciclo'}
+        <select aria-label="Ciclo alternativo" value="" disabled={busy} onChange={e=>{const date=e.target.value;if(date&&!selected.includes(date))setSelected([...selected,date]);}}>
+         <option value="">Selecciona un ciclo</option>
+         {available.filter((date:string)=>!selected.includes(date)).map((date:string)=><option key={date} value={date}>{dateText(date)}</option>)}
+        </select>
+       </label>}
       </div>}
-      {choice.participants?.length>1&&choice.participants.map((id:string)=><div key={id}><label>{code(id)} · {entries[id]?.length??0}/{choice.requiredByMember[id]} ciclos
-       <select aria-label={'Ciclo de '+code(id)} value={jointDate[id]??''} onChange={e=>setJointDate({...jointDate,[id]:e.target.value})}><option value="">Selecciona ciclo</option>{data.result.cycles.map((c:any)=><option key={c.date} value={c.date}>{dateText(c.date)}</option>)}</select></label>
-       <button className="secondary" disabled={!jointDate[id]||(entries[id]??[]).includes(jointDate[id])||(entries[id]??[]).length>=choice.requiredByMember[id]} onClick={()=>{setEntries({...entries,[id]:[...(entries[id]??[]),jointDate[id]]});setJointDate({...jointDate,[id]:''});}}>Añadir</button>
-       <p>{(entries[id]??[]).map(dateText).join(' + ')}</p></div>)}
+      {choice.participants?.length>1&&choice.participants.map((id:string)=>{
+       const memberDates=entries[id]??[],required=choice.requiredByMember[id];
+       return <div className="reconstruction-choice-block" key={id}>
+        <p className="reconstruction-selection-count"><strong>{code(id)}</strong> · {memberDates.length}/{required} ciclos seleccionados</p>
+        {memberDates.length>0&&<ul className="reconstruction-selection-list" aria-label={'Ciclos seleccionados de '+code(id)}>
+         {memberDates.map((date:string,index:number)=><li className="reconstruction-selection-item" key={date}>
+          <span><strong>{dateText(date)}</strong><small>Pendiente de registrar</small></span>
+          <button className="secondary" type="button" disabled={busy} aria-label={'Cambiar ciclo '+(index+1)+' de '+code(id)} onClick={()=>setEntries({...entries,[id]:memberDates.filter((_:string,i:number)=>i!==index)})}>Cambiar</button>
+         </li>)}
+        </ul>}
+        {memberDates.length<required&&<label>{memberDates.length?'Selecciona otro ciclo':'Selecciona un ciclo'}
+         <select aria-label={'Ciclo de '+code(id)} value="" disabled={busy} onChange={e=>{const date=e.target.value;if(date&&!memberDates.includes(date))setEntries({...entries,[id]:[...memberDates,date]});}}>
+          <option value="">Selecciona un ciclo</option>
+          {data.result.cycles.filter((c:any)=>!memberDates.includes(c.date)).map((c:any)=><option key={c.date} value={c.date}>{dateText(c.date)}</option>)}
+         </select>
+        </label>}
+       </div>;
+      })}
      </>}
     </div>}
     <details className="reconstruction-reference"><summary>Consultar referencia histórica</summary>

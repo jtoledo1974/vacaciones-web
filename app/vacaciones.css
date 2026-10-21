@@ -378,6 +378,13 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .reconstruction-decisions small{display:block;font-size:12px;color:#53695e;margin-top:4px}
 .reconstruction-decisions input{flex:none;accent-color:#317a69;width:18px;height:18px;margin:2px 0 0}
 .reconstruction-manual{background:#f4f7f4;border-radius:8px;padding:12px;display:grid;gap:12px}
+.reconstruction-choice-block{display:grid;gap:10px;min-width:0}
+.reconstruction-selection-count{margin:0;font-size:12px;color:#53695e}
+.reconstruction-selection-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.reconstruction-selection-item{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid #c5d9cd;border-radius:8px;background:#fff;padding:10px;min-width:0}
+.reconstruction-selection-item span{min-width:0}
+.reconstruction-selection-item small{display:block;color:#53695e;font-size:11px;margin-top:4px}
+.reconstruction-selection-item button{flex:none;min-height:36px;padding:6px 10px;font-size:12px}
 .reconstruction-reference{margin-top:14px}
 .reconstruction-reference p{margin:10px 0 0}
 .reconstruction-footer{flex:none;margin:0;padding:14px 18px;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);background:white}

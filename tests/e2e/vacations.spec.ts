@@ -300,9 +300,18 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
  await checkLayout(info.project.name==='chromium');
  await page.screenshot({path:info.outputPath('reconstruction-initial.png'),fullPage:true});
  await editor.screenshot({path:info.outputPath('reconstruction-panel.png')});
- await page.getByLabel('Registrar otra decisión').check();
- await page.getByLabel('Ciclo alternativo').selectOption(dates[3]);
- await page.getByRole('button',{name:'Añadir ciclo'}).click();
+ await editor.getByLabel('Registrar otra decisión').check();
+ const alternative=editor.getByLabel('Ciclo alternativo');
+ await alternative.selectOption(dates[5]);
+ await expect(alternative).toHaveCount(0);
+ await expect(editor.getByText('Pendiente de registrar')).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Cambiar ciclo 1'})).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeEnabled();
+ await editor.getByRole('button',{name:'Cambiar ciclo 1'}).click();
+ await expect(alternative).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeDisabled();
+ await alternative.selectOption(dates[3]);
+ await expect(alternative).toHaveCount(0);
  if(info.project.name==='chromium'){
   for(const viewport of [{width:1280,height:720},{width:1440,height:650},{width:768,height:1024}]){
    await page.setViewportSize(viewport);await checkLayout(viewport.width>900);
@@ -330,6 +339,47 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
  await expect(editor).toHaveCount(0);
  await expect(page.locator('.reconstruction-status')).toHaveCount(0);
  await expect(historyPanel.getByText(/Última reconstrucción/)).toBeVisible();
+});
+
+test('reconstrucción: un turno doble oculta el selector completo y permite cambiar cualquier ciclo',async({page,request})=>{
+ const s=await setup(request,page),ids=s.data.members.map((m:any)=>m.id),dates=s.data.result.cycles.map((c:any)=>c.date);
+ await open(page,s.id);await activate(page);
+ await confirm(page,'Aplazar para elegir dos');
+ for(let i=1;i<4;i++)await election(request,s.id,{action:'choose',memberId:ids[i],dates:[dates[i]]});
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+ await cycle(page,dates[0]);
+ const options=await (await request.get('/api/election/'+s.id+'/options?selected='+dates[0])).json();
+ await cycle(page,options.available[0]);
+ await confirm(page,'Confirmar ambos ciclos');
+ const before=await read(request,s.id);
+ const point=before.election.reconstruction.candidates.find((c:any)=>c.action==='choose'&&c.memberIds.includes(ids[0]));
+ expect(point).toBeTruthy();
+ await election(request,s.id,{action:'reconstruction_start',historyId:point.id});
+ await open(page,s.id);
+ const editor=page.getByRole('region',{name:'Reconstrucción guiada'});
+ await expect(editor.getByRole('heading',{name:/QA_A.*Elegir 2 ciclo/})).toBeVisible();
+ await editor.getByLabel('Registrar otra decisión').check();
+ const alternative=editor.getByLabel('Ciclo alternativo');
+ const available=(await read(request,s.id)).election.reconstruction.current.available as string[];
+ expect(available.length).toBeGreaterThanOrEqual(2);
+ await alternative.selectOption(available[0]);
+ await expect(alternative).toBeVisible();
+ await expect(alternative.locator('option[value="'+available[0]+'"]')).toHaveCount(0);
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeDisabled();
+ await alternative.selectOption(available[1]);
+ await expect(alternative).toHaveCount(0);
+ await expect(editor.getByRole('button',{name:'Cambiar ciclo 1'})).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Cambiar ciclo 2'})).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeEnabled();
+ await editor.getByRole('button',{name:'Cambiar ciclo 1'}).click();
+ await expect(alternative).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeDisabled();
+ await alternative.selectOption(available[0]);
+ await expect(alternative).toHaveCount(0);
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeEnabled();
+ await editor.getByRole('button',{name:'Cancelar y restaurar estado original'}).click();
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ expect((await read(request,s.id)).awards.map((a:any)=>[a.member_id,a.cycle_date]).sort()).toEqual(before.awards.map((a:any)=>[a.member_id,a.cycle_date]).sort());
 });
 
 test('reconstrucción lateral: deshacer, rehacer y cancelar restaura las adjudicaciones',async({page,request})=>{
