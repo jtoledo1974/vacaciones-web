@@ -8,7 +8,7 @@ Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script.
 2. Administración: inicia sesión con una de las tres cuentas autorizadas. Vincula las cuentas personales a controladores para que puedan guardar sus preferencias y elegir en su turno.
 3. Vacaciones: añade alternativas desde el calendario y ordénalas. Guardarlas autoriza su aplicación automática en el siguiente turno efectivo; una casilla permite mantenerlas para todas las rondas restantes. Si guardas durante tu turno, una confirmación avisa de que pueden adjudicarse inmediatamente. Las listas de un solo turno quedan inactivas al elegir, incluso si la elección fue manual. El administrador también puede introducir listas de otras personas.
 4. Confirma manualmente el orden de origen antes de activar la cola. Aplica Criterios Vacaciones 1.1 (10/06/2025): un ciclo por ronda, hasta dos aplazamientos para elegir tres ciclos, rotación de empatados sorteados y turnos conjuntos. Se debe confirmar el orden y el sorteo usando las puntuaciones del ejercicio anterior.
-5. Simulaciones privadas: crea varios escenarios del mismo equipo y ejercicio. Se pueden reiniciar o cerrar sin afectar la campaña real. Los grupos tienen nombres fijos, A–H.
+5. Simulaciones compartidas entre los administradores del mismo equipo: crea varios escenarios del mismo ejercicio para ensayar elecciones completas. Copian la plantilla, las reglas y el orden (si existe), pero nunca las preferencias privadas reales. Cada escenario tiene preferencias y adjudicaciones propias, y puede reiniciarse o eliminarse sin afectar la campaña real. Los grupos tienen nombres fijos, A–H.
 6. Cerrar un equipo bloquea cambios pero mantiene la consulta. El cierre final puede guardar una revisión archivada; la ocupación actual es pública durante el proceso.
 7. Descarga una copia completa JSON, que incluye preferencias, cuentas, cola, escenarios y revisiones. La restauración afecta a toda la aplicación, verifica integridad y se ejecuta en una transacción.
 
@@ -20,6 +20,10 @@ Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script.
 - `app/`: interfaz responsive en español y rutas HTTP.
 - `db/schema.ts`, `drizzle/`: esquema y migraciones versionadas. No ejecutar DDL en peticiones.
 - `tests/`: referencia numérica sin nombres y pruebas automatizadas.
+
+## Administración delegada y escenarios
+
+El responsable de un equipo puede configurar su campaña real, crear y administrar simulaciones compartidas, preparar y pausar elecciones, y vincular cuentas de los compañeros. Puede introducir preferencias reales **solo de controladores sin cuenta vinculada**; en un escenario simulado puede crear preferencias ficticias para todos. La creación de escenarios nunca copia preferencias de la campaña real. Los administradores pueden dar y retirar permisos de administrador para **su equipo**, pero no pueden dejarlo sin un administrador permanente ni modificar permisos de otros equipos. Solo el superadministrador mantiene las operaciones globales y la restauración completa. La sustitución de la cuenta previamente vinculada de un controlador requiere superadministrador.
 
 ## Identidad y permisos
 
@@ -89,10 +93,10 @@ Los automatismos se procesan en lotes acotados y la web continúa hasta el sigui
 
 Pruebas de interfaz: pnpm test:e2e. Preparación, aislamiento y diagnóstico de fallos en docs/PRUEBAS.md.
 
-## Vista como controlador (superadmin)
+## Vista como controlador (superadministrador en real y responsable de equipo en simulación)
 
 Añade `verComo=CODIGO` a la URL, por ejemplo `/?equipo=B&year=2027&verComo=B05`.
-La identidad **real** sigue siendo la del superadministrador y el backend valida el permiso
+La identidad **real** sigue siendo la del usuario autenticado y el backend valida el permiso
 y el código en la plantilla **del ejercicio y campaña seleccionados**.
 
 - En campañas reales, la interfaz representa a ese controlador (su turno, sus preferencias
