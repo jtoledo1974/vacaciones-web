@@ -162,7 +162,7 @@ export class ElectionService{
     const prior=JSON.parse(entry.before_json);
     // Linked accounts' private lists are protected. Undoing an award may
     // restore only the active flag automatically consumed by that award.
-    if(this.actor.role!=='superadmin'){
+    if(c.scope_key==='live'&&this.actor.role!=='superadmin'){
      const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]);
      const privateList=(items:Preference[],id:string)=>{
       const p=items.find(item=>item.member_id===id);
