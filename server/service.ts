@@ -412,7 +412,7 @@ export class Service {
         const old=(await this.repo.all('SELECT * FROM users WHERE id=?',[sourceId]))[0]??null;
         if(body.id&&!old)throw new ApiError('Los permisos cambiaron. Recarga.',409);
         if(old&&(old.provider!==provider||old.subject!==subject))throw new ApiError('No puedes cambiar una identidad desde un equipo',403);
-        const expected=Number(body.version??0);
+        const expected=Number(body.id?body.version??0:old?.version??0);
         if((old?.version??0)!==expected)throw new ApiError('Los permisos cambiaron. Recarga.',409);
         const enable=body.role==='team_admin'&&body.teams.includes(team);
         if(!old&&!enable)throw new ApiError('No hay un permiso que retirar');
