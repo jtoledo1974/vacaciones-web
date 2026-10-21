@@ -30,7 +30,7 @@ export class ElectionService{
  // A linked controller owns their preferences even when a team administrator manages the team.
  // Superadministrators retain access; team administrators may assist only unlinked users.
  async preferenceMemberIds(d:any,mine:string|null):Promise<string[]>{
-  if(this.actor.role==='superadmin')return d.members.map((m:any)=>m.id);
+  if(this.actor.role==='superadmin'||(d.campaign.scope_key!=='live'&&canWrite(this.actor,d.campaign.team_id)))return d.members.map((m:any)=>m.id);
   if(!canWrite(this.actor,d.campaign.team_id))return mine?[mine]:[];
   const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',[d.campaign.id]);
   const restricted=new Set(linked.map((row:any)=>row.id));
@@ -70,7 +70,7 @@ export class ElectionService{
    timeline=buildElectionTimeline(rows as any,ctx,raw.state);
   }
 
-  const accounts=this.actor.role==='superadmin'?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
+  const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
   return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
@@ -99,7 +99,7 @@ export class ElectionService{
     preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:true,persistent,active}];
     ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic,persistent=excluded.persistent,active=excluded.active',args:[body.memberId,cid,JSON.stringify(dates),1,persistent?1:0,active?1:0]});
    }else if(action==='start'){
-    requireSuper(this.actor);validateOrder(body.order,d.members);
+    if(!manage)throw new ApiError('Solo el responsable puede activar esta elección',403);validateOrder(body.order,d.members);
     if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección provisional admite entre uno y seis ciclos por persona');
     if(state&&(d.awards.length||state.tieResolutions?.length))throw new ApiError('No cambies el orden después de comenzar a elegir. Reanuda la elección o reinicia las vacaciones.');
     if(body.rulesConfirmed!==true||typeof body.source!=='string'||body.source.trim().length<10||body.source.length>500||typeof body.allowDeferral!=='boolean')throw new ApiError('Confirma las reglas y el origen del orden antes de activar la elección');
@@ -128,7 +128,7 @@ export class ElectionService{
     else state=defer(ctx,state,body.memberId);
     if(action==='choose'||action==='choose_joint')preferences=consumePreferences(preferences,action==='choose'?[body.memberId]:body.entries.map((entry:any)=>entry.member_id));
    }else if(action==='pause'||action==='resume'){
-    requireSuper(this.actor);if(!state)throw new ApiError('No hay una elección configurada');state={...state,status:action==='pause'?'paused':'active'};
+    if(!manage)throw new ApiError('Solo el responsable puede pausar o reanudar la elección',403);if(!state)throw new ApiError('No hay una elección configurada');state={...state,status:action==='pause'?'paused':'active'};
    }else if(action==='resume_automatic'){
     if(!manage)throw new ApiError('Solo el responsable del equipo puede reanudar los automatismos',403);
     if(!state||state.status!=='active'||!state.automaticPaused)throw new ApiError('No hay automatismos detenidos para reanudar');
@@ -142,7 +142,7 @@ export class ElectionService{
     state=next.state;preferences=next.preferences;choices=next.choices;
    }else if(action==='link_account'){
     if(c.scope_key!=='live')throw new ApiError('Vincula las cuentas desde una campaña real');
-    requireSuper(this.actor);authorizeMember(body.memberId);recordUndo=false;
+    if(!manage)throw new ApiError('Solo el responsable puede vincular cuentas',403);authorizeMember(body.memberId);recordUndo=false;
     const member=d.members.find((m:any)=>m.id===body.memberId),existing=(await this.repo.all('SELECT * FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
     if((existing?.version??0)!==body.accountVersion)throw new ApiError('La vinculación cambió. Recarga antes de guardar.',409);
     const subject=String(body.subject??'').trim(),provider=body.provider??'chatgpt';
@@ -151,7 +151,8 @@ export class ElectionService{
     const isFirebaseUid=provider==='firebase'&&subject.length<=250&&subject.length>0&&!/[\s\r\n:]/.test(subject);
     if(subject&&!isEmail&&!isFirebaseUid||!['chatgpt','firebase'].includes(provider))
      throw new ApiError('Introduce un correo válido de ChatGPT Sites o un UID de Firebase');
-    if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider==='chatgpt'?'chatgpt-email:'+email:'firebase:'+subject]});
+    if(c.scope_key==='live'&&this.actor.role!=='superadmin'&&existing?.principal_key&&existing.principal_key!==(provider==='chatgpt'?'chatgpt-email:'+email:'firebase:'+subject))throw new ApiError('Solo el superadministrador puede sustituir una cuenta ya vinculada',403);
+     if(subject)ops.push({sql:'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',args:[member.person_id,provider==='chatgpt'?'chatgpt-email:'+email:'firebase:'+subject]});
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
     if(!manage)throw new ApiError('Solo el responsable del equipo puede deshacer o rehacer elecciones',403);
