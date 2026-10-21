@@ -19,8 +19,10 @@
 .scenario-actions>summary{list-style:none;display:grid;place-items:center;cursor:pointer;border:1px solid #dce5df;border-radius:7px;background:#fff;color:#405d4a;font-size:21px;width:39px;height:39px}
 .scenario-actions>summary::-webkit-details-marker{display:none}
 .scenario-actions>summary:focus-visible{outline:3px solid #82bcb0;outline-offset:3px}
-.scenario-actions>button{position:absolute;right:0;top:43px;width:max-content;background:#fff;color:#a03f34;border:1px solid #e1cfca;box-shadow:0 8px 22px #142a2c20;border-radius:7px;padding:12px 15px;z-index:5}
-.scenario-actions>button:hover{background:#fff1ed}
+.scenario-actions>.scenario-menu{position:absolute;right:0;top:43px;display:flex;flex-direction:column;width:max-content;min-width:180px;background:#fff;border:1px solid #e1cfca;box-shadow:0 8px 22px #142a2c20;border-radius:7px;z-index:5;overflow:hidden}
+.scenario-actions>.scenario-menu>button{position:static;display:block;width:100%;background:#fff;color:#a03f34;border:0;border-radius:0;text-align:left;white-space:nowrap;padding:12px 15px;font-size:12px}
+.scenario-actions>.scenario-menu>button+button{border-top:1px solid #f0e6e2;color:#536d60}
+.scenario-actions>.scenario-menu>button:hover{background:#fff1ed}
 @media(max-width:580px){.selectors .scenario-create{white-space:normal}}
 
 .cycle-selection{position:sticky;top:82px;z-index:2;box-shadow:0 8px 24px #183a2920}.election-side{position:sticky;top:82px;max-height:calc(100vh - 96px);overflow:auto}@media(max-width:900px){.election-side{position:static;max-height:none;overflow:visible}.cycle-selection{top:72px}}
