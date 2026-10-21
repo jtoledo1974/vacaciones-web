@@ -221,7 +221,7 @@ function Dashboard() {
             else setCid(index.campaigns.find((c:any)=>c.team_id===nextTeam&&c.year===year&&c.scope_key==='live')?.id??'');
         }}><option value="">Selecciona un equipo</option>{(index?.teams??'ABCDEFGH'.split('').map(id=>({id,name:'Equipo '+id}))).map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         {canManage&&data&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={async e=>{const next=e.target.value;if(await canNavigate())setCid(next);}}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}
-        {canManage&&data&&<button type="button" className="secondary scenario-create" onClick={async()=>{if(!await canNavigate())return;setNav('administracion');setTimeout(()=>document.getElementById('simulations-panel')?.scrollIntoView({behavior:'smooth',block:'center'}),50);}}><Plus size={15}/>Nueva simulación</button>}
+        {canManage&&data&&<button type="button" className="secondary scenario-create" onClick={async()=>{await go('administracion');setTimeout(()=>document.getElementById('simulations-panel')?.scrollIntoView({behavior:'smooth',block:'center'}),50);}}><Plus size={15}/>Nueva simulación</button>}
         {canManage&&data?.campaign.scope_key!=='live'&&data&&<details className="scenario-actions"><summary aria-label="Opciones de simulación" title="Opciones de simulación">···</summary><button type="button" disabled={busy} onClick={async e=>{
             e.currentTarget.closest('details')?.removeAttribute('open');
             if(!await canNavigate())return;
