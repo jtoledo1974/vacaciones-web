@@ -2,7 +2,7 @@ import { ApiError } from './errors.ts';
 import { canWrite, requireSuper, type Principal } from './permissions.ts';
 import type { Repository } from './repository.ts';
 
-/** Resolve a controller by code after verifying the real session is a superadmin. */
+/** Resolve a controller by code. Real campaigns require a superadmin; simulations accept the team's administrators. */
 export async function resolveControllerPreview(
   repo: Repository, realActor: Principal, campaignId: string, requestedCode: string,
 ): Promise<{ actor: Principal; code: string; writable: boolean }> {
