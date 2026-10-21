@@ -222,7 +222,7 @@ function Dashboard() {
         }}><option value="">Selecciona un equipo</option>{(index?.teams??'ABCDEFGH'.split('').map(id=>({id,name:'Equipo '+id}))).map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         {canManage&&data&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={async e=>{const next=e.target.value;if(await canNavigate())setCid(next);}}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}
         {canManage&&data&&<button type="button" className="secondary scenario-create" onClick={async()=>{await go('administracion');setTimeout(()=>document.getElementById('simulations-panel')?.scrollIntoView({behavior:'smooth',block:'center'}),50);}}><Plus size={15}/>Nueva simulación</button>}
-        {canManage&&data?.campaign.scope_key!=='live'&&data&&<details className="scenario-actions"><summary aria-label="Opciones de simulación" title="Opciones de simulación">···</summary><button type="button" disabled={busy} onClick={async e=>{
+        {canManage&&data?.campaign.scope_key!=='live'&&data&&<details className="scenario-actions"><summary aria-label="Opciones de simulación" title="Opciones de simulación">···</summary><div className="scenario-menu"><button type="button" disabled={busy} onClick={async e=>{
             e.currentTarget.closest('details')?.removeAttribute('open');
             if(!await canNavigate())return;
             if(!await confirm(`¿Eliminar definitivamente la simulación «${data.campaign.simulation_name}»? Se borrarán sus elecciones, preferencias e historial. La campaña real no cambiará.`))return;
@@ -232,7 +232,7 @@ function Dashboard() {
                 setData(null);setCid(live?.id??'');
                 return {ok:true};
             },'Simulación eliminada');
-        }}>Eliminar simulación</button><button type="button" disabled={busy} onClick={async()=>{if(await confirm('¿Reiniciar esta simulación? Se borrarán todas sus elecciones y preferencias ficticias, sin afectar a la campaña real.'))mutate({action:'reset_vacations',confirmation:team+'-'+year},'Simulación reiniciada');}}>Reiniciar simulación</button></details>}
+        }}>Eliminar simulación</button><button type="button" disabled={busy} onClick={async()=>{if(await confirm('¿Reiniciar esta simulación? Se borrarán todas sus elecciones y preferencias ficticias, sin afectar a la campaña real.'))mutate({action:'reset_vacations',confirmation:team+'-'+year},'Simulación reiniciada');}}>Reiniciar simulación</button></div></details>}
         {canManage&&data?.campaign.scope_key!=='live'&&<label>Probar como<select aria-label="Probar simulación como controlador" value={previewCode} onChange={e=>{const url=new URL(location.href);if(e.target.value)url.searchParams.set('verComo',e.target.value);else url.searchParams.delete('verComo');location.assign(url.toString());}}><option value="">Administrador</option>{data.members.map((m:any)=><option key={m.id} value={m.code}>{m.code}</option>)}</select></label>}
         </div></div>
     {error && <div className="alert error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar error">×</button></div>}{notice && <div className="alert success" role="status">{notice}</div>}
