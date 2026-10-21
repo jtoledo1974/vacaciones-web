@@ -81,7 +81,7 @@ test('roles ChatGPT por correo autenticado, sin heredar permisos entre proveedor
  await assert.rejects(s.configureUser({provider:'chatgpt',subject:'not-an-email',role:'team_admin',teams:['B'],version:0}),/válidos/);
 });
 
-test('borrar una simulación elimina sus dependencias sin tocar la campaña real y exige superadministrador y versión',async()=>{
+test('borrar una simulación elimina sus dependencias sin tocar la campaña real y exige permiso de equipo y versión',async()=>{
  const {s,repo,cid}=await setup();
  const realBefore=await s.load(cid);
  const peopleBefore=(await repo.all<{n:number}>('SELECT COUNT(*) AS n FROM people'))[0].n;
@@ -96,7 +96,8 @@ test('borrar una simulación elimina sus dependencias sin tocar la campaña real
   {sql:'INSERT INTO election_states(campaign_id,json) VALUES(?,?)',args:[created.id,'{}']}
  ]);
  const teamAdmin=new Service(repo,{id:'chatgpt:team-admin',role:'team_admin',teams:['C']});
- await assert.rejects(teamAdmin.deleteSimulation(created.id,{version:d.campaign.version}),/superadministrador/);
+ const outsider=new Service(repo,{id:'chatgpt:outsider',role:'team_admin',teams:['A']});
+ await assert.rejects(outsider.deleteSimulation(created.id,{version:d.campaign.version}),/permiso/);
  await assert.rejects(s.deleteSimulation(cid,{version:realBefore.campaign.version}),/campaña real/);
  await assert.rejects(s.deleteSimulation(created.id,{version:d.campaign.version-1}),/cambió/);
  assert.equal((await repo.all('SELECT * FROM runs WHERE campaign_id=?',[created.id])).length,1);
@@ -105,7 +106,7 @@ test('borrar una simulación elimina sus dependencias sin tocar la campaña real
   {sql:'INSERT INTO people(id,team_id,code,seniority) VALUES(?,?,?,?)',args:[temporaryPerson,'C','C_SIM_ONLY','']},
   {sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,seniority) VALUES(?,?,?,?,?)',args:[crypto.randomUUID(),created.id,temporaryPerson,'SIM_ONLY','']}
  ]);
- await s.deleteSimulation(created.id,{version:d.campaign.version});
+ await teamAdmin.deleteSimulation(created.id,{version:d.campaign.version});
  for(const table of ['campaigns','parameters','campaign_members','requests','awards','runs','preferences','election_states','audit']){
   const column=table==='campaigns'?'id':'campaign_id';
   assert.equal((await repo.all(`SELECT * FROM ${table} WHERE ${column}=?`,[created.id])).length,0,table);
