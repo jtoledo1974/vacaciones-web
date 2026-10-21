@@ -300,9 +300,18 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
  await checkLayout(info.project.name==='chromium');
  await page.screenshot({path:info.outputPath('reconstruction-initial.png'),fullPage:true});
  await editor.screenshot({path:info.outputPath('reconstruction-panel.png')});
- await page.getByLabel('Registrar otra decisión').check();
- await page.getByLabel('Ciclo alternativo').selectOption(dates[3]);
- await page.getByRole('button',{name:'Añadir ciclo'}).click();
+ await editor.getByLabel('Registrar otra decisión').check();
+ const alternative=editor.getByLabel('Ciclo alternativo');
+ await alternative.selectOption(dates[5]);
+ await expect(alternative).toHaveCount(0);
+ await expect(editor.getByText('Pendiente de registrar')).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Cambiar ciclo 1'})).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeEnabled();
+ await editor.getByRole('button',{name:'Cambiar ciclo 1'}).click();
+ await expect(alternative).toBeVisible();
+ await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeDisabled();
+ await alternative.selectOption(dates[3]);
+ await expect(alternative).toHaveCount(0);
  if(info.project.name==='chromium'){
   for(const viewport of [{width:1280,height:720},{width:1440,height:650},{width:768,height:1024}]){
    await page.setViewportSize(viewport);await checkLayout(viewport.width>900);
