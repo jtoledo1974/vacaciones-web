@@ -74,3 +74,18 @@ test('delegated grants cannot remove permissions in other teams',async()=>{
  const listing=await team.admin();
  assert.ok(listing.grants.every((g:any)=>g.team_id==='B'));
 });
+
+test('a team administrator cannot erase private real preferences through reset or roster import',async()=>{
+ const {global,team,live}=await setup();
+ let d=await global.view(live.id),member=d.members[0],date=d.result.cycles[0].date;
+ await global.election().mutate(live.id,{action:'link_account',memberId:member.id,subject:'owner@example.test',accountVersion:0,version:d.campaign.version});
+ d=await global.view(live.id);
+ await global.election().mutate(live.id,{action:'preferences',memberId:member.id,dates:[date],version:d.campaign.version});
+ d=await global.view(live.id);
+ await team.mutate(live.id,{action:'reset_vacations',confirmation:'B-2026',version:d.campaign.version});
+ d=await global.view(live.id);
+ assert.deepEqual(d.election.preferences.find((p:any)=>p.member_id===member.id)?.dates,[date]);
+ const roster={format:'vacaciones-roster-v1',team:'B',year:2026,copySelections:false,rows:[{code:'B_TEST',label:'Ficticio',seniority:''}]};
+ await assert.rejects(team.mutate(live.id,{action:'import_roster',version:d.campaign.version,source:roster}),/preferencias privadas/);
+ assert.equal((await global.view(live.id)).members.length,d.members.length);
+});
