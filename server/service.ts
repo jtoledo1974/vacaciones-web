@@ -416,6 +416,14 @@ export class Service {
         if((old?.version??0)!==expected)throw new ApiError('Los permisos cambiaron. Recarga.',409);
         const enable=body.role==='team_admin'&&body.teams.includes(team);
         if(!old&&!enable)throw new ApiError('No hay un permiso que retirar');
+        if(old){
+            const assigned=await this.repo.all('SELECT 1 FROM grants WHERE user_id=? AND team_id=?',[uid,team]);
+            if(!enable&&!assigned.length)throw new ApiError('La cuenta no administra este equipo',403);
+            if(assigned.length&&(!enable||body.expiresAt)){
+                const others=await this.repo.all("SELECT 1 FROM grants g JOIN users u ON u.id=g.user_id WHERE g.team_id=? AND g.user_id<>? AND g.expires_at IS NULL AND u.role='team_admin' LIMIT 1",[team,uid]);
+                if(!others.length)throw new ApiError('No se puede retirar o poner caducidad al último administrador permanente del equipo',409);
+            }
+        }
         const ops:Statement=[],token=id();
         if(old){
             ops.push({sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[uid,expected]},
@@ -435,6 +443,8 @@ export class Service {
         if(!user||user.version!==body.version)throw new ApiError('Los permisos cambiaron. Recarga.',409);
         const grants=await this.repo.all('SELECT * FROM grants WHERE user_id=? AND team_id=?',[user.id,team]);
         if(!grants.length)throw new ApiError('Esta cuenta no tiene permisos en tu equipo',403);
+        const others=await this.repo.all("SELECT 1 FROM grants g JOIN users u ON u.id=g.user_id WHERE g.team_id=? AND g.user_id<>? AND g.expires_at IS NULL AND u.role='team_admin' LIMIT 1",[team,user.id]);
+        if(!others.length)throw new ApiError('No se puede retirar al último administrador permanente del equipo',409);
         const token=id(),ops:Statement[]=[
             {sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[user.id,user.version]},
             {sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
