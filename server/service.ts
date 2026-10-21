@@ -424,7 +424,7 @@ export class Service {
                 if(!others.length)throw new ApiError('No se puede retirar o poner caducidad al último administrador permanente del equipo',409);
             }
         }
-        const ops:Statement=[],token=id();
+        const ops:Statement[]=[],token=id();
         if(old){
             ops.push({sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[uid,expected]},
                 {sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
