@@ -397,7 +397,62 @@ export class Service {
             this.audit('delete_permissions',null,{user,grants},null)
         ]);return {ok:true};
     }
-    async admin() { requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
+    /** Edit only a grant in the administrator's own team, never grants in other teams. */
+    async configureTeamUser(body:any){
+        const team=body.teamId;
+        if(typeof team!=='string'||!this.actor.teams.includes(team))throw new ApiError('Equipo fuera de tus permisos',403);
+        const provider=body.provider??'chatgpt',input=typeof body.subject==='string'?body.subject.trim():'';
+        const valid=provider==='chatgpt'
+            ? /^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(input)&&input.length<=194
+            : provider==='firebase'&&input.length>0&&input.length<=200&&!/[\s:]/.test(input);
+        if(!valid||!['viewer','team_admin'].includes(body.role)||!Array.isArray(body.teams)||body.teams.some((t:any)=>t!==team)||body.teams.length>1)throw new ApiError('Cuenta o permisos no válidos');
+        if(body.expiresAt&&(!Number.isFinite(Date.parse(body.expiresAt))||Date.parse(body.expiresAt)<=Date.now()))throw new ApiError('Caducidad no válida');
+        const subject=provider==='chatgpt'?'email:'+input.toLowerCase():input,uid=provider+':'+subject,sourceId=body.id??uid;
+        const old=(await this.repo.all('SELECT * FROM users WHERE id=?',[sourceId]))[0]??null;
+        if(body.id&&!old)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        if(old&&(old.provider!==provider||old.subject!==subject))throw new ApiError('No puedes cambiar una identidad desde un equipo',403);
+        const expected=Number(body.version??0);
+        if((old?.version??0)!==expected)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        const enable=body.role==='team_admin'&&body.teams.includes(team);
+        if(!old&&!enable)throw new ApiError('No hay un permiso que retirar');
+        const ops:Statement=[],token=id();
+        if(old){
+            ops.push({sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[uid,expected]},
+                {sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
+                {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]});
+        }else ops.push({sql:"INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,'team_admin',1)",args:[uid,provider,subject]});
+        ops.push({sql:'DELETE FROM grants WHERE user_id=? AND team_id=?',args:[uid,team]});
+        if(enable)ops.push({sql:'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',args:[id(),uid,team,body.expiresAt??null]});
+        ops.push({sql:"UPDATE users SET role=CASE WHEN EXISTS(SELECT 1 FROM grants WHERE user_id=?) THEN 'team_admin' ELSE 'viewer' END WHERE id=?",args:[uid,uid]});
+        ops.push(...keepTeamAdmin(team),this.audit('permissions',{team_id:team},{user:old},{subject,role:enable?'team_admin':'viewer'}));
+        await this.commit(ops);return {ok:true};
+    }
+    async deleteTeamUser(body:any){
+        const team=body.teamId;
+        if(typeof team!=='string'||!this.actor.teams.includes(team))throw new ApiError('Equipo fuera de tus permisos',403);
+        const user=(await this.repo.all('SELECT * FROM users WHERE id=?',[body.id]))[0];
+        if(!user||user.version!==body.version)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        const grants=await this.repo.all('SELECT * FROM grants WHERE user_id=? AND team_id=?',[user.id,team]);
+        if(!grants.length)throw new ApiError('Esta cuenta no tiene permisos en tu equipo',403);
+        const token=id(),ops:Statement[]=[
+            {sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[user.id,user.version]},
+            {sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
+            {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},
+            {sql:'DELETE FROM grants WHERE user_id=? AND team_id=?',args:[user.id,team]},
+            {sql:"UPDATE users SET role=CASE WHEN EXISTS(SELECT 1 FROM grants WHERE user_id=?) THEN 'team_admin' ELSE 'viewer' END WHERE id=?",args:[user.id,user.id]},
+            ...keepTeamAdmin(team),this.audit('delete_permissions',{team_id:team},{user,grants},null)
+        ];
+        await this.commit(ops);return {ok:true};
+    }
+    async admin() {
+        if(this.actor.role==='team_admin'){
+            if(!this.actor.teams.length)throw new ApiError('No administras ningún equipo',403);
+            const grants=await this.repo.all(`SELECT g.* FROM grants g JOIN users u ON u.id=g.user_id WHERE u.role='team_admin' AND g.team_id IN (${this.actor.teams.map(()=>'?').join(',')})`,this.actor.teams);
+            const ids=[...new Set<string>(grants.map((g:any)=>g.user_id))];
+            const users=ids.length?await this.repo.all(`SELECT * FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`,ids):[];
+            return {users,grants,revision:0,audit:[]};
+        }
+        requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
     async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }
     async restore(b: any, expectedRevision: number) {
         requireSuper(this.actor);
