@@ -5,7 +5,7 @@ import {formatDate} from './cycle-calendar';
 import {visiblePreferenceDates} from '../domain/election';
 
 // One editor moves into a modal on small screens; its draft belongs to the workspace.
-export default function PreferencesEditor({data,memberId,dates,setDates,persistent,setPersistent,dirty,busy,save,message,readOnly=false}:any){
+export default function PreferencesEditor({data,memberId,dates,setDates,persistent,setPersistent,dirty,busy,save,cancel,message,readOnly=false}:any){
  const [mobile,setMobile]=useState(false),[expanded,setExpanded]=useState(false);
  const panel=useRef<HTMLElement>(null),review=useRef<HTMLButtonElement>(null);
  const member=data.members.find((m:any)=>m.id===memberId);
@@ -66,11 +66,11 @@ export default function PreferencesEditor({data,memberId,dates,setDates,persiste
    <label className="preference-consent"><input type="checkbox" disabled={busy} checked={persistent} onChange={e=>setPersistent(e.target.checked)}/> Mantener estas preferencias en todas las rondas restantes</label>
    <p className="muted">Sin marcar: solo el próximo turno efectivo, incluso si aplazas. {data.election.state?.automaticPaused?'Los automatismos están detenidos. Guardar conserva la lista sin adjudicar; el responsable debe reanudarlos.':'Guardar autoriza la asignación automática; si ya es tu turno, puede ser inmediata.'}</p>
   </div>
-  <footer className="preference-editor-footer"><span className={'preference-state '+(dirty?'pending':'saved')}>{status}</span><div className="preference-feedback" role="status" aria-live="polite" aria-atomic="true">{message}</div><button type="button" className="primary" disabled={busy||readOnly||(!dirty&&existing?.active!==false)} onClick={save}>{readOnly?'Guardado desactivado':busy?'Guardando…':'Guardar preferencias'}</button></footer>
+  <footer className="preference-editor-footer"><span className={'preference-state '+(dirty?'pending':'saved')}>{status}</span><div className="preference-feedback" role="status" aria-live="polite" aria-atomic="true">{message}</div><div className="preference-footer-actions"><button type="button" className="secondary" disabled={busy} onClick={cancel}>Cancelar</button><button type="button" className="primary" disabled={busy||readOnly||(!dirty&&existing?.active!==false)} onClick={save}>{readOnly?'Guardado desactivado':busy?'Guardando…':'Guardar preferencias'}</button></div></footer>
  </section>;
  return <>
   {mobile?<>
-   <div className="preference-dock"><div><strong>{dates.length} {dates.length===1?'preferencia':'preferencias'}</strong><span className={dirty?'pending':'saved'}>{status}</span></div><button ref={review} type="button" className="primary" aria-haspopup="dialog" aria-expanded={expanded} onClick={()=>setExpanded(true)}>Revisar y guardar</button>{!expanded&&<div className="preference-feedback" role="status" aria-live="polite" aria-atomic="true">{message}</div>}</div>
+   <div className="preference-dock"><div className="preference-dock-status"><strong>{dates.length} {dates.length===1?'preferencia':'preferencias'}</strong><span className={dirty?'pending':'saved'}>{status}</span></div><div className="preference-dock-actions"><button type="button" className="secondary" disabled={busy} onClick={cancel}>Cancelar</button><button ref={review} type="button" className="primary" aria-haspopup="dialog" aria-expanded={expanded} onClick={()=>setExpanded(true)}>Revisar y guardar</button></div>{!expanded&&message&&<div className="preference-feedback" role="status" aria-live="polite" aria-atomic="true">{message}</div>}</div>
    {expanded&&createPortal(<div className="preference-sheet-backdrop" onClick={e=>{if(e.target===e.currentTarget)setExpanded(false);}}>{editor}</div>,document.body)}
   </>:editor}
  </>;

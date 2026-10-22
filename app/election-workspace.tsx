@@ -78,9 +78,13 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  async function leavePreferences(){
   if(busy)return false;
   if(!dirty)return true;
-  if(!await confirm('Tienes cambios de preferencias sin guardar. Si continúas, se descartarán. Cancela para volver a revisar y guardar tu lista. ¿Descartar los cambios y continuar?'))return false;
+  if(!await confirm('Has modificado tu lista de preferencias, pero aún no la has guardado. Si descartas los cambios, recuperarás la última lista guardada. Si no tenías ninguna, la lista quedará vacía.',undefined,{title:'¿Descartar los cambios?',cancelLabel:'Seguir editando',confirmLabel:'Descartar cambios'}))return false;
   const saved=JSON.parse(serverPreferences);setDates(saved.dates);setPersistent(saved.persistent);setPreferenceMessage('');
   return true;
+ }
+ async function cancelPreferences(){
+  if(!await leavePreferences())return;
+  setMode('choose');setDetail(null);
  }
  useEffect(()=>{if(navigationGuard)navigationGuard.current=leavePreferences;return ()=>{if(navigationGuard)navigationGuard.current=null;};});
  function editDates(next:string[]){setDates(next);setPreferenceMessage('Lista modificada. Cambios sin guardar.');onPreferenceEdit?.();}
@@ -135,7 +139,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    </div>
    <div className="election-turn-controls">
     {canPreferences&&<div className="election-view-switch" role="group" aria-label="Vista de vacaciones">
-     <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode==='choose'||await leavePreferences()){setMode('choose');setDetail(null);}}}>Calendario</button>
+     <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode!=='choose')await cancelPreferences();}}>Calendario</button>
      <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>Preferencias</button>
     </div>}
     {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
@@ -184,7 +188,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      awards={data.awards} members={data.members} order={roundOrder} points={election.points}/>
    </div>
    <aside className="election-side">
-    {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?(existing?'La lista coincide con la versión guardada.':'No hay cambios pendientes ni preferencias guardadas.'):preferenceMessage}/>}
+    {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} cancel={cancelPreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?'':preferenceMessage}/>}
 
     {mode==='choose'&&detail&&<section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
