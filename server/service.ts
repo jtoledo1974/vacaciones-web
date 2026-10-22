@@ -10,6 +10,14 @@ import {cloneSimulation} from './simulations.ts';
 import {validateElectionState} from '../domain/election.ts';
 export {ApiError} from './errors.ts';
 const id = () => crypto.randomUUID(), now = () => new Date().toISOString();
+/** SQL assertion: the affected team retains a permanent administrator after this transaction. */
+function keepTeamAdmin(team:string):Statement[]{
+    const token=id();
+    return [
+        {sql:"INSERT INTO transaction_assertions(id) VALUES(CASE WHEN EXISTS(SELECT 1 FROM grants g JOIN users u ON u.id=g.user_id WHERE g.team_id=? AND u.role='team_admin' AND g.expires_at IS NULL) THEN ? ELSE NULL END)",args:[team,token]},
+        {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]}
+    ];
+}
 function checkedConfig(config:Config,year:number){try{return validateConfig(config,year);}catch(e:any){throw new ApiError(e.message??'Parámetros no válidos');}}
 function checkedDate(value:string){try{return serial(value);}catch{throw new ApiError('Fecha no válida');}}
 export async function principal(repo: Repository, identity: Identity, superEmails: string): Promise<Principal> { if (!identity)
@@ -34,12 +42,12 @@ export class Service {
         return {teams:r[0].results.filter(t=>/^[A-H]$/.test(t.id)).map(t=>({...t,name:'Equipo '+t.id})),campaigns,principal:this.actor,myCampaignIds:mine.map(m=>m.campaign_id).filter(id=>campaigns.some(c=>c.id===id))};
     }
     async createSimulation(cid:string,body:any){
-        requireSuper(this.actor);const d=await this.load(cid);if(body.version!==d.campaign.version)throw new ApiError('La campaña cambió. Recarga antes de crear la simulación.',409);
-        const result=await cloneSimulation(this.repo,d,body.name,body.copyPreferences===true);await this.commit([...result.statements,this.audit('simulation_created',{id:result.id,team_id:d.campaign.team_id},null,{source:cid,name:body.name})]);return {id:result.id};
+        const d=await this.load(cid);requireWrite(this.actor,d.campaign.team_id);if(body.version!==d.campaign.version)throw new ApiError('La campaña cambió. Recarga antes de crear la simulación.',409);
+        const result=await cloneSimulation(this.repo,d,body.name);await this.commit([...result.statements,this.audit('simulation_created',{id:result.id,team_id:d.campaign.team_id},null,{source:cid,name:body.name})]);return {id:result.id};
     }
     async deleteSimulation(cid:string,body:any){
-        requireSuper(this.actor);
         const d=await this.load(cid);
+        requireWrite(this.actor,d.campaign.team_id);
         if(d.campaign.scope_key==='live')throw new ApiError('La campaña real no se puede eliminar',403);
         if(body.version!==d.campaign.version)throw new ApiError('La simulación cambió. Recarga antes de eliminarla.',409);
         const personIds=[...new Set(d.members.map((m:any)=>m.person_id))] as string[];
@@ -142,13 +150,12 @@ export class Service {
             throw new ApiError('La campaña cambió. Recarga antes de guardar.', 409);
         const action = body.action;
         const election=await this.election().read(cid);
-        if(election.state?.status==='active'&&!['calculate','close'].includes(action))throw new ApiError('Pausa la elección antes de corregir datos o cambiar la plantilla');
+        if(election.state?.status==='active'&&!['calculate','close',...(c.scope_key==='live'?[]:['reset_vacations'])].includes(action))throw new ApiError('Pausa la elección antes de corregir datos o cambiar la plantilla');
         if (c.status !== 'open' && !['reopen', 'publish', 'close'].includes(action))
             throw new ApiError('La campaña está cerrada. Un superadministrador puede reabrirla.');
         const ops = cas(cid, body.version);
         let before: any = null, after: any = body;
         if (action === 'reset_vacations') {
-            requireSuper(this.actor);
             if(body.confirmation!==`${c.team_id}-${c.year}`)throw new ApiError('Confirma el equipo y ejercicio antes de empezar de cero');
             ops.push({sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]});
             after={requests:0,awards:0};
@@ -159,7 +166,7 @@ export class Service {
             const snapshot=JSON.parse(entry.before_json);
             // Undo/redo may restore a full preference snapshot. Do not let a delegated
             // administrator overwrite linked controllers' preferences through this route.
-            if(this.actor.role!=='superadmin'&&snapshot.election){
+            if(c.scope_key==='live'&&this.actor.role!=='superadmin'&&snapshot.election){
                 const mine=await this.election().memberForAccount(d);
                 const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',[cid]);
                 const previous=snapshot.election.preferences??[],current=election.preferences;
@@ -172,7 +179,6 @@ export class Service {
             after={undone:entry.id};
         }
         else if (action === 'config') {
-            requireSuper(this.actor);
             const cfg = checkedConfig(body.config, c.year);
             const dates = new Set(calendar(c.year, c.team_id, cfg).map(s => s.date));
             if ([...d.requests, ...d.awards].some(r => !dates.has(r.cycle_date)))
@@ -226,7 +232,6 @@ export class Service {
             after = { runId, issues: result.issues };
         }
         else if (action === 'publish') {
-            requireSuper(this.actor);
             const run = d.runs.find(r => r.id === body.runId);
             if (!run || run.source_version !== c.version)
                 throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
@@ -237,13 +242,12 @@ export class Service {
             after = { status: 'published', runId: run.id };
         }
         else if (action === 'close' || action === 'reopen') {
-            requireSuper(this.actor);
             ops.push({ sql: 'UPDATE campaigns SET status=? WHERE id=?', args: [action === 'close' ? 'closed' : 'open', cid] });
             before = { status: c.status };
             after = { status: action === 'close' ? 'closed' : 'open' };
         }
         else if(action==='import_roster'){
-            requireSuper(this.actor);
+            if(c.scope_key==='live'&&this.actor.role!=='superadmin'&&(await this.repo.all('SELECT 1 FROM preferences p JOIN campaign_members m ON m.id=p.member_id JOIN controller_accounts a ON a.person_id=m.person_id WHERE p.campaign_id=? LIMIT 1',[cid])).length)throw new ApiError('No se puede sustituir la plantilla mientras existan preferencias privadas de controladores vinculados',403);
             const source=body.source;
             if(!source||source.format!=='vacaciones-roster-v1'||source.team!==c.team_id||source.year!==c.year)throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
             const importedConfig=source.config?checkedConfig(source.config,c.year):d.config;
@@ -270,7 +274,6 @@ export class Service {
             before={members:d.members,requests:d.requests,awards:d.awards,config:d.config};after={source:source.source??'Plantilla importada',members:rows.length,selections:selections.length,awards:importedAwards.length,configurationImported:!!source.config};
         }
         else if(action==='bulk_members'){
-            requireSuper(this.actor);
             let rows;try{rows=validateRoster(body.rows,c.year,c.team_id,d.config);}catch(e:any){throw new ApiError(e.message);}
             const resolved=rows.map((r,i)=>{const member=r.memberId?d.members.find(m=>m.id===r.memberId):d.members.find(m=>m.code===r.code);if(r.memberId&&!member)throw new ApiError('Controlador ajeno a este equipo');return {row:r,member,position:member?.position??d.members.length+i};});
             const memberIds=resolved.map(r=>r.member?.id).filter(Boolean);
@@ -287,13 +290,13 @@ export class Service {
         }
         else if(action==='transfer_member'){
             if(c.scope_key!=='live')throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
-            requireSuper(this.actor);
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Controlador no encontrado',404);
             if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de cambiar de turno');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.');
             const target=(await this.repo.all('SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key=\'live\'',[body.targetTeam,c.year]))[0];
             if(!target||target.id===cid||target.status!=='open')throw new ApiError('Elige otro equipo con campaña abierta en el mismo ejercicio');
+            requireWrite(this.actor,target.team_id);
             if(target.version!==body.targetVersion)throw new ApiError('El equipo de destino cambió. Recarga antes de trasladar.',409);
             const destination=await this.load(target.id);
             const targetElection=await this.election().read(target.id);
@@ -305,7 +308,6 @@ export class Service {
             ops.push(this.audit('transfer_received',target,null,after));
         }
         else if(action==='retire_member'){
-            requireSuper(this.actor);
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Identificador no encontrado',404);
             if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de dar la baja');
@@ -314,7 +316,6 @@ export class Service {
             before=member;after={retired:member.code};
         }
         else if (action === 'member') {
-            requireSuper(this.actor);
             const code = String(body.code ?? '').trim().toUpperCase();
             if (!/^[A-Z0-9_-]{2,12}$/.test(code))
                 throw new ApiError('Usa un código de 2 a 12 letras, números o guiones');
@@ -338,7 +339,7 @@ export class Service {
             after={...after,version:c.version+1};
         }
         if(action==='close'&&election.state)ops.push(electionStateStatement(cid,{...election.state,status:'paused'}));
-        if(action==='reset_vacations'){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null));}
+        if(action==='reset_vacations'){ops.push({sql:c.scope_key==='live'&&this.actor.role!=='superadmin'?'DELETE FROM preferences WHERE campaign_id=? AND member_id NOT IN (SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?)':'DELETE FROM preferences WHERE campaign_id=?',args:c.scope_key==='live'&&this.actor.role!=='superadmin'?[cid,cid]:[cid]},electionStateStatement(cid,null));}
         else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0]});}}
         else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
         ops.push(this.audit(action, c, before, after));
@@ -346,6 +347,7 @@ export class Service {
         return this.view(cid);
     }
     async configureUser(body: any) {
+        if(this.actor.role==='team_admin')return this.configureTeamUser(body);
         requireSuper(this.actor);
         const provider=body.provider??'chatgpt';
         const input=typeof body.subject==='string'?body.subject.trim():'';
@@ -376,10 +378,12 @@ export class Service {
             {sql:'DELETE FROM grants WHERE user_id=?',args:[sourceId]});
         if(old)ops.push({sql:'UPDATE users SET id=?,subject=? WHERE id=?',args:[uid,subject,sourceId]});
         for(const t of new Set(body.role==='team_admin'?body.teams:[]))ops.push({sql:'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',args:[id(),uid,t,body.expiresAt??null]});
+        for(const team of new Set<string>([...oldGrants.map((g:any)=>g.team_id),...body.teams]))ops.push(...keepTeamAdmin(team));
         ops.push(this.audit('permissions',null,{user:old,grants:oldGrants},{provider,subject,role:body.role,teams:body.role==='team_admin'?body.teams:[]}));
         await this.commit(ops);return {ok:true};
     }
     async deleteUser(body:any){
+        if(this.actor.role==='team_admin')return this.deleteTeamUser(body);
         requireSuper(this.actor);
         const user=(await this.repo.all('SELECT * FROM users WHERE id=?',[body.id]))[0];
         if(!user||user.version!==body.version)throw new ApiError('Los permisos cambiaron. Recarga.',409);
@@ -390,10 +394,76 @@ export class Service {
             {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},
             {sql:'DELETE FROM grants WHERE user_id=?',args:[user.id]},
             {sql:'DELETE FROM users WHERE id=?',args:[user.id]},
+            ...[...new Set<string>(grants.map((g:any)=>g.team_id))].flatMap(team=>keepTeamAdmin(team)),
             this.audit('delete_permissions',null,{user,grants},null)
         ]);return {ok:true};
     }
-    async admin() { requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
+    /** Edit only a grant in the administrator's own team, never grants in other teams. */
+    async configureTeamUser(body:any){
+        const team=body.teamId;
+        if(typeof team!=='string'||!this.actor.teams.includes(team))throw new ApiError('Equipo fuera de tus permisos',403);
+        const provider=body.provider??'chatgpt',input=typeof body.subject==='string'?body.subject.trim():'';
+        const valid=provider==='chatgpt'
+            ? /^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(input)&&input.length<=194
+            : provider==='firebase'&&input.length>0&&input.length<=200&&!/[\s:]/.test(input);
+        if(!valid||!['viewer','team_admin'].includes(body.role)||!Array.isArray(body.teams)||body.teams.some((t:any)=>t!==team)||body.teams.length>1)throw new ApiError('Cuenta o permisos no válidos');
+        if(body.expiresAt&&(!Number.isFinite(Date.parse(body.expiresAt))||Date.parse(body.expiresAt)<=Date.now()))throw new ApiError('Caducidad no válida');
+        const subject=provider==='chatgpt'?'email:'+input.toLowerCase():input,uid=provider+':'+subject,sourceId=body.id??uid;
+        const old=(await this.repo.all('SELECT * FROM users WHERE id=?',[sourceId]))[0]??null;
+        if(body.id&&!old)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        if(old&&(old.provider!==provider||old.subject!==subject))throw new ApiError('No puedes cambiar una identidad desde un equipo',403);
+        const expected=Number(body.id?body.version??0:old?.version??0);
+        if((old?.version??0)!==expected)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        const enable=body.role==='team_admin'&&body.teams.includes(team);
+        if(!old&&!enable)throw new ApiError('No hay un permiso que retirar');
+        if(old){
+            const assigned=await this.repo.all('SELECT 1 FROM grants WHERE user_id=? AND team_id=?',[uid,team]);
+            if(!enable&&!assigned.length)throw new ApiError('La cuenta no administra este equipo',403);
+            if(assigned.length&&(!enable||body.expiresAt)){
+                const others=await this.repo.all("SELECT 1 FROM grants g JOIN users u ON u.id=g.user_id WHERE g.team_id=? AND g.user_id<>? AND g.expires_at IS NULL AND u.role='team_admin' LIMIT 1",[team,uid]);
+                if(!others.length)throw new ApiError('No se puede retirar o poner caducidad al último administrador permanente del equipo',409);
+            }
+        }
+        const ops:Statement[]=[],token=id();
+        if(old){
+            ops.push({sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[uid,expected]},
+                {sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
+                {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]});
+        }else ops.push({sql:"INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,'team_admin',1)",args:[uid,provider,subject]});
+        ops.push({sql:'DELETE FROM grants WHERE user_id=? AND team_id=?',args:[uid,team]});
+        if(enable)ops.push({sql:'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',args:[id(),uid,team,body.expiresAt??null]});
+        ops.push({sql:"UPDATE users SET role=CASE WHEN EXISTS(SELECT 1 FROM grants WHERE user_id=?) THEN 'team_admin' ELSE 'viewer' END WHERE id=?",args:[uid,uid]});
+        ops.push(...keepTeamAdmin(team),this.audit('permissions',{team_id:team},{user:old},{subject,role:enable?'team_admin':'viewer'}));
+        await this.commit(ops);return {ok:true};
+    }
+    async deleteTeamUser(body:any){
+        const team=body.teamId;
+        if(typeof team!=='string'||!this.actor.teams.includes(team))throw new ApiError('Equipo fuera de tus permisos',403);
+        const user=(await this.repo.all('SELECT * FROM users WHERE id=?',[body.id]))[0];
+        if(!user||user.version!==body.version)throw new ApiError('Los permisos cambiaron. Recarga.',409);
+        const grants=await this.repo.all('SELECT * FROM grants WHERE user_id=? AND team_id=?',[user.id,team]);
+        if(!grants.length)throw new ApiError('Esta cuenta no tiene permisos en tu equipo',403);
+        const others=await this.repo.all("SELECT 1 FROM grants g JOIN users u ON u.id=g.user_id WHERE g.team_id=? AND g.user_id<>? AND g.expires_at IS NULL AND u.role='team_admin' LIMIT 1",[team,user.id]);
+        if(!others.length)throw new ApiError('No se puede retirar al último administrador permanente del equipo',409);
+        const token=id(),ops:Statement[]=[
+            {sql:'UPDATE users SET version=version+1 WHERE id=? AND version=?',args:[user.id,user.version]},
+            {sql:'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)',args:[token]},
+            {sql:'DELETE FROM transaction_assertions WHERE id=?',args:[token]},
+            {sql:'DELETE FROM grants WHERE user_id=? AND team_id=?',args:[user.id,team]},
+            {sql:"UPDATE users SET role=CASE WHEN EXISTS(SELECT 1 FROM grants WHERE user_id=?) THEN 'team_admin' ELSE 'viewer' END WHERE id=?",args:[user.id,user.id]},
+            ...keepTeamAdmin(team),this.audit('delete_permissions',{team_id:team},{user,grants},null)
+        ];
+        await this.commit(ops);return {ok:true};
+    }
+    async admin() {
+        if(this.actor.role==='team_admin'){
+            if(!this.actor.teams.length)throw new ApiError('No administras ningún equipo',403);
+            const grants=await this.repo.all(`SELECT g.* FROM grants g JOIN users u ON u.id=g.user_id WHERE u.role='team_admin' AND g.team_id IN (${this.actor.teams.map(()=>'?').join(',')})`,this.actor.teams);
+            const ids=[...new Set<string>(grants.map((g:any)=>g.user_id))];
+            const users=ids.length?await this.repo.all(`SELECT * FROM users WHERE id IN (${ids.map(()=>'?').join(',')})`,ids):[];
+            return {users,grants,revision:0,audit:[]};
+        }
+        requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
     async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }
     async restore(b: any, expectedRevision: number) {
         requireSuper(this.actor);
