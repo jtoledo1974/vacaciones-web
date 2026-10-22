@@ -8,6 +8,7 @@ async function fixture(){
  const cid=(await s.list()).campaigns.find(c=>c.team_id==='C').id;
  let d=await s.view(cid);
  d=await s.mutate(cid,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:['AA','BB','CC','DD'].map(code=>({code,label:'Ejemplo '+code,seniority:''}))}});
+ d=await s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:{AA:10,BB:20,CC:30,DD:40},previousScoresSource:'Puntuaciones históricas del fixture'}});
  return {repo,s,cid,ids:d.members.map((m:any)=>m.id),dates:d.result.cycles.map((c:any)=>c.date)};
 }
 async function act(s:Service,cid:string,body:any){
@@ -107,7 +108,8 @@ test('se reconstruyen turnos de dos rondas manteniendo el orden',async()=>{
 });
 test('aplazamientos y elecciones conjuntas se reconstruyen como decisiones indivisibles',async()=>{
  const {s,cid,ids,dates}=await fixture();
- await act(s,cid,start(ids,{jointGroups:[[ids[1],ids[2]]]}));
+ await act(s,cid,start(ids));
+ await act(s,cid,{action:'register_joint',round:1,members:[ids[1],ids[2]]});
  let v=await act(s,cid,{action:'defer',memberId:ids[0]});
  v=await act(s,cid,{action:'choose_joint',entries:[{member_id:ids[1],dates:[dates[1]]},{member_id:ids[2],dates:[dates[2]]}]});
  v=await act(s,cid,{action:'choose',memberId:ids[3],dates:[dates[3]]});
@@ -149,4 +151,26 @@ test('recupera rama abandonada tras undo y elección alternativa',async()=>{
  assert.deepEqual(v.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),branchState);
  assert.equal(v.election.reconstruction.active,false);
  assert.ok(v.election.undo);
+});
+
+test('reconstrucción guiada reproduce un acuerdo conjunto creado a mitad de ronda',async()=>{
+ const {s,cid,ids,dates}=await fixture();
+ await act(s,cid,start(ids));
+ await act(s,cid,{action:'choose',memberId:ids[0],dates:[dates[0]]});
+ await act(s,cid,{action:'choose',memberId:ids[1],dates:[dates[1]]});
+ await act(s,cid,{action:'register_joint',round:1,members:[ids[2],ids[3]]});
+ await act(s,cid,{action:'choose_joint',entries:[{member_id:ids[2],dates:[dates[2]]},{member_id:ids[3],dates:[dates[3]]}]});
+ let v=await s.view(cid);
+ const target=v.election.reconstruction.candidates.find((entry:any)=>entry.action==='choose'&&entry.memberIds.includes(ids[0]));
+ assert.ok(target);
+ v=await act(s,cid,{action:'reconstruction_start',historyId:target.id});
+ assert.equal(v.election.reconstruction.current.memberId,ids[0]);
+ v=await act(s,cid,{action:'reconstruction_step',kind:'choose',mode:'original'});
+ v=await act(s,cid,{action:'reconstruction_step',kind:'choose',mode:'original'});
+ assert.deepEqual(v.election.reconstruction.current.participants,[ids[2],ids[3]]);
+ v=await act(s,cid,{action:'reconstruction_step',kind:'choose_joint',mode:'original'});
+ assert.equal(v.election.reconstruction.status,'review');
+ v=await act(s,cid,{action:'reconstruction_finish'});
+ assert.deepEqual(v.election.state.jointAgreements[0].members,[ids[2],ids[3]]);
+ assert.equal(v.awards.length,4);
 });

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {Service} from '../server/service.ts';
 import {SQLiteRepo} from './sqlite-repo.ts';
 const owner={id:'chatgpt:owner',role:'superadmin' as const,teams:[]},visitor={id:'chatgpt:person',emailKey:'chatgpt-email:person@example.test',role:'viewer' as const,teams:[]};
-async function setup(){const repo=new SQLiteRepo(),s=new Service(repo,owner);await s.init();const cid=(await s.list()).campaigns.find(c=>c.team_id==='C').id;let d=await s.view(cid);d=await s.mutate(cid,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:[{code:'AA',label:'Nombre privado A',seniority:''},{code:'BB',label:'Nombre privado B',seniority:''},{code:'CC',label:'Nombre privado C',seniority:''}]}});return {repo,s,cid,d,person:new Service(repo,visitor)};}
+async function setup(){const repo=new SQLiteRepo(),s=new Service(repo,owner);await s.init();const cid=(await s.list()).campaigns.find(c=>c.team_id==='C').id;let d=await s.view(cid);d=await s.mutate(cid,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:[{code:'AA',label:'Nombre privado A',seniority:''},{code:'BB',label:'Nombre privado B',seniority:''},{code:'CC',label:'Nombre privado C',seniority:''}]}});d=await s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:{AA:10,BB:20,CC:30},previousScoresSource:'Puntuaciones de ensayo verificadas'}});return {repo,s,cid,d,person:new Service(repo,visitor)};}
+async function setScores(s:Service,cid:string,scores:Record<string,number>){const d=await s.view(cid);return s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:scores,previousScoresSource:'Clasificación ficticia verificada para tests'}});}
 // actOne exercises the atomic API operation; act mimics the browser draining pending turns.
 async function actOne(s:Service,cid:string,body:any){
  await s.election().mutate(cid,{...body,version:(await s.load(cid)).campaign.version});
@@ -22,6 +23,7 @@ test('listas propias y administración delegada, con turno y permisos comprobado
  await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});
  await act(person,cid,{action:'preferences',memberId:a.id,dates:[date],automatic:true});
  await assert.rejects(act(person,cid,{action:'preferences',memberId:b.id,dates:[date],automatic:true}),/propias/);
+ await setScores(s,cid,{AA:20,BB:10,CC:30});
  let result=await act(s,cid,start(d,[b.id,a.id,d.members[2].id]));assert.equal(result.awards.length,0);
  await assert.rejects(act(person,cid,{action:'choose',memberId:a.id,dates:[date]}),/turno/);
  result=await act(s,cid,{action:'choose',memberId:b.id,dates:[date]});assert.equal(result.awards.length,2);assert.ok(result.awards.some((x:any)=>x.member_id===a.id));
@@ -278,7 +280,8 @@ test('Criterios 1.1 p.2: la elección guarda seis solicitudes de origen, que sob
 });
 test('Criterios 1.1 p.2: turno conjunto: servidor confirma todas las selecciones y solicitudes o ninguna',async()=>{
  const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
- await act(s,cid,{...start(d),jointGroups:[[a.id,c.id]]});
+ await act(s,cid,start(d));
+ await act(s,cid,{action:'register_joint',round:1,members:[a.id,c.id]});
  let next=await s.view(cid);
  assert.equal(next.election.turn.memberId,b.id);
  next=await act(s,cid,{action:'choose',memberId:b.id,dates:[dates[0]]});
@@ -297,7 +300,8 @@ test('empate pendiente bloquea elección, aplazamiento y automatismos; sorteo ex
  const {s,cid,d,person,repo}=await setup(),ids=d.members.map((m:any)=>m.id),date=d.result.cycles[0].date;
  await act(s,cid,{action:'link_account',memberId:ids[0],subject:'person@example.test',accountVersion:0});
  await act(s,cid,{action:'preferences',memberId:ids[0],dates:[date],automatic:true});
- let next=await act(s,cid,{...start(d),tieGroups:[ids]});
+ await setScores(s,cid,{AA:10,BB:10,CC:10});
+ let next=await act(s,cid,start(d));
  assert.equal(next.election.turn.memberId,null);assert.deepEqual(next.election.turn.pendingTie,ids);assert.equal(next.awards.length,0);
  await assert.rejects(act(s,cid,{action:'choose',memberId:ids[0],dates:[date]}),/turno/);
  await assert.rejects(act(s,cid,{action:'defer',memberId:ids[0]}),/turno/);
@@ -318,7 +322,8 @@ test('empate pendiente bloquea elección, aplazamiento y automatismos; sorteo ex
 
 test('sorteo aleatorio solo alcanza al grupo actual y no permite repetirlo',async()=>{
  const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
- let next=await act(s,cid,{...start(d),tieGroups:[[ids[1],ids[2]]]});
+ await setScores(s,cid,{AA:10,BB:20,CC:20});
+ let next=await act(s,cid,start(d));
  assert.equal(next.election.turn.memberId,ids[0]);await assert.rejects(act(s,cid,{action:'resolve_tie',method:'random'}),/pendiente/);
  next=await act(s,cid,{action:'choose',memberId:ids[0],dates:[d.result.cycles[0].date]});
  next=await act(s,cid,{action:'resolve_tie',method:'random'});
@@ -329,21 +334,21 @@ test('sorteo aleatorio solo alcanza al grupo actual y no permite repetirlo',asyn
 test('puntuaciones guardadas detectan empates sin depender del cliente y rechazan orden incorrecto o datos ausentes',async()=>{
  const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
  let next=await s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:{AA:10,BB:20,CC:20},previousScoresSource:'Histórico ficticio para pruebas'}});
- await assert.rejects(act(s,cid,start(next,[ids[1],ids[0],ids[2]])),/puntuaciones/);
- next=await act(s,cid,start(next));assert.deepEqual(next.election.state.pendingTieGroups,[ids.slice(1)]);
+ next=await act(s,cid,start(next,[ids[1],ids[0],ids[2]]));assert.deepEqual(next.election.state.order,ids);assert.deepEqual(next.election.state.pendingTieGroups,[ids.slice(1)]);
  await act(s,cid,{action:'pause'});next=await s.view(cid);
- next=await s.mutate(cid,{action:'config',version:next.campaign.version,config:{...next.config,previousScores:{AA:10,BB:20}}});
- await assert.rejects(act(s,cid,start(next)),/Faltan puntuaciones/);
+ await assert.rejects(s.mutate(cid,{action:'config',version:next.campaign.version,config:{...next.config,previousScores:{AA:10,BB:20}}}),/congeladas/);
 });
 
 test('simulaciones remapean empates pendientes, turnos conjuntos y actas sin referencias a miembros reales',async()=>{
  const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
- let next=await act(s,cid,{...start(d),tieGroups:[ids],jointGroups:[[ids[0],ids[1]]]});
+ await setScores(s,cid,{AA:10,BB:10,CC:10});
+ let next=await act(s,cid,start(d));
  let clone=await s.createSimulation(cid,{name:'Pending draw',version:next.campaign.version});
  let copy=await s.view(clone.id);assert.equal(copy.election.state.status,'paused');
  assert.ok(copy.election.state.pendingTieGroups[0].every((id:string)=>!ids.includes(id)));
  copy=await act(s,clone.id,{action:'resume'});assert.equal(copy.election.turn.pendingTie.length,3);
  next=await act(s,cid,{action:'resolve_tie',method:'external',order:[...ids].reverse()});
+ next=await act(s,cid,{action:'register_joint',round:1,members:[ids[0],ids[1]]});
  clone=await s.createSimulation(cid,{name:'Resolved draw',version:next.campaign.version});copy=await s.view(clone.id);
  assert.equal(copy.election.state.tieResolutions.length,0);assert.ok(copy.election.state.pendingTieGroups[0].every((id:string)=>!ids.includes(id)));
  copy=await act(s,clone.id,{action:'resume'});assert.equal(copy.election.turn.pendingTie.length,3);

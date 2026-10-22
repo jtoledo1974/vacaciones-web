@@ -52,6 +52,7 @@ test('simulation preferences never copy real private lists, but all simulated me
 test('team admins may activate real elections, and a team always retains a permanent admin',async()=>{
  const {repo,global,team,live}=await setup();
  let d=await team.view(live.id);
+ d=await team.mutate(live.id,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:Object.fromEntries(d.members.map((m:any,i:number)=>[m.code,10+i])),previousScoresSource:'Puntuaciones de prueba del responsable'}});
  await team.election().mutate(live.id,{action:'start',order:d.members.map((m:any)=>m.id),source:'Orden de prueba confirmado de 2025',rulesConfirmed:true,allowDeferral:true,version:d.campaign.version});
  d=await team.view(live.id);
  assert.equal(d.election.state.status,'active');

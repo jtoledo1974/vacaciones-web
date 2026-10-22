@@ -4,10 +4,10 @@ import {appliedAudit} from './reconstruction.ts';
 type AuditRow={id:string;action:string;before_json:string|null;after_json:string|null;created_at:string};
 type LoggedChoice={member_id:string;cycle_date:string};
 export type ElectionTimelineItem={
- id:string;kind:'choice'|'defer'|'tie'|'legacy';round:number|null;createdAt:string;
+ id:string;kind:'choice'|'defer'|'tie'|'legacy'|'joint';round:number|null;createdAt:string;
  memberIds:string[];choices:LoggedChoice[];deferredTurns:number;
  ties:{memberId:string;position:number;total:number;order:string[]}[];
- method?:'random'|'external';order?:string[];
+ method?:'random'|'external';order?:string[];jointAction?:'register_joint'|'cancel_joint';
 };
 
 function parse(value:string|null):any{
@@ -44,10 +44,15 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
  const events:{sequence:number;item:ElectionTimelineItem}[]=[];
  if(state){
   for(const row of active){
-   if(!['choose','choose_joint','advance','defer','reconstruction_step'].includes(row.action))continue;
+   if(!['choose','choose_joint','advance','defer','reconstruction_step','register_joint','cancel_joint'].includes(row.action))continue;
    const before=parse(row.before_json),after=parse(row.after_json);
    const previous=before?.state as ElectionState|undefined;
    if(!previous)continue;
+   if(row.action==='register_joint'||row.action==='cancel_joint'){
+    const agreement=after?.joint;
+    if(agreement&&Number.isInteger(agreement.round)&&Array.isArray(agreement.members))events.push({sequence:indices.get(row.id)??0,item:{id:row.id,kind:'joint',round:agreement.round,createdAt:row.created_at,memberIds:agreement.members,choices:[],deferredTurns:0,ties:[],jointAction:row.action}});
+    continue;
+   }
    const reconstructed=row.action==='reconstruction_step';
    const kind=reconstructed?after?.kind:row.action;
    const round=roundAt(row,ctx);

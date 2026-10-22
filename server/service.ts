@@ -180,6 +180,12 @@ export class Service {
         }
         else if (action === 'config') {
             const cfg = checkedConfig(body.config, c.year);
+            if(election.state){
+                const previous=d.config.previousScores??{},updated=cfg.previousScores??{};
+                const keys=new Set([...Object.keys(previous),...Object.keys(updated)]);
+                if([...keys].some(key=>previous[key]!==updated[key])||(d.config.previousScoresSource??'')!==(cfg.previousScoresSource??''))
+                    throw new ApiError('Las puntuaciones anteriores quedan congeladas al activar la elección. Reinicia la elección para modificarlas.');
+            }
             const dates = new Set(calendar(c.year, c.team_id, cfg).map(s => s.date));
             if ([...d.requests, ...d.awards].some(r => !dates.has(r.cycle_date)))
                 throw new ApiError('El cambio eliminaría ciclos con solicitudes o adjudicaciones');
