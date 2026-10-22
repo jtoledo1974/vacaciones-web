@@ -10,7 +10,7 @@ export default function PreferencesEditor({data,memberId,dates,setDates,persiste
  const panel=useRef<HTMLElement>(null),review=useRef<HTMLButtonElement>(null);
  const member=data.members.find((m:any)=>m.id===memberId);
  const existing=data.election.preferences.find((p:any)=>p.member_id===memberId);
- const visibleDates=visiblePreferenceDates(dates,data.result.cycles),hiddenCount=dates.length-visibleDates.length;
+ const unavailableDates=new Set(dates.filter((date:string)=>!visiblePreferenceDates([date],data.result.cycles).length));
  useEffect(()=>{
   const query=window.matchMedia('(max-width: 900px)');
   const update=()=>{setMobile(query.matches);setExpanded(false);};
@@ -37,8 +37,8 @@ export default function PreferencesEditor({data,memberId,dates,setDates,persiste
  },[mobile,message,data.campaign.version]);
  const status=dirty?'Cambios sin guardar':existing?'Preferencias guardadas':'Sin preferencias guardadas';
  function swap(index:number,direction:-1|1){
-  const other=visibleDates[index+direction];if(!other)return;
-  const next=[...dates],first=next.indexOf(visibleDates[index]),second=next.indexOf(other);
+  const other=dates[index+direction];if(!other)return;
+  const next=[...dates],first=next.indexOf(dates[index]),second=next.indexOf(other);
   [next[first],next[second]]=[next[second],next[first]];setDates(next);
  }
  const editor=<section ref={panel} className={'panel preferences-panel'+(mobile?' preference-sheet':'')} role={mobile?'dialog':undefined} aria-modal={mobile?true:undefined} aria-labelledby="preferences-title" onKeyDown={event=>{
@@ -58,11 +58,11 @@ export default function PreferencesEditor({data,memberId,dates,setDates,persiste
    <p>La posición 1 es tu primera opción. Se probarán en este orden al llegar tu turno.</p>
    {!dates.length&&<div className="preference-empty"><strong>Empieza por tu ciclo favorito</strong><p>Añade alternativas desde el calendario. Después revisa el orden y guarda tu lista.</p></div>}
    {existing?.active===false&&dates.length>0&&<p className="muted">Esta lista ya se utilizó. Vuelve a guardarla para autorizar su uso en tu próximo turno.</p>}
-   {!!visibleDates.length&&<ol className="preference-list" aria-label="Preferencias en orden de prioridad">{visibleDates.map((date:string,i:number)=>{
+   {!!dates.length&&<ol className="preference-list" aria-label="Preferencias en orden de prioridad">{dates.map((date:string,i:number)=>{
     const cycle=data.result.cycles.find((c:any)=>c.date===date),position=dates.indexOf(date)+1;
-    return <li key={date} value={position}><div className="preference-date"><strong>{formatDate(date)} – {formatDate(cycle?.end??date)}</strong><small>{cycle?.score} puntos{position===1?' · Primera opción':''}</small></div><div className="preference-row-actions"><button type="button" className="secondary" aria-label={`Subir preferencia ${position}`} disabled={i===0||busy} onClick={()=>swap(i,-1)}>↑</button><button type="button" className="secondary" aria-label={`Bajar preferencia ${position}`} disabled={i===visibleDates.length-1||busy} onClick={()=>swap(i,1)}>↓</button><button type="button" className="secondary" aria-label={`Quitar preferencia ${position}`} disabled={busy} onClick={()=>setDates(dates.filter((d:string)=>d!==date))}>Quitar</button></div></li>;
+    return <li key={date} value={position}><div className="preference-date"><strong>{formatDate(date)} – {formatDate(cycle?.end??date)}</strong><small>{cycle?.score} puntos{position===1?' · Primera opción':''}{unavailableDates.has(date)?' · Sin cupo actualmente':''}</small></div><div className="preference-row-actions"><button type="button" className="secondary" aria-label={`Subir preferencia ${position}`} disabled={i===0||busy} onClick={()=>swap(i,-1)}>↑</button><button type="button" className="secondary" aria-label={`Bajar preferencia ${position}`} disabled={i===dates.length-1||busy} onClick={()=>swap(i,1)}>↓</button><button type="button" className="secondary" aria-label={`Quitar preferencia ${position}`} disabled={busy} onClick={()=>setDates(dates.filter((d:string)=>d!==date))}>Quitar</button></div></li>;
    })}</ol>}
-   {hiddenCount>0&&<p className="preference-hidden">{hiddenCount} ciclo(s) sin cupo ocultos. Se conservan en su posición y reaparecerán si se libera una plaza.</p>}
+   {unavailableDates.size>0&&<p className="preference-hidden">{unavailableDates.size} ciclo(s) sin cupo actualmente. Permanecen visibles y en su posición; puedes quitarlos o reordenarlos. Se volverán a considerar si se libera una plaza.</p>}
    <label className="preference-consent"><input type="checkbox" disabled={busy} checked={persistent} onChange={e=>setPersistent(e.target.checked)}/> Mantener estas preferencias en todas las rondas restantes</label>
    <p className="muted">Sin marcar: solo el próximo turno efectivo, incluso si aplazas. {data.election.state?.automaticPaused?'Los automatismos están detenidos. Guardar conserva la lista sin adjudicar; el responsable debe reanudarlos.':'Guardar autoriza la asignación automática; si ya es tu turno, puede ser inmediata.'}</p>
   </div>

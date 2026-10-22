@@ -53,6 +53,11 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   expect((await read(request,s.id)).election.preferences).toHaveLength(0);
   await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
   await shot('02-primera-sin-guardar');
+  // Clicking the same calendar cycle again removes it; adding again restores its priority at the end.
+  await add(page,dates[0]);
+  await expect(page.locator('.vac2-cycle[data-cycle-date="'+dates[0]+'"]').first()).toHaveAttribute('aria-pressed','false');
+  await add(page,dates[0]);
+  await expect(page.getByRole('status').filter({hasText:'Añadido a tus preferencias'})).toContainText('posición 1');
   await add(page,dates[1]);await add(page,dates[2]);
   const editor=await review(page);
   await expect(editor).toContainText('Cambios sin guardar');
@@ -99,11 +104,11 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
   await page.getByRole('button',{name:'Preferencias',exact:true}).click();
   await review(page);await expect(list.locator('li')).toHaveCount(2);await close(page);
-  // Presentation hides exhausted cycles, without changing their stored order.
+  // Exhausted cycles remain visible and editable, without changing their stored order.
   let data=await read(request,s.id);const config=structuredClone(data.config);
   await post(request,'campaign/'+s.id,{action:'config',version:data.campaign.version,config:{...config,relation:{minimum:0,base:0,maximum:0,graceJanuary:0,graceOctober:0},specialQuotas:{}}});
   await expect(page.locator('.vac2-cycle').first()).toContainText('0 libres',{timeout:18000});
-  await review(page);await expect(editor).toContainText('sin cupo ocultos');await shot('08-sin-cupo-conservadas');await close(page);
+  await review(page);await expect(editor).toContainText('sin cupo actualmente');await shot('08-sin-cupo-conservadas');await close(page);
   data=await read(request,s.id);await post(request,'campaign/'+s.id,{action:'config',version:data.campaign.version,config});
   await expect(page.locator('.vac2-cycle').first()).not.toContainText('0 libres',{timeout:18000});
   await review(page);await expect(list.locator('li')).toHaveCount(2);await close(page);
@@ -123,7 +128,7 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
  });
 }
 
-test('preferencias: cuotas agotadas se ocultan, se conservan al guardar y reaparecen',async({page,request},info)=>{
+test('preferencias: cuotas agotadas siguen visibles, se conservan al guardar y recuperan disponibilidad',async({page,request},info)=>{
  const s=await fixture(request,page),member=s.data.members[0],date=s.data.result.cycles[0].date;
  await add(page,date);let editor=await review(page);await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
  await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');await expect(editor.getByRole('button',{name:'Guardar preferencias',exact:true})).toBeDisabled();await close(page);
@@ -132,7 +137,9 @@ test('preferencias: cuotas agotadas se ocultan, se conservan al guardar y reapar
  const config={...original,relation:{minimum:0,base:0,maximum:0,graceJanuary:0,graceOctober:0},specialQuotas:{}};
  await post(request,'campaign/'+s.id,{action:'config',version:data.campaign.version,config});
  await expect(page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').first()).toContainText('0 libres',{timeout:18000});
- editor=await review(page);await expect(editor).toContainText('sin cupo ocultos');
+ editor=await review(page);await expect(editor).toContainText('sin cupo actualmente');
+ await expect(editor.getByRole('listitem')).toHaveCount(1);
+ await expect(editor.getByRole('button',{name:'Quitar preferencia 1'})).toBeVisible();
  if(!process.env.CI)await page.screenshot({path:info.outputPath('08-sin-cupo-conservadas.png')});
  await editor.getByLabel('Mantener estas preferencias en todas las rondas restantes').check();
  await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');await expect(editor.getByRole('button',{name:'Guardar preferencias',exact:true})).toBeDisabled();

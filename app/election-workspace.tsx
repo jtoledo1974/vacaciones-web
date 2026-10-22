@@ -3,7 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
 import {newcomerScore} from '../domain/historical-order';
-import {orderForRound} from '../domain/election';
+import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
@@ -149,7 +149,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
   setJointSelected({...jointSelected,[target]:previous.includes(c.date)?previous.filter(d=>d!==c.date):previous.length>=max?[c.date]:[...previous,c.date]});return;
  }
- if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(c.available===false||(c.available===undefined&&c.occupied>=c.max)){setPreferenceMessage('Este ciclo no tiene plazas disponibles y no puede añadirse como nueva preferencia.');return;}if(!dates.includes(c.date)){editDates([...dates,c.date]);setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');}else setPreferenceMessage('Ya está en tu lista · posición '+(dates.indexOf(c.date)+1)+(dirty?'. Sin guardar.':'. Guardada.'));return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage('Este ciclo no es válido para quien elige ahora: ya está elegido, no hay cupo o se excede un límite.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
+ if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(dates.includes(c.date)){editDates(togglePreferenceDate(dates,c.date,false));setPreferenceMessage('Ciclo retirado de tus preferencias. Sin guardar.');return;}if(c.available===false||(c.available===undefined&&c.occupied>=c.max)){setPreferenceMessage('Este ciclo no tiene plazas disponibles y no puede añadirse como nueva preferencia.');return;}editDates(togglePreferenceDate(dates,c.date,true));setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage('Este ciclo no es válido para quien elige ahora: ya está elegido, no hay cupo o se excede un límite.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
  return <>
   {frozen&&<div className="reconstruction-status" role="status"><span aria-hidden="true">Ⅱ</span><strong>Reconstrucción en curso</strong><span>Elección congelada · Preferencias bloqueadas · Automatismos detenidos</span></div>}
   {!frozen&&<section className="panel election-turn election-workflow-head" aria-label="Turno de elección">

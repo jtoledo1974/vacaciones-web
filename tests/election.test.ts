@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {choose,defer,currentTurn,advanceAutomatic,visiblePreferenceDates,validateOrder,type ElectionState,type ElectionContext} from '../domain/election.ts';
+import {choose,defer,currentTurn,advanceAutomatic,visiblePreferenceDates,togglePreferenceDate,validateOrder,type ElectionState,type ElectionContext} from '../domain/election.ts';
 import {defaultConfig} from '../domain/defaults.ts';
 import {calendar} from '../domain/calendar.ts';
 function fixture(){const config={...defaultConfig(2026),cyclesPerPerson:2,summerPerPerson:0};const ctx:ElectionContext={year:2026,team:'C',config,members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[]};const state:ElectionState={status:'active',order:['B','A','C'],cursor:0,credits:{},source:'Orden histórico confirmado',allowDeferral:true};return {ctx,state,dates:calendar(2026,'C',config).map(c=>c.date)};}
@@ -76,4 +76,12 @@ test('automatismo de turno doble aplazado omite ciclos llenos y selecciona alter
  const turn={...postponed,cursor:3};
  const result=advanceAutomatic(ctx,turn,[{member_id:'B',dates:[dates[0],dates[1],dates[2]],automatic:true}]);
  assert.deepEqual(result.choices.map(c=>c.cycle_date),[dates[1],dates[2]]);
+});
+
+test('preferencias: clic alterna selección y permite retirar ciclos sin cupo',()=>{
+ const initial=['2027-07-01','2027-08-01'];
+ assert.deepEqual(togglePreferenceDate(initial,'2027-07-01',false),['2027-08-01']);
+ assert.deepEqual(togglePreferenceDate(initial,'2027-09-01',true),[...initial,'2027-09-01']);
+ assert.deepEqual(togglePreferenceDate(initial,'2027-09-01',false),initial);
+ assert.deepEqual(initial,['2027-07-01','2027-08-01']);
 });
