@@ -1,4 +1,4 @@
-import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -99,20 +99,18 @@ export class ElectionService{
     preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:true,persistent,active}];
     ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic,persistent=excluded.persistent,active=excluded.active',args:[body.memberId,cid,JSON.stringify(dates),1,persistent?1:0,active?1:0]});
    }else if(action==='start'){
-    if(!manage)throw new ApiError('Solo el responsable puede activar esta elección',403);validateOrder(body.order,d.members);
-    if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección provisional admite entre uno y seis ciclos por persona');
-    if(state&&(d.awards.length||state.tieResolutions?.length))throw new ApiError('No cambies el orden después de comenzar a elegir. Reanuda la elección o reinicia las vacaciones.');
-    if(body.rulesConfirmed!==true||typeof body.source!=='string'||body.source.trim().length<10||body.source.length>500||typeof body.allowDeferral!=='boolean')throw new ApiError('Confirma las reglas y el origen del orden antes de activar la elección');
-    let tieGroups=body.tieGroups??[];
-    if(d.config.previousScores){
-     const scores=d.config.previousScores;
-     if(d.members.some((m:any)=>!Object.hasOwn(scores,m.code)))throw new ApiError('Faltan puntuaciones anteriores: revisa las incorporaciones antes de activar');
-     const ordered=body.order.map((id:string)=>({id,score:scores[d.members.find((m:any)=>m.id===id).code]}));
-     if(ordered.some((m:any,i:number)=>i>0&&m.score<ordered[i-1].score))throw new ApiError('El orden debe respetar las puntuaciones anteriores');
-     const groups=new Map<number,string[]>();for(const m of ordered)groups.set(m.score,[...(groups.get(m.score)??[]),m.id]);
-     tieGroups=[...groups.values()].filter(g=>g.length>1);
-    }
-    state={status:'active',order:body.order,cursor:0,credits:{},source:body.source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:body.jointGroups??[]};validateElectionState(state,d.members);
+    if(!manage)throw new ApiError('Solo el responsable puede activar esta elección',403);
+    if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección admite entre uno y seis ciclos por persona');
+    if(state&&(d.awards.length||state.tieResolutions?.length))throw new ApiError('No cambies el orden después de comenzar a elegir');
+    if(body.rulesConfirmed!==true||typeof body.allowDeferral!=='boolean')throw new ApiError('Confirma las reglas de elección');
+    const scores=d.config.previousScores,source=d.config.previousScoresSource;
+    if(!scores||d.members.some((m:any)=>!Number.isFinite(scores[m.code]))||!d.members.length)throw new ApiError('Faltan puntuaciones anteriores: complétalas en Administración antes de activar');
+    if(typeof source!=='string'||source.trim().length<10)throw new ApiError('Indica y guarda el origen de las puntuaciones anteriores');
+    const order=[...d.members].sort((a:any,b:any)=>scores[a.code]-scores[b.code]).map((m:any)=>m.id);
+    const groups=new Map<number,string[]>();
+    for(const id of order){const m=d.members.find((candidate:any)=>candidate.id===id),score=scores[m.code];groups.set(score,[...(groups.get(score)??[]),id]);}
+    const tieGroups=[...groups.values()].filter(group=>group.length>1);
+    state={status:'active',order,cursor:0,credits:{},source:source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:[],jointAgreements:[]};validateElectionState(state,d.members);
    }else if(action==='resolve_tie'){
     if(!manage)throw new ApiError('Solo el responsable puede registrar el sorteo',403);
     if(!state)throw new ApiError('No hay una elección configurada');
@@ -121,6 +119,13 @@ export class ElectionService{
     if(!['random','external'].includes(body.method))throw new ApiError('Método de sorteo no válido');
     state=resolveTie(ctx,state,body.method==='random'?drawTie(group):body.order,body.method,this.actor.id!,new Date().toISOString());
     // The result must be visible and reviewable before an automatic choice uses it.
+   }else if(action==='register_joint'||action==='cancel_joint'){
+    if(!manage)throw new ApiError('Solo el responsable puede gestionar acuerdos de elección conjunta',403);
+    if(!state)throw new ApiError('No hay una elección activa');
+    const at=new Date().toISOString();
+    state=action==='register_joint'
+     ?registerJointAgreement(ctx,state,body.members,body.round,this.actor.id!,at)
+     :cancelJointAgreement(ctx,state,body.members,body.round,this.actor.id!,at);
    }else if(action==='choose'||action==='choose_joint'||action==='defer'){
     if(action==='choose_joint'){if(!manage)throw new ApiError('El turno conjunto requiere la confirmación del responsable',403);}else authorizeMember(body.memberId);if(!state)throw new ApiError('El administrador debe confirmar el orden de elección primero');
     if(action==='choose'){if(!Array.isArray(body.dates)||body.dates.some((v:any)=>typeof v!=='string'))throw new ApiError('Selección no válida');const next=choose(ctx,state,body.memberId,body.dates);state=next.state;choices=next.choices;}
@@ -197,7 +202,7 @@ export class ElectionService{
    used.add(slot);newRequests.push([crypto.randomUUID(),cid,a.member_id,slot,a.cycle_date,1]);
   }
   ops.push(...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
-  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{})}));
+  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
   await this.host.commit(ops);return {changed:true};
  }
 }

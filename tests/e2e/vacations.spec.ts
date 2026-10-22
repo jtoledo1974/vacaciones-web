@@ -5,7 +5,9 @@ const origin='http://127.0.0.1:5199';
 test('historial heredado: adjudicaciones tras sorteo y cuadro con destinatario sin fecha duplicada',async({page,request},info)=>{
  const source=await setup(request,page);
  const ids=source.data.members.map((m:any)=>m.id);
- await election(request,source.id,{action:'start',order:ids,tieGroups:[ids.slice(0,2)],jointGroups:[],source:'Orden ficticio para regresión de simulación heredada',rulesConfirmed:true,allowDeferral:true});
+ const config=source.data.config;
+ await post(request,'campaign/'+source.id,{action:'config',version:source.data.campaign.version,config:{...config,previousScores:{QA_A:10,QA_B:10,QA_C:30,QA_D:40},previousScoresSource:'Puntuaciones ficticias para regresión de simulación heredada'}});
+ await election(request,source.id,{action:'start',rulesConfirmed:true,allowDeferral:true});
  const base=await read(request,source.id);
  const clone=await post(request,'simulations/'+source.id,{name:'Historial heredado QA',version:base.campaign.version});
  await election(request,clone.id,{action:'resume'});
@@ -53,21 +55,26 @@ async function setup(api:APIRequestContext,page:Page){
   const clone=await post(api,'simulations/'+live.id,{name:'Playwright '+crypto.randomUUID().slice(0,8),version:baseline.campaign.version});
   let d=await read(api,clone.id);
   d=await post(api,'campaign/'+clone.id,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:['QA_A','QA_B','QA_C','QA_D'].map(code=>({code,label:'Ficticio '+code,seniority:''}))}});
-  return {id:clone.id,live,baseline,data:d};
+  d=await post(api,'campaign/'+clone.id,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:{QA_A:10,QA_B:20,QA_C:30,QA_D:40},previousScoresSource:'Puntuaciones de Playwright verificadas'}});
+   return {id:clone.id,live,baseline,data:d};
 }
 async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(id);await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();}
 async function activate(page:Page,ties=''){
-  await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
-  await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toHaveCount(0);
-  await page.getByText('Preparar el orden de elección',{exact:true}).click();
-  await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
-  if(ties)await page.getByLabel('Grupos empatados',{exact:true}).fill(ties);
-  await page.getByLabel('Origen del orden').fill('Orden ficticio de Playwright, sin uso operativo');
-  await page.getByLabel('Permitir uno o dos aplazamientos', {exact:false}).check();
-  await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1', {exact:false}).check();
-  await page.getByRole('button',{name:'Activar elección',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
+ const admin=page.locator('nav').getByRole('button',{name:'Administración',exact:true});
+ if(!await admin.isVisible())await page.getByRole('button',{name:'Abrir menú'}).click();
+ await admin.click();
+ if(ties){
+  for(const code of ties.split(',').map(s=>s.trim()))await page.getByLabel('Puntuación anterior de '+code).fill('20');
+  await page.getByRole('button',{name:'Guardar cambios'}).click();
+ }
+ await page.getByText('Activar elección',{exact:true}).first().click();
+ await page.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
+ await page.getByRole('button',{name:'Activar elección',exact:true}).click();
+ const vacations=page.locator('nav').getByRole('button',{name:'Vacaciones',exact:true});
+ if(!await vacations.isVisible())await page.getByRole('button',{name:'Abrir menú'}).click();
+ await vacations.click();
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
 async function confirm(page:Page,button:string){
@@ -453,12 +460,15 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
 test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola transacción',async({page,request})=>{
  const fixture=await setup(request,page),dates=fixture.data.result.cycles.map((c:any)=>c.date);
  await open(page,fixture.id);
- await page.getByText('Preparar el orden de elección',{exact:true}).click();
- await page.getByLabel('Orden confirmado',{exact:true}).fill('QA_A\nQA_B\nQA_C\nQA_D');
- await page.getByLabel('Turnos conjuntos').fill('QA_A, QA_C');
- await page.getByLabel('Origen del orden').fill('Sorteo y elección conjunta ficticios; Criterios 1.1 de 2025');
- await page.getByLabel('Confirmo la aplicación de Criterios Vacaciones 1.1').check();
- await page.getByRole('button',{name:'Activar elección'}).click();
+ await activate(page);
+ // Agree exceptionally during round 1, not as part of campaign preparation.
+ await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
+ const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
+ await expect(joint).toBeVisible();
+ await joint.getByRole('checkbox',{name:'QA_A'}).check();
+ await joint.getByRole('checkbox',{name:'QA_C'}).check();
+ await joint.getByRole('button',{name:'Registrar acuerdo'}).click();
  await expect(page.getByRole('heading',{name:'QA_B elige ahora'})).toBeVisible();
  await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
  await expect(page.getByRole('heading',{name:'QA_A + QA_C elige ahora'})).toBeVisible();
@@ -538,14 +548,16 @@ test('empate de tres: registrar orden externo pulsando nombres, persistir y rota
  await election(request,s.id,{action:'choose',memberId:s.data.members[0].id,dates:[s.data.result.cycles[4].date]});
  expect((await read(request,s.id)).election.turn.memberId).toBe(s.data.members[1].id);
  await page.reload();await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
- await expect(page.getByText('Empate · QA_D: 1.º de 3 · Orden de esta ronda: QA_D → QA_B → QA_C')).toBeVisible();
+ await expect(page.getByText('Empate a 20 puntos · QA_D: 1.º de 3 · Orden de esta ronda: QA_D → QA_B → QA_C')).toBeVisible();
  expect((await read(request,s.live.id)).campaign).toEqual(s.baseline.campaign);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
 });
 
 test('sorteo en la app guarda una permutación y no permite repetir',async({page,request})=>{
  const s=await setup(request,page);
- await election(request,s.id,{action:'start',order:s.data.members.map((m:any)=>m.id),tieGroups:[s.data.members.slice(0,3).map((m:any)=>m.id)],source:'Sorteo ficticio para Playwright',rulesConfirmed:true,allowDeferral:true});
+ const base=await read(request,s.id);
+  await post(request,'campaign/'+s.id,{action:'config',version:base.campaign.version,config:{...base.config,previousScores:{QA_A:10,QA_B:10,QA_C:10,QA_D:40},previousScoresSource:'Puntuaciones ficticias para sorteo'}});
+  await election(request,s.id,{action:'start',rulesConfirmed:true,allowDeferral:true});
  await open(page,s.id);await expect(page.getByRole('heading',{name:'Empate pendiente de sorteo'})).toBeVisible();
  await confirm(page,'Sortear y guardar orden');
  await expect(page.getByRole('heading',{name:'Empate pendiente de sorteo'})).toHaveCount(0);

@@ -14,6 +14,8 @@ export type ElectionState={
  tieResolutions?:{order:string[];method:'random'|'external';at:string;actor:string}[];
  // A joint turn is taken at the position of its last participant in each round.
  jointGroups?:string[][];
+ // Round-scoped administrative agreements; cancelled records remain in the audit.
+ jointAgreements?:{round:number;members:string[];actor:string;at:string;cancelledBy?:string;cancelledAt?:string}[];
 };
 export type Preference={member_id:string;dates:string[];automatic:boolean;persistent?:boolean;active?:boolean};
 // A one-turn list is consumed by a confirmed choice, not by a deferral.
@@ -56,6 +58,17 @@ export function validateElectionState(state:ElectionState,members:Member[]){
    }
   }
  }
+ if(state.jointAgreements!==undefined){
+  if(!Array.isArray(state.jointAgreements))throw new Error('Acuerdos de turno conjunto inválidos');
+  const perRound=new Map<number,Set<string>>();
+  for(const agreement of state.jointAgreements){
+   if(!Number.isInteger(agreement.round)||agreement.round<1||agreement.round>100||!Array.isArray(agreement.members)||agreement.members.length<2||agreement.members.length>3||new Set(agreement.members).size!==agreement.members.length||agreement.members.some(id=>!state.order.includes(id))||typeof agreement.actor!=='string'||typeof agreement.at!=='string'||(agreement.cancelledAt!==undefined&&typeof agreement.cancelledAt!=='string')||(agreement.cancelledBy!==undefined&&typeof agreement.cancelledBy!=='string'))throw new Error('Acuerdos de turno conjunto inválidos');
+   if(agreement.cancelledAt)continue;
+   const used=perRound.get(agreement.round)??new Set<string>();
+   if(agreement.members.some(id=>used.has(id)||(state.jointGroups??[]).some(g=>g.includes(id))))throw new Error('Controlador presente en más de un grupo conjunto');
+   agreement.members.forEach(id=>used.add(id));perRound.set(agreement.round,used);
+  }
+ }
  if(state.pendingTieGroups!==undefined&&(!Array.isArray(state.pendingTieGroups)||state.pendingTieGroups.some(group=>!Array.isArray(group)||!(state.tieGroups??[]).some(tie=>tie.length===group.length&&tie.every((id,i)=>id===group[i])))))throw new Error('Empates pendientes no válidos');
  if(state.tieResolutions!==undefined&&(!Array.isArray(state.tieResolutions)||state.tieResolutions.some(r=>!r||!['random','external'].includes(r.method)||typeof r.at!=='string'||typeof r.actor!=='string'||!Array.isArray(r.order)||r.order.length<2||new Set(r.order).size!==r.order.length||r.order.some(id=>!state.order.includes(id)))))throw new Error('Actas de sorteo no válidas');
 }
@@ -83,7 +96,7 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
   if(remaining===0){state.cursor++;continue;}
   const pendingTie=(state.pendingTieGroups??[]).find(group=>group.includes(id));
   if(pendingTie)return {state,memberId:null,needed:0,round:currentRound+1,participants:[] as string[],requiredByMember:{} as Record<string,number>,pendingTie};
-  const joint=(state.jointGroups??[]).find(g=>g.includes(id));
+  const joint=[...(state.jointGroups??[]),...(state.jointAgreements??[]).filter(a=>!a.cancelledAt&&a.round===currentRound+1).map(a=>a.members)].find(g=>g.includes(id));
   const participants=joint?inRound.filter(person=>joint.includes(person)&&count(ctx,person)<ctx.config.cyclesPerPerson):[id];
   if(participants[participants.length-1]!==id){state.cursor++;continue;}
   const requiredByMember=Object.fromEntries(participants.map(person=>[person,Math.min(1+(state.credits[person]??0),ctx.config.cyclesPerPerson-count(ctx,person))]));
@@ -101,6 +114,35 @@ export function resolveTie(ctx:ElectionContext,input:ElectionState,order:string[
  state.pendingTieGroups=state.pendingTieGroups!.filter(g=>!g.includes(group[0]));
  state.tieResolutions=[...(state.tieResolutions??[]),{order:[...order],method,actor,at}];
  validateElectionState(state,ctx.members);return state;
+}
+
+/** Register a temporary joint turn without consuming a choice or altering earlier rounds. */
+export function registerJointAgreement(ctx:ElectionContext,input:ElectionState,members:string[],round:number,actor:string,at:string):ElectionState{
+ const turn=currentTurn(ctx,input),state=turn.state,n=state.order.length,currentRound=Math.floor(state.cursor/n)+1;
+ if(state.status!=='active')throw new Error('La elección no está activa');
+ if(!Array.isArray(members)||members.length<2||members.length>3||new Set(members).size!==members.length||members.some(id=>!state.order.includes(id)))throw new Error('Selecciona dos o tres controladores diferentes');
+ if(!Number.isInteger(round)||round<currentRound||round>ctx.config.cyclesPerPerson)throw new Error('Solo pueden acordarse turnos de la ronda actual o una futura');
+ if(members.some(id=>count(ctx,id)>=ctx.config.cyclesPerPerson))throw new Error('Hay controladores que ya han terminado sus ciclos');
+ if(members.some(id=>(state.pendingTieGroups??[]).some(t=>t.includes(id))))throw new Error('Resuelve el empate antes de agrupar a sus integrantes');
+ const ordered=orderForRound(state,round-1),first=Math.min(...members.map(id=>ordered.indexOf(id)));
+ if(round===currentRound&&first<state.cursor%n)throw new Error('El primer turno del grupo ya ha pasado en esta ronda');
+ const all=[...(state.jointGroups??[]),...(state.jointAgreements??[]).filter(a=>a.round===round&&!a.cancelledAt).map(a=>a.members)];
+ if(all.some(g=>g.some(id=>members.includes(id))))throw new Error('Algún controlador ya pertenece a otro turno conjunto de esta ronda');
+ state.jointAgreements=[...(state.jointAgreements??[]),{round,members:ordered.filter(id=>members.includes(id)),actor,at}];
+ validateElectionState(state,ctx.members);
+ return state;
+}
+/** Cancel only before the first participant's effective slot has been passed. */
+export function cancelJointAgreement(ctx:ElectionContext,input:ElectionState,members:string[],round:number,actor:string,at:string):ElectionState{
+ const state=structuredClone(input);validateElectionState(state,ctx.members);const n=state.order.length;
+ if(state.status!=='active')throw new Error('La elección no está activa');
+ const agreement=state.jointAgreements?.find(a=>a.round===round&&!a.cancelledAt&&a.members.length===members.length&&a.members.every(id=>members.includes(id)));
+ if(!agreement)throw new Error('No existe ese acuerdo activo');
+ const ordered=orderForRound(state,round-1),first=Math.min(...members.map(id=>ordered.indexOf(id)));
+ if(round<Math.floor(state.cursor/n)+1||(round===Math.floor(state.cursor/n)+1&&first<state.cursor%n))throw new Error('El turno conjunto ya ha empezado; utiliza reconstrucción');
+ agreement.cancelledAt=at;agreement.cancelledBy=actor;
+ validateElectionState(state,ctx.members);
+ return state;
 }
 
 // Unbiased Fisher–Yates, with rejection sampling of cryptographically random integers.

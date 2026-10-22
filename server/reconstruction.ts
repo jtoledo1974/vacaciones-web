@@ -1,4 +1,4 @@
-import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,resolveTie,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
+import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,resolveTie,registerJointAgreement,cancelJointAgreement,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -6,7 +6,7 @@ import {ApiError} from './errors.ts';
 
 type Snapshot={format?:string;state:ElectionState|null;preferences:Preference[];awards:any[];requests:any[]};
 type Historical={id:string;action:string;before:Snapshot;after:any;round:number;participants:string[];memberId:string|null};
-type Applied={before:Snapshot;usedId:string|null;kind:string;dates?:string[];entries?:any[];order?:string[];actor:string;at:string};
+type Applied={before:Snapshot;usedId:string|null;kind:string;dates?:string[];entries?:any[];order?:string[];agreementIds?:string[];actor:string;at:string};
 type Session={status:'active'|'review'|'completed';startedBy:string;startedAt:string;targetId:string;targetCursor:number;keepCount:number;origin:Snapshot;originalEvents:Historical[];originalAuditIds:string[];applied:Applied[];undone:Applied[];completedAt?:string;impact?:any[]};
 type Host={load:(cid:string)=>Promise<any>;commit:(statements:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const ctx=(d:any,awards=d.awards,requests=d.requests):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,awards,requests});
@@ -29,7 +29,7 @@ function restore(cid:string,s:Snapshot):Statement[]{
  ];
 }
 function sameList(a:Preference,b:Preference){return JSON.stringify([a.dates,a.persistent===true])===JSON.stringify([b.dates,b.persistent===true]);}
-const isDecision=(action:string)=>['choose','choose_joint','defer','advance','resolve_tie','reconstruction_step'].includes(action);
+const isDecision=(action:string)=>['choose','choose_joint','defer','advance','resolve_tie','reconstruction_step','register_joint','cancel_joint'].includes(action);
 export function appliedAudit(rows:any[]){
  const done:any[]=[],redo:{original:any;undo:any}[]=[];
  const byId=new Map(rows.map(row=>[row.id,row]));
@@ -65,7 +65,7 @@ function historical(d:any,row:any):Historical|null{
  if(before.format!=='election-undo-v1'||!before.state)return null;
  let turn;try{turn=currentTurn(ctx(d,before.awards,before.requests),before.state);}catch{return null;}
  const after=JSON.parse(row.after_json??'{}');
- return {id:row.id,action:row.action,before,after,round:turn.round,participants:turn.pendingTie??turn.participants,memberId:turn.memberId};
+ return {id:row.id,action:row.action,before,after,round:after?.joint?.round??turn.round,participants:after?.joint?.members??turn.pendingTie??turn.participants,memberId:['register_joint','cancel_joint'].includes(row.action)?null:turn.memberId};
 }
 export class ReconstructionService{
  constructor(private repo:Repository,private actor:Principal,private host:Host){}
@@ -78,13 +78,27 @@ export class ReconstructionService{
  async candidates(d:any){
   const rows=await this.auditRows(d.campaign.id),current=appliedAudit(rows);
   const currentIds=new Set(current.done.map(row=>row.id));
-  return rows.map(row=>historical(d,row)).filter((entry):entry is Historical=>!!entry).map(entry=>({
+  return rows.map(row=>historical(d,row)).filter((entry):entry is Historical=>!!entry&&!['register_joint','cancel_joint'].includes(entry.action)).map(entry=>({
    id:entry.id,action:entry.action,round:entry.round,memberIds:entry.participants,choices:entry.after.choices??[],cursor:entry.before.state?.cursor??0,archived:!currentIds.has(entry.id)
   })).reverse();
  }
  private pick(d:any,s:Session,state:ElectionState,awards:any[],requests:any[]){
-  const turn=currentTurn(ctx(d,awards,requests),state);
-  const original=s.originalEvents.find(e=>!s.applied.some(a=>a.usedId===e.id)&&e.round===turn.round&&
+  // Replay round-scoped agreements at their original point in the cursor history.
+  // The dry-run also drives the preview, so it matches what the next step commits.
+  const used=new Set(s.applied.flatMap(step=>step.agreementIds??[]));
+  let working=structuredClone(state);const agreementIds:string[]=[];
+  for(const event of s.originalEvents){
+   if(!['register_joint','cancel_joint'].includes(event.action)||used.has(event.id)||!event.before.state||event.before.state.cursor>working.cursor)continue;
+   const agreement=event.after?.joint;
+   if(!agreement)continue;
+   const context=ctx(d,awards,requests);
+   working=event.action==='register_joint'
+    ?registerJointAgreement(context,working,agreement.members,agreement.round,event.after.actor??s.startedBy,event.after.at??new Date().toISOString())
+    :cancelJointAgreement(context,working,agreement.members,agreement.round,event.after.actor??s.startedBy,event.after.at??new Date().toISOString());
+   agreementIds.push(event.id);
+  }
+  const turn=currentTurn(ctx(d,awards,requests),working);
+  const original=s.originalEvents.find(e=>!['register_joint','cancel_joint'].includes(e.action)&&!s.applied.some(a=>a.usedId===e.id)&&e.round===turn.round&&
    (turn.pendingTie?e.action==='resolve_tie'&&e.participants.length===turn.pendingTie.length&&turn.pendingTie.every((id:string)=>e.participants.includes(id)):e.memberId===turn.memberId&&e.participants.length===turn.participants.length&&turn.participants.every((id:string)=>e.participants.includes(id))));
   const historicalPreferences=original?.before.preferences.filter(p=>turn.participants.includes(p.member_id))??[];
   const first=turn.participants.length===1&&turn.memberId&&historicalPreferences.length?preferredChoice(ctx(d,awards,requests),{...turn.state,automaticPaused:false},historicalPreferences.map(p=>({...p,active:true}))):null;
@@ -96,7 +110,7 @@ export class ReconstructionService{
   else if(original&&turn.participants.length>1)canOriginal=originalEntries.every((entry:any)=>entry.dates.length===turn.requiredByMember[entry.member_id]&&!choiceIssues(ctx(d,awards,requests),entry.member_id,entry.dates).length);
   else if(original&&turn.memberId)canOriginal=originalEntries[0]?.dates.length===turn.needed&&!choiceIssues(ctx(d,awards,requests),turn.memberId,originalEntries[0].dates).length;
   const available=turn.participants.length===1&&turn.memberId?calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,requests,awards).cycles.filter(c=>!choiceIssues(ctx(d,awards,requests),turn.memberId!,[c.date]).length).map(c=>c.date):[];
-  return {turn,original,first,originalEntries,canOriginal,available,historicalPreferences};
+  return {turn,original,first,originalEntries,canOriginal,available,historicalPreferences,workingState:working,agreementIds};
  }
  private impact(d:any,s:Session,awards:any[],requests:any[]){
   const base=ctx(d,s.origin.awards,s.origin.requests),now=ctx(d,awards,requests);
@@ -119,7 +133,7 @@ export class ReconstructionService{
   if(!s)return {active:false,candidates};
   const active=s.status!=='completed',state=raw.state;
   const pick=active&&state?this.pick(d,s,state,d.awards,d.requests):null;
-  return {active,status:s.status,candidates:s.status==='completed'?candidates:[],progress:s.applied.length,total:s.originalEvents.length,startedAt:s.startedAt,startedBy:s.startedBy,targetId:s.targetId,
+  return {active,status:s.status,candidates:s.status==='completed'?candidates:[],progress:s.applied.length,total:s.originalEvents.filter(e=>!['register_joint','cancel_joint'].includes(e.action)).length,startedAt:s.startedAt,startedBy:s.startedBy,targetId:s.targetId,
    targetCursor:s.targetCursor,canFinish:s.status==='review',canBack:s.applied.length>0,canForward:s.undone.length>0,
    original:s.origin.awards.map(a=>({memberId:a.member_id,date:a.cycle_date})),
    current:pick?{round:pick.turn.round,memberId:pick.turn.memberId,participants:pick.turn.participants,needed:pick.turn.needed,pendingTie:pick.turn.pendingTie??null,requiredByMember:pick.turn.requiredByMember,
@@ -194,7 +208,7 @@ export class ReconstructionService{
   if(s.status==='review')throw new ApiError('La secuencia está reconstruida. Finaliza o deshaz el último paso.');
   if(!raw.state)throw new ApiError('No existe estado de elección');
   const pick=this.pick(d,s,raw.state,d.awards,d.requests);
-  const {turn,original,first,originalEntries}=pick;
+  const {turn,original,first,originalEntries,agreementIds}=pick;
   const redo=action==='reconstruction_forward'?s.undone.at(-1):null;
   if(action==='reconstruction_forward'&&!redo)throw new ApiError('No hay decisiones para rehacer');
   const kind=redo?.kind??body.kind;
@@ -210,7 +224,7 @@ export class ReconstructionService{
    else if(turn.participants.length>1)entries=originalEntries;
    else dates=originalEntries[0]?.dates;
   }
-  let state:ElectionState=raw.state,choices:{member_id:string;cycle_date:string}[]=[];
+  let state:ElectionState=pick.workingState,choices:{member_id:string;cycle_date:string}[]=[];
   try{
    const context=ctx(d);
    if(kind==='defer'){if(!turn.memberId||turn.participants.length!==1)throw new Error('No corresponde aplazar ahora');state=defer(context,state,turn.memberId);}
@@ -242,7 +256,7 @@ export class ReconstructionService{
    slots.add(slot);newRequests.push([crypto.randomUUID(),cid,a.member_id,slot,a.cycle_date,1]);
   }
   const usedId=original?.id??null;
-  s.applied.push({before,usedId,kind,dates:kind==='choose'?dates:undefined,entries:kind==='choose_joint'?entries:undefined,order:kind==='resolve_tie'?order:undefined,actor:this.actor.id!,at:new Date().toISOString()});
+  s.applied.push({before,usedId,kind,agreementIds,dates:kind==='choose'?dates:undefined,entries:kind==='choose_joint'?entries:undefined,order:kind==='resolve_tie'?order:undefined,actor:this.actor.id!,at:new Date().toISOString()});
   if(redo)s.undone.pop();else s.undone=[];
   if(state.status==='complete'||state.cursor>=s.targetCursor)s.status='review';
   // A chosen historic preference is never applied automatically: the administrator

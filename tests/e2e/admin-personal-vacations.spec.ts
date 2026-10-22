@@ -82,7 +82,10 @@ test('la misma cuenta ChatGPT administra, guarda sus preferencias y elige vacaci
    dates:[date],automatic:true,
   });
 
-  const started=await election(request,cloned.id,{
+  const scored=await read(request,cloned.id);
+   const order=[own,...simulation.members.filter((m:any)=>m.id!==own.id)];
+   await post(request,'campaign/'+cloned.id,{action:'config',version:scored.campaign.version,config:{...scored.config,previousScores:Object.fromEntries(order.map((m:any,i:number)=>[m.code,10+i*10])),previousScoresSource:'Puntuaciones ficticias para roles duplicados'}});
+   const started=await election(request,cloned.id,{
    action:'start',order:[own.id,...simulation.members.filter((m:any)=>m.id!==own.id).map((m:any)=>m.id)],
    source:'Orden ficticio para probar la doble función',rulesConfirmed:true,allowDeferral:false,
   });

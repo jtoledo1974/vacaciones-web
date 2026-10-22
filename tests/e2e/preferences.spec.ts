@@ -13,7 +13,8 @@ async function fixture(api:APIRequestContext,page:Page){
  const clone=await post(api,'simulations/'+live.id,{name:'Preferencias QA '+crypto.randomUUID().slice(0,8),version:baseline.campaign.version});
  let data=await read(api,clone.id);
  data=await post(api,'campaign/'+clone.id,{action:'import_roster',version:data.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:['QA_A','QA_B','QA_C','QA_D'].map(code=>({code,label:'Ficticio '+code,seniority:''}))}});
- await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(clone.id);
+ data=await post(api,'campaign/'+clone.id,{action:'config',version:data.campaign.version,config:{...data.config,previousScores:{QA_A:10,QA_B:20,QA_C:30,QA_D:40},previousScoresSource:'Puntuaciones verificadas del ensayo'}});
+  await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(clone.id);
  await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();
  await page.getByRole('button',{name:'Preferencias',exact:true}).click();
  return {id:clone.id,data,live,baseline};

@@ -2,58 +2,31 @@
 import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {useConfirmation} from './confirmation';
-import {newcomerScore} from '../domain/historical-order';
 import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 
-function NewcomerCalculator(){
- const [completed,setCompleted]=useState(''),[roundAverages,setRoundAverages]=useState(''),[message,setMessage]=useState('');
- const calculateScore=()=>{
-  try{
-   const values=(raw:string)=>raw.trim()?raw.split(/[;,\n]/).map(s=>Number(s.trim())):[];
-   const points=values(completed),means=values(roundAverages);
-   if(points.length>6||means.length!==6||[...points,...means].some(n=>!Number.isFinite(n)))throw new Error('Introduce de 0 a 6 ciclos disfrutados y seis medias del equipo por ronda');
-   const source=newcomerScore(points.map((points,idx)=>({round:idx+1,points})),means.map(n=>[n]));
-   setMessage('Puntuación según criterios 1.1: '+source.score.toLocaleString('es-ES')+' puntos. Confirmar datos originales antes de situarlo en el orden.');
-  }catch(e:any){setMessage(e.message);}
- };
- return <details className="panel"><summary>Calculadora para nuevas incorporaciones</summary>
- <p>Normas, página 3. Introduce los puntos de los ciclos completos disfrutados por el nuevo CTA y la media de puntos de cada una de las seis rondas del equipo. Calcula la puntuación para introducirlo en el orden; no altera automáticamente la clasificación.</p>
- <label>Puntos de ciclos disfrutados (entre 0 y 6, separados por comas)<textarea aria-label="Ciclos disfrutados por nuevo CTA" rows={2} placeholder="40, 56, 80, 32" value={completed} onChange={e=>setCompleted(e.target.value)}/></label>
- <label>Media de puntos del equipo, rondas 1 a 6<textarea aria-label="Medias por ronda del equipo" rows={2} placeholder="40, 50, 60, 65, 38, 35" value={roundAverages} onChange={e=>setRoundAverages(e.target.value)}/></label>
- <button type="button" className="secondary" onClick={calculateScore}>Calcular puntuación del nuevo CTA</button>
- {message&&<p role="status">{message}</p>}
- </details>;
-}
-function OrderSetup({data,busy,act}:any){
- const scores=data.config?.previousScores;
- const initial=scores?[...data.members].sort((a:any,b:any)=>(scores[a.code]??Infinity)-(scores[b.code]??Infinity)):[];
- const initialGroups=new Map<number,string[]>();for(const m of initial){if(Number.isFinite(scores[m.code]))initialGroups.set(scores[m.code],[...(initialGroups.get(scores[m.code])??[]),m.code]);}
- const [order,setOrder]=useState(initial.map((m:any)=>m.code).join('\n')),[ties,setTies]=useState([...initialGroups.values()].filter(g=>g.length>1).map(g=>g.join(', ')).join('\n')),[joints,setJoints]=useState(''),[source,setSource]=useState(data.config?.previousScoresSource??''),[confirmed,setConfirmed]=useState(false),[deferral,setDeferral]=useState(true),[error,setError]=useState('');
- const parseGroups=(raw:string)=>raw.split(/\n/).map(line=>line.split(/[,;]/).map(code=>code.trim().toUpperCase()).filter(Boolean)).filter(group=>group.length>0);
- const save=(e:any)=>{
-  e.preventDefault();
-  const codes=order.split(/[\n,;]/).map(code=>code.trim().toUpperCase()).filter(Boolean);
-  const lookup=(code:string)=>data.members.find((m:any)=>m.code===code)?.id;
-  const ids=codes.map(lookup),tieGroups=parseGroups(ties).map(g=>g.map(lookup)),jointGroups=parseGroups(joints).map(g=>g.map(lookup));
-  if(ids.some(id=>!id)||[...tieGroups,...jointGroups].some(g=>g.some(id=>!id))){setError('Hay identificadores que no pertenecen al equipo');return;}
-  setError('');
-  act({action:'start',order:ids,tieGroups,jointGroups,source,rulesConfirmed:confirmed,allowDeferral:deferral},'Orden confirmado y elección activada');
- };
- return <details className="panel"><summary>Preparar el orden de elección</summary><p>Conforme a Criterios Vacaciones 1.1 (2025): orden de menor a mayor puntuación anterior, resolución del sorteo antes del primer turno de cada grupo empatado y rotación de estos en cada ronda. Los turnos conjuntos se realizan cuando llega el último integrante del grupo.</p>
- {scores&&<p>Orden preparado a partir de las puntuaciones anteriores guardadas. Los empates se resolverán cuando llegue su primer turno.</p>}
- <form onSubmit={save}>
- {error&&<p role="alert">{error}</p>}
- <label>Identificadores por puntuación anterior (uno por línea; orden provisional dentro de los empates)<textarea required aria-label="Orden confirmado" value={order} onChange={e=>setOrder(e.target.value)} rows={6}/></label>
- <label>Grupos empatados pendientes de sorteo (un grupo consecutivo por línea)<textarea aria-label="Grupos empatados" value={ties} onChange={e=>setTies(e.target.value)} rows={3} placeholder="AA, BB, CC"/></label>
- <label>Turnos conjuntos acordados (opcional; dos o tres CTA por línea)<textarea aria-label="Turnos conjuntos" value={joints} onChange={e=>setJoints(e.target.value)} rows={3} placeholder="DD, EE"/></label>
- <NewcomerCalculator/><label>Origen del orden y sorteo<input required minLength={10} maxLength={500} value={source} onChange={e=>setSource(e.target.value)} placeholder="Ejercicio anterior, puntuaciones y acta del sorteo"/></label>
+export function ActivationPanel({data,busy,act}:any){
+ if(data.election.state)return null;
+ const scores=data.config?.previousScores,source=data.config?.previousScoresSource??'';
+ const ranked=scores?[...data.members].sort((a:any,b:any)=>Number(scores[a.code]??Infinity)-Number(scores[b.code]??Infinity)):[];
+ const complete=ranked.length>0&&ranked.every((m:any)=>Number.isFinite(scores[m.code]))&&source.trim().length>=10;
+ const tieCounts=new Map<number,number>();
+ if(complete)for(const m of ranked)tieCounts.set(scores[m.code],(tieCounts.get(scores[m.code])??0)+1);
+ const ties=[...tieCounts.values()].filter(n=>n>1);
+ const [confirmed,setConfirmed]=useState(false),[deferral,setDeferral]=useState(true);
+ return <details className="panel"><summary>Activar elección</summary>
+ <p>El orden se calcula automáticamente a partir de las puntuaciones del año anterior; los empates se sortean cuando corresponda y los turnos conjuntos se acuerdan durante la elección.</p>
+ <p><strong>Puntuaciones:</strong> {ranked.filter((m:any)=>Number.isFinite(scores?.[m.code])).length}/{data.members.length} · <strong>Grupos empatados:</strong> {ties.length} · <strong>Procedencia:</strong> {source||'Pendiente'}</p>
+ {!complete?<p role="alert" className="alert warning">Faltan puntuaciones o su procedencia. Complétalas en Administración → Plantilla del equipo antes de activar.</p>:
+ <details><summary>Ver orden calculado (solo lectura)</summary><ol>{ranked.map((m:any)=><li key={m.id}>{m.code}: {scores[m.code]} puntos</li>)}</ol></details>}
  <div className="team-checkboxes">
- <label><input type="checkbox" checked={deferral} onChange={e=>setDeferral(e.target.checked)}/> Permitir uno o dos aplazamientos (dos o tres ciclos en el siguiente turno)</label>
- <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Confirmo la aplicación de Criterios Vacaciones 1.1 (2025)</label>
- </div><button className="primary" disabled={busy||!confirmed}>Activar elección</button></form></details>;
+ <label><input type="checkbox" checked={deferral} onChange={e=>setDeferral(e.target.checked)}/> Permitir uno o dos aplazamientos</label>
+ <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Confirmo Criterios Vacaciones 1.1 (2025) y las puntuaciones</label>
+ </div>
+ <button type="button" className="primary" disabled={busy||!complete||!confirmed} onClick={()=>act({action:'start',rulesConfirmed:true,allowDeferral:deferral},'Puntuaciones confirmadas y elección activada')}>Activar elección</button>
+ </details>;
 }
 function TieResolver({group,data,busy,act,manage,open}:any){
  const confirm=useConfirmation(),[order,setOrder]=useState<string[]>([]);
@@ -74,6 +47,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
  const [historyLimit,setHistoryLimit]=useState(40);
+ const [jointOpen,setJointOpen]=useState(false),[jointMembers,setJointMembers]=useState<string[]>([]),[jointRound,setJointRound]=useState(0);
+
  const cycleNumbers=numberTimelineCycles(election.timeline??[]);
  const [choosingReconstructionStart,setChoosingReconstructionStart]=useState(false);
  const [archivedTarget,setArchivedTarget]=useState('');
@@ -163,14 +138,39 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode==='choose'||await leavePreferences()){setMode('choose');setDetail(null);}}}>Calendario</button>
      <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>Preferencias</button>
     </div>}
-    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
+    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
      {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
+     {manage&&state?.status==='active'&&<button type="button" className="secondary" onClick={()=>{setJointRound(turn?.round??1);setJointMembers([]);setJointOpen(true);}}>Gestionar turnos conjuntos…</button>}
      {superuser&&state&&state.status!=='complete'&&<button type="button" className="secondary" disabled={busy||!open} onClick={()=>act({action:state.status==='active'?'pause':'resume'},state.status==='active'?'Elección pausada':'Elección reanudada')}>{state.status==='active'?'Pausar elección':'Reanudar elección'}</button>}
     </div></details>}
    </div>
   </section>}
-  {!frozen&&mode==='choose'&&manage&&open&&(!state||state.status==='paused')&&<div id="preparar-eleccion"><OrderSetup key={data.campaign.id+JSON.stringify(data.config?.previousScores)} data={data} busy={busy} act={act}/></div>}
-  {!frozen&&turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
+  {jointOpen&&!frozen&&manage&&state?.status==='active'&&<section className="panel" aria-label="Gestionar turnos conjuntos">
+    <div className="section-head"><h2>Turnos conjuntos (excepcional)</h2><button type="button" className="secondary" onClick={()=>setJointOpen(false)}>Cerrar</button></div>
+    <p>Selecciona de 2 a 3 controladores para una ronda. Elegirán simultáneamente cuando llegue el último según el orden efectivo de esa ronda. El acuerdo no se repetirá automáticamente.</p>
+    <label>Ronda <select value={jointRound||turn?.round||1} onChange={e=>{setJointRound(Number(e.target.value));setJointMembers([]);}}>
+     {Array.from({length:data.config.cyclesPerPerson-(turn?.round??1)+1},(_,i)=>(turn?.round??1)+i).map(n=><option value={n} key={n}>{n}</option>)}
+    </select></label>
+    <div className="joint-agreement-list" style={{maxHeight:240,overflowY:'auto',display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(150px,1fr))',gap:8}}>
+    {orderForRound(state,(jointRound||turn?.round||1)-1).map((id:string,idx:number)=>{
+      const chosenRound=jointRound||turn?.round||1;
+      const alreadyPassed=chosenRound===turn?.round&&idx<state.cursor%state.order.length;
+      const finished=data.awards.filter((a:any)=>a.member_id===id).length>=data.config.cyclesPerPerson;
+      const tied=(state.pendingTieGroups??[]).some((g:string[])=>g.includes(id));
+      const grouped=(state.jointGroups??[]).some((g:string[])=>g.includes(id))||(state.jointAgreements??[]).some((g:any)=>!g.cancelledAt&&g.round===chosenRound&&g.members.includes(id));
+      const disabled=alreadyPassed||finished||tied||grouped||(jointMembers.length>=3&&!jointMembers.includes(id));
+      return <label key={id}><input type="checkbox" checked={jointMembers.includes(id)} disabled={disabled} onChange={e=>setJointMembers(prev=>e.target.checked?[...prev,id]:prev.filter(person=>person!==id))}/>{codeFor(id)}</label>;
+    })}
+    </div>
+    {jointMembers.length>=2&&<p><strong>Se elegiría al llegar a {codeFor(orderForRound(state,(jointRound||turn?.round||1)-1).filter((id:string)=>jointMembers.includes(id)).at(-1)??'')}.</strong> Participantes: {jointMembers.map(codeFor).join(' + ')}</p>}
+    <button type="button" className="primary" disabled={busy||previewReadOnly||jointMembers.length<2||jointMembers.length>3} onClick={async()=>{const result=await act({action:'register_joint',round:jointRound||turn?.round||1,members:jointMembers},'Turno conjunto registrado');if(result?.campaign){setJointOpen(false);setJointMembers([]);}}}>Registrar acuerdo</button>
+    {(state.jointAgreements??[]).filter((g:any)=>!g.cancelledAt&&g.round>=(turn?.round??1)).map((g:any,i:number)=><div key={i} className="button-row">
+      <span>Ronda {g.round}: {g.members.map(codeFor).join(' + ')}</span>
+      <button type="button" className="secondary" disabled={busy||g.round===(turn?.round??1)&&Math.min(...g.members.map((id:string)=>orderForRound(state,g.round-1).indexOf(id)))<state.cursor%state.order.length}
+        onClick={async()=>{if(await confirm('¿Anular este acuerdo antes de que se consuma el primer turno?'))act({action:'cancel_joint',round:g.round,members:g.members},'Acuerdo conjunto anulado');}}>Anular</button>
+    </div>)}
+   </section>}
+    {!frozen&&turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
   {manage&&!frozen&&state?.status==='active'&&state.automaticPaused&&<div className="alert warning" role="status">Los automatismos están detenidos por una operación administrativa. Puedes corregir el turno manualmente; no se adjudicará de nuevo por sorpresa. <button type="button" className="secondary" disabled={busy||!open} onClick={async()=>{if(await confirm('¿Reanudar los automatismos? Las preferencias vigentes podrían adjudicar inmediatamente los siguientes turnos.'))act({action:'resume_automatic'},'Automatismos reanudados');}}>Reanudar automatismos</button></div>}
   {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open||previewReadOnly} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
 {mode==='choose'&&<div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0} ciclos · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>}
@@ -229,11 +229,12 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      {(election.timeline??[]).length?<>
       <ol className="election-log">{(election.timeline??[]).slice(0,historyLimit).map((event:any)=>{
        const code=(id:string)=>data.members.find((m:any)=>m.id===id)?.code??'?';
-       const title=event.kind==='tie'?'Sorteo de empate':event.kind==='defer'?code(event.memberIds[0])+' — Aplazamiento':event.memberIds.map(code).join(' + ');
+       const title=event.kind==='tie'?'Sorteo de empate':event.kind==='joint'?(event.jointAction==='register_joint'?'Acuerdo de turno conjunto':'Anulación de turno conjunto'):event.kind==='defer'?code(event.memberIds[0])+' — Aplazamiento':event.memberIds.map(code).join(' + ');
        return <li key={event.id}><div className="election-log-entry">
         <div className="election-log-title"><b>{title}</b>{event.round&&<span>Ronda {event.round}</span>}</div>
         {event.kind==='tie'&&<p className="election-log-note">{event.method==='random'?'Sorteo realizado en la aplicación':'Sorteo externo registrado'} · Orden inicial: {(event.order??[]).map(code).join(' → ')}</p>}
         {event.kind==='defer'&&<p className="election-log-note">Turno aplazado, sin adjudicación. Acumula un ciclo para la siguiente ronda.</p>}
+        {event.kind==='joint'&&<p className="election-log-note">{event.memberIds.map(code).join(' + ')} · {event.jointAction==='register_joint'?'Elegirán cuando llegue el último participante de la ronda':'Acuerdo anulado antes de consumir turnos'}.</p>}
         {(event.kind==='choice'||event.kind==='legacy')&&<>
          {event.choices.map((choice:any,index:number)=>{
           const cycle=data.result.cycles.find((c:any)=>c.date===choice.cycle_date);
