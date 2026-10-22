@@ -21,6 +21,10 @@ export function visiblePreferenceDates(dates:string[],cycles:{date:string;occupi
  const byDate=new Map(cycles.map(c=>[c.date,c]));
  return dates.filter(date=>{const cycle=byDate.get(date);return !!cycle&&(cycle.available??cycle.occupied<cycle.max);});
 }
+export function togglePreferenceDate(dates:string[],date:string,available:boolean):string[]{
+ if(dates.includes(date))return dates.filter(d=>d!==date);
+ return available?[...dates,date]:dates;
+}
 export function consumePreferences(preferences:Preference[],memberIds:string[]):Preference[]{
  const consumed=new Set(memberIds);
  return preferences.map(p=>consumed.has(p.member_id)&&!p.persistent?{...p,active:false}:p);
