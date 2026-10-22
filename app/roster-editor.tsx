@@ -7,6 +7,7 @@ import {
   DropdownMenuSubContent,DropdownMenuSubTrigger,DropdownMenuTrigger,DropdownMenuPortal,
 } from '../components/ui/dropdown-menu';
 import {useConfirmation} from './confirmation';
+import {withoutBlankNewRosterRows} from './roster-rows';
 
 type Provider = ''|'chatgpt'|'firebase';
 type Row = {
@@ -50,17 +51,19 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
   const [scoreSource,setScoreSource]=useState(data.config?.previousScoresSource??'');
   const [error,setError]=useState('');
   const original=initialRows(data);
+  const savedRows=withoutBlankNewRosterRows(rows);
+  const hasBlankNewRows=savedRows.length!==rows.length;
   const byId=new Map(original.map(row=>[row.memberId,row]));
-  const rosterDirty=rows.length!==original.length||rows.some((r,i)=>{
+  const rosterDirty=savedRows.length!==original.length||savedRows.some((r,i)=>{
     const m=original[i];
     return !m||r.memberId!==m.memberId||r.code!==m.code||r.label!==m.label||r.seniority!==m.seniority;
   });
-  const changedAccounts:AccountChange[]=live&&manageAccounts?rows.filter(r=>{
+  const changedAccounts:AccountChange[]=live&&manageAccounts?savedRows.filter(r=>{
     const previous=r.memberId?byId.get(r.memberId):undefined;
     return accountKey(r)!==accountKey(previous??{provider:'',subject:''});
   }).map(({memberId,code,provider,subject,accountVersion})=>({memberId,code,provider,subject,accountVersion})):[];
-  const scoresDirty=rows.length!==original.length||rows.some((r,i)=>r.previousScore!==original[i]?.previousScore||r.code!==original[i]?.code)||scoreSource!==(data.config?.previousScoresSource??'');
-  const dirty=rosterDirty||scoresDirty||changedAccounts.length>0;
+  const scoresDirty=savedRows.length!==original.length||savedRows.some((r,i)=>r.previousScore!==original[i]?.previousScore||r.code!==original[i]?.code)||scoreSource!==(data.config?.previousScoresSource??'');
+  const dirty=hasBlankNewRows||rosterDirty||scoresDirty||changedAccounts.length>0;
   const targetTeams=(teams??[]).filter((t:any)=>t.team_id!==data.campaign.team_id&&t.status==='open'&&t.year===data.campaign.year);
   const locked=busy||readOnly;
 
@@ -99,7 +102,10 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
   }
   function saveChanges() {
     setError('');
-    for(const r of rows){
+    // Discard only completely blank, unsaved rows; persisted members always remain.
+    if(hasBlankNewRows)setRows(savedRows);
+    if(!rosterDirty&&!scoresDirty&&!changedAccounts.length)return;
+    for(const r of savedRows){
       if(r.subject.trim()&&!r.provider){setError('Selecciona un sistema de autenticación para '+r.code);return;}
       if(r.subject.trim()&&r.provider==='chatgpt'&&(!/^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(r.subject.trim())||r.subject.trim().length>250)){
         setError('Introduce un correo electrónico válido para '+r.code+'.');return;
@@ -109,14 +115,14 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
       }
     }
     const previousScores:Record<string,number>={};
-    for(const row of rows){
+    for(const row of savedRows){
       if(!row.previousScore.trim())continue;
       const score=Number(row.previousScore.trim().replace(',','.'));
       if(!Number.isFinite(score)||score<0||score>10000){setError('Puntuación anterior no válida para '+row.code);return;}
       previousScores[row.code.trim().toUpperCase()]=score;
     }
     if(Object.keys(previousScores).length&&scoreSource.trim().length<10){setError('Indica el origen de las puntuaciones (mínimo 10 caracteres).');return;}
-    void save(rows.map(({memberId,code,label,seniority})=>({memberId,code,label,seniority})),changedAccounts,rosterDirty,scoresDirty,previousScores,scoreSource.trim());
+    void save(savedRows.map(({memberId,code,label,seniority})=>({memberId,code,label,seniority})),changedAccounts,rosterDirty,scoresDirty,previousScores,scoreSource.trim());
   }
   async function removeMember(r:Row) {
     if(await confirm('¿Dar de baja a '+r.code+' del equipo '+data.campaign.team_id+', ejercicio '+data.campaign.year+'? Los demás ejercicios se conservan.')){
@@ -132,9 +138,9 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
   return <section className="panel roster-panel">
     <div className="section-head roster-heading">
       <div><h2>Plantilla del equipo {data.campaign.team_id}</h2>
-        <p>{data.campaign.year} · Un registro por controlador. Los cambios de plantilla se aplican solo a este ejercicio.</p>
+        <p>{data.campaign.year} · Un registro por controlador. Los cambios de plantilla se aplican solo a este ejercicio. Las filas nuevas vacías se descartan al guardar.</p>
       </div>
-      <span className="tag">{rows.length} controladores</span>
+      <span className="tag">{savedRows.length} controladores</span>
     </div>
     {error&&<div className="alert error" role="alert">{error}</div>}
     <div className="table-wrap roster-table-wrap"><table className="roster-table">
@@ -166,7 +172,7 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
       </tr>)}</tbody></table></div>
     {!readOnly&&<>
       <label>Origen de las puntuaciones de {data.campaign.year-1}<input type="text" maxLength={500} value={scoreSource} onChange={e=>setScoreSource(e.target.value)} placeholder="Responsable, fecha y procedencia" disabled={locked}/></label>
-      <p className="muted">{rows.filter(r=>r.previousScore.trim()).length}/{rows.length} puntuaciones registradas. No se puede activar la elección mientras falte alguna.</p>
+      <p className="muted">{savedRows.filter(r=>r.previousScore.trim()).length}/{savedRows.length} puntuaciones registradas. No se puede activar la elección mientras falte alguna.</p>
       <div className="button-row roster-toolbar">
         <button className="primary" disabled={busy||!dirty} onClick={saveChanges}>Guardar cambios{changedAccounts.length>0?' (incluye accesos)':''}</button>
         <button className="secondary" disabled={busy} onClick={()=>setRows(current=>[...current,emptyRow()])}>Añadir fila</button>

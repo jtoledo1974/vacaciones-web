@@ -32,8 +32,11 @@ jobs:
   browser:
     name: Playwright desktop and mobile
     needs: checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Ubuntu runners ship Chrome; avoid network-dependent apt installs.
+      PLAYWRIGHT_CHANNEL: chrome
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -41,8 +44,8 @@ jobs:
           node-version: '24'
       - run: npm install --global pnpm@11.25.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      - run: google-chrome --version
+      - run: pnpm exec playwright test --max-failures=1
 
 # Detailed errors remain in the Actions logs. Do not upload Playwright
 # screenshots/traces by default: the repository's artifact quota is limited.
