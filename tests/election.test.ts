@@ -45,3 +45,35 @@ test('ciclos copados desaparecen sin perder su prioridad y reaparecen tras undo'
  cycles[1].occupied=1;
  assert.deepEqual(visiblePreferenceDates(dates,cycles),dates);
 });
+
+
+test('preferencias muestran cupos dinámicos disponibles incluso con ocupación 2/2',()=>{
+ const dates=['2026-01-01','2026-01-09','2026-01-17'];
+ const cycles=[{date:dates[0],occupied:2,max:2,available:true},{date:dates[1],occupied:2,max:2,available:false},{date:dates[2],occupied:3,max:3,available:false}];
+ assert.deepEqual(visiblePreferenceDates(dates,cycles),[dates[0]]);
+});
+
+test('elección doble aplazada rechaza atómicamente ciclo lleno, sin modificar el estado',()=>{
+ const {ctx,state,dates}=fixture();
+ const postponed=defer(ctx,state,'B');
+ const turn={...postponed,cursor:3};
+ const before=structuredClone(turn);
+ ctx.awards=[{id:'x',member_id:'A',cycle_date:dates[0]},{id:'y',member_id:'C',cycle_date:dates[0]}];
+ // Forzar un cupo inampliable, distinto del 2/2 dinámicamente ampliable.
+ ctx.config.specialQuotas={[dates[0]]:2};
+ assert.throws(()=>choose(ctx,turn,'B',[dates[0],dates[1]]),/cupo máximo/);
+ assert.deepEqual(turn,before);
+ assert.equal(ctx.awards.length,2);
+ const valid=choose(ctx,turn,'B',[dates[1],dates[2]]);
+ assert.equal(valid.choices.length,2);
+});
+
+test('automatismo de turno doble aplazado omite ciclos llenos y selecciona alternativa',()=>{
+ const {ctx,state,dates}=fixture();
+ ctx.config.specialQuotas={[dates[0]]:2};
+ ctx.awards=[{id:'x',member_id:'A',cycle_date:dates[0]},{id:'y',member_id:'C',cycle_date:dates[0]}];
+ const postponed=defer(ctx,state,'B');
+ const turn={...postponed,cursor:3};
+ const result=advanceAutomatic(ctx,turn,[{member_id:'B',dates:[dates[0],dates[1],dates[2]],automatic:true}]);
+ assert.deepEqual(result.choices.map(c=>c.cycle_date),[dates[1],dates[2]]);
+});

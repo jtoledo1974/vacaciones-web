@@ -3,17 +3,18 @@ import {useMemo,useState} from 'react';
 
 export const formatDate=(date:string)=>new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
 const months=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-type Cycle={date:string;end:string;score:number;period:number;occupied:number;max:number};
+type Cycle={date:string;end:string;score:number;period:number;occupied:number;max:number;available?:boolean};
 type Award={id:string;member_id:string;cycle_date:string};
 type Member={id:string;code:string};
 type View='map'|'calendar'|'members';
 type Props={year:number;cycles:Cycle[];selected:string[];onSelect:(cycle:Cycle)=>void;preferenceMode?:boolean;busy?:boolean;highlighted?:string[];awards?:Award[];members?:Member[];order?:string[];points?:{member_id:string;points:number;cycles:number}[]};
 
 function slots(c:Cycle){return Math.max(0,c.max-c.occupied);}
+function extraAvailable(c:Cycle){return slots(c)===0&&c.available===true;}
 function availabilityClass(c:Cycle){return 'vac2-free-'+Math.min(4,slots(c));}
 function isSummer(c:Cycle){return c.period===1;}
 function monthIndex(date:string){return Number(date.slice(5,7))-1;}
-function cycleTitle(c:Cycle){return formatDate(c.date)+' – '+formatDate(c.end)+' · '+c.score+' puntos · '+slots(c)+' plazas libres';}
+function cycleTitle(c:Cycle){return formatDate(c.date)+' – '+formatDate(c.end)+' · '+c.score+' puntos · '+slots(c)+' plazas libres'+(extraAvailable(c)?' · cupo adicional posible':'');}
 
 export default function CycleCalendar({year,cycles,selected,onSelect,preferenceMode=false,busy=false,highlighted=[],awards=[],members=[],order=[],points=[]}:Props){
  const [view,setView]=useState<View>('map');
@@ -49,8 +50,8 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    aria-label={cycleTitle(c)+(people.length?' · '+people.join(', '):'')}
    title={cycleTitle(c)}
    className={'vac2-cycle '+availabilityClass(c)+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(highlighted.includes(c.date)?' vac2-person':'')}>
-    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{free} libres</b></span>
-    <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{c.occupied}/{c.max} ocupadas</span></span>
+    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
+    <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{c.occupied}/{c.max} ocupadas{extraAvailable(c)?' · ampliable':''}</span></span>
     {preferenceMode&&selected.includes(c.date)&&<span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date)+1}</span>}
     {people.length>0&&<span className="vac2-names" title={people.join(', ')}>{people.join(' · ')}</span>}
    </button>;
@@ -113,6 +114,6 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    <div className="vac2-month-grid vac2-calendar">{months.map((_,m)=><div className={m===activeMonth?'vac2-active-mobile':'vac2-hidden-mobile'} key={m}>{renderMonth(m,true)}</div>)}</div>
   </>}
   {view==='members'&&renderMembers()}
-  <p className="vac2-footnote">El marco dorado indica ciclos de verano según la configuración de la campaña; el color interior indica plazas restantes. El cupo se vuelve a comprobar al confirmar.</p>
+  <p className="vac2-footnote">Un ciclo 2/2 puede admitir una tercera adjudicación si el cupo adicional sigue autorizado; se verifica al confirmar. El marco dorado indica ciclos de verano según la configuración de la campaña; el color interior indica plazas restantes. El cupo se vuelve a comprobar al confirmar.</p>
  </section>;
 }
