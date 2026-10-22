@@ -1,12 +1,13 @@
 'use client';
-import {useMemo,useState} from 'react';
+import {useEffect,useMemo,useState} from 'react';
+import CycleTable from './cycle-table';
 
 export const formatDate=(date:string)=>new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
 const months=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 type Cycle={date:string;end:string;score:number;period:number;occupied:number;max:number;available?:boolean};
 type Award={id:string;member_id:string;cycle_date:string};
 type Member={id:string;code:string};
-type View='map'|'calendar'|'members';
+type View='map'|'calendar'|'members'|'table';
 type Props={year:number;cycles:Cycle[];selected:string[];onSelect:(cycle:Cycle)=>void;preferenceMode?:boolean;busy?:boolean;highlighted?:string[];awards?:Award[];members?:Member[];order?:string[];points?:{member_id:string;points:number;cycles:number}[]};
 
 function slots(c:Cycle){return Math.max(0,c.max-c.occupied);}
@@ -18,6 +19,20 @@ function cycleTitle(c:Cycle){return formatDate(c.date)+' – '+formatDate(c.end)
 
 export default function CycleCalendar({year,cycles,selected,onSelect,preferenceMode=false,busy=false,highlighted=[],awards=[],members=[],order=[],points=[]}:Props){
  const [view,setView]=useState<View>('map');
+ useEffect(()=>{
+  try{
+   const stored=document.cookie.split('; ').find(part=>part.startsWith('vacaciones_cycle_view='))?.split('=').slice(1).join('=');
+   const choice=stored?decodeURIComponent(stored):localStorage.getItem('vacaciones_cycle_view');
+   if(choice==='table'||choice==='map'||choice==='calendar'||choice==='members')setView(choice);
+  }catch{ /* La vista sigue disponible si el navegador bloquea el almacenamiento. */ }
+ },[]);
+ function changeView(next:View){
+  setView(next);
+  try{
+   document.cookie='vacaciones_cycle_view='+encodeURIComponent(next)+'; Max-Age=31536000; Path=/; SameSite=Lax';
+   localStorage.setItem('vacaciones_cycle_view',next);
+  }catch{ /* La vista funciona sin cookies. */ }
+ }
  const [activeMonth,setActiveMonth]=useState(0);
  const byDate=useMemo(()=>new Map(cycles.map(c=>[c.date,c])),[cycles]);
  const byId=useMemo(()=>new Map(members.map(m=>[m.id,m.code])),[members]);
@@ -99,21 +114,23 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   <div className="vac2-heading">
    <div><h2>Disponibilidad y baremo</h2><p className="muted">{preferenceMode?'Pulsa un ciclo para añadirlo y vuelve a pulsarlo para quitarlo. El orden de selección determina la prioridad; revisa y guarda tu lista.':'Selecciona cualquier ciclo para ver detalles y ocupantes.'}</p></div>
    <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
-    <button type="button" className={view==='map'?'active':''} aria-pressed={view==='map'} onClick={()=>setView('map')}>Mapa</button>
-    <button type="button" className={view==='calendar'?'active':''} aria-pressed={view==='calendar'} onClick={()=>setView('calendar')}>Meses</button>
-    <button type="button" className={view==='members'?'active':''} aria-pressed={view==='members'} onClick={()=>setView('members')}>Por CTA</button>
+    <button type="button" className={view==='table'?'active':''} aria-pressed={view==='table'} onClick={()=>changeView('table')}>Tabla</button>
+    <button type="button" className={view==='map'?'active':''} aria-pressed={view==='map'} onClick={()=>changeView('map')}>Mapa</button>
+    <button type="button" className={view==='calendar'?'active':''} aria-pressed={view==='calendar'} onClick={()=>changeView('calendar')}>Meses</button>
+    <button type="button" className={view==='members'?'active':''} aria-pressed={view==='members'} onClick={()=>changeView('members')}>Por CTA</button>
    </div>
   </div>
-  <div className="vac2-legend" aria-label="Leyenda de plazas disponibles">
+  {view!=='table'&&<div className="vac2-legend" aria-label="Leyenda de plazas disponibles">
    <b>Plazas libres</b>{[4,3,2,1,0].map(n=><span key={n}><i className={'vac2-key vac2-free-'+n}/>{n===4?'4+':n}</span>)}
    <span className="vac2-legend-summer"><i className="vac2-summer-key"/>Verano ENAIRE</span>
-  </div>
+  </div>}
+  {view==='table'&&<CycleTable cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect}/>}
   {view==='map'&&<div className="vac2-month-grid vac2-map">{months.map((_,m)=>renderMonth(m,false))}</div>}
   {view==='calendar'&&<>
    <div className="vac2-month-nav"><button type="button" disabled={activeMonth===0} onClick={()=>setActiveMonth(m=>m-1)}>← Anterior</button><b>{months[activeMonth]}</b><button type="button" disabled={activeMonth===11} onClick={()=>setActiveMonth(m=>m+1)}>Siguiente →</button></div>
    <div className="vac2-month-grid vac2-calendar">{months.map((_,m)=><div className={m===activeMonth?'vac2-active-mobile':'vac2-hidden-mobile'} key={m}>{renderMonth(m,true)}</div>)}</div>
   </>}
   {view==='members'&&renderMembers()}
-  <p className="vac2-footnote">Un ciclo 2/2 puede admitir una tercera adjudicación si el cupo adicional sigue autorizado; se verifica al confirmar. El marco dorado indica ciclos de verano según la configuración de la campaña; el color interior indica plazas restantes. El cupo se vuelve a comprobar al confirmar.</p>
+  <p className="vac2-footnote">Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar. {view==='table'?'En la tabla, las celdas blancas vacías son plazas sin adjudicar; × indica cupo no autorizado y +? un cupo adicional potencial. La selección se indica con un contorno, sin cambiar el fondo.':'El marco dorado indica ciclos de verano según la configuración de la campaña; el color interior indica plazas restantes.'}</p>
  </section>;
 }
