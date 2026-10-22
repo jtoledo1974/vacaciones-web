@@ -437,3 +437,53 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-last-reconstruction summary{cursor:pointer;font-weight:650}
 .election-last-reconstruction p{font-size:11px;line-height:1.5}
 @media(max-width:580px){.history-reconstruction-picker-head{align-items:flex-start}.history-reconstruction-picker-head button{min-height:38px}}
+
+
+/* Vista Tabla: compacta, familiar con Excel y coherente con la paleta del workspace. */
+.vac3{min-width:0;color:#203738}
+.vac3-tools{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 1px;color:#708177;font-size:10px}
+.vac3-tools strong{color:#317a69;font-variant-numeric:tabular-nums}
+.vac3-size-actions{display:flex;gap:3px}
+.vac3-size-actions button{width:28px;height:25px;padding:0;border:1px solid #dce5df;border-radius:5px;background:#fff;color:#4c6d5f;font-size:11px;font-weight:650}
+.vac3-scroll{max-width:100%;max-height:min(68dvh,720px);overflow:auto;border:1px solid #dce5df;border-radius:6px;overscroll-behavior:contain;scrollbar-gutter:stable}
+.vac3-table{table-layout:auto;width:max-content;min-width:0;border-collapse:separate;border-spacing:0;text-align:center;color:#111;background:#fff;font-size:var(--vac3-font-size);line-height:1.15}
+.vac3-table th,.vac3-table td{height:27px;min-width:0;padding:0 3px;border-bottom:1px solid #dce5df;border-right:1px solid #dce5df;white-space:nowrap;text-align:center;font-size:inherit;line-height:inherit;font-weight:400;color:#111}
+.vac3-table tr:last-child td{border-bottom:0}
+.vac3-table th{position:sticky;top:0;z-index:4;height:29px;background:#f2f6f2;color:#445e52;font-weight:700}
+.vac3-table .vac3-points{width:30px;min-width:30px;max-width:30px;padding:0 2px;font-variant-numeric:tabular-nums}
+.vac3-table .vac3-date{width:1%;min-width:77px;padding:0 3px;text-align:left;font-variant-numeric:tabular-nums}
+.vac3-table .vac3-slot{width:1%;min-width:29px;padding:0 3px}
+.vac3-table td.vac3-slot{overflow:hidden;text-overflow:ellipsis}
+.vac3-table .vac3-slot-code{display:block;max-width:54px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin:auto}
+.vac3-table .vac3-date button{width:100%;min-height:26px;display:flex;justify-content:flex-start;align-items:center;gap:3px;padding:0 1px;border:0;background:transparent;font:inherit;font-weight:550;color:#111;text-align:left;white-space:nowrap}
+.vac3-table .vac3-date button:focus-visible{outline:2px solid #317a69;outline-offset:-2px}
+.vac3-table th.vac3-points{left:0;z-index:6}
+.vac3-table td.vac3-points{position:sticky;left:0;z-index:2;background:#fff}
+.vac3-table th.vac3-date{left:30px;z-index:6}
+.vac3-table td.vac3-date{position:sticky;left:30px;z-index:2;background:#fff}
+.vac3-table tr{cursor:pointer}
+.vac3-table tr:hover td:not(.vac3-disabled){box-shadow:inset 0 -1px #8db8a9}
+.vac3-table .vac3-disabled{background:#f0f2f1;color:#a3ada8}
+.vac3-table .vac3-disabled .vac3-slot-code{color:#a3ada8}
+.vac3-table .vac3-summer .vac3-points{box-shadow:inset 3px 0 #c49339}
+.vac3-table .vac3-selected td{border-top:1px solid #317a69;border-bottom:1px solid #317a69}
+.vac3-table .vac3-selected .vac3-points{box-shadow:inset 2px 0 #317a69}
+.vac3-table .vac3-selected td:last-child{box-shadow:inset -2px 0 #317a69}
+.vac3-table .vac3-selected .vac3-date button{font-weight:750}
+.vac3-table .vac3-highlight:not(.vac3-selected) .vac3-date button{text-decoration:underline;text-decoration-color:#b58a32;text-underline-offset:3px}
+.vac3-choice-indicator{border:1px solid #317a69;color:#22624e;background:#fff;border-radius:3px;padding:0 2px;font-size:9px;line-height:1.45;font-weight:750}
+.vac3-legend{display:flex;align-items:center;flex-wrap:wrap;gap:6px 13px;padding:9px 1px 12px;color:#708177;font-size:10px}
+.vac3-legend span{display:inline-flex;align-items:center;gap:5px}
+.vac3-summer-key{height:11px;width:11px;border-left:3px solid #c49339;background:#fff;border-top:1px solid #e4eae7;border-bottom:1px solid #e4eae7;border-right:1px solid #e4eae7}
+.vac3-selection-key{height:11px;width:15px;border:2px solid #317a69;background:#fff}
+.vac3-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+@media(max-width:680px){
+ .vac3-scroll{max-height:min(67dvh,615px);scrollbar-gutter:auto}
+ .vac3-table th,.vac3-table td{height:25px;padding-left:2px;padding-right:2px}
+ .vac3-table th{height:27px}
+ .vac3-table .vac3-date{min-width:76px}
+ .vac3-table .vac3-slot{min-width:26px;padding-left:2px;padding-right:2px}
+ .vac3-table .vac3-slot-code{max-width:48px}
+ .vac3-table .vac3-date button{min-height:24px}
+ .vac3-legend{font-size:9px}
+}

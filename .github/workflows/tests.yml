@@ -45,7 +45,7 @@ jobs:
       - run: npm install --global pnpm@11.25.0
       - run: pnpm install --frozen-lockfile
       - run: google-chrome --version
-      - run: pnpm exec playwright test --max-failures=1
+      - run: pnpm exec playwright test
 
 # Detailed errors remain in the Actions logs. Do not upload Playwright
 # screenshots/traces by default: the repository's artifact quota is limited.

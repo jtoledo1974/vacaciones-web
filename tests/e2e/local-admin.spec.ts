@@ -1,7 +1,7 @@
 import {test,expect} from '@playwright/test';
 const origin='http://127.0.0.1:5199';
 const credentials={username:'qa-superadmin',password:'Only-for-isolated-e2e-testing-12345'};
-test('password administration, invalid login, CSRF, bearer precedence, isolation and logout replay',async({page,browser})=>{
+test('password administration, invalid login, CSRF, bearer precedence, isolation and logout replay',async({page,playwright})=>{
  const pageErrors:string[]=[];page.on('pageerror',error=>pageErrors.push(error.message));
  await page.goto('/');
  // auth-config is loaded by an effect: wait for hydration before opening the mobile menu.
@@ -25,10 +25,10 @@ test('password administration, invalid login, CSRF, bearer precedence, isolation
  const session=await (await api.get('/api/session')).json();expect(session.identity.provider).toBe('local_admin');
  expect((await api.get('/api/admin')).status()).toBe(200);
  expect((await api.get('/api/admin',{headers:{Authorization:'Bearer invalid'}})).status()).toBe(401);
- const anonymous=await browser.newContext();
- expect((await anonymous.request.get('/api/admin')).status()).toBe(403);
- expect((await anonymous.request.post('/api/campaigns',{data:{year:2027},headers:{Origin:origin}})).status()).toBe(401);
- const replay=await browser.newContext({storageState:await page.context().storageState()});
+ const anonymous=await playwright.request.newContext({baseURL:origin});
+ expect((await anonymous.get('/api/admin')).status()).toBe(403);
+ expect((await anonymous.post('/api/campaigns',{data:{year:2027},headers:{Origin:origin}})).status()).toBe(401);
+ const replay=await playwright.request.newContext({baseURL:origin,storageState:await page.context().storageState()});
  expect((await api.post('/api/local-admin/logout',{data:{},headers:{Origin:'https://evil.test'}})).status()).toBe(403);
  await test.step('Abrir panel de administración local',async()=>{
   if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())
@@ -45,8 +45,8 @@ test('password administration, invalid login, CSRF, bearer precedence, isolation
   await expect(logout).toBeVisible({timeout:8_000});
   await logout.click({timeout:8_000});
   await expect.poll(async()=>(await (await api.get('/api/session')).json()).principal.role).toBe('viewer');
-  expect((await replay.request.get('/api/admin')).status()).toBe(403);
+  expect((await replay.get('/api/admin')).status()).toBe(403);
  });
  expect(pageErrors).toEqual([]);
- await anonymous.close();await replay.close();
+ await anonymous.dispose();await replay.dispose();
 });
