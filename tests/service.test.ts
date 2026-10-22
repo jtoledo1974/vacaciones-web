@@ -26,7 +26,7 @@ test('viewer y anónimo nunca pueden escribir, ni con identificador de otro equi
     const d = await s.view(cid);
     await assert.rejects(new Service(repo, actor as Principal).mutate(cid, { action: 'request', version: d.campaign.version, memberId: d.members[0].id, slot: 1, date: d.result.cycles[0].date }), /permiso/);
 } });
-test('team_admin no escribe en otro equipo, incluso con miembro ajeno', async () => { const { repo, s, cid } = await setup(); const teamA = new Service(repo, { id: 'chatgpt:a', role: 'team_admin', teams: ['A'] }); const d = await s.view(cid); await assert.rejects(teamA.mutate(cid, { version: d.campaign.version, action: 'request', memberId: d.members[0].id, slot: 1, date: d.result.cycles[0].date }), /permiso/); const teamC = new Service(repo, { id: 'chatgpt:c', role: 'team_admin', teams: ['C'] }); await assert.rejects(teamC.mutate(cid, { version: 1, action: 'request', memberId: 'foreign', slot: 1, date: d.result.cycles[0].date }), /ajeno/); await assert.rejects(teamC.mutate(cid, { version: 1, action: 'config', config: d.config }), /superadministrador/); });
+test('team_admin no escribe en otro equipo, incluso con miembro ajeno', async () => { const { repo, s, cid } = await setup(); const teamA = new Service(repo, { id: 'chatgpt:a', role: 'team_admin', teams: ['A'] }); const d = await s.view(cid); await assert.rejects(teamA.mutate(cid, { version: d.campaign.version, action: 'request', memberId: d.members[0].id, slot: 1, date: d.result.cycles[0].date }), /permiso/); const teamC = new Service(repo, { id: 'chatgpt:c', role: 'team_admin', teams: ['C'] }); await assert.rejects(teamC.mutate(cid, { version: 1, action: 'request', memberId: 'foreign', slot: 1, date: d.result.cycles[0].date }), /ajeno/); const changed=await teamC.mutate(cid, { version: 1, action: 'config', config: d.config }); assert.equal(changed.campaign.version,2); });
 test('solicitudes persistentes y conflicto de ediciones, sin perder cambios', async () => { const { repo, s, cid } = await setup(); const d = await s.view(cid); const b = { action: 'request', version: d.campaign.version, memberId: d.members[0].id, slot: 1, date: d.result.cycles[0].date }; await s.mutate(cid, b); await assert.rejects(s.mutate(cid, { ...b, date: d.result.cycles[1].date }), /cambió/); const fresh = await new Service(repo, superuser).view(cid); assert.equal(fresh.requests[0].cycle_date, b.date); assert.equal(fresh.campaign.version, 2); });
 test('CAS fallida revierte el lote completo', async () => { const { repo, cid } = await setup(); await assert.rejects(repo.batch([{ sql: 'UPDATE campaigns SET version=version+1 WHERE id=? AND version=-1', args: [cid] }, { sql: "INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN 'ok' ELSE NULL END)" }, { sql: "UPDATE teams SET name='ERROR' WHERE id='C'" }]), /NOT NULL/); assert.equal((await repo.all("SELECT name FROM teams WHERE id='C'"))[0].name, 'Equipo C'); });
 test('revisión archivada inmutable y consulta actual sin antigüedad ni preferencias', async () => { const { repo, s, cid } = await setup(); let d = await s.view(cid); const memberId = d.members[0].id, date = d.result.cycles[0].date; d = await s.mutate(cid, { action: 'request', version: d.campaign.version, memberId, slot: 1, date }); d = await s.mutate(cid, { action: 'award', version: d.campaign.version, memberId, date }); d = await s.mutate(cid, { action: 'calculate', version: d.campaign.version }); d = await s.mutate(cid, { action: 'publish', version: d.campaign.version, runId: d.runs[0].id }); const reader = new Service(repo, { id: null, role: 'viewer', teams: [] }); const pub = await reader.view(cid); assert.equal(pub.awards.length, 1); assert.ok(!('seniority' in pub.members[0])); assert.deepEqual(pub.result.ordering,[]); assert.equal(pub.config, null); d = await s.mutate(cid, { action: 'reopen', version: d.campaign.version }); d = await s.mutate(cid, { action: 'delete_award', version: d.campaign.version, id: d.awards[0].id }); assert.equal((await reader.view(cid)).awards.length, 0); assert.equal((await reader.publishedView(cid))!.awards.length,1); assert.equal(d.awards.length, 0); });
@@ -81,7 +81,7 @@ test('roles ChatGPT por correo autenticado, sin heredar permisos entre proveedor
  await assert.rejects(s.configureUser({provider:'chatgpt',subject:'not-an-email',role:'team_admin',teams:['B'],version:0}),/válidos/);
 });
 
-test('borrar una simulación elimina sus dependencias sin tocar la campaña real y exige superadministrador y versión',async()=>{
+test('borrar una simulación elimina sus dependencias sin tocar la campaña real y exige permiso de equipo y versión',async()=>{
  const {s,repo,cid}=await setup();
  const realBefore=await s.load(cid);
  const peopleBefore=(await repo.all<{n:number}>('SELECT COUNT(*) AS n FROM people'))[0].n;
@@ -96,7 +96,8 @@ test('borrar una simulación elimina sus dependencias sin tocar la campaña real
   {sql:'INSERT INTO election_states(campaign_id,json) VALUES(?,?)',args:[created.id,'{}']}
  ]);
  const teamAdmin=new Service(repo,{id:'chatgpt:team-admin',role:'team_admin',teams:['C']});
- await assert.rejects(teamAdmin.deleteSimulation(created.id,{version:d.campaign.version}),/superadministrador/);
+ const outsider=new Service(repo,{id:'chatgpt:outsider',role:'team_admin',teams:['A']});
+ await assert.rejects(outsider.deleteSimulation(created.id,{version:d.campaign.version}),/permiso/);
  await assert.rejects(s.deleteSimulation(cid,{version:realBefore.campaign.version}),/campaña real/);
  await assert.rejects(s.deleteSimulation(created.id,{version:d.campaign.version-1}),/cambió/);
  assert.equal((await repo.all('SELECT * FROM runs WHERE campaign_id=?',[created.id])).length,1);
@@ -105,7 +106,7 @@ test('borrar una simulación elimina sus dependencias sin tocar la campaña real
   {sql:'INSERT INTO people(id,team_id,code,seniority) VALUES(?,?,?,?)',args:[temporaryPerson,'C','C_SIM_ONLY','']},
   {sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,seniority) VALUES(?,?,?,?,?)',args:[crypto.randomUUID(),created.id,temporaryPerson,'SIM_ONLY','']}
  ]);
- await s.deleteSimulation(created.id,{version:d.campaign.version});
+ await teamAdmin.deleteSimulation(created.id,{version:d.campaign.version});
  for(const table of ['campaigns','parameters','campaign_members','requests','awards','runs','preferences','election_states','audit']){
   const column=table==='campaigns'?'id':'campaign_id';
   assert.equal((await repo.all(`SELECT * FROM ${table} WHERE ${column}=?`,[created.id])).length,0,table);

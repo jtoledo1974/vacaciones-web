@@ -7,7 +7,11 @@ test('editar permisos, revocar y eliminar desde el listado',async({page})=>{
  expect(login.ok(),await login.text()).toBeTruthy();
  await api.post('/api/initialize',{headers,data:{}});
  const email='permissions-'+test.info().project.name+'@example.test';
- await api.post('/api/users',{headers,data:{subject:email,role:'team_admin',teams:['B'],version:0}});
+ // Grant permanent backups before testing revocation: an empty team is forbidden.
+ const backup=await api.post('/api/users',{headers,data:{subject:'permissions-backup-'+test.info().project.name+'@example.test',role:'team_admin',teams:['A','B'],version:0}});
+ expect(backup.ok(),await backup.text()).toBeTruthy();
+ const created=await api.post('/api/users',{headers,data:{subject:email,role:'team_admin',teams:['B'],version:0}});
+ expect(created.ok(),await created.text()).toBeTruthy();
  await page.goto('/?equipo=B&year=2026');
  await expect(page.getByText('Acceso mediante Administrador local',{exact:true})).toBeAttached();
  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();

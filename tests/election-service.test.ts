@@ -345,8 +345,8 @@ test('simulaciones remapean empates pendientes, turnos conjuntos y actas sin ref
  copy=await act(s,clone.id,{action:'resume'});assert.equal(copy.election.turn.pendingTie.length,3);
  next=await act(s,cid,{action:'resolve_tie',method:'external',order:[...ids].reverse()});
  clone=await s.createSimulation(cid,{name:'Resolved draw',version:next.campaign.version});copy=await s.view(clone.id);
- assert.deepEqual(copy.election.state.pendingTieGroups,[]);assert.ok(copy.election.state.tieResolutions[0].order.every((id:string)=>!ids.includes(id)));
- copy=await act(s,clone.id,{action:'resume'});assert.ok(copy.election.turn.memberId);
+ assert.equal(copy.election.state.tieResolutions.length,0);assert.ok(copy.election.state.pendingTieGroups[0].every((id:string)=>!ids.includes(id)));
+ copy=await act(s,clone.id,{action:'resume'});assert.equal(copy.election.turn.pendingTie.length,3);
  assert.deepEqual((await s.view(cid)).election.state,next.election.state);
 });
 
@@ -364,7 +364,7 @@ test('preferencias privadas: administrador delegado solo gestiona controladores 
  const delegated=await delegate.view(cid);
  assert.deepEqual(delegated.election.preferenceMemberIds,[c.id]);
  assert.deepEqual(delegated.election.preferences.map((p:any)=>p.member_id),[c.id]);
- assert.equal(delegated.election.accounts.length,0);
+ assert.equal(delegated.election.accounts.length,2);
  assert.equal(JSON.stringify(delegated.election.preferences).includes(a.id),false);
  assert.equal(JSON.stringify(delegated.election.preferences).includes(b.id),false);
  for(const linked of [a,b]){

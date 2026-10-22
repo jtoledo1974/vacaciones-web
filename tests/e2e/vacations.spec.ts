@@ -567,11 +567,15 @@ test('sin equipo en URL no se impone C y el administrador puede borrar una simul
   await expect(anonymous).toHaveURL(/equipo=B/);
  }finally{await visitor.close();}
  await page.goto('/?equipo=C&year=2026');
+ await expect(page.getByLabel('Escenario',{exact:true})).toBeVisible();
  await page.getByLabel('Escenario',{exact:true}).selectOption(s.id);
- if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
- await page.getByRole('button',{name:'Administración',exact:true}).click();
+ // Wait for the selected scenario to load; do not race its asynchronous campaign fetch.
+ await expect(page.getByText('Simulación privada: '+s.data.campaign.simulation_name,{exact:true})).toBeVisible();
+ // Simulation actions are available directly in the header, independent of navigation.
+ await expect(page.locator('.scenario-actions summary')).toBeVisible();
  await page.locator('.scenario-actions summary').click();
  await page.getByRole('button',{name:'Eliminar simulación'}).click();
+ await expect(page.getByRole('dialog')).toBeVisible();
  await page.getByRole('dialog').getByRole('button',{name:'Confirmar'}).click();
  await expect(page.getByLabel('Escenario',{exact:true})).toHaveValue(s.live.id);
  await expect(page.getByRole('status').filter({hasText:'Simulación eliminada'})).toBeVisible();
