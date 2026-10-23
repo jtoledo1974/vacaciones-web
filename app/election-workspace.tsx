@@ -265,7 +265,11 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {mode==='choose'&&detail&&<section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
      <h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2>
-     <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {Math.max(0,detail.max-detail.occupied)} libres{detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':''}</p>
+     <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {data.campaign.year===2027
+      ?'Hasta '+Math.max(0,detail.max-detail.occupied)+' plazas adicionales bajo el máximo local, sujetas a las reglas globales'
+      :Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
+     {data.campaign.year===2027&&mode==='choose'&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)&&
+      <p className="alert warning" role="status">{election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'}</p>}
      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
      {message&&<p role="status" className="alert warning">{message}</p>}
      {mode==='choose'&&canChoose&&<>
