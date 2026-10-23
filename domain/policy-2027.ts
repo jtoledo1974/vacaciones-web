@@ -172,8 +172,8 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number):PolicyAw
     const item=state.cycles[c], p=item.period, fixedSingle=scenario.single.has(c), fixedFourth=scenario.fourth.has(c);
     if(p<0||p>2||fixedSingle&&fixedFourth||item.fourthExcluded&&fixedFourth)return null;
     periodUsed[p]+=occupied[c];periodSize[p]++;
-    const lo=fixedSingle?1:fixedFourth?4:2,hi=fixedSingle?1:fixedFourth?4:3;
     const localMax=Math.min(item.maximum??4,item.fourthExcluded?3:4);
+    const lo=fixedSingle?1:fixedFourth?4:2,hi=fixedSingle?1:fixedFourth?4:Math.min(3,localMax);
     if(occupied[c]>hi||hi>localMax||!bounded(cycleBase+c,periodBase+p,Math.max(0,lo-occupied[c]),hi-occupied[c]))return null;
   }
   for(let p=0;p<3;p++){
