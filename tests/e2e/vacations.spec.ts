@@ -114,20 +114,18 @@ async function setup(api:APIRequestContext,page:Page){
 }
 async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(id);await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();}
 async function activate(page:Page,ties=''){
- await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
- const admin=page.locator('nav').getByRole('button',{name:'Administración',exact:true});
- if(!await admin.isVisible())await page.getByRole('button',{name:'Abrir menú'}).click();
- await admin.click();
+ // Activation now starts from Vacaciones and returns there automatically.
+ const entry=page.getByRole('button',{name:'Configurar e iniciar elección',exact:true});
+ await expect(entry).toBeVisible();
+ await entry.click();
+ const activation=page.locator('#activation-panel');
+ await expect(activation).toHaveAttribute('open','');
  if(ties){
   for(const code of ties.split(',').map(s=>s.trim()))await page.getByLabel('Puntuación anterior de '+code).fill('20');
   await page.getByRole('button',{name:'Guardar cambios'}).click();
  }
- await page.getByText('Activar elección',{exact:true}).first().click();
- await page.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
- await page.getByRole('button',{name:'Activar elección',exact:true}).click();
- const vacations=page.locator('nav').getByRole('button',{name:'Vacaciones',exact:true});
- if(!await vacations.isVisible())await page.getByRole('button',{name:'Abrir menú'}).click();
- await vacations.click();
+ await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
+ await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
