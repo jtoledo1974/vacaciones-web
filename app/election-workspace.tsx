@@ -7,7 +7,7 @@ import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 
-export function ActivationPanel({data,busy,act}:any){
+export function ActivationPanel({data,busy,act,onActivated}:any){
  if(data.election.state)return null;
  const scores=data.config?.previousScores,source=data.config?.previousScoresSource??'';
  const ranked=scores?[...data.members].sort((a:any,b:any)=>Number(scores[a.code]??Infinity)-Number(scores[b.code]??Infinity)):[];
@@ -16,7 +16,7 @@ export function ActivationPanel({data,busy,act}:any){
  if(complete)for(const m of ranked)tieCounts.set(scores[m.code],(tieCounts.get(scores[m.code])??0)+1);
  const ties=[...tieCounts.values()].filter(n=>n>1);
  const [confirmed,setConfirmed]=useState(false),[deferral,setDeferral]=useState(true);
- return <details className="panel"><summary>Activar elección</summary>
+ return <details id="activation-panel" className="panel"><summary>Activar elección</summary>
  <p>El orden se calcula automáticamente a partir de las puntuaciones del año anterior; los empates se sortean cuando corresponda y los turnos conjuntos se acuerdan durante la elección.</p>
  <p><strong>Puntuaciones:</strong> {ranked.filter((m:any)=>Number.isFinite(scores?.[m.code])).length}/{data.members.length} · <strong>Grupos empatados:</strong> {ties.length} · <strong>Procedencia:</strong> {source||'Pendiente'}</p>
  {!complete?<p role="alert" className="alert warning">Faltan puntuaciones o su procedencia. Complétalas en Administración → Plantilla del equipo antes de activar.</p>:
@@ -25,7 +25,7 @@ export function ActivationPanel({data,busy,act}:any){
  <label><input type="checkbox" checked={deferral} onChange={e=>setDeferral(e.target.checked)}/> Permitir uno o dos aplazamientos</label>
  <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Confirmo Criterios Vacaciones 1.1 (2025) y las puntuaciones</label>
  </div>
- <button type="button" className="primary" disabled={busy||!complete||!confirmed} onClick={()=>act({action:'start',rulesConfirmed:true,allowDeferral:deferral},'Puntuaciones confirmadas y elección activada')}>Activar elección</button>
+ <button type="button" className="primary" disabled={busy||!complete||!confirmed} onClick={async()=>{const result=await act({action:'start',rulesConfirmed:true,allowDeferral:deferral},'Puntuaciones confirmadas y elección activada');if(result?.campaign)onActivated?.();}}>Activar elección</button>
  </details>;
 }
 function TieResolver({group,data,busy,act,manage,open}:any){
@@ -40,7 +40,7 @@ function TieResolver({group,data,busy,act,manage,open}:any){
  <div className="button-row"><button className="secondary" disabled={busy||!order.length} onClick={()=>setOrder(order.slice(0,-1))}>Quitar último</button><button className="primary" disabled={busy||order.length!==group.length} onClick={async()=>{if(await confirm('¿Guardar este orden del sorteo externo: '+order.map(code).join(' → ')+'?'))act({action:'resolve_tie',method:'external',order},'Orden del sorteo externo guardado');}}>Guardar orden externo</button></div></>:<p>El responsable del equipo debe registrar el resultado antes de continuar.</p>}
  </section>;
 }
-export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit}:any){
+export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit,onConfigureElection}:any){
  const confirm=useConfirmation();
  const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
  const previewReadOnly=!!data.preview&&!data.preview.writable;
@@ -134,7 +134,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {!frozen&&<section className="panel election-turn election-workflow-head" aria-label="Turno de elección">
    <div className="election-turn-status">
     <span className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'ELECCIÓN SIN INICIAR'}</span>
-    <h2>{turn?.pendingTie?'Empate pendiente antes del siguiente turno':state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:!state?'Elección sin iniciar':'Consulta de ciclos'}</h2>
+    <h2>{turn?.pendingTie?'Empate pendiente antes del siguiente turno':state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:'Consulta de ciclos'}</h2>
     {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed} ciclo(s) por elegir</span>}
    </div>
    <div className="election-turn-controls">
@@ -142,10 +142,12 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode!=='choose')await cancelPreferences();}}>Calendario</button>
      <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>Preferencias</button>
     </div>}
-    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
+    {manage&&!state&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={onConfigureElection}>Configurar e iniciar elección</button>}
+    {manage&&state?.status==='paused'&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={()=>act({action:'resume'},'Elección reanudada')}>Reanudar elección</button>}
+    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(superuser&&state?.status==='active'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
      {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
      {manage&&state?.status==='active'&&<button type="button" className="secondary" onClick={()=>{setJointRound(turn?.round??1);setJointMembers([]);setJointOpen(true);}}>Gestionar turnos conjuntos…</button>}
-     {superuser&&state&&state.status!=='complete'&&<button type="button" className="secondary" disabled={busy||!open} onClick={()=>act({action:state.status==='active'?'pause':'resume'},state.status==='active'?'Elección pausada':'Elección reanudada')}>{state.status==='active'?'Pausar elección':'Reanudar elección'}</button>}
+     {superuser&&state?.status==='active'&&<button type="button" className="secondary" disabled={busy||!open} onClick={()=>act({action:'pause'},'Elección pausada')}>Pausar elección</button>}
     </div></details>}
    </div>
   </section>}

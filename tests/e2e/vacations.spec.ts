@@ -2,6 +2,32 @@ import {test,expect,type APIRequestContext,type Page} from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin='http://127.0.0.1:5199';
 
+test('activación visible desde Vacaciones, regreso automático y reanudación destacada',async({page,request})=>{
+ const scenario=await setup(request,page);
+ expect(scenario.data.election.state).toBeNull();
+ await open(page,scenario.id);
+ const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
+ await expect(switcher.getByRole('button',{name:'Calendario',exact:true})).toBeVisible();
+ const configure=page.getByRole('button',{name:'Configurar e iniciar elección',exact:true});
+ await expect(configure).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toHaveCount(0);
+ await configure.click();
+ await expect(page.getByRole('heading',{name:'Administración general',exact:true})).toBeVisible();
+ const activation=page.locator('#activation-panel');
+ await expect(activation).toHaveAttribute('open','');
+ await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
+ await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Vacaciones del equipo',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+ await page.locator('.election-more-actions > summary').click();
+ await page.getByRole('button',{name:'Pausar elección',exact:true}).click();
+ const resume=page.getByRole('button',{name:'Reanudar elección',exact:true});
+ await expect(resume).toBeVisible();
+ await expect(page.locator('.election-more-actions')).toHaveCount(0);
+ await resume.click();
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+});
+
 test('historial heredado: adjudicaciones tras sorteo y cuadro con destinatario sin fecha duplicada',async({page,request},info)=>{
  const source=await setup(request,page);
  const ids=source.data.members.map((m:any)=>m.id);
