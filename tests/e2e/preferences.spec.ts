@@ -27,11 +27,16 @@ async function review(page:Page){
 async function close(page:Page){const close=page.getByRole('button',{name:'Cerrar revisión de preferencias'});if(await close.isVisible())await close.click();}
 async function add(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
 
-// Run the four visual sizes once each; the existing suite also covers the two project devices.
-for(const size of [{width:375,height:667},{width:390,height:844},{width:768,height:1024},{width:1440,height:900}]){
- test(`preferencias: seleccionar, ordenar, guardar y proteger borrador ${size.width}×${size.height}`,async({page,request},info)=>{
+// Exercise the full workflow once on desktop and once on a touch/mobile context.
+// Two additional viewports only check responsiveness and basic interaction.
+for(const size of [
+ {width:375,height:667,full:false,mobile:true},
+ {width:390,height:844,full:true,mobile:true},
+ {width:768,height:1024,full:false,mobile:false},
+ {width:1440,height:900,full:true,mobile:false},
+]){
+ test(`preferencias: seleccionar, ordenar, guardar y proteger borrador ${size.width}×${size.height}`,size.mobile?{tag:'@mobile-only'}:{},async({page,request},info)=>{
   test.setTimeout(90_000);
-  test.skip(info.project.name!=='chromium','The four explicit viewport sizes are covered in the desktop project.');
   await page.setViewportSize(size);
   const s=await fixture(request,page),member=s.data.members[0],dates=s.data.result.cycles.slice(0,3).map((c:any)=>c.date);
   // A campaign with no decisions must not show an empty reconstruction panel:
@@ -48,6 +53,14 @@ for(const size of [{width:375,height:667},{width:390,height:844},{width:768,heig
   if(size.width<=900){
    await expect(page.locator('.preference-dock')).toContainText('Sin preferencias guardadas');
    const bounds=await page.locator('.preference-dock').boundingBox();expect(bounds!.y+bounds!.height).toBeLessThanOrEqual(size.height);
+  }
+  if(!size.full){
+   // Full persistence, reorder and draft-protection journeys run at 390 and 1440.
+   await add(page,dates[0]);
+   await expect(page.locator('.vac2-cycle[data-cycle-date="'+dates[0]+'"]').first()).toHaveAttribute('aria-pressed','true');
+   await expect(page.getByRole('button',{name:'Revisar y guardar',exact:true})).toBeVisible();
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();
+   return;
   }
   await add(page,dates[0]);
   await expect(page.getByRole('status').filter({hasText:'Añadido a tus preferencias'})).toContainText('posición 1');
@@ -166,7 +179,7 @@ test('preferencias: fallo de guardado conserva borrador y cancelar salida no lo 
  await expect(editor.getByRole('listitem')).toHaveCount(0);
 });
 
-test('preferencias: lista larga mantiene accesibles cierre, orden y guardado',async({page,request},info)=>{
+test('preferencias: lista larga mantiene accesibles cierre, orden y guardado',{tag:'@mobile-only'},async({page,request},info)=>{
  const s=await fixture(request,page);
  for(const c of s.data.result.cycles.slice(0,14))await add(page,c.date);
  const editor=await review(page),save=editor.getByRole('button',{name:'Guardar preferencias',exact:true});
