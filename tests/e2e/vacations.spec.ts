@@ -29,7 +29,7 @@ test('activación visible desde Vacaciones, regreso automático y reanudación d
 });
 
 
-test('la activación señala puntuaciones concretas y documenta procedencia en un diálogo',async({page,request})=>{
+test('la activación señala puntuaciones concretas y documenta procedencia en un formulario visible',{tag:'@both'},async({page,request})=>{
  const scenario=await setup(request,page);
  await post(request,'campaign/'+scenario.id,{action:'config',version:scenario.data.campaign.version,config:{...scenario.data.config,previousScores:{QA_A:10,QA_B:20,QA_C:30},previousScoresSource:''}});
  await open(page,scenario.id);
@@ -43,11 +43,14 @@ test('la activación señala puntuaciones concretas y documenta procedencia en u
  await page.getByRole('button',{name:'Guardar cambios'}).click();
  await expect(activation).not.toContainText('Falta la puntuación');
  await activation.getByRole('button',{name:'Documentar procedencia'}).click();
- const dialog=page.getByRole('dialog',{name:'Documentar origen de las puntuaciones'});
- await expect(dialog).toContainText('Esta descripción queda guardada para todo el equipo');
- await dialog.getByRole('textbox',{name:'Procedencia de las puntuaciones'}).fill('Clasificación verificada del equipo, recibida el 22/10/2026');
- await dialog.getByRole('button',{name:'Guardar procedencia'}).click();
- await expect(dialog).toHaveCount(0);
+ const sourceForm=activation.getByRole('group',{name:'Documentar origen de las puntuaciones'});
+ await expect(sourceForm).toBeVisible();
+ await expect(sourceForm).toContainText('Esta descripción queda guardada para todo el equipo');
+ const sourceInput=sourceForm.getByRole('textbox',{name:'Procedencia de las puntuaciones'});
+ await expect(sourceInput).toBeFocused();
+ await sourceInput.fill('Clasificación verificada del equipo, recibida el 22/10/2026');
+ await sourceForm.getByRole('button',{name:'Guardar procedencia'}).click();
+ await expect(sourceForm).toHaveCount(0);
  const saved=await read(request,scenario.id);
  expect(saved.config.previousScoresSource).toContain('Clasificación verificada');
  await expect(activation).not.toContainText('Falta documentar');
