@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { calendar, easter, iso, leap, serial, holidayDates,rotationCode } from '../domain/calendar.ts';
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calculate } from '../domain/vacations.ts';
+import {HR_2027} from '../domain/hr-2027.ts';
 import ref from './excel-reference.json' with { type: 'json' };
 test('45 fechas y baremos contra valores guardados del Excel original', () => { const actual = calendar(2026, 'C', defaultConfig(2026)).map(({ date, score }) => ({ date, score })); assert.deepEqual(actual, ref.cycles); });
 test('Pascua y regla +18 de Feria conservadas', () => { assert.equal(iso(easter(2026)), '2026-04-05'); assert.equal(holidayDates(2026, defaultConfig(2026)).find(h => h.label.startsWith('Miércoles'))?.date, '2026-04-23'); });
@@ -10,9 +11,10 @@ test('Bisiestos, siglos y UTC', () => { assert.ok(leap(2028)); assert.ok(!leap(2
 test('8 equipos por 15 ejercicios, sin ciclos duplicados', () => { for (let y = 2026; y <= 2040; y++)
     for (const t of 'ABCDEFGH') {
         const cycles = calendar(y, t, defaultConfig(y));
-        assert.equal(cycles.length, 45);
-        assert.equal(new Set(cycles.map(c => c.date)).size, 45);
-        for (let i = 1; i < 45; i++)
+        const expected=y===2027?HR_2027[t].count:45;
+        assert.equal(cycles.length, expected);
+        assert.equal(new Set(cycles.map(c => c.date)).size, expected);
+        for (let i = 1; i < expected; i++)
             assert.ok(serial(cycles[i].date) - serial(cycles[i - 1].date) === 8 || serial(cycles[i].date) - serial(cycles[i - 1].date) === 9);
     } });
 test('copiar parámetros no altera el original ni copia adjudicaciones', () => { const c = defaultConfig(2026), before = JSON.stringify(c), n = copyConfig(c, 2026, 2027); assert.equal(JSON.stringify(c), before); assert.equal(n.summerStart, '2027-06-01'); assert.ok(!('awards' in n)); });
