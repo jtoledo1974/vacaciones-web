@@ -151,7 +151,7 @@ function Dashboard() {
     } }
     const mutateElection=(body:any,msg:string)=>perform(async()=>{
         let next=await api('election/'+cid,{...body,version:data.campaign.version});
-        for(let step=0;step<100&&next.election.pendingAutomatic&&!['election_undo','election_redo','pause','link_account'].includes(body.action)&&!String(body.action).startsWith('reconstruction_');step++)next=await api('election/'+cid,{action:'advance',version:next.campaign.version});
+        for(let step=0;step<100&&next.election.pendingAutomatic&&!['election_undo','election_redo','pause','link_account','resolve_tie'].includes(body.action)&&!String(body.action).startsWith('reconstruction_');step++)next=await api('election/'+cid,{action:'advance',version:next.campaign.version});
         return next;
     },msg);
     const mutate = (body: any, msg: string) => perform(() => api('campaign/' + cid, { ...body, version: data.campaign.version }), msg);
