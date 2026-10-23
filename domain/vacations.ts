@@ -94,7 +94,7 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
         return {
             engineVersion:ENGINE_VERSION,occupancyPolicyVersion:OCCUPANCY_POLICY_2027,
             cycles:detailed,ordering,issues:[...new Set(year2027Issues)],
-            warnings:final?.warnings.map(w=>w.message)??[],
+            warnings:final?.warnings.map(w=>w.message)??[],policyWarnings:final?.warnings??[],
             totals:{members:members.length,requested:requests.length,awarded:awards.length,necessary:neededTotal,
                 base:baseTotal,conventionSummer,conventionWinter,usedSummer,counts}
         };
