@@ -51,7 +51,15 @@ async function serve(request: Request) {
                 const rows=await repo.all("SELECT revision FROM app_state WHERE id='main'");
                 return reply({revision:rows[0]?.revision??0});
             }
-            if(path[0]==='election'&&path[1]&&path[2]==='options')return reply(await effectiveService.election().options(path[1],url.searchParams.getAll('selected')));
+            if(path[0]==='election'&&path[1]&&path[2]==='options'){
+                const rawJoint=url.searchParams.get('joint');
+                let jointEntries:undefined|{member_id:string;dates:string[]}[];
+                if(rawJoint!==null){
+                    if(rawJoint.length>15000)throw new ApiError('Consulta demasiado grande',413);
+                    try{jointEntries=JSON.parse(rawJoint);}catch{throw new ApiError('Selección conjunta inválida');}
+                }
+                return reply(await effectiveService.election().options(path[1],url.searchParams.getAll('selected'),jointEntries));
+            }
             if(path[0]==='help'){
                 const documents=documentation(actor.role);
                 if(!path[1])return reply(documents);
