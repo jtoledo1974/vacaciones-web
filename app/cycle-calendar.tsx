@@ -15,7 +15,12 @@ function extraAvailable(c:Cycle){return slots(c)===0&&c.available===true;}
 function availabilityClass(c:Cycle){return 'vac2-free-'+Math.min(4,slots(c));}
 function isSummer(c:Cycle){return c.period===1;}
 function monthIndex(date:string){return Number(date.slice(5,7))-1;}
-function cycleTitle(c:Cycle){return formatDate(c.date)+' – '+formatDate(c.end)+' · '+c.score+' puntos · '+slots(c)+' plazas libres'+(extraAvailable(c)?' · cupo adicional posible':'');}
+function cycleTitle(c:Cycle,year:number){
+ const available=year===2027
+  ?slots(c)+' plazas adicionales posibles por límite local; adjudicación sujeta a viabilidad global'
+  :slots(c)+' plazas libres'+(extraAvailable(c)?' · cupo adicional posible':'');
+ return formatDate(c.date)+' – '+formatDate(c.end)+' · '+c.score+' puntos · '+available;
+}
 
 export default function CycleCalendar({year,cycles,selected,onSelect,preferenceMode=false,busy=false,highlighted=[],awards=[],members=[],order=[],points=[]}:Props){
  const [view,setView]=useState<View>('map');
@@ -62,10 +67,10 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   const free=slots(c),people=codesFor(c.date);
   return <button type="button" key={c.date} data-cycle-date={c.date} disabled={busy} onClick={()=>onSelect(c)}
    aria-pressed={selected.includes(c.date)}
-   aria-label={cycleTitle(c)+(people.length?' · '+people.join(', '):'')}
-   title={cycleTitle(c)}
+   aria-label={cycleTitle(c,year)+(people.length?' · '+people.join(', '):'')}
+   title={cycleTitle(c,year)}
    className={'vac2-cycle '+availabilityClass(c)+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(highlighted.includes(c.date)?' vac2-person':'')}>
-    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
+    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{year===2027?free+' máx. locales':extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
     <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{c.occupied}/{c.max} ocupadas{extraAvailable(c)?' · ampliable':''}</span></span>
     {preferenceMode&&selected.includes(c.date)&&<span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date)+1}</span>}
     {people.length>0&&<span className="vac2-names" title={people.join(', ')}>{people.join(' · ')}</span>}
@@ -84,7 +89,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
      return <button type="button" key={i} data-cycle-date={c.date} disabled={busy} onClick={()=>onSelect(c)}
       className={'vac2-day '+availabilityClass(c)+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(first?' vac2-cycle-start':'')}
       aria-pressed={selected.includes(c.date)}
-      title={cycleTitle(c)} aria-label={day+' '+months[m]+': '+cycleTitle(c)}>{day}</button>;
+      title={cycleTitle(c,year)} aria-label={day+' '+months[m]+': '+cycleTitle(c,year)}>{day}</button>;
     })}</div>
     <div className="vac2-month-people">{cycles.filter(c=>c.date<=new Date(Date.UTC(year,m+1,0)).toISOString().slice(0,10)&&c.end>=new Date(Date.UTC(year,m,1)).toISOString().slice(0,10)).map(c=>
      <button type="button" className="vac2-occupants" key={c.date} onClick={()=>onSelect(c)} disabled={busy}>
@@ -121,16 +126,16 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    </div>
   </div>
   {view!=='table'&&<div className="vac2-legend" aria-label="Leyenda de plazas disponibles">
-   <b>Plazas libres</b>{[4,3,2,1,0].map(n=><span key={n}><i className={'vac2-key vac2-free-'+n}/>{n===4?'4+':n}</span>)}
+   <b>{year===2027?'Capacidad local restante':'Plazas libres'}</b>{[4,3,2,1,0].map(n=><span key={n}><i className={'vac2-key vac2-free-'+n}/>{n===4?'4+':n}</span>)}
    <span className="vac2-legend-summer"><i className="vac2-summer-key"/>Verano ENAIRE</span>
   </div>}
-  {view==='table'&&<CycleTable cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect}/>}
+  {view==='table'&&<CycleTable year={year} cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect}/>}
   {view==='map'&&<div className="vac2-month-grid vac2-map">{months.map((_,m)=>renderMonth(m,false))}</div>}
   {view==='calendar'&&<>
    <div className="vac2-month-nav"><button type="button" disabled={activeMonth===0} onClick={()=>setActiveMonth(m=>m-1)}>← Anterior</button><b>{months[activeMonth]}</b><button type="button" disabled={activeMonth===11} onClick={()=>setActiveMonth(m=>m+1)}>Siguiente →</button></div>
    <div className="vac2-month-grid vac2-calendar">{months.map((_,m)=><div className={m===activeMonth?'vac2-active-mobile':'vac2-hidden-mobile'} key={m}>{renderMonth(m,true)}</div>)}</div>
   </>}
   {view==='members'&&renderMembers()}
-  <p className="vac2-footnote">Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar. {view==='table'?'En la tabla, las celdas blancas vacías son plazas sin adjudicar; × indica cupo no autorizado y +? un cupo adicional potencial. La selección se indica con un contorno, sin cambiar el fondo.':'El marco dorado indica ciclos de verano según la configuración de la campaña; el color interior indica plazas restantes.'}</p>
+  <p className="vac2-footnote">{year===2027?'En 2027 los huecos representan únicamente el máximo local: puede haber menos plazas realmente adjudicables por los permisos comunes y por el derecho individual. El servidor comprueba la viabilidad global antes de confirmar.':'Un ciclo completo puede admitir un cupo adicional si está autorizado;'} se comprueba al confirmar. {view==='table'?'En la tabla, las celdas blancas vacías son plazas sin adjudicar; × indica cupo no autorizado y +? un cupo adicional potencial. La selección se indica con un contorno, sin cambiar el fondo.':'El marco dorado indica ciclos de verano según la configuración de la campaña; el color interior indica plazas restantes.'}</p>
  </section>;
 }
