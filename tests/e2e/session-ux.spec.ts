@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('el visitante encuentra el acceso ChatGPT sin abrir el menú móvil', async ({ browser }) => {
+test('el visitante encuentra el acceso ChatGPT sin abrir el menú móvil', {tag:'@mobile-only'}, async ({ browser }) => {
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:5199', viewport: { width: 390, height: 844 } });
   try {
     const page = await context.newPage();
@@ -17,7 +17,7 @@ test('el visitante encuentra el acceso ChatGPT sin abrir el menú móvil', async
   }
 });
 
-test('el usuario autenticado ve su identidad y rol en cabecera y menú móvil', async ({ page, request }) => {
+test('el usuario autenticado ve su identidad y rol en cabecera y menú móvil', {tag:'@mobile-only'}, async ({ page, request }) => {
   await request.get('/signin-with-chatgpt?return_to=/');
   await page.context().addCookies((await request.storageState()).cookies);
   await page.setViewportSize({ width: 390, height: 844 });
