@@ -6,26 +6,61 @@ import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
+import {Dialog,DialogContent,DialogDescription,DialogFooter,DialogHeader,DialogTitle} from '../components/ui/dialog';
 
-export function ActivationPanel({data,busy,act}:any){
- if(data.election.state)return null;
- const scores=data.config?.previousScores,source=data.config?.previousScoresSource??'';
- const ranked=scores?[...data.members].sort((a:any,b:any)=>Number(scores[a.code]??Infinity)-Number(scores[b.code]??Infinity)):[];
- const complete=ranked.length>0&&ranked.every((m:any)=>Number.isFinite(scores[m.code]))&&source.trim().length>=10;
+export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onResolveCycles,onSaveSource}:any){
+ const scores=data.config?.previousScores??{},source=typeof data.config?.previousScoresSource==='string'?data.config.previousScoresSource:'';
+ const missing=data.members.filter((m:any)=>!Number.isFinite(scores[m.code]));
+ const hasMembers=data.members.length>0,hasScores=hasMembers&&missing.length===0;
+ const cyclesValid=Number.isInteger(data.config?.cyclesPerPerson)&&data.config.cyclesPerPerson>=1&&data.config.cyclesPerPerson<=6;
+ const sourceValid=source.trim().length>=10,open=data.campaign.status==='open',frozen=!!data.election.reconstruction?.active;
+ const complete=hasScores&&sourceValid&&cyclesValid&&open&&!frozen;
+ const ranked=hasScores?[...data.members].sort((a:any,b:any)=>scores[a.code]-scores[b.code]):[];
  const tieCounts=new Map<number,number>();
- if(complete)for(const m of ranked)tieCounts.set(scores[m.code],(tieCounts.get(scores[m.code])??0)+1);
+ if(hasScores)for(const m of ranked)tieCounts.set(scores[m.code],(tieCounts.get(scores[m.code])??0)+1);
  const ties=[...tieCounts.values()].filter(n=>n>1);
  const [confirmed,setConfirmed]=useState(false),[deferral,setDeferral]=useState(true);
- return <details className="panel"><summary>Activar elección</summary>
- <p>El orden se calcula automáticamente a partir de las puntuaciones del año anterior; los empates se sortean cuando corresponda y los turnos conjuntos se acuerdan durante la elección.</p>
- <p><strong>Puntuaciones:</strong> {ranked.filter((m:any)=>Number.isFinite(scores?.[m.code])).length}/{data.members.length} · <strong>Grupos empatados:</strong> {ties.length} · <strong>Procedencia:</strong> {source||'Pendiente'}</p>
- {!complete?<p role="alert" className="alert warning">Faltan puntuaciones o su procedencia. Complétalas en Administración → Plantilla del equipo antes de activar.</p>:
- <details><summary>Ver orden calculado (solo lectura)</summary><ol>{ranked.map((m:any)=><li key={m.id}>{m.code}: {scores[m.code]} puntos</li>)}</ol></details>}
- <div className="team-checkboxes">
- <label><input type="checkbox" checked={deferral} onChange={e=>setDeferral(e.target.checked)}/> Permitir uno o dos aplazamientos</label>
- <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Confirmo Criterios Vacaciones 1.1 (2025) y las puntuaciones</label>
- </div>
- <button type="button" className="primary" disabled={busy||!complete||!confirmed} onClick={()=>act({action:'start',rulesConfirmed:true,allowDeferral:deferral},'Puntuaciones confirmadas y elección activada')}>Activar elección</button>
+ const [sourceOpen,setSourceOpen]=useState(false),[sourceDraft,setSourceDraft]=useState(''),[sourceError,setSourceError]=useState('');
+ if(data.election.state)return null;
+ const editSource=()=>{setSourceDraft(source);setSourceError('');setSourceOpen(true);};
+ const saveSource=async()=>{
+  const text=sourceDraft.trim();
+  if(text.length<10){setSourceError('Describe la procedencia con al menos 10 caracteres.');return;}
+  const result=await onSaveSource(text);
+  if(result?.campaign)setSourceOpen(false);
+ };
+ return <details id="activation-panel" className="panel"><summary>Activar elección</summary>
+  <p>El orden se calcula a partir de las puntuaciones anteriores. Antes de activar, comprueba los datos y confirma las reglas; los empates se sortearán cuando llegue su turno.</p>
+  <p><strong>Puntuaciones:</strong> {hasMembers?data.members.length-missing.length:0}/{data.members.length} · <strong>Grupos empatados:</strong> {hasScores?ties.length:'Pendiente'} · <strong>Procedencia:</strong> {source||'Sin documentar'}</p>
+  {!hasMembers&&<div role="alert" className="alert warning"><p>La plantilla está vacía. Añade al menos un controlador para iniciar la elección.</p><button type="button" className="secondary" onClick={()=>onResolveScores([])}>Ir a Plantilla del equipo</button></div>}
+  {hasMembers&&missing.length>0&&<div role="alert" className="alert warning"><p>Falta la puntuación anterior de {missing.length} controlador(es): {missing.slice(0,8).map((m:any)=>m.code).join(', ')}{missing.length>8?` y ${missing.length-8} más`:''}.</p><button type="button" className="secondary" onClick={()=>onResolveScores(missing.map((m:any)=>m.code))}>Completar puntuaciones en la plantilla</button></div>}
+  {!sourceValid&&<div role="alert" className="alert warning"><p>Falta documentar de dónde proceden las puntuaciones del ejercicio anterior. Se registra una sola descripción para todo el equipo, no una por controlador.</p><button type="button" className="secondary" onClick={editSource}>Documentar procedencia</button></div>}
+  {sourceValid&&<p className="muted">¿Necesitas corregir la procedencia? <button type="button" className="secondary" onClick={editSource} disabled={busy}>Editar procedencia</button></p>}
+  {!cyclesValid&&<div role="alert" className="alert warning"><p>La elección requiere entre uno y seis ciclos por persona. Revisa el parámetro «Ciclos por persona».</p><button type="button" className="secondary" onClick={onResolveCycles}>Revisar parámetros del ejercicio</button></div>}
+  {!open&&<p role="alert" className="alert warning">La campaña está cerrada. Reábrela desde «Estado de la campaña» antes de iniciar la elección.</p>}
+  {frozen&&<p role="alert" className="alert warning">Hay una reconstrucción en curso. Finalízala antes de activar la elección.</p>}
+  {hasScores&&<details><summary>Ver orden calculado (solo lectura)</summary><ol>{ranked.map((m:any)=><li key={m.id}>{m.code}: {scores[m.code]} puntos</li>)}</ol></details>}
+  <div className="team-checkboxes">
+   <label><input type="checkbox" checked={deferral} onChange={e=>setDeferral(e.target.checked)}/> Permitir uno o dos aplazamientos</label>
+   <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Confirmo Criterios Vacaciones 1.1 (2025) y las puntuaciones</label>
+  </div>
+  <button type="button" className="primary" disabled={busy||!complete||!confirmed} onClick={async()=>{const result=await act({action:'start',rulesConfirmed:true,allowDeferral:deferral},'Puntuaciones confirmadas y elección activada');if(result?.campaign)onActivated?.();}}>Activar elección</button>
+  <Dialog open={sourceOpen} onOpenChange={setSourceOpen}>
+   <DialogContent>
+    <DialogHeader>
+     <DialogTitle>Documentar origen de las puntuaciones</DialogTitle>
+     <DialogDescription>Indica de dónde proceden las puntuaciones del ejercicio {data.campaign.year-1}: por ejemplo, la clasificación comunicada por el responsable, su fecha y el documento utilizado. Esta descripción queda guardada para todo el equipo en este ejercicio y permite revisar posteriormente el origen del orden de elección. No modifica ninguna puntuación.</DialogDescription>
+    </DialogHeader>
+    <label htmlFor="election-score-source">Procedencia del equipo {data.campaign.team_id}
+     <textarea id="election-score-source" aria-label="Procedencia de las puntuaciones" rows={4} maxLength={500} value={sourceDraft} onChange={e=>{setSourceDraft(e.target.value);setSourceError('');}} placeholder="Ej.: puntuaciones facilitadas por el responsable el 22/10/2026, según clasificación anual" disabled={busy}/>
+    </label>
+    {sourceError&&<p className="alert error" role="alert">{sourceError}</p>}
+    <DialogFooter>
+     <button type="button" className="secondary" disabled={busy} onClick={()=>setSourceOpen(false)}>Cancelar</button>
+     <button type="button" className="primary" disabled={busy||sourceDraft.trim().length<10} onClick={saveSource}>Guardar procedencia</button>
+    </DialogFooter>
+   </DialogContent>
+  </Dialog>
  </details>;
 }
 function TieResolver({group,data,busy,act,manage,open,early=false}:any){
@@ -70,7 +105,7 @@ function PendingTieDialog({data,busy,act,onClose}:any){
  </div>;
 }
 
-export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit}:any){
+export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit,onConfigureElection}:any){
  const confirm=useConfirmation();
  const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
  const previewReadOnly=!!data.preview&&!data.preview.writable;
@@ -78,6 +113,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
  const [historyLimit,setHistoryLimit]=useState(40);
  const [jointOpen,setJointOpen]=useState(false),[jointMembers,setJointMembers]=useState<string[]>([]),[jointRound,setJointRound]=useState(0);
+
  const [tieDialogOpen,setTieDialogOpen]=useState(false);
  const pendingGroups:string[][]=state?.pendingTieGroups??[];
  useEffect(()=>{if(frozen||!manage||!open||!pendingGroups.length)setTieDialogOpen(false);},[frozen,manage,open,pendingGroups.length]);
@@ -167,7 +203,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {!frozen&&<section className="panel election-turn election-workflow-head" aria-label="Turno de elección">
    <div className="election-turn-status">
     <span className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'ELECCIÓN SIN INICIAR'}</span>
-    <h2>{turn?.pendingTie?'Empate pendiente antes del siguiente turno':state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:!state?'Elección sin iniciar':'Consulta de ciclos'}</h2>
+    <h2>{turn?.pendingTie?'Empate pendiente antes del siguiente turno':state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:'Consulta de ciclos'}</h2>
     {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed} ciclo(s) por elegir</span>}
    </div>
    <div className="election-turn-controls">
@@ -175,11 +211,13 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode!=='choose')await cancelPreferences();}}>Calendario</button>
      <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>Preferencias</button>
     </div>}
-    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(manage&&open&&pendingGroups.length>0)||(superuser&&state&&state.status!=='complete'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
+    {manage&&!state&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={onConfigureElection}>Configurar e iniciar elección</button>}
+    {manage&&state?.status==='paused'&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={()=>act({action:'resume'},'Elección reanudada')}>Reanudar elección</button>}
+    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(manage&&open&&pendingGroups.length>0)||(superuser&&state?.status==='active'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
      {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
      {manage&&open&&pendingGroups.length>0&&<button type="button" className="secondary election-pending-ties-action" disabled={busy||previewReadOnly} onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');setTieDialogOpen(true);}}>Resolver empates pendientes <span className="election-pending-count">{pendingGroups.length}</span></button>}
      {manage&&state?.status==='active'&&<button type="button" className="secondary" onClick={()=>{setJointRound(turn?.round??1);setJointMembers([]);setJointOpen(true);}}>Gestionar turnos conjuntos…</button>}
-     {superuser&&state&&state.status!=='complete'&&<button type="button" className="secondary" disabled={busy||!open} onClick={()=>act({action:state.status==='active'?'pause':'resume'},state.status==='active'?'Elección pausada':'Elección reanudada')}>{state.status==='active'?'Pausar elección':'Reanudar elección'}</button>}
+     {superuser&&state?.status==='active'&&<button type="button" className="secondary" disabled={busy||!open} onClick={()=>act({action:'pause'},'Elección pausada')}>Pausar elección</button>}
     </div></details>}
    </div>
   </section>}
