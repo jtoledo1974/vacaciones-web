@@ -114,10 +114,11 @@ export class ElectionService{
    }else if(action==='resolve_tie'){
     if(!manage)throw new ApiError('Solo el responsable puede registrar el sorteo',403);
     if(!state)throw new ApiError('No hay una elección configurada');
-    const group=currentTurn(ctx,state).pendingTie;
-    if(!group)throw new ApiError('No hay un empate pendiente en este turno');
+    const group=body.groupMemberIds===undefined?currentTurn(ctx,state).pendingTie
+     :Array.isArray(body.groupMemberIds)?(state.pendingTieGroups??[]).find((pending:string[])=>pending.length===body.groupMemberIds.length&&pending.every(id=>body.groupMemberIds.includes(id))):undefined;
+    if(!group)throw new ApiError('No hay un empate pendiente para el grupo indicado');
     if(!['random','external'].includes(body.method))throw new ApiError('Método de sorteo no válido');
-    state=resolveTie(ctx,state,body.method==='random'?drawTie(group):body.order,body.method,this.actor.id!,new Date().toISOString());
+    state=resolveTie(ctx,state,body.method==='random'?drawTie(group):body.order,body.method,this.actor.id!,new Date().toISOString(),body.groupMemberIds);
     // The result must be visible and reviewable before an automatic choice uses it.
    }else if(action==='register_joint'||action==='cancel_joint'){
     if(!manage)throw new ApiError('Solo el responsable puede gestionar acuerdos de elección conjunta',403);
