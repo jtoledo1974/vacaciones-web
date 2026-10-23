@@ -1,3 +1,4 @@
+import { HR_2027, hr2027Period } from './hr-2027.ts';
 export const ENGINE_VERSION = 'excel-v21.1.3x-port-1';
 export const dayMs = 86400000;
 export function serial(iso: string) { const d = new Date(iso + 'T00:00:00Z'); if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || !Number.isFinite(+d) || d.toISOString().slice(0, 10) !== iso)
@@ -128,11 +129,12 @@ export function calendar(y: number, team: string, c: Config) { validateConfig(c,
     const isCT = !ctSeen && first + c.cycleLength >= serial(c.correturnos);
     if (isCT)
         ctSeen = true;
-    if ((i === 44 && c.excludePenultimate) || (i === 45 && c.excludeLast))
+    if (y === 2027 && HR_2027[team]) { if (i >= HR_2027[team].count) break; }
+    else if ((i === 44 && c.excludePenultimate) || (i === 45 && c.excludeLast))
         break;
     let score = 0;
     for (let d = 0; d < c.cycleLength; d++)
         score += scoreDay(first + d);
-    out.push({ date: iso(first), end: iso(first + c.cycleLength - 1 + (leap(y) && isCT ? 1 : 0)), score, period: first < serial(c.summerStart) ? 0 : first <= serial(c.summerEnd) ? 1 : 2, correturnos: isCT, special: c.specialCycles.includes(iso(first)) });
+    out.push({ date: iso(first), end: iso(first + c.cycleLength - 1 + (leap(y) && isCT ? 1 : 0)), score, period: y === 2027 && HR_2027[team] ? hr2027Period(team, iso(first)) : first < serial(c.summerStart) ? 0 : first <= serial(c.summerEnd) ? 1 : 2, correturnos: isCT, special: c.specialCycles.includes(iso(first)) });
     first += c.cycleLength + (leap(y) && isCT ? 1 : 0);
 } return out; }
