@@ -7,7 +7,7 @@
  */
 export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v1' as const;
 export type Period2027 = 0 | 1 | 2;
-export type PolicyCycle = { date: string; period: Period2027; fourthExcluded?: boolean };
+export type PolicyCycle = { date: string; period: Period2027; fourthExcluded?: boolean; maximum?: number };
 export type PolicyMember = { id: string; entitlement: number };
 export type PolicyAward = { member_id: string; cycle_date: string };
 export type PolicyState = { cycles: PolicyCycle[]; members: PolicyMember[]; awards: PolicyAward[] };
@@ -68,7 +68,7 @@ export function evaluate2027Final(state: PolicyState, strictPre = false): FinalA
     const c = state.cycles[i], occupied = counts[i], p = c.period;
     if (!periods.includes(p)) { issues.push(problem('UNKNOWN_PERIOD', 'Periodo de RRHH no identificado.', {cycle:c.date})); continue; }
     n[p]++; sums[p] += occupied;
-    const minimum = p === 1 ? 2 : 1, maximum = c.fourthExcluded ? 3 : 4;
+    const minimum = p === 1 ? 2 : 1, maximum = Math.min(c.maximum ?? 4, c.fourthExcluded ? 3 : 4);
     if (occupied < minimum) issues.push(problem('CYCLE_MINIMUM', 'El ciclo no alcanza el mínimo final.', {period:p,cycle:c.date,actual:occupied,limit:minimum}));
     if (occupied > maximum) issues.push(problem(c.fourthExcluded ? 'FOURTH_EXCLUDED' : 'CYCLE_MAXIMUM', c.fourthExcluded ? 'RRHH excluye este ciclo de la cuarta plaza.' : 'Un ciclo no puede superar cuatro personas.', {period:p,cycle:c.date,actual:occupied,limit:maximum}));
     if (occupied === 1) singles[p]++;
@@ -173,7 +173,8 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number):PolicyAw
     if(p<0||p>2||fixedSingle&&fixedFourth||item.fourthExcluded&&fixedFourth)return null;
     periodUsed[p]+=occupied[c];periodSize[p]++;
     const lo=fixedSingle?1:fixedFourth?4:2,hi=fixedSingle?1:fixedFourth?4:3;
-    if(occupied[c]>hi||!bounded(cycleBase+c,periodBase+p,Math.max(0,lo-occupied[c]),hi-occupied[c]))return null;
+    const localMax=Math.min(item.maximum??4,item.fourthExcluded?3:4);
+    if(occupied[c]>hi||hi>localMax||!bounded(cycleBase+c,periodBase+p,Math.max(0,lo-occupied[c]),hi-occupied[c]))return null;
   }
   for(let p=0;p<3;p++){
     const target=p===1&&summerTotal!==undefined ? summerTotal-periodUsed[p] : undefined;
@@ -218,14 +219,15 @@ export function canComplete2027(state:PolicyState,opts:{
     pairs.add(key);counts.set(a.cycle_date,counts.get(a.cycle_date)!+1);people.set(a.member_id,people.get(a.member_id)!+1);
   }
   if(state.members.some(m=>!Number.isInteger(m.entitlement)||m.entitlement<0||m.entitlement>6||people.get(m.id)!>m.entitlement))return {status:'impossible',checked:0,reason:'Derechos individuales excedidos'};
-  for(const c of state.cycles)if(counts.get(c.date)!>(c.fourthExcluded?3:4))return {status:'impossible',checked:0,reason:'Ciclo con ocupación superior al máximo'};
+  for(const c of state.cycles)if(counts.get(c.date)!>Math.min(c.maximum??4,c.fourthExcluded?3:4))return {status:'impossible',checked:0,reason:'Ciclo con ocupación superior al máximo'};
   const slots=[0,1,2].map(p=>range(state.cycles.length).filter(i=>state.cycles[i].period===p));
   if(slots.some(s=>s.length===0))return {status:'impossible',checked:0,reason:'Calendario sin uno de los periodos'};
   const forcedFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)===4));
-  const possibleFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!==4&&!state.cycles[i].fourthExcluded));
-  const possibleSingle=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!<=1));
+  const possibleFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!==4&&!state.cycles[i].fourthExcluded&&(state.cycles[i].maximum??4)>=4));
+  const forcedSingle=slots.map(s=>s.filter(i=>(state.cycles[i].maximum??4)===1));
+  const possibleSingle=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!<=1&&!forcedSingle.some(group=>group.includes(i))));
   const maxFour=[1,2,1],maxSingle=[opts.strictPre?2:3,0,2];
-  if(forcedFour.some((x,p)=>x.length>maxFour[p]))return {status:'impossible',checked:0,reason:'Límite de cuartas plazas excedido'};
+  if(forcedFour.some((x,p)=>x.length>maxFour[p])||forcedSingle.some((x,p)=>x.length>maxSingle[p]))return {status:'impossible',checked:0,reason:'Límite de cuartas o plazas individuales excedido'};
   // Deterministic preference: no optional concentration until it is necessary.
   let checked=0,exhausted=false;
   const choose=(p:number,scenario:Scenario):PolicyAward[]|null=>{
@@ -246,11 +248,11 @@ export function canComplete2027(state:PolicyState,opts:{
     for(let f=0;f<=room;f++)for(const addedFour of combinations(possibleFour[p],f)){
       const fourth=[...forcedFour[p],...addedFour],sMax=maxSingle[p];
       const candidates=possibleSingle[p].filter(i=>!fourth.includes(i));
-      for(let n=0;n<=Math.min(sMax,candidates.length);n++){
-        if(p===0&&n>maxSingle[p])continue;
-        if(p===2&&n>1+fourth.length)continue;
+      for(let n=0;n<=Math.min(sMax-forcedSingle[p].length,candidates.length);n++){
+        if(p===0&&n+forcedSingle[p].length>maxSingle[p])continue;
+        if(p===2&&n+forcedSingle[p].length>1+fourth.length)continue;
         for(const singles of combinations(candidates,n)){
-          const next:Scenario={single:new Set([...scenario.single,...singles]),fourth:new Set([...scenario.fourth,...fourth])};
+          const next:Scenario={single:new Set([...scenario.single,...forcedSingle[p],...singles]),fourth:new Set([...scenario.fourth,...fourth])};
           const result=choose(p+1,next);if(result)return result;
           if(exhausted)return null;
         }
