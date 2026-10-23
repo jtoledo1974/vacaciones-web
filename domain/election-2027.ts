@@ -10,7 +10,8 @@ export function policyState2027(year:number,team:string,config:Config,members:Me
     cycles: calendar(year,team,config).map(c=>({
       date:c.date,
       period:c.period as 0|1|2,
-      fourthExcluded:hr2027FourthExcluded(team,c.date)
+      fourthExcluded:hr2027FourthExcluded(team,c.date),
+      maximum:config.specialQuotas?.[c.date]
     })),
     members:members.map(m=>({
       id:m.id,
