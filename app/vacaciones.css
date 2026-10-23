@@ -580,3 +580,11 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .tie-dialog-resolved{padding-top:9px;margin-top:11px}
  .tie-dialog-editor{padding:16px}
 }
+
+/* Keep score provenance editing in the activation flow, without a modal/scroll lock. */
+.election-score-source-editor{margin:16px 0;padding:18px;border:1px solid #c8dcd1;border-radius:9px;background:#f6faf7}
+.election-score-source-editor h3{font-size:14px;margin:0 0 10px}
+.election-score-source-editor label{display:flex;flex-direction:column;gap:8px;font-size:12px;font-weight:600}
+.election-score-source-editor textarea{width:100%;min-width:0;max-width:100%;font-size:13px;font-weight:400}
+.election-score-source-editor .button-row{margin-top:12px}
+@media(max-width:580px){.election-score-source-editor{padding:13px}}
