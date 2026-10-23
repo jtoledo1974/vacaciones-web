@@ -1,5 +1,7 @@
 import {calculate,type Member,type Request,type Award} from './vacations.ts';
 import type {Config} from './calendar.ts';
+import {policyState2027} from './election-2027.ts';
+import {evaluate2027Candidate, evaluate2027Final} from './policy-2027.ts';
 
 // Criterios Vacaciones 1.1 (10/06/2025), pp. 1-3.
 export const ELECTION_POLICY_VERSION='criterios-vacaciones-1.1-2025';
@@ -86,6 +88,10 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
  const round=Math.floor(state.cursor/n)+1;
  if(state.status!=='active')return {state,memberId:null,needed:0,round,participants:[] as string[],requiredByMember:{} as Record<string,number>};
  if(ctx.members.every(m=>count(ctx,m.id)>=ctx.config.cyclesPerPerson)){
+  if(ctx.year===2027){
+    const evaluation=evaluate2027Final(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards));
+    if(!evaluation.valid)throw new Error('No se puede finalizar la elección: '+evaluation.issues.map(i=>i.message).join('; '));
+  }
   state.status='complete';return {state,memberId:null,needed:0,round,participants:[] as string[],requiredByMember:{} as Record<string,number>};
  }
  // Every completed or joint-deferred slot still consumes one turn in the round.
@@ -159,6 +165,11 @@ export function choiceIssues(ctx:ElectionContext,memberId:string,dates:string[])
  if(!ctx.members.some(m=>m.id===memberId))return ['Controlador ajeno a la campaña'];
  if(new Set(dates).size!==dates.length)return ['No se puede elegir el mismo ciclo dos veces'];
  if(dates.some(d=>ctx.awards.some(a=>a.member_id===memberId&&a.cycle_date===d)))return ['Este controlador ya tiene uno de esos ciclos'];
+ if(ctx.year===2027){
+  const state=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+  const check=evaluate2027Candidate(state,dates.map(cycle_date=>({member_id:memberId,cycle_date})));
+  return check.issues.map(i=>i.message);
+ }
  const awards=[...ctx.awards,...dates.map((d,i)=>({id:'candidate-'+i,member_id:memberId,cycle_date:d}))];
  return calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,awards).issues;
 }
@@ -177,13 +188,24 @@ export function chooseJoint(ctx:ElectionContext,input:ElectionState,entries:Join
  if(turn.participants.length<2)throw new Error('No corresponde un turno conjunto');
  if(entries.length!==turn.participants.length||new Set(entries.map(e=>e.member_id)).size!==entries.length||entries.some(e=>!turn.participants.includes(e.member_id)||!Array.isArray(e.dates)||e.dates.length!==turn.requiredByMember[e.member_id]))
   throw new Error('El turno conjunto debe incluir las elecciones de todos sus participantes');
- const choices:Choice[]=[];
- for(const person of turn.participants){
+ const choices:Choice[]=turn.participants.flatMap(person=>{
   const entry=entries.find(e=>e.member_id===person)!;
-  const nextContext={...ctx,awards:[...ctx.awards,...choices.map((c,i)=>({...c,id:'joint-'+i}))]};
-  const issues=choiceIssues(nextContext,person,entry.dates);
-  if(issues.length)throw new Error(issues.join('; '));
-  choices.push(...entry.dates.map(date=>({member_id:person,cycle_date:date})));
+  return entry.dates.map(date=>({member_id:person,cycle_date:date}));
+ });
+ if(ctx.year===2027){
+  // Validate the whole proposed batch, not its members sequentially.
+  const check=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),
+   choices.map(c=>({member_id:c.member_id,cycle_date:c.cycle_date})));
+  if(!check.allowed)throw new Error(check.issues.map(i=>i.message).join('; '));
+ }else{
+  const incremental:Choice[]=[];
+  for(const person of turn.participants){
+   const entry=entries.find(e=>e.member_id===person)!;
+   const nextContext={...ctx,awards:[...ctx.awards,...incremental.map((c,i)=>({...c,id:'joint-'+i}))]};
+   const issues=choiceIssues(nextContext,person,entry.dates);
+   if(issues.length)throw new Error(issues.join('; '));
+   incremental.push(...entry.dates.map(date=>({member_id:person,cycle_date:date})));
+  }
  }
  const state=turn.state;
  turn.participants.forEach(person=>{state.credits[person]=0;});
