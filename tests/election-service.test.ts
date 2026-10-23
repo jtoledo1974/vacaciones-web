@@ -420,3 +420,41 @@ test('vinculación por correo ChatGPT: distinta cuenta no obtiene acceso y se re
  const legacyOnly=new Service(repo,{id:'chatgpt:person',role:'viewer',teams:[]});
  assert.equal((await legacyOnly.view(cid)).election.myMemberId,b.id);
 });
+
+
+test('resolver empate futuro no adelanta el turno y habilita inmediatamente los turnos conjuntos',async()=>{
+ const {s,cid,d,person}=await setup(),ids=d.members.map((m:any)=>m.id);
+ await setScores(s,cid,{AA:10,BB:20,CC:20});
+ let next=await act(s,cid,start(d));
+ assert.equal(next.election.turn.memberId,ids[0]);
+ assert.deepEqual(next.election.state.pendingTieGroups,[ids.slice(1)]);
+ await assert.rejects(actOne(s,cid,{action:'register_joint',round:1,members:[ids[0],ids[1]]}),/empate/);
+ await assert.rejects(actOne(person,cid,{action:'resolve_tie',method:'random',groupMemberIds:ids.slice(1)}),/responsable/);
+ await assert.rejects(actOne(s,cid,{action:'resolve_tie',method:'random',groupMemberIds:[ids[0],ids[1]]}),/pendiente/);
+ const order=[ids[2],ids[1]],beforeVersion=next.campaign.version;
+ next=await actOne(s,cid,{action:'resolve_tie',method:'external',groupMemberIds:ids.slice(1),order});
+ assert.equal(next.campaign.version,beforeVersion+1);
+ assert.equal(next.election.state.cursor,0);
+ assert.equal(next.election.turn.memberId,ids[0]);
+ assert.deepEqual(next.election.state.order,[ids[0],...order]);
+ assert.deepEqual(next.election.state.pendingTieGroups,[]);
+ assert.equal(next.awards.length,0);
+ assert.equal(next.election.state.tieResolutions[0].anticipated,true);
+ assert.equal(next.election.timeline.find((e:any)=>e.kind==='tie')?.anticipated,true);
+ await assert.rejects(actOne(s,cid,{action:'resolve_tie',method:'external',groupMemberIds:ids.slice(1),order}),/pendiente/);
+ next=await actOne(s,cid,{action:'register_joint',round:1,members:[ids[0],ids[1]]});
+ assert.equal(next.election.turn.memberId,ids[2]);
+ assert.equal(next.election.state.jointAgreements.length,1);
+});
+test('el administrador puede sortear anticipadamente otro grupo incluso si la elección está pausada',async()=>{
+ const {s,cid,d}=await setup(),ids=d.members.map((m:any)=>m.id);
+ await setScores(s,cid,{AA:10,BB:20,CC:20});
+ await act(s,cid,start(d));
+ let next=await actOne(s,cid,{action:'pause'});
+ assert.equal(next.election.state.status,'paused');
+ next=await actOne(s,cid,{action:'resolve_tie',method:'random',groupMemberIds:ids.slice(1)});
+ assert.equal(next.election.state.status,'paused');
+ assert.equal(next.election.state.cursor,0);
+ assert.equal(next.election.state.pendingTieGroups.length,0);
+ assert.deepEqual([...next.election.state.tieResolutions[0].order].sort(),ids.slice(1).sort());
+});
