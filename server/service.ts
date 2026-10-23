@@ -1,6 +1,8 @@
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
+import {policyState2027} from '../domain/election-2027.ts';
+import {evaluate2027Candidate,evaluate2027Final,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
 import {validateRoster,rowStatements} from './roster.ts';
@@ -225,9 +227,15 @@ export class Service {
             if (d.awards.some(a => a.member_id === m.id && a.cycle_date === body.date))
                 throw new ApiError('Adjudicación duplicada');
             const candidate = { id: id(), member_id: m.id, cycle_date: body.date };
-            const check = calculate(c.year, c.team_id, d.config, d.members, d.requests, [...d.awards, candidate]);
-            if (check.issues.length)
-                throw new ApiError(check.issues.join('; '));
+            if(c.year===2027){
+                const check=evaluate2027Candidate(
+                    policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
+                    [{member_id:m.id,cycle_date:body.date}]);
+                if(!check.allowed)throw new ApiError(check.issues.map(issue=>issue.message).join('; '));
+            }else{
+                const check = calculate(c.year, c.team_id, d.config, d.members, d.requests, [...d.awards, candidate]);
+                if (check.issues.length)throw new ApiError(check.issues.join('; '));
+            }
             ops.push({ sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)', args: [candidate.id, cid, m.id, body.date] });
             after = candidate;
         }
@@ -243,9 +251,21 @@ export class Service {
                 throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
             if (JSON.parse(run.result_json).result.issues.length)
                 throw new ApiError('Resuelve las incidencias antes de publicar');
+            if(c.year===2027){
+                const reviewed=evaluate2027Final(policyState2027(c.year,c.team_id,d.config,d.members,d.awards));
+                if(!reviewed.valid)
+                    throw new ApiError('No se puede publicar: '+reviewed.issues.map(i=>i.message).join('; '));
+                const expected=reviewed.warnings.map(w=>w.code).sort();
+                const acknowledged=Array.isArray(body.reviewedWarnings)?[...new Set(body.reviewedWarnings)].sort():[];
+                if(JSON.stringify(expected)!==JSON.stringify(acknowledged))
+                    throw new ApiError('Confirma expresamente los avisos de RRHH para publicar: '+reviewed.warnings.map(w=>w.message).join('; '),409);
+                after={status:'published',runId:run.id,
+                    review:{policyVersion:OCCUPANCY_POLICY_2027,campaignVersion:c.version,actor:this.actor.id,at:now(),
+                        warnings:reviewed.warnings}};
+            }
             ops.push({ sql: 'UPDATE campaigns SET status=\'published\',published_run_id=? WHERE id=?', args: [run.id, cid] });
             before = { status: c.status, publishedRunId: c.published_run_id };
-            after = { status: 'published', runId: run.id };
+            if(c.year!==2027)after = { status: 'published', runId: run.id };
         }
         else if (action === 'close' || action === 'reopen') {
             ops.push({ sql: 'UPDATE campaigns SET status=? WHERE id=?', args: [action === 'close' ? 'closed' : 'open', cid] });
