@@ -28,6 +28,35 @@ test('activación visible desde Vacaciones, regreso automático y reanudación d
  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 });
 
+
+test('la activación señala puntuaciones concretas y documenta procedencia en un diálogo',async({page,request})=>{
+ const scenario=await setup(request,page);
+ await post(request,'campaign/'+scenario.id,{action:'config',version:scenario.data.campaign.version,config:{...scenario.data.config,previousScores:{QA_A:10,QA_B:20,QA_C:30},previousScoresSource:''}});
+ await open(page,scenario.id);
+ await page.getByRole('button',{name:'Configurar e iniciar elección'}).click();
+ const activation=page.locator('#activation-panel');
+ await expect(activation).toHaveAttribute('open','');
+ await expect(activation).toContainText('QA_D');
+ await activation.getByRole('button',{name:'Completar puntuaciones en la plantilla'}).click();
+ await expect(page.getByLabel('Puntuación anterior de QA_D')).toBeFocused();
+ await page.getByLabel('Puntuación anterior de QA_D').fill('40');
+ // The roster save requires a source for any populated scores, so document it first.
+ await activation.getByRole('button',{name:'Documentar procedencia'}).click();
+ const dialog=page.getByRole('dialog',{name:'Documentar origen de las puntuaciones'});
+ await expect(dialog).toContainText('Esta descripción queda guardada para todo el equipo');
+ await dialog.getByRole('textbox',{name:'Procedencia de las puntuaciones'}).fill('Clasificación verificada del equipo, recibida el 22/10/2026');
+ await dialog.getByRole('button',{name:'Guardar procedencia'}).click();
+ await expect(dialog).toHaveCount(0);
+ const saved=await read(request,scenario.id);
+ expect(saved.config.previousScoresSource).toContain('Clasificación verificada');
+ await expect(activation).not.toContainText('Falta documentar');
+ await page.getByRole('button',{name:'Guardar cambios'}).click();
+ await expect(activation).not.toContainText('Falta la puntuación');
+ await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
+ await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
+});
+
 test('historial heredado: adjudicaciones tras sorteo y cuadro con destinatario sin fecha duplicada',async({page,request},info)=>{
  const source=await setup(request,page);
  const ids=source.data.members.map((m:any)=>m.id);

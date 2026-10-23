@@ -135,7 +135,7 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     }
   }
 
-  return <section className="panel roster-panel">
+  return <section id="roster-panel" className="panel roster-panel">
     <div className="section-head roster-heading">
       <div><h2>Plantilla del equipo {data.campaign.team_id}</h2>
         <p>{data.campaign.year} · Un registro por controlador. Los cambios de plantilla se aplican solo a este ejercicio. Las filas nuevas vacías se descartan al guardar.</p>
