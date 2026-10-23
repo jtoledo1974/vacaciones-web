@@ -145,3 +145,33 @@ test('a locally available seat can be blocked by the remaining global cycle mini
  assert.equal(result.issues.some(i=>i.code==='CYCLE_MAXIMUM'),false);
  assert.equal(state.awards.length,1);
 });
+
+test('small exact oracle: global feasibility agrees with independent exhaustive enumerator',()=>{
+ const cycles=[
+  {date:'p0',period:0 as const},{date:'p1',period:0 as const},
+  {date:'s0',period:1 as const},{date:'o0',period:2 as const}
+ ];
+ const members=Array.from({length:3},(_,i)=>({id:'m'+i,entitlement:3}));
+ const edges=members.flatMap(m=>cycles.map(c=>({member_id:m.id,cycle_date:c.date})));
+ // Independent enumerator: every CTA must select 3 of the 4 cycles.
+ const allFull:PolicyState['awards'][]=[];
+ for(let omit0=0;omit0<4;omit0++)
+  for(let omit1=0;omit1<4;omit1++)
+   for(let omit2=0;omit2<4;omit2++){
+    allFull.push(members.flatMap((m,i)=>cycles.filter((_,j)=>j!==[omit0,omit1,omit2][i])
+      .map(c=>({member_id:m.id,cycle_date:c.date}))));
+   }
+ const validFinals=allFull.filter(awards=>evaluate2027Final({cycles,members,awards}).valid);
+ assert.ok(validFinals.length>0,'the independent oracle must have viable final states');
+ let checked=0;
+ for(let i=0;i<edges.length;i++)for(let j=i+1;j<edges.length;j++){
+  const awards=[edges[i],edges[j]];
+  const expected=validFinals.some(full=>awards.every(a=>full.some(f=>f.member_id===a.member_id&&f.cycle_date===a.cycle_date)));
+  const completion=canComplete2027({cycles,members,awards},{maxChecks:2000});
+  assert.notEqual(completion.status,'indeterminate','tiny campaign should always be decided');
+  assert.equal(completion.status==='possible',expected,JSON.stringify(awards));
+  if(expected)assert.ok(evaluate2027Final({cycles,members,awards:[...awards,...completion.witness!]}).valid);
+  checked++;
+ }
+ assert.equal(checked,66);
+});
