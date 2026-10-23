@@ -281,9 +281,67 @@ export function canComplete2027(state:PolicyState,opts:{
   return exhausted?{status:'indeterminate',checked:maxChecks,reason:'Límite de exploración alcanzado; no se ha demostrado imposibilidad'}:{status:'impossible',checked,reason:'No existe una completación válida'};
 }
 
+/**
+ * Deterministic, inexpensive failures that do not require running the global
+ * solver. Both API previews and committed operations receive the same codes.
+ */
+export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):RuleProblem[] {
+  const result:RuleProblem[]=[];
+  const cycles=new Map(state.cycles.map(c=>[c.date,c]));
+  const members=new Map(state.members.map(m=>[m.id,m]));
+  const personCounts=new Map(state.members.map(m=>[m.id,0]));
+  const cycleCounts=new Map(state.cycles.map(c=>[c.date,0]));
+  const pairs=new Set<string>();
+  for(const award of [...state.awards,...choices]) {
+    const cycle=cycles.get(award.cycle_date),member=members.get(award.member_id);
+    if(!cycle || !member){
+      result.push(problem('OUTSIDE_CAMPAIGN','La persona o el ciclo no pertenece a esta campaña.',{cycle:award.cycle_date}));
+      continue;
+    }
+    const pair=award.member_id+'|'+award.cycle_date;
+    if(pairs.has(pair))
+      result.push(problem('DUPLICATE_AWARD','Esta persona ya tiene adjudicado el mismo ciclo.',{cycle:award.cycle_date}));
+    pairs.add(pair);
+    personCounts.set(member.id,(personCounts.get(member.id)??0)+1);
+    cycleCounts.set(cycle.date,(cycleCounts.get(cycle.date)??0)+1);
+  }
+  for(const member of state.members) {
+    const count=personCounts.get(member.id)??0;
+    if(count>member.entitlement)
+      result.push(problem('ENTITLEMENT_EXCEEDED','Esta adjudicación superaría los ciclos anuales autorizados a una persona.',{actual:count,limit:member.entitlement}));
+  }
+  const fours=[0,0,0];
+  for(const cycle of state.cycles){
+    const occupied=cycleCounts.get(cycle.date)??0;
+    const cap=Math.min(cycle.maximum??4,cycle.fourthExcluded?3:4);
+    if(occupied>cap)
+      result.push(problem(cycle.fourthExcluded&&occupied>=4?'FOURTH_EXCLUDED':'CYCLE_MAXIMUM',
+        cycle.fourthExcluded&&occupied>=4
+          ?'RRHH excluye este ciclo de la cuarta plaza.'
+          :'Este ciclo supera su capacidad máxima autorizada por RRHH.',
+        {period:cycle.period,cycle:cycle.date,actual:occupied,limit:cap}));
+    if(occupied>=4)fours[cycle.period]++;
+  }
+  for(const period of [0,1,2] as const){
+    const limit=period===1?2:1;
+    if(fours[period]>limit)
+      result.push(problem('FOURTH_LIMIT',
+        period===1
+          ?'En verano solo pueden existir dos ciclos con cuatro personas.'
+          :'En este periodo solo puede existir un ciclo con cuatro personas.',
+        {period,actual:fours[period],limit}));
+  }
+  return result;
+}
+
 /** Evaluate an atomic batch of choices on the same prior state. */
 export function evaluate2027Candidate(state:PolicyState,choices:PolicyAward[],maxChecks=2000):CandidateAssessment {
   const next={...state,awards:[...state.awards,...choices]};
+  const immediate=immediate2027Issues(state,choices);
+  if(immediate.length){
+    return {allowed:false,completion:{status:'impossible',checked:0,reason:'Restricción inmediata vulnerada'},
+      issues:immediate,warnings:[]};
+  }
   const completion=canComplete2027(next,{maxChecks});
   const issues:RuleProblem[]=completion.status==='impossible'
     ?[problem('NO_VALID_COMPLETION','Esta combinación impediría completar las vacaciones respetando las reglas.')]:
