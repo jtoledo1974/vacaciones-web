@@ -487,3 +487,59 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac3-table .vac3-date button{min-height:24px}
  .vac3-legend{font-size:9px}
 }
+
+/* Compact, touch-friendly controller choices in the exceptional joint-turn form. */
+.joint-agreement-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.joint-agreement-list > label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 39px;
+  padding: 7px 9px;
+  border: 1px solid #dce5df;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #324b43;
+  cursor: pointer;
+}
+.joint-agreement-list > label:has(input:checked) {
+  background: #e9f4f0;
+  border-color: #79aa9b;
+}
+.joint-agreement-list > label:has(input:disabled) {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.joint-agreement-list > label:focus-within {
+  outline: 2px solid #508b70;
+  outline-offset: 2px;
+}
+.joint-agreement-list input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+}
+.joint-agreement-list > label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 580px) {
+  .joint-agreement-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+}
