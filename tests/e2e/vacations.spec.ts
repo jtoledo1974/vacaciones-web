@@ -2,7 +2,7 @@ import {test,expect,type APIRequestContext,type Page} from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin='http://127.0.0.1:5199';
 
-test('activación visible desde Vacaciones, regreso automático y reanudación destacada',async({page,request})=>{
+test('activación visible desde Vacaciones, regreso automático y reanudación destacada',{tag:'@both'},async({page,request})=>{
  const scenario=await setup(request,page);
  expect(scenario.data.election.state).toBeNull();
  await open(page,scenario.id);
@@ -87,8 +87,8 @@ test('historial heredado: adjudicaciones tras sorteo y cuadro con destinatario s
  await expect(card).toContainText('puntos');
  await expect(card.getByRole('button',{name:'Confirmar ciclo',exact:true})).toBeEnabled();
  await expect(card.getByRole('button',{name:'Cancelar selección',exact:true})).toBeVisible();
- await page.screenshot({path:info.outputPath('historial-y-destinatario.png'),fullPage:true});
- await card.screenshot({path:info.outputPath('cuadro-destinatario.png')});
+ if(!process.env.CI)await page.screenshot({path:info.outputPath('historial-y-destinatario.png'),fullPage:true});
+ if(!process.env.CI)await card.screenshot({path:info.outputPath('cuadro-destinatario.png')});
  await card.getByRole('button',{name:'Cancelar selección',exact:true}).click();
  await expect(card).toHaveCount(0);
  expect((await read(request,clone.id)).awards).toHaveLength(2);
@@ -114,18 +114,20 @@ async function setup(api:APIRequestContext,page:Page){
 }
 async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(id);await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();}
 async function activate(page:Page,ties=''){
- // Activation now starts from Vacaciones and returns there automatically.
- const entry=page.getByRole('button',{name:'Configurar e iniciar elección',exact:true});
- await expect(entry).toBeVisible();
- await entry.click();
- const activation=page.locator('#activation-panel');
- await expect(activation).toHaveAttribute('open','');
+ // Activation UI has its own desktop/mobile regressions. Most tests exercise
+ // other workflows, so start their isolated simulation via the same API.
+ const id=await page.getByLabel('Escenario',{exact:true}).inputValue();
+ expect(id).toBeTruthy();
  if(ties){
-  for(const code of ties.split(',').map(s=>s.trim()))await page.getByLabel('Puntuación anterior de '+code).fill('20');
-  await page.getByRole('button',{name:'Guardar cambios'}).click();
+  const current=await read(page.request,id),previousScores={...current.config.previousScores};
+  for(const code of ties.split(',').map(s=>s.trim()))previousScores[code]=20;
+  await post(page.request,'campaign/'+id,{action:'config',version:current.campaign.version,config:{...current.config,previousScores}});
  }
- await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
- await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
+ let next=await election(page.request,id,{action:'start',rulesConfirmed:true,allowDeferral:true});
+ for(let step=0;step<100&&next.election.pendingAutomatic;step++)
+  next=await election(page.request,id,{action:'advance'});
+ // Refresh once rather than waiting for the five-second live revision poll.
+ await page.reload();
  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
@@ -158,7 +160,7 @@ test('integración: dos aplazamientos permiten elegir tres ciclos desde el calen
  expect(result.awards.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
  expect(result.requests.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
- await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
+ if(!process.env.CI)await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
 });
 
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
@@ -183,7 +185,7 @@ test('navegación compacta entre Calendario y Preferencias',async({page,request}
  }
 });
 
-test('móvil: el menú Más acciones permanece dentro de la pantalla',async({page,request})=>{
+test('móvil: el menú Más acciones permanece dentro de la pantalla',{tag:'@mobile-only'},async({page,request})=>{
  const s=await setup(request,page);await open(page,s.id);await activate(page);
  const actions=page.locator('.election-turn-controls > .election-more-actions');
  const summary=actions.locator('summary');
@@ -217,7 +219,7 @@ test('integración: administración agrupada y navegación pública en escritori
  await page.getByText('Herramientas avanzadas',{exact:true}).click();
  await expect(page.getByRole('link',{name:'Descargar copia completa'})).toBeVisible();
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
- await page.screenshot({path:info.outputPath('administracion-integrada.png'),fullPage:true});
+ if(!process.env.CI)await page.screenshot({path:info.outputPath('administracion-integrada.png'),fullPage:true});
  const anonymous=await browser.newContext({baseURL:origin});const p=await anonymous.newPage();
  await p.goto('/?equipo=C&year=2026');await expect(p.getByRole('heading',{name:'Disponibilidad y baremo'})).toBeVisible();
  await expect(p.getByRole('button',{name:'Administración',exact:true})).toHaveCount(0);
@@ -236,7 +238,7 @@ test('calendario público, permisos y aislamiento',async({page,request,browser})
   await anonymous.close();
 });
 
-test('aplazar, elegir dos en calendario y deshacer/rehacer',async({page,request})=>{
+test('aplazar, elegir dos en calendario y deshacer/rehacer',{tag:'@both'},async({page,request})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);await confirm(page,'Aplazar para elegir dos');
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
@@ -324,7 +326,7 @@ test('guardar preferencias durante el turno avisa antes de adjudicar automática
  expect(after.election.preferences.find((p:any)=>p.member_id===member.id)).toMatchObject({dates:[date],automatic:true});
 });
 
-test('reconstrucción guiada: tercera elección distinta y cuarta por preferencias anteriores',async({page,request},info)=>{
+test('reconstrucción guiada: tercera elección distinta y cuarta por preferencias anteriores',{tag:'@both'},async({page,request},info)=>{
  if(info.project.name==='chromium')await page.setViewportSize({width:1440,height:900});
  const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date),ids=s.data.members.map((m:any)=>m.id);
  await election(request,s.id,{action:'preferences',memberId:ids[3],dates:[dates[4]]});
@@ -357,8 +359,8 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
  };
  await checkLayout(info.project.name==='chromium');
- await page.screenshot({path:info.outputPath('reconstruction-initial.png'),fullPage:true});
- await editor.screenshot({path:info.outputPath('reconstruction-panel.png')});
+ if(!process.env.CI)await page.screenshot({path:info.outputPath('reconstruction-initial.png'),fullPage:true});
+ if(!process.env.CI)await editor.screenshot({path:info.outputPath('reconstruction-panel.png')});
  await editor.getByLabel('Registrar otra decisión').check();
  const alternative=editor.getByLabel('Ciclo alternativo');
  await alternative.selectOption(dates[5]);
@@ -376,13 +378,13 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
    await page.setViewportSize(viewport);await checkLayout(viewport.width>900);
    await editor.scrollIntoViewIfNeeded();
    await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeInViewport();
-   await page.screenshot({path:info.outputPath('reconstruction-'+viewport.width+'x'+viewport.height+'.png'),fullPage:true});
+   if(!process.env.CI)await page.screenshot({path:info.outputPath('reconstruction-'+viewport.width+'x'+viewport.height+'.png'),fullPage:true});
   }
   await page.setViewportSize({width:1440,height:900});
   await page.evaluate(()=>window.scrollTo(0,650));
   await expect(editor.getByRole('button',{name:'Registrar decisión y continuar'})).toBeInViewport();
   expect((await editor.boundingBox())!.y).toBeGreaterThanOrEqual(15);
-  await page.screenshot({path:info.outputPath('reconstruction-sticky.png')});
+  if(!process.env.CI)await page.screenshot({path:info.outputPath('reconstruction-sticky.png')});
  }
  await page.getByRole('button',{name:'Registrar decisión y continuar'}).click();
  await expect(page.getByText('Mejor preferencia histórica:')).toBeVisible();
@@ -509,7 +511,7 @@ test('bloqueo, descarga y restauración de backup completo',async({page,request}
   d=await read(request,s.id);expect(d.campaign.status).toBe('open');expect(d.election.state.status).toBe('active');
 });
 
-test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola transacción',async({page,request})=>{
+test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola transacción',{tag:'@both'},async({page,request})=>{
  const fixture=await setup(request,page),dates=fixture.data.result.cycles.map((c:any)=>c.date);
  await open(page,fixture.id);
  await activate(page);
@@ -535,7 +537,7 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  await expect(page.getByRole('heading',{name:'QA_D elige ahora'})).toBeVisible();
 });
 
-test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',async({page,request})=>{
+test('responsive: mapa, calendario mensual, tabla de CTA y selección móvil',{tag:'@mobile-only'},async({page,request})=>{
   await page.setViewportSize({width:390,height:844});
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   await expect(page.getByRole('button',{name:'Mapa',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -583,7 +585,7 @@ test('dos clientes abiertos reciben una adjudicación sin recargar manualmente',
 });
 
 
-test('empate anticipado conserva el turno y deja formar grupo conjunto con casillas horizontales',async({page,request})=>{
+test('empate anticipado conserva el turno y deja formar grupo conjunto con casillas horizontales',{tag:'@mobile-only'},async({page,request})=>{
  await page.setViewportSize({width:390,height:844});
  const s=await setup(request,page);
  await open(page,s.id);
