@@ -4,6 +4,7 @@ import {initialiseFirebase,subscribeFirebaseSession,firebaseBearerToken,firebase
 import UserForm from './user-permissions';
 import LocalAdminLogin from './local-admin-login';
 import { HeaderSession, SidebarSession } from './session-identity';
+import { resolveLandingCampaign } from './landing-campaign';
 import RosterEditor from './roster-editor';
 import ElectionWorkspace,{ActivationPanel} from './election-workspace';
 import SimulationTools from './simulation-tools';
@@ -47,6 +48,15 @@ function Dashboard() {
     useEffect(()=>{currentCid.current=cid;},[cid]);
     useEffect(()=>{isBusy.current=busy;},[busy]);
     async function loadIndex() { const i = await api('index'); setIndex(i); return i; }
+    function selectLanding(i:any) {
+      if(currentCid.current)return;
+      const selection=resolveLandingCampaign(i,location.search);
+      setYearChoice(selection.year);
+      if(selection.campaignId) {
+        currentCid.current=selection.campaignId;
+        setCid(selection.campaignId);
+      }
+    }
     useEffect(()=>{
       let active=true;
       const readSession=()=>api('session').then(s=>{
@@ -62,9 +72,12 @@ function Dashboard() {
        readSession();
        loadIndex().then(i=>{
         const selected=currentCid.current;
-        if(selected&&!i.campaigns.some((x:any)=>x.id===selected))
+        if(!active)return;
+        if(selected&&!i.campaigns.some((x:any)=>x.id===selected)) {
+          currentCid.current='';
           setCid('');
-        else if(selected)api('campaign/'+selected).then(next=>{if(active)setData(next);}).catch(()=>{});
+        } else if(selected)api('campaign/'+selected).then(next=>{if(active)setData(next);}).catch(()=>{});
+        else selectLanding(i);
        }).catch(()=>{});
       });
       fetch('/api/auth-config',{cache:'no-store'}).then(async r=>(r.ok?(await r.json() as {localAdminEnabled?:boolean}):null)).then(c=>{if(active)setLocalAdminEnabled(c?.localAdminEnabled===true);}).catch(()=>{});
@@ -75,14 +88,7 @@ function Dashboard() {
        const p=new URLSearchParams(location.search);
        setPreviewCode(p.get('verComo')??'');
        setSigninUrl('/signin-with-chatgpt?return_to='+encodeURIComponent(location.pathname+location.search));
-       const live=i.campaigns.filter((x:any)=>x.scope_key==='live');
-       const requestedYear=p.get('year')?Number(p.get('year')):null;
-       const defaultYear=live.length?Math.max(...live.map((x:any)=>x.year)):2026;
-       const personal=!p.has('equipo')?live.find((x:any)=>i.myCampaignIds.includes(x.id)&&(!requestedYear||x.year===requestedYear)):null;
-       const scenario=p.get('escenario')?i.campaigns.find((x:any)=>x.id===p.get('escenario')&&x.team_id===p.get('equipo')&&(!requestedYear||x.year===requestedYear)):null;
-       const found=scenario??personal??(p.has('equipo')?live.find((x:any)=>x.team_id===p.get('equipo')&&(!requestedYear||x.year===requestedYear)):null);
-       setYearChoice(found?.year??requestedYear??defaultYear);
-       setCid(found?.id??'');
+       selectLanding(i);
       }).catch(e=>{if(active)setError(e.message);});
       readSession();
       return ()=>{active=false;unregister();};
