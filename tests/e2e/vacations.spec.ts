@@ -582,6 +582,44 @@ test('dos clientes abiertos reciben una adjudicación sin recargar manualmente',
  await second.close();
 });
 
+
+test('empate anticipado conserva el turno y deja formar grupo conjunto con casillas horizontales',async({page,request})=>{
+ await page.setViewportSize({width:390,height:844});
+ const s=await setup(request,page);
+ await open(page,s.id);
+ await activate(page,'QA_C');
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
+ await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByRole('button',{name:/Resolver empates pendientes/}).click();
+ const dialog=page.getByRole('dialog',{name:'Resolver empates pendientes'});
+ await expect(dialog).toBeVisible();
+ await expect(dialog).toContainText('QA_B');
+ await expect(dialog).toContainText('QA_C');
+ await dialog.getByRole('button',{name:'Añadir al sorteo QA_C'}).click();
+ await dialog.getByRole('button',{name:'Añadir al sorteo QA_B'}).click();
+ await dialog.getByRole('button',{name:'Guardar orden externo'}).click();
+ await page.getByRole('dialog',{name:'Confirmar cambio'}).getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(dialog).toHaveCount(0);
+ const resolved=await read(request,s.id);
+ expect(resolved.election.state.tieResolutions[0].anticipated).toBe(true);
+ expect(resolved.election.state.tieResolutions[0].order).toEqual([s.data.members[2].id,s.data.members[1].id]);
+ expect(resolved.election.turn.memberId).toBe(s.data.members[0].id);
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
+ await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
+ const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
+ const checkbox=joint.getByRole('checkbox',{name:'QA_A'});
+ const label=joint.locator('.joint-agreement-list label').filter({has:checkbox});
+ const inputBox=await checkbox.boundingBox();
+ const nameBox=await label.getByText('QA_A').boundingBox();
+ expect(inputBox&&nameBox&&nameBox.x>=inputBox.x+inputBox.width-1).toBeTruthy();
+ await checkbox.check();
+ await joint.getByRole('checkbox',{name:'QA_C'}).check();
+ await joint.getByRole('button',{name:'Registrar acuerdo'}).click();
+ expect((await read(request,s.id)).election.state.jointAgreements).toHaveLength(1);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+});
+
 test('empate de tres: registrar orden externo pulsando nombres, persistir y rotar',async({page,request})=>{
  const s=await setup(request,page);await open(page,s.id);await activate(page,'QA_B, QA_C, QA_D');
  await cycle(page,s.data.result.cycles[0].date);await confirm(page,'Confirmar ciclo');
