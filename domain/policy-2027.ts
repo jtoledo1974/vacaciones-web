@@ -331,6 +331,36 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
           :'En este periodo solo puede existir un ciclo con cuatro personas.',
         {period,actual:fours[period],limit}));
   }
+  // Necessary (not sufficient) global bounds. They provide a concrete reason
+  // before the more expensive person-to-cycle exact matching is attempted.
+  const remaining=state.members.reduce((n,m)=>n+Math.max(0,m.entitlement-(personCounts.get(m.id)??0)),0);
+  const minMissing=state.cycles.reduce((n,c)=>n+Math.max(0,(c.period===1?2:1)-(cycleCounts.get(c.date)??0)),0);
+  const capacity=state.cycles.reduce((n,c)=>n+Math.max(0,Math.min(c.maximum??4,c.fourthExcluded?3:4)-(cycleCounts.get(c.date)??0)),0);
+  const summerMissing=state.cycles.filter(c=>c.period===1)
+    .reduce((n,c)=>n+Math.max(0,2-(cycleCounts.get(c.date)??0)),0);
+  if(remaining<summerMissing)
+    result.push(problem('SUMMER_MINIMUM_IMPOSSIBLE',
+      'La elección dejaría menos adjudicaciones pendientes que las necesarias para completar el mínimo de dos personas en todos los ciclos de verano.',
+      {period:1,actual:remaining,limit:summerMissing}));
+  if(remaining<minMissing)
+    result.push(problem('CYCLE_MINIMUM_IMPOSSIBLE',
+      'La elección dejaría menos vacaciones pendientes que las plazas mínimas aún obligatorias en todos los ciclos.',
+      {actual:remaining,limit:minMissing}));
+  if(remaining>capacity)
+    result.push(problem('INSUFFICIENT_CAPACITY',
+      'No quedan suficientes plazas físicas autorizadas para adjudicar todos los ciclos pendientes.',
+      {actual:capacity,limit:remaining}));
+  for(const member of state.members){
+    const held=new Set([...state.awards,...choices].filter(a=>a.member_id===member.id).map(a=>a.cycle_date));
+    const pending=member.entitlement-(personCounts.get(member.id)??0);
+    if(pending<=0)continue;
+    const options=state.cycles.filter(c=>!held.has(c.date)&&
+      (cycleCounts.get(c.date)??0)<Math.min(c.maximum??4,c.fourthExcluded?3:4)).length;
+    if(pending>options)
+      result.push(problem('PERSON_CYCLES_EXHAUSTED',
+        'No quedan suficientes ciclos distintos disponibles para que una persona complete sus vacaciones sin repetir ciclo.',
+        {actual:options,limit:pending}));
+  }
   return result;
 }
 
