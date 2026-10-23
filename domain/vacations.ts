@@ -1,5 +1,8 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
+import {policyState2027} from './election-2027.ts';
+import {OCCUPANCY_POLICY_2027,evaluate2027Final,canComplete2027} from './policy-2027.ts';
+import {hr2027FourthExcluded} from './hr-2027.ts';
 export type Member = {
     id: string;
     code: string;
@@ -58,6 +61,44 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
     for (const a of awards)
         if (!byDate.has(a.cycle_date) || !members.some(m => m.id === a.member_id))
             issues.push('Adjudicación fuera de campaña');
+    if(y===2027){
+        const state=policyState2027(y,team,c,members,awards);
+        const complete=members.every(m=>awards.filter(a=>a.member_id===m.id).length===c.cyclesPerPerson);
+        const final=complete?evaluate2027Final(state):null;
+        const year2027Issues:string[]=[];
+        // Partial states are not invalid merely because cycles lack their FINAL minimum.
+        for(const a of awards){
+            if(!members.some(m=>m.id===a.member_id)||!byDate.has(a.cycle_date))
+                year2027Issues.push('Adjudicación fuera de esta campaña');
+        }
+        const keys=new Set<string>();
+        for(const a of awards){
+            const key=a.member_id+'|'+a.cycle_date;
+            if(keys.has(key)) year2027Issues.push('Un controlador no puede repetir un ciclo');
+            keys.add(key);
+        }
+        for(const m of members)if(awards.filter(a=>a.member_id===m.id).length>c.cyclesPerPerson)
+            year2027Issues.push(m.code+': supera sus ciclos anuales');
+        const detailed=cycles.map(s=>{
+            const occupied=awards.filter(a=>a.cycle_date===s.date).length;
+            const max=Math.min(c.specialQuotas?.[s.date]??4,hr2027FourthExcluded(team,s.date)?3:4);
+            if(occupied>max) year2027Issues.push(s.date+': supera el cupo máximo autorizado por RRHH');
+            return {...s,occupied,requested:requests.filter(a=>a.cycle_date===s.date).length,
+                min:s.period===1?2:1,base:2,max,available:occupied<max};
+        });
+        if(final) year2027Issues.push(...final.issues.map(i=>i.message));
+        else if(!year2027Issues.length && awards.length){
+            const future=canComplete2027(state,{maxChecks:250});
+            if(future.status==='impossible')year2027Issues.push('Las adjudicaciones actuales no permiten completar las vacaciones restantes');
+        }
+        return {
+            engineVersion:ENGINE_VERSION,occupancyPolicyVersion:OCCUPANCY_POLICY_2027,
+            cycles:detailed,ordering,issues:[...new Set(year2027Issues)],
+            warnings:final?.warnings.map(w=>w.message)??[],
+            totals:{members:members.length,requested:requests.length,awarded:awards.length,necessary:neededTotal,
+                base:baseTotal,conventionSummer,conventionWinter,usedSummer,counts}
+        };
+    }
     return { engineVersion: ENGINE_VERSION, cycles: result, ordering, issues,warnings, totals: { members: members.length, requested: requests.length, awarded: awards.length, necessary: neededTotal, base: baseTotal, conventionSummer, conventionWinter, usedSummer, counts } };
 }
 
