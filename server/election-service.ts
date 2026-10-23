@@ -44,7 +44,7 @@ export class ElectionService{
   const rows=await this.repo.all('SELECT id,action,before_json,after_json FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
   return appliedAudit(rows);
  }
- async options(cid:string,selected:string[]){
+ async options(cid:string,selected:string[],jointEntries?:{member_id:string;dates:string[]}[]){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
   const reconstruction=await this.reconstruction().read(cid);
   if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('Las elecciones están congeladas durante la reconstrucción',409);
@@ -52,6 +52,19 @@ export class ElectionService{
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
+  if(jointEntries!==undefined){
+   if(ctx.year!==2027||!canWrite(this.actor,d.campaign.team_id)||turn.participants.length<2)
+    throw new ApiError('Este turno conjunto no admite previsualización',403);
+   if(!Array.isArray(jointEntries)||jointEntries.length!==turn.participants.length||
+     new Set(jointEntries.map(e=>e.member_id)).size!==jointEntries.length||
+     jointEntries.some(e=>!turn.participants.includes(e.member_id)||!Array.isArray(e.dates)||e.dates.length!==turn.requiredByMember[e.member_id]||e.dates.some(x=>typeof x!=='string')))
+      throw new ApiError('Turno conjunto incompleto');
+   const choices=jointEntries.flatMap(e=>e.dates.map(cycle_date=>({member_id:e.member_id,cycle_date})));
+   const check=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),choices);
+   return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,allowed:check.allowed,
+     available:[],issues:check.issues,warnings:check.warnings};
+  }
+
   if(!Array.isArray(selected)||selected.length>turn.needed||new Set(selected).size!==selected.length||selected.some(x=>typeof x!=='string'))
    throw new ApiError('Selección inicial no válida');
   if(ctx.year===2027){
