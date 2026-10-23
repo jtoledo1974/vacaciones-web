@@ -30,7 +30,7 @@ async function mockVisitor(page:Page,request:APIRequestContext,linked:boolean,au
 test('el usuario autenticado sin vinculación recibe un aviso y elige explícitamente consulta pública',async({page,request})=>{
   await mockVisitor(page,request,false);
   await expect(page.getByRole('heading',{name:/Tu cuenta no está vinculada a un controlador/})).toBeVisible();
-  await expect(page.getByText('visitor@example.test')).toBeVisible();
+  await expect(page.getByRole('region',{name:/Tu cuenta no está vinculada a un controlador/}).getByText('visitor@example.test')).toBeVisible();
   await expect(page.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Continuar en consulta pública'}).click();
   await expect(page.getByRole('region',{name:'Calendario de ciclos'})).toBeVisible();
