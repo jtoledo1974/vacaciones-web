@@ -88,25 +88,41 @@ export function evaluate2027Final(state: PolicyState, strictPre = false): FinalA
     issues.push(problem('PRE_SINGLE_LIMIT', 'Preverano supera el máximo de ciclos con una persona.', {period:0,actual:singles[0],limit:strictPre?2:3}));
   if (!strictPre && singles[0] === 3)
     warnings.push(problem('PRE_SINGLE_3', 'Preverano necesita tres ciclos con una persona; permitido con revisión administrativa frente al criterio de dos.', {period:0,actual:3,limit:2}));
-  // A conventional third is the base allocation. A redistribution transfers
-  // one person: (2,2)->(1,3), (2,3)->(1,4), (3,3)->(2,4).
-  // Witness arithmetic: ordinary thirds B_p = sum(occupancy-2) in period.
-  // At least max(0, singles-fourths) transfers must create a third.
-  // Pre: EC4 replaces one EC3; the less restrictive third single grants
-  // one additional EC3, independently of whether the fourth is used.
-  // Post: EC3 and EC4 are independent.
+  // Accounting witness: reverse the authorised redistributions on the FINAL
+  // histogram. The base then consists exclusively of ordinary 2/3 cycles.
+  //
+  // EC3: (1,3) -> (2,2)
+  // EC4: (1,4) -> (2,3) OR (2,4) -> (3,3)
+  //
+  // Crucially, we are proving that such a base EXISTS. No claim is made
+  // about which historical controller donated a particular place.
+  // Conventional thirds may lie anywhere across both outside periods.
   for (const p of [0, 2] as const) {
-    const conventional = sums[p] - 2 * n[p];
-    if (conventional < 0 || conventional > n[p])
-      issues.push(problem('ORDINARY_THIRD_POOL', 'La cantidad de terceras plazas ordinarias no admite un reparto base de dos/tres en este periodo.', {period:p,actual:conventional,limit:n[p]}));
-    const movesThird = Math.max(0, singles[p] - fourth[p]);
-    const budgetThird = p === 0 ? (strictPre ? 2 : 3) - fourth[p] : 1;
-    if (movesThird > budgetThird)
-      issues.push(problem('EXTRA_THIRD_BUDGET', 'La concentración necesita más redistribuciones de tercera plaza que las autorizadas.', {period:p,actual:movesThird,limit:budgetThird}));
-    const twos = n[p] - singles[p] - fourth[p] - ordinary[p];
-    if (fourth[p] > singles[p] + twos)
-      issues.push(problem('ORDINARY_WITNESS', 'No existen ciclos donantes suficientes para justificar la cuarta plaza.', {period:p}));
+    const ones=singles[p], fours=fourth[p];
+    const twos=state.cycles.reduce((n,c,i)=>n+(c.period===p&&counts[i]===2?1:0),0);
+    const threes=ordinary[p];
+    let hasWitness=false;
+    // Via 1/4 consumes a single in the reversed accounting, via 2/4 a double.
+    for (let viaOne=0;viaOne<=Math.min(ones,fours);viaOne++) {
+      const thirdMoves=ones-viaOne, fourthViaTwo=fours-viaOne;
+      // One EC4 replaces one EC3 in pre. The contested third single in
+      // relaxed pre is granted one extra accounting move, not an extra EC4.
+      const thirdBudget=p===0?2-fours+(!strictPre&&ones===3?1:0):1;
+      if (thirdMoves>thirdBudget||threes<thirdMoves||twos<fourthViaTwo)
+        continue;
+      hasWitness=true;break;
+    }
+    if(!hasWitness)
+      issues.push(problem('REDISTRIBUTION_WITNESS',
+       'No existe reparto ordinario de ciclos de dos/tres que justifique las redistribuciones autorizadas.',
+       {period:p,actual:ones,limit:p===0?(strictPre?2:3):2}));
   }
+  const outsideCount=n[0]+n[2], outsideTotal=sums[0]+sums[2];
+  const conventionalThirds=outsideTotal-2*outsideCount;
+  if(conventionalThirds<0||conventionalThirds>outsideCount)
+    issues.push(problem('ORDINARY_THIRD_POOL',
+      'La bolsa compartida de terceras plazas ordinarias fuera del verano no admite este total.',
+      {actual:conventionalThirds,limit:outsideCount}));
   const summerTotal = sums[1], summerReference = state.members.reduce((s,m)=>s+m.entitlement,0) === 0 ? 0 : state.members.length * 2;
   if (summerTotal !== summerReference)
     warnings.push(problem('SUMMER_REFERENCE', 'La distribución estival difiere de la referencia informativa de dos ciclos por persona.', {period:1,actual:summerTotal,limit:summerReference}));
