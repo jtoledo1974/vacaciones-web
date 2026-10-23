@@ -7,6 +7,7 @@ type Award={id:string;member_id:string;cycle_date:string};
 type Member={id:string;code:string};
 
 type Props={
+ year:number;
  cycles:Cycle[];
  awards:Award[];
  members:Member[];
@@ -21,7 +22,7 @@ function shortDate(iso:string):string{
  return new Date(iso+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short'}).replaceAll('.','').replaceAll(' ','-');
 }
 
-export default function CycleTable({cycles,awards,members,selected,highlighted,preferenceMode,busy,onSelect}:Props){
+export default function CycleTable({year,cycles,awards,members,selected,highlighted,preferenceMode,busy,onSelect}:Props){
  const [fontSize,setFontSize]=useState(10);
  const codes=useMemo(()=>new Map(members.map(m=>[m.id,m.code])),[members]);
  const occupants=useMemo(()=>{
@@ -52,7 +53,7 @@ export default function CycleTable({cycles,awards,members,selected,highlighted,p
      {cycles.map(c=>{
       const people=occupants.get(c.date)??[],selectedIndex=selected.indexOf(c.date);
       const free=Math.max(0,c.max-c.occupied),extra=free===0&&c.available===true;
-      const label=shortDate(c.date)+' a '+shortDate(c.end)+', '+c.score+' puntos, '+c.occupied+'/'+c.max+' plazas ocupadas'+(extra?', posible cupo adicional':'')+(people.length?', '+people.join(', '):'');
+      const label=shortDate(c.date)+' a '+shortDate(c.end)+', '+c.score+' puntos, '+c.occupied+'/'+c.max+' plazas ocupadas'+(year===2027?', los huecos restantes son límites locales sujetos a viabilidad global':extra?', posible cupo adicional':'')+(people.length?', '+people.join(', '):'');
       return <tr key={c.date} className={(c.period===1?'vac3-summer ':'')+(chosen.has(c.date)?'vac3-selected ':'')+(marked.has(c.date)?'vac3-highlight ':'')} onClick={()=>{if(!busy)onSelect(c);}} data-cycle-date={c.date}>
        <td className="vac3-points">{c.score}</td>
        <td className="vac3-date">
@@ -64,7 +65,7 @@ export default function CycleTable({cycles,awards,members,selected,highlighted,p
        {Array.from({length:columns},(_,i)=>{
         const occupant=people[i],disabled=i>=c.max;
         const add=disabled&&i===c.max&&extra;
-        const cellTitle=occupant?'Ocupado por '+occupant:add?'Cupo adicional potencial, sujeto a confirmación':disabled?'Cupo no autorizado':'Cupo libre';
+        const cellTitle=occupant?'Ocupado por '+occupant:add?'Cupo adicional potencial, sujeto a confirmación':disabled?'Cupo no autorizado':year===2027?'Posible según cupo local; sujeto a viabilidad global':'Cupo libre';
         return <td key={i} className={'vac3-slot'+(disabled?' vac3-disabled':'')} title={cellTitle}><span className="vac3-slot-code">{occupant??(add?'+?':disabled?'×':'')}</span></td>;
        })}
       </tr>;
@@ -72,6 +73,6 @@ export default function CycleTable({cycles,awards,members,selected,highlighted,p
     </tbody>
    </table>
   </div>
-  <div className="vac3-legend"><span><i className="vac3-summer-key"/>Verano</span><span><i className="vac3-selection-key"/>Selección (sin relleno)</span><span>× No autorizado · +? Cupo adicional posible</span></div>
+  <div className="vac3-legend"><span><i className="vac3-summer-key"/>Verano</span><span><i className="vac3-selection-key"/>Selección (sin relleno)</span><span>{year===2027?'× No autorizado · Celdas vacías: cupo local potencial, no reserva garantizada':'× No autorizado · +? Cupo adicional posible'}</span></div>
  </div>;
 }
