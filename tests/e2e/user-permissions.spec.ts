@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-test('editar permisos, revocar y eliminar desde el listado',async({page})=>{
+test('editar permisos, revocar y eliminar desde el listado',{tag:'@both'},async({page})=>{
  // A separate fixture client avoids consuming the security test's shared login budget.
  // This reserved test IP is only sent to the isolated loopback server.
  const api=page.request,headers={Origin:'http://127.0.0.1:5199','CF-Connecting-IP':'192.0.2.50'};
