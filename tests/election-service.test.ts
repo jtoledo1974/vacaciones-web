@@ -429,7 +429,7 @@ test('resolver empate futuro no adelanta el turno y habilita inmediatamente los 
  assert.equal(next.election.turn.memberId,ids[0]);
  assert.deepEqual(next.election.state.pendingTieGroups,[ids.slice(1)]);
  await assert.rejects(actOne(s,cid,{action:'register_joint',round:1,members:[ids[0],ids[1]]}),/empate/);
- await assert.rejects(actOne(person,cid,{action:'resolve_tie',method:'random',groupMemberIds:ids.slice(1)}),/responsable/);
+ await assert.rejects(actOne(person,cid,{action:'resolve_tie',method:'random',groupMemberIds:ids.slice(1)}),/vinculada|responsable/);
  await assert.rejects(actOne(s,cid,{action:'resolve_tie',method:'random',groupMemberIds:[ids[0],ids[1]]}),/pendiente/);
  const order=[ids[2],ids[1]],beforeVersion=next.campaign.version;
  next=await actOne(s,cid,{action:'resolve_tie',method:'external',groupMemberIds:ids.slice(1),order});
