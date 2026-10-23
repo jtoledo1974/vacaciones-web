@@ -40,7 +40,8 @@ test('la activación señala puntuaciones concretas y documenta procedencia en u
  await activation.getByRole('button',{name:'Completar puntuaciones en la plantilla'}).click();
  await expect(page.getByLabel('Puntuación anterior de QA_D')).toBeFocused();
  await page.getByLabel('Puntuación anterior de QA_D').fill('40');
- // The roster save requires a source for any populated scores, so document it first.
+ await page.getByRole('button',{name:'Guardar cambios'}).click();
+ await expect(activation).not.toContainText('Falta la puntuación');
  await activation.getByRole('button',{name:'Documentar procedencia'}).click();
  const dialog=page.getByRole('dialog',{name:'Documentar origen de las puntuaciones'});
  await expect(dialog).toContainText('Esta descripción queda guardada para todo el equipo');
@@ -50,8 +51,6 @@ test('la activación señala puntuaciones concretas y documenta procedencia en u
  const saved=await read(request,scenario.id);
  expect(saved.config.previousScoresSource).toContain('Clasificación verificada');
  await expect(activation).not.toContainText('Falta documentar');
- await page.getByRole('button',{name:'Guardar cambios'}).click();
- await expect(activation).not.toContainText('Falta la puntuación');
  await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
  await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
  await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
