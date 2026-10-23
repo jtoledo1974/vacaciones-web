@@ -7,7 +7,7 @@ export type ElectionTimelineItem={
  id:string;kind:'choice'|'defer'|'tie'|'legacy'|'joint';round:number|null;createdAt:string;
  memberIds:string[];choices:LoggedChoice[];deferredTurns:number;
  ties:{memberId:string;position:number;total:number;order:string[]}[];
- method?:'random'|'external';order?:string[];jointAction?:'register_joint'|'cancel_joint';
+ method?:'random'|'external';order?:string[];anticipated?:boolean;jointAction?:'register_joint'|'cancel_joint';
 };
 
 function parse(value:string|null):any{
@@ -96,7 +96,7 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
    events.push({sequence:indices.get(row.id)??0,item:{
     id:row.id,kind:'tie',round:roundAt(row,ctx),createdAt:row.created_at,
     memberIds:resolution.order,choices:[],deferredTurns:0,ties:[],
-    method:resolution.method,order:resolution.order
+    method:resolution.method,order:resolution.order,anticipated:resolution.anticipated===true
    }});
   }
  }
