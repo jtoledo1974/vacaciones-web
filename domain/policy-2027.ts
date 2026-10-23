@@ -145,7 +145,7 @@ class Network {
 }
 
 /** Exact integer circulation for one choice of one-person and four-person cycles. */
-function match(state:PolicyState,scenario:Scenario):PolicyAward[]|null {
+function match(state:PolicyState,scenario:Scenario,summerTotal?:number):PolicyAward[]|null {
   const M=state.members.length,C=state.cycles.length;
   const mapM=new Map(state.members.map((m,i)=>[m.id,i])),mapC=new Map(state.cycles.map((c,i)=>[c.date,i]));
   const occupied=new Array(C).fill(0) as number[], mine=range(M).map(()=>new Set<number>());
@@ -176,8 +176,9 @@ function match(state:PolicyState,scenario:Scenario):PolicyAward[]|null {
     if(occupied[c]>hi||!bounded(cycleBase+c,periodBase+p,Math.max(0,lo-occupied[c]),hi-occupied[c]))return null;
   }
   for(let p=0;p<3;p++){
-    const lower=p===1?0:Math.max(0,2*periodSize[p]-periodUsed[p]);
-    const upper=p===1?remaining:Math.min(remaining,3*periodSize[p]-periodUsed[p]);
+    const target=p===1&&summerTotal!==undefined ? summerTotal-periodUsed[p] : undefined;
+    const lower=target!==undefined ? target : p===1 ? 0 : Math.max(0,2*periodSize[p]-periodUsed[p]);
+    const upper=target!==undefined ? target : p===1 ? remaining : Math.min(remaining,3*periodSize[p]-periodUsed[p]);
     if(!bounded(periodBase+p,sink,lower,upper))return null;
   }
   if(!bounded(sink,source,0,remaining))return null;
@@ -231,7 +232,7 @@ export function canComplete2027(state:PolicyState,opts:{
     if(exhausted)return null;
     if(p===3){
       if(++checked>maxChecks){exhausted=true;return null;}
-      const extra=match(state,scenario);if(!extra)return null;
+      const extra=match(state,scenario,opts.summerTotal);if(!extra)return null;
       const end:PolicyState={...state,awards:[...state.awards,...extra]};
       const final=evaluate2027Final(end,opts.strictPre);
       if(!final.valid)return null;
