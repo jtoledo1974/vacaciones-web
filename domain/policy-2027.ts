@@ -291,11 +291,17 @@ export function evaluate2027Candidate(state:PolicyState,choices:PolicyAward[],ma
       ?[problem('COMPLETION_UNDETERMINED','No se ha demostrado que exista una completación válida; no se adjudica automáticamente.')]:[];
   const warnings:RuleProblem[]=[];
   if(completion.status==='possible'){
-    if(canComplete2027(next,{strictPre:true,maxChecks}).status==='impossible')
+    const strict=canComplete2027(next,{strictPre:true,maxChecks});
+    if(strict.status==='impossible')
       warnings.push(problem('PRE_SINGLE_3','Esta elección hace inevitable utilizar tres ciclos con una persona en preverano; permitida con revisión administrativa.',{period:0,actual:3,limit:2}));
+    else if(strict.status==='indeterminate')
+      warnings.push(problem('PRE_SINGLE_UNDETERMINED','No se ha podido comprobar si aún es posible terminar con solo dos ciclos individuales en preverano.',{period:0,limit:2}));
     const summerReference=state.members.length*2;
-    if(canComplete2027(next,{summerTotal:summerReference,maxChecks}).status==='impossible')
+    const reference=canComplete2027(next,{summerTotal:summerReference,maxChecks});
+    if(reference.status==='impossible')
       warnings.push(problem('SUMMER_REFERENCE','La terminación necesita un total estival distinto de la referencia informativa.',{period:1,limit:summerReference}));
+    else if(reference.status==='indeterminate')
+      warnings.push(problem('SUMMER_UNDETERMINED','No se ha podido comprobar si aún es posible terminar con el total estival de referencia.',{period:1,limit:summerReference}));
   }
   return {allowed:completion.status==='possible',completion,issues,warnings};
 }
