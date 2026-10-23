@@ -274,7 +274,25 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       {turn.needed>1&&turn?.participants?.length===1&&<p className="election-multiple-summary">{selected.length}/{turn.needed} ciclos seleccionados: {selected.map(formatDate).join(' + ')||'ninguno'}</p>}
       {turn?.participants?.length>1&&<p className="election-multiple-summary">{turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | ')}</p>}
       <div className="button-row">
-       <button type="button" className="primary" disabled={busy||previewReadOnly||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={()=>{
+       <button type="button" className="primary" disabled={busy||previewReadOnly||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={async()=>{
+        if(data.campaign.year===2027){
+         const query=new URLSearchParams();
+         const entries=turn?.participants?.length>1?turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]})):null;
+         if(entries)query.set('joint',JSON.stringify(entries));
+         else selected.forEach(date=>query.append('selected',date));
+         const preview=new URLSearchParams(location.search).get('verComo');
+         if(preview)query.set('verComo',preview);
+         try{
+          const response=await fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'});
+          const report:any=await response.json();
+          if(!response.ok)throw new Error(report.error??'No se pudo validar la selección');
+          if(report.version!==data.campaign.version)throw new Error('La campaña ha cambiado. Actualiza antes de confirmar.');
+          if(report.allowed===false){setMessage((report.issues??[]).map((issue:any)=>issue.message).join('; ')||'La elección impediría completar el reparto.');return;}
+          if(Array.isArray(report.warnings)&&report.warnings.length){
+           if(!await confirm('La elección está permitida, pero requiere revisar estos avisos de RRHH:\\n\\n'+report.warnings.map((w:any)=>w.message).join('\\n')+'\\n\\n¿Confirmar la adjudicación con estos avisos?'))return;
+          }
+         }catch(error:any){setMessage(error?.message??'Error al comprobar la viabilidad');return;}
+        }
         if(turn?.participants?.length>1){const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));act({action:'choose_joint',entries},'Turno conjunto confirmado');}
         else act({action:'choose',memberId:current.id,dates:selected},'Elección confirmada');
        }}>Confirmar {turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo'}</button>
