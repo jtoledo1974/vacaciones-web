@@ -79,3 +79,20 @@ test('same final allocation is independent of order of the requested dates',()=>
   assert.equal(evaluate2027Candidate(base,a).allowed,evaluate2027Candidate(base,b).allowed);
   assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v1');
 });
+
+test('real 2027 calendars A–H have a six-cycle completion witness for the RRHH staffing',()=>{
+ for(const team of 'ABCDEFGH'){
+  const config=defaultConfig(2027),cycles=calendar(2027,team,config);
+  const peopleCount=team==='C'?19:20;
+  const state:PolicyState={
+   cycles:cycles.map(c=>({date:c.date,period:c.period as 0|1|2,fourthExcluded:hr2027FourthExcluded(team,c.date)})),
+   members:Array.from({length:peopleCount},(_,i)=>({id:'m'+i,entitlement:6})),
+   awards:[]
+  };
+  const completion=canComplete2027(state,{maxChecks:1000});
+  assert.equal(completion.status,'possible',team+': '+completion.reason);
+  assert.equal(completion.witness?.length,peopleCount*6);
+  const final=evaluate2027Final({...state,awards:completion.witness!});
+  assert.equal(final.valid,true,team+': '+JSON.stringify(final.issues));
+ }
+});
