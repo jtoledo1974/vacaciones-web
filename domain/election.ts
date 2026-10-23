@@ -11,7 +11,7 @@ export type ElectionState={
  // Each tied group is contiguous in the initial, drawn order, then rotated each round.
  tieGroups?:string[][];
  pendingTieGroups?:string[][];
- tieResolutions?:{order:string[];method:'random'|'external';at:string;actor:string}[];
+ tieResolutions?:{order:string[];method:'random'|'external';at:string;actor:string;anticipated?:boolean}[];
  // A joint turn is taken at the position of its last participant in each round.
  jointGroups?:string[][];
  // Round-scoped administrative agreements; cancelled records remain in the audit.
@@ -70,7 +70,7 @@ export function validateElectionState(state:ElectionState,members:Member[]){
   }
  }
  if(state.pendingTieGroups!==undefined&&(!Array.isArray(state.pendingTieGroups)||state.pendingTieGroups.some(group=>!Array.isArray(group)||!(state.tieGroups??[]).some(tie=>tie.length===group.length&&tie.every((id,i)=>id===group[i])))))throw new Error('Empates pendientes no válidos');
- if(state.tieResolutions!==undefined&&(!Array.isArray(state.tieResolutions)||state.tieResolutions.some(r=>!r||!['random','external'].includes(r.method)||typeof r.at!=='string'||typeof r.actor!=='string'||!Array.isArray(r.order)||r.order.length<2||new Set(r.order).size!==r.order.length||r.order.some(id=>!state.order.includes(id)))))throw new Error('Actas de sorteo no válidas');
+ if(state.tieResolutions!==undefined&&(!Array.isArray(state.tieResolutions)||state.tieResolutions.some(r=>!r||!['random','external'].includes(r.method)||typeof r.at!=='string'||typeof r.actor!=='string'||!Array.isArray(r.order)||r.order.length<2||new Set(r.order).size!==r.order.length||r.order.some(id=>!state.order.includes(id))||(r.anticipated!==undefined&&typeof r.anticipated!=='boolean'))))throw new Error('Actas de sorteo no válidas');
 }
 export function orderForRound(state:ElectionState,round:number):string[]{
  const result=[...state.order];
@@ -104,15 +104,19 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
  }
  throw new Error('No se ha podido avanzar la elección');
 }
-export function resolveTie(ctx:ElectionContext,input:ElectionState,order:string[],method:'random'|'external',actor:string,at:string){
- const turn=currentTurn(ctx,input),group=turn.pendingTie;
- if(!group)throw new Error('No hay un empate pendiente en este turno');
+/** Resolve a specific pending tie ahead of its turn, without consuming any election slot. */
+export function resolveTie(ctx:ElectionContext,input:ElectionState,order:string[],method:'random'|'external',actor:string,at:string,groupMemberIds?:string[]){
+ const turn=currentTurn(ctx,input);
+ const group=groupMemberIds===undefined?turn.pendingTie
+  :Array.isArray(groupMemberIds)?(input.pendingTieGroups??[]).find(pending=>pending.length===groupMemberIds.length&&pending.every(id=>groupMemberIds.includes(id))):undefined;
+ if(!group)throw new Error('No hay un empate pendiente para ese grupo');
  if(!Array.isArray(order)||order.length!==group.length||new Set(order).size!==order.length||order.some(id=>!group.includes(id)))throw new Error('El orden debe incluir una vez a cada persona empatada');
- const state=turn.state,first=state.order.indexOf(group[0]);
+ const state=groupMemberIds===undefined?turn.state:structuredClone(input),first=state.order.indexOf(group[0]);
  state.order.splice(first,group.length,...order);
  state.tieGroups=state.tieGroups!.map(g=>g===group||g.length===group.length&&g.every((id,i)=>id===group[i])?[...order]:g);
  state.pendingTieGroups=state.pendingTieGroups!.filter(g=>!g.includes(group[0]));
- state.tieResolutions=[...(state.tieResolutions??[]),{order:[...order],method,actor,at}];
+ const anticipated=groupMemberIds!==undefined&&(!turn.pendingTie||!turn.pendingTie.includes(group[0]));
+ state.tieResolutions=[...(state.tieResolutions??[]),{order:[...order],method,actor,at,anticipated}];
  validateElectionState(state,ctx.members);return state;
 }
 
