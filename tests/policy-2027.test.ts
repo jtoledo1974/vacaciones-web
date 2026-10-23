@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {defaultConfig} from '../domain/defaults.ts';
 import {calendar} from '../domain/calendar.ts';
 import {HR_2027, hr2027Period, hr2027FourthExcluded} from '../domain/hr-2027.ts';
-import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,type PolicyState} from '../domain/policy-2027.ts';
+import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,immediate2027Issues,type PolicyState} from '../domain/policy-2027.ts';
 
 test('2027 RRHH calendar: every team has exact cycle count and boundary',()=>{
   for(const team of 'ABCDEFGH'){
@@ -95,4 +95,38 @@ test('real 2027 calendars A–H have a six-cycle completion witness for the RRHH
   const final=evaluate2027Final({...state,awards:completion.witness!});
   assert.equal(final.valid,true,team+': '+JSON.stringify(final.issues));
  }
+});
+
+test('unavailable fourth slot reports exact RRHH exclusion (not a generic no-completion)',()=>{
+ const state:PolicyState={
+   cycles:[{date:'pre-red',period:0,fourthExcluded:true},{date:'summer',period:1},{date:'post',period:2}],
+   members:Array.from({length:5},(_,i)=>({id:'m'+i,entitlement:3})),
+   awards:Array.from({length:3},(_,i)=>({member_id:'m'+i,cycle_date:'pre-red'}))
+ };
+ const choice=evaluate2027Candidate(state,[{member_id:'m3',cycle_date:'pre-red'}]);
+ assert.equal(choice.allowed,false);
+ assert.equal(choice.issues[0]?.code,'FOURTH_EXCLUDED');
+ assert.equal(choice.issues[0]?.cycle,'pre-red');
+ assert.equal(choice.completion.checked,0);
+});
+
+test('fourth places elsewhere in summer use a common limit and have a precise explanation',()=>{
+ const cycles=['a','b','c'].map(date=>({date,period:1 as const}));
+ const members=Array.from({length:6},(_,i)=>({id:'m'+i,entitlement:6}));
+ const awards=cycles.flatMap((cycle,i)=>Array.from({length:i<2?4:3},(_,j)=>({member_id:'m'+j,cycle_date:cycle.date})));
+ const state:PolicyState={cycles,members,awards};
+ const check=evaluate2027Candidate(state,[{member_id:'m4',cycle_date:'c'}]);
+ assert.equal(check.allowed,false);
+ assert.ok(check.issues.some(issue=>issue.code==='FOURTH_LIMIT'&&issue.period===1));
+ assert.equal(immediate2027Issues(state,[{member_id:'m4',cycle_date:'c'}]).some(i=>i.code==='FOURTH_LIMIT'),true);
+});
+
+test('candidate reports duplicate and entitlement limits with stable codes',()=>{
+ const state:PolicyState={
+   cycles:[{date:'p',period:0},{date:'s',period:1},{date:'o',period:2}],
+   members:[{id:'m',entitlement:1}],
+   awards:[{member_id:'m',cycle_date:'p'}]
+ };
+ assert.ok(evaluate2027Candidate(state,[{member_id:'m',cycle_date:'p'}]).issues.some(i=>i.code==='DUPLICATE_AWARD'));
+ assert.ok(evaluate2027Candidate(state,[{member_id:'m',cycle_date:'s'}]).issues.some(i=>i.code==='ENTITLEMENT_EXCEEDED'));
 });
