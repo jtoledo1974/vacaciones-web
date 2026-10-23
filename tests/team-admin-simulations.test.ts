@@ -90,3 +90,23 @@ test('a team administrator cannot erase private real preferences through reset o
  await assert.rejects(team.mutate(live.id,{action:'import_roster',version:d.campaign.version,source:roster}),/preferencias privadas/);
  assert.equal((await global.view(live.id)).members.length,d.members.length);
 });
+
+test('team admin can activate, pause and resume an unstarted private simulation',async()=>{
+ const {global,team,live}=await setup();
+ const source=await team.view(live.id);
+ const created=await team.createSimulation(live.id,{name:'Primera elección del responsable',version:source.campaign.version});
+ let d=await team.view(created.id);
+ assert.equal(d.election.state,null);
+ assert.equal(d.election.canManage,true);
+ d=await team.mutate(created.id,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:Object.fromEntries(d.members.map((m:any,i:number)=>[m.code,10+i])),previousScoresSource:'Puntuaciones previas para simulación del equipo'}});
+ await team.election().mutate(created.id,{action:'start',rulesConfirmed:true,allowDeferral:true,version:d.campaign.version});
+ d=await team.view(created.id);
+ assert.equal(d.election.state.status,'active');
+ await team.election().mutate(created.id,{action:'pause',version:d.campaign.version});
+ d=await team.view(created.id);
+ assert.equal(d.election.state.status,'paused');
+ await team.election().mutate(created.id,{action:'resume',version:d.campaign.version});
+ d=await team.view(created.id);
+ assert.equal(d.election.state.status,'active');
+ assert.equal((await global.view(live.id)).election.state,null);
+});

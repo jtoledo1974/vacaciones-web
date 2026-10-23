@@ -121,7 +121,6 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
       if(!Number.isFinite(score)||score<0||score>10000){setError('Puntuación anterior no válida para '+row.code);return;}
       previousScores[row.code.trim().toUpperCase()]=score;
     }
-    if(Object.keys(previousScores).length&&scoreSource.trim().length<10){setError('Indica el origen de las puntuaciones (mínimo 10 caracteres).');return;}
     void save(savedRows.map(({memberId,code,label,seniority})=>({memberId,code,label,seniority})),changedAccounts,rosterDirty,scoresDirty,previousScores,scoreSource.trim());
   }
   async function removeMember(r:Row) {
@@ -135,7 +134,7 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     }
   }
 
-  return <section className="panel roster-panel">
+  return <section id="roster-panel" className="panel roster-panel">
     <div className="section-head roster-heading">
       <div><h2>Plantilla del equipo {data.campaign.team_id}</h2>
         <p>{data.campaign.year} · Un registro por controlador. Los cambios de plantilla se aplican solo a este ejercicio. Las filas nuevas vacías se descartan al guardar.</p>
@@ -171,7 +170,7 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
         </td>
       </tr>)}</tbody></table></div>
     {!readOnly&&<>
-      <label>Origen de las puntuaciones de {data.campaign.year-1}<input type="text" maxLength={500} value={scoreSource} onChange={e=>setScoreSource(e.target.value)} placeholder="Responsable, fecha y procedencia" disabled={locked}/></label>
+      <label>Origen de las puntuaciones de {data.campaign.year-1} (puede completarse al activar)<input type="text" maxLength={500} value={scoreSource} onChange={e=>setScoreSource(e.target.value)} placeholder="Responsable, fecha y procedencia" disabled={locked}/></label>
       <p className="muted">{savedRows.filter(r=>r.previousScore.trim()).length}/{savedRows.length} puntuaciones registradas. No se puede activar la elección mientras falte alguna.</p>
       <div className="button-row roster-toolbar">
         <button className="primary" disabled={busy||!dirty} onClick={saveChanges}>Guardar cambios{changedAccounts.length>0?' (incluye accesos)':''}</button>

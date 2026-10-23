@@ -267,7 +267,8 @@
 .election-turn-status .eyebrow{margin:0;font-size:9px}
 .election-turn.election-workflow-head h2{font-size:14px;margin:0;line-height:1.4}
 .election-turn-status .muted{font-size:11px}
-.election-turn-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.election-turn-controls{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.election-quick-action{font-size:11px;padding:8px 10px;white-space:nowrap}
 .election-view-switch{display:inline-flex;align-items:center;gap:2px;padding:3px;border:1px solid #d9e3dc;background:#eef3ef;border-radius:9px;min-width:0}
 .election-view-option{border:0;border-radius:6px;background:transparent;color:#557465;padding:6px 11px;font-size:11px;font-weight:650;line-height:1.4;white-space:nowrap}
 .election-view-option[aria-pressed="true"]{background:white;color:#245d4b;box-shadow:0 1px 3px #183a291f}
@@ -343,7 +344,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 }
 @media(max-width:680px){
  .election-turn.election-workflow-head{padding:10px 12px!important}
- .election-turn-controls{width:100%;flex-wrap:nowrap;gap:6px}
+ .election-turn-controls{width:100%;flex-wrap:wrap;gap:6px;justify-content:flex-end}
  .election-view-switch{flex:0 1 auto}
  .election-view-option{padding:7px 9px}
  /* Keep the rarely used overflow menu on the same row. Constrain its
@@ -486,4 +487,96 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac3-table .vac3-slot-code{max-width:48px}
  .vac3-table .vac3-date button{min-height:24px}
  .vac3-legend{font-size:9px}
+}
+
+/* Compact, touch-friendly controller choices in the exceptional joint-turn form. */
+.joint-agreement-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.joint-agreement-list > label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 39px;
+  padding: 7px 9px;
+  border: 1px solid #dce5df;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  color: #324b43;
+  cursor: pointer;
+}
+.joint-agreement-list > label:has(input:checked) {
+  background: #e9f4f0;
+  border-color: #79aa9b;
+}
+.joint-agreement-list > label:has(input:disabled) {
+  opacity: .55;
+  cursor: not-allowed;
+}
+.joint-agreement-list > label:focus-within {
+  outline: 2px solid #508b70;
+  outline-offset: 2px;
+}
+.joint-agreement-list input[type="checkbox"] {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+}
+.joint-agreement-list > label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 580px) {
+  .joint-agreement-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+}
+
+
+/* Resolve pending ties from More actions without interrupting the current turn. */
+.election-pending-ties-action{display:flex;align-items:center;justify-content:space-between;gap:16px;font-weight:650}
+.election-pending-count{display:inline-flex;align-items:center;justify-content:center;min-width:21px;height:21px;padding:0 6px;border-radius:14px;background:#275e55;color:white;font-size:11px}
+.tie-dialog-backdrop{position:fixed;inset:0;z-index:900;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:5vh 16px;background:#152921a6}
+.tie-dialog{width:min(780px,100%);max-height:90vh;overflow:auto;background:white;border-radius:14px;box-shadow:0 20px 80px #0004}
+.tie-dialog-head{display:flex;align-items:start;justify-content:space-between;gap:14px;padding:20px 24px;border-bottom:1px solid var(--line)}
+.tie-dialog-head h2{font-size:21px;margin:5px 0}
+.tie-dialog-head button{flex-shrink:0}
+.tie-dialog-content{display:grid;grid-template-columns:minmax(180px,220px) minmax(0,1fr)}
+.tie-dialog-groups{padding:16px;background:#f6f8f5;border-right:1px solid var(--line);min-width:0}
+.tie-dialog-groups>strong,.tie-dialog-resolved>strong{display:block;font-size:12px;margin-bottom:12px}
+.tie-dialog-group{width:100%;display:block;text-align:left;background:white;border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px;white-space:normal}
+.tie-dialog-group.selected{background:#eaf3ef;border-color:#598877}
+.tie-dialog-group b{display:block;font-size:12px;overflow-wrap:anywhere}
+.tie-dialog-group small{display:block;color:#68786e;font-size:11px;margin-top:5px}
+.tie-dialog-resolved{border-top:1px solid var(--line);padding-top:14px;margin-top:17px}
+.tie-dialog-resolved p{font-size:11px;color:#65756a;overflow-wrap:anywhere;margin:7px 0}
+.tie-dialog-editor{padding:18px 20px;min-width:0}
+.tie-dialog-editor>.panel{border:0;padding:0;margin:0;box-shadow:none}
+.tie-dialog-editor h2{font-size:18px;margin-top:0}
+.tie-dialog-editor h3{font-size:14px;margin:18px 0 6px}
+.tie-dialog-editor .button-row{margin-top:12px}
+.tie-dialog-editor ol{margin:10px 0;padding-left:22px}
+@media(max-width:560px){
+ .tie-dialog-backdrop{padding:8px}
+ .tie-dialog{max-height:calc(100dvh - 16px)}
+ .tie-dialog-head{padding:14px 16px}
+ .tie-dialog-head h2{font-size:18px}
+ .tie-dialog-content{grid-template-columns:minmax(0,1fr)}
+ .tie-dialog-groups{padding:12px 14px;border-right:0;border-bottom:1px solid var(--line)}
+ .tie-dialog-group{margin-bottom:5px}
+ .tie-dialog-resolved{padding-top:9px;margin-top:11px}
+ .tie-dialog-editor{padding:16px}
 }

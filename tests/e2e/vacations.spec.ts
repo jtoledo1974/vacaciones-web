@@ -2,6 +2,60 @@ import {test,expect,type APIRequestContext,type Page} from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin='http://127.0.0.1:5199';
 
+test('activación visible desde Vacaciones, regreso automático y reanudación destacada',async({page,request})=>{
+ const scenario=await setup(request,page);
+ expect(scenario.data.election.state).toBeNull();
+ await open(page,scenario.id);
+ const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
+ await expect(switcher.getByRole('button',{name:'Calendario',exact:true})).toBeVisible();
+ const configure=page.getByRole('button',{name:'Configurar e iniciar elección',exact:true});
+ await expect(configure).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toHaveCount(0);
+ await configure.click();
+ await expect(page.getByRole('heading',{name:'Administración general',exact:true})).toBeVisible();
+ const activation=page.locator('#activation-panel');
+ await expect(activation).toHaveAttribute('open','');
+ await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
+ await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'Vacaciones del equipo',exact:true})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+ await page.locator('.election-more-actions > summary').click();
+ await page.getByRole('button',{name:'Pausar elección',exact:true}).click();
+ const resume=page.getByRole('button',{name:'Reanudar elección',exact:true});
+ await expect(resume).toBeVisible();
+ await expect(page.locator('.election-more-actions')).toHaveCount(0);
+ await resume.click();
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+});
+
+
+test('la activación señala puntuaciones concretas y documenta procedencia en un diálogo',async({page,request})=>{
+ const scenario=await setup(request,page);
+ await post(request,'campaign/'+scenario.id,{action:'config',version:scenario.data.campaign.version,config:{...scenario.data.config,previousScores:{QA_A:10,QA_B:20,QA_C:30},previousScoresSource:''}});
+ await open(page,scenario.id);
+ await page.getByRole('button',{name:'Configurar e iniciar elección'}).click();
+ const activation=page.locator('#activation-panel');
+ await expect(activation).toHaveAttribute('open','');
+ await expect(activation).toContainText('QA_D');
+ await activation.getByRole('button',{name:'Completar puntuaciones en la plantilla'}).click();
+ await expect(page.getByLabel('Puntuación anterior de QA_D')).toBeFocused();
+ await page.getByLabel('Puntuación anterior de QA_D').fill('40');
+ await page.getByRole('button',{name:'Guardar cambios'}).click();
+ await expect(activation).not.toContainText('Falta la puntuación');
+ await activation.getByRole('button',{name:'Documentar procedencia'}).click();
+ const dialog=page.getByRole('dialog',{name:'Documentar origen de las puntuaciones'});
+ await expect(dialog).toContainText('Esta descripción queda guardada para todo el equipo');
+ await dialog.getByRole('textbox',{name:'Procedencia de las puntuaciones'}).fill('Clasificación verificada del equipo, recibida el 22/10/2026');
+ await dialog.getByRole('button',{name:'Guardar procedencia'}).click();
+ await expect(dialog).toHaveCount(0);
+ const saved=await read(request,scenario.id);
+ expect(saved.config.previousScoresSource).toContain('Clasificación verificada');
+ await expect(activation).not.toContainText('Falta documentar');
+ await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
+ await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
+});
+
 test('historial heredado: adjudicaciones tras sorteo y cuadro con destinatario sin fecha duplicada',async({page,request},info)=>{
  const source=await setup(request,page);
  const ids=source.data.members.map((m:any)=>m.id);
@@ -60,20 +114,18 @@ async function setup(api:APIRequestContext,page:Page){
 }
 async function open(page:Page,id:string){await page.goto('/?equipo=C&year=2026');await page.getByLabel('Escenario',{exact:true}).selectOption(id);await expect(page.getByText(/SIMULACIÓN PRIVADA/i)).toBeVisible();}
 async function activate(page:Page,ties=''){
- await expect(page.getByRole('heading',{name:'Elección sin iniciar',exact:true})).toBeVisible();
- const admin=page.locator('nav').getByRole('button',{name:'Administración',exact:true});
- if(!await admin.isVisible())await page.getByRole('button',{name:'Abrir menú'}).click();
- await admin.click();
+ // Activation now starts from Vacaciones and returns there automatically.
+ const entry=page.getByRole('button',{name:'Configurar e iniciar elección',exact:true});
+ await expect(entry).toBeVisible();
+ await entry.click();
+ const activation=page.locator('#activation-panel');
+ await expect(activation).toHaveAttribute('open','');
  if(ties){
   for(const code of ties.split(',').map(s=>s.trim()))await page.getByLabel('Puntuación anterior de '+code).fill('20');
   await page.getByRole('button',{name:'Guardar cambios'}).click();
  }
- await page.getByText('Activar elección',{exact:true}).first().click();
- await page.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
- await page.getByRole('button',{name:'Activar elección',exact:true}).click();
- const vacations=page.locator('nav').getByRole('button',{name:'Vacaciones',exact:true});
- if(!await vacations.isVisible())await page.getByRole('button',{name:'Abrir menú'}).click();
- await vacations.click();
+ await activation.getByLabel('Confirmo Criterios Vacaciones 1.1').check();
+ await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
 }
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
@@ -528,6 +580,47 @@ test('dos clientes abiertos reciben una adjudicación sin recargar manualmente',
  await second.getByRole('button',{name:'Vacaciones',exact:true}).click();
  await expect(second.getByRole('heading',{name:'QA_C elige ahora'})).toBeVisible({timeout:18000});
  await second.close();
+});
+
+
+test('empate anticipado conserva el turno y deja formar grupo conjunto con casillas horizontales',async({page,request})=>{
+ await page.setViewportSize({width:390,height:844});
+ const s=await setup(request,page);
+ await open(page,s.id);
+ await activate(page,'QA_C');
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
+ await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByRole('button',{name:/Resolver empates pendientes/}).click();
+ const dialog=page.getByRole('dialog',{name:'Resolver empates pendientes'});
+ await expect(dialog).toBeVisible();
+ await expect(dialog).toContainText('QA_B');
+ await expect(dialog).toContainText('QA_C');
+ await dialog.getByRole('button',{name:'Añadir al sorteo QA_C'}).click();
+ await dialog.getByRole('button',{name:'Añadir al sorteo QA_B'}).click();
+ await dialog.getByRole('button',{name:'Guardar orden externo'}).click();
+ await page.getByRole('dialog',{name:'Confirmar cambio'}).getByRole('button',{name:'Confirmar',exact:true}).click();
+ await expect(dialog).toHaveCount(0);
+ const resolved=await read(request,s.id);
+ expect(resolved.election.state.tieResolutions[0].anticipated).toBe(true);
+ expect(resolved.election.state.tieResolutions[0].order).toEqual([s.data.members[2].id,s.data.members[1].id]);
+ expect(resolved.election.turn.memberId).toBe(s.data.members[0].id);
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
+ await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
+ const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
+ const checkbox=joint.getByRole('checkbox',{name:'QA_A'});
+ // Resolve the associated label from the input: a locator scoped to "joint"
+ // cannot be used inside filter({has: ...}) on a descendant label.
+ const name=checkbox.locator('..').locator('span');
+ await expect(name).toHaveText('QA_A');
+ const inputBox=await checkbox.boundingBox();
+ const nameBox=await name.boundingBox();
+ expect(inputBox&&nameBox&&nameBox.x>=inputBox.x+inputBox.width-1).toBeTruthy();
+ await checkbox.check();
+ await joint.getByRole('checkbox',{name:'QA_C'}).check();
+ await joint.getByRole('button',{name:'Registrar acuerdo'}).click();
+ expect((await read(request,s.id)).election.state.jointAgreements).toHaveLength(1);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
 });
 
 test('empate de tres: registrar orden externo pulsando nombres, persistir y rotar',async({page,request})=>{
