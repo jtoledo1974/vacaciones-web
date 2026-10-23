@@ -85,3 +85,36 @@ test('preferencias: clic alterna selección y permite retirar ciclos sin cupo',(
  assert.deepEqual(togglePreferenceDate(initial,'2027-09-01',false),initial);
  assert.deepEqual(initial,['2027-07-01','2027-08-01']);
 });
+
+
+test('un empate futuro puede resolverse sin alterar el turno ni bloquear el acuerdo conjunto posterior',()=>{
+ const {ctx,state}=fixture();
+ const extended:ElectionState={...state,order:['B','A','C'],tieGroups:[['A','C']],pendingTieGroups:[['A','C']]};
+ // Los integrantes de un empate deben ser consecutivos en el orden base.
+ extended.order=['B','C','A'];
+ extended.tieGroups=[['C','A']];extended.pendingTieGroups=[['C','A']];
+ const initial=structuredClone(extended);
+ assert.equal(currentTurn(ctx,extended).memberId,'B');
+ const resolved=resolveTie(ctx,extended,['A','C'],'external','admin','2026-10-23T09:00:00Z',['C','A']);
+ assert.equal(resolved.cursor,0);
+ assert.equal(currentTurn(ctx,resolved).memberId,'B');
+ assert.deepEqual(resolved.order,['B','A','C']);
+ assert.deepEqual(resolved.pendingTieGroups,[]);
+ assert.equal(resolved.tieResolutions?.[0].anticipated,true);
+ assert.deepEqual(extended,initial);
+ assert.throws(()=>resolveTie(ctx,resolved,['C','A'],'random','admin','2026-10-23T09:00:00Z',['C','A']),/pendiente/);
+ assert.throws(()=>resolveTie(ctx,extended,['A','B'],'external','admin','2026-10-23T09:00:00Z',['C','A']),/una vez/);
+ const joint=registerJointAgreement(ctx,resolved,['B','A'],1,'admin','2026-10-23T09:00:00Z');
+ assert.equal(joint.jointAgreements?.length,1);
+ assert.equal(joint.cursor,0);
+});
+test('desempate anticipado de tres rota correctamente en todas las rondas',()=>{
+ const {ctx,state}=fixture();
+ const prepared:ElectionState={...state,order:['B','A','C'],tieGroups:[['B','A','C']],pendingTieGroups:[['B','A','C']]};
+ const resolved=resolveTie(ctx,prepared,['C','A','B'],'external','admin','2026-10-23T09:00:00Z',['B','A','C']);
+ assert.deepEqual(orderForRound(resolved,0),['C','A','B']);
+ assert.deepEqual(orderForRound(resolved,1),['A','B','C']);
+ assert.deepEqual(orderForRound(resolved,2),['B','C','A']);
+ assert.deepEqual(orderForRound(resolved,3),['C','A','B']);
+ assert.equal(resolved.tieResolutions?.[0].anticipated,false);
+});
