@@ -130,3 +130,18 @@ test('candidate reports duplicate and entitlement limits with stable codes',()=>
  assert.ok(evaluate2027Candidate(state,[{member_id:'m',cycle_date:'p'}]).issues.some(i=>i.code==='DUPLICATE_AWARD'));
  assert.ok(evaluate2027Candidate(state,[{member_id:'m',cycle_date:'s'}]).issues.some(i=>i.code==='ENTITLEMENT_EXCEEDED'));
 });
+
+test('a locally available seat can be blocked by the remaining global cycle minimums',()=>{
+ const state:PolicyState={
+  cycles:[{date:'p',period:0},{date:'s',period:1},{date:'o',period:2}],
+  members:Array.from({length:4},(_,i)=>({id:'m'+i,entitlement:1})),
+  awards:[{member_id:'m0',cycle_date:'p'}]
+ };
+ // One award in pre is possible; a second one would strand summer/post.
+ assert.equal(canComplete2027(state).status,'possible');
+ const result=evaluate2027Candidate(state,[{member_id:'m1',cycle_date:'p'}]);
+ assert.equal(result.allowed,false);
+ assert.ok(result.issues.some(i=>i.code==='CYCLE_MINIMUM_IMPOSSIBLE'));
+ assert.equal(result.issues.some(i=>i.code==='CYCLE_MAXIMUM'),false);
+ assert.equal(state.awards.length,1);
+});
