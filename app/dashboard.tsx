@@ -4,6 +4,8 @@ import {initialiseFirebase,subscribeFirebaseSession,firebaseBearerToken,firebase
 import UserForm from './user-permissions';
 import LocalAdminLogin from './local-admin-login';
 import { HeaderSession, SidebarSession } from './session-identity';
+import CampaignAccessNotice from './campaign-access-notice';
+import { requiresAccountLinkNotice } from './campaign-access-state';
 import { resolveLandingCampaign } from './landing-campaign';
 import RosterEditor from './roster-editor';
 import ElectionWorkspace,{ActivationPanel} from './election-workspace';
@@ -39,6 +41,7 @@ function Dashboard() {
     const [sessionProvider,setSessionProvider]=useState('chatgpt');
     const [sessionEmail,setSessionEmail]=useState('');
     const [sessionLoaded,setSessionLoaded]=useState(false);
+    const [publicConsultation,setPublicConsultation]=useState(false);
     const currentCid=useRef('');
     const preferenceGuard=useRef<null|(()=>Promise<boolean>)>(null);
     const canNavigate=async()=>!preferenceGuard.current||await preferenceGuard.current();
@@ -47,6 +50,7 @@ function Dashboard() {
     const syncPending=useRef(false);
     useEffect(()=>{currentCid.current=cid;},[cid]);
     useEffect(()=>{isBusy.current=busy;},[busy]);
+    useEffect(()=>{setPublicConsultation(false);},[cid,identity]);
     async function loadIndex() { const i = await api('index'); setIndex(i); return i; }
     function selectLanding(i:any) {
       if(currentCid.current)return;
@@ -180,7 +184,12 @@ function Dashboard() {
         return current;
     },'Plantilla y accesos guardados');
     const superuser = index?.principal.role === 'superadmin' && !previewCode, canManage = !!data?.editable && !previewCode, write = data?.editable && data?.campaign.status === 'open';
-    const roleLabel = previewCode ? 'Controlador '+(data?.preview?.code??previewCode)+' (vista previa)' : superuser ? 'Superadministrador' : index?.principal.role === 'team_admin' ? 'Responsable de equipo' : index?.myCampaignIds?.length ? 'Controlador' : 'Solo lectura';
+    const roleLabel = previewCode ? 'Controlador '+(data?.preview?.code??previewCode)+' (vista previa)' : superuser ? 'Superadministrador' : index?.principal.role === 'team_admin' ? 'Responsable de equipo' : data?.election?.myMemberId ? 'Controlador' : index?.myCampaignIds?.length ? 'Controlador (otro equipo)' : identity ? 'Cuenta sin vincular' : 'Visitante';
+    const accessNoticeRequired = requiresAccountLinkNotice({
+      sessionLoaded, authenticated:!!identity, isLive:data?.campaign?.scope_key==='live',
+      canManage:!!data?.editable, hasMember:!!data?.election?.myMemberId,
+      inPreview:!!previewCode||!!data?.preview,
+    });
     const sessionDetails = {loaded:sessionLoaded,subject:identity,email:sessionEmail,provider:sessionProvider,role:roleLabel,signinUrl};
     const team = data?.campaign.team_id ?? '', year = data?.campaign.year ?? yearChoice ?? Math.max(2026,...(index?.campaigns??[]).filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)), result = data?.result;
     const links = [['eleccion', 'Vacaciones', CalendarDays], ...(index?.principal.role === 'superadmin'||index?.principal.role === 'team_admin' ? [['administracion', 'Administración', ShieldCheck] as const] : []), ['ayuda','Ayuda',BookOpen]] as const;
@@ -253,8 +262,18 @@ function Dashboard() {
         </div></div>
     {error && <div className="alert error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar error">×</button></div>}{notice && <div className="alert success" role="status">{notice}</div>}
         {nav === 'ayuda' ? <Help/> : !index ? <div className="panel empty">Cargando el espacio de trabajo…</div> : !index.teams.length ? <div className="panel empty"><Layers size={36}/><h2>Tu espacio de vacaciones</h2><p>Prepara ocho equipos y una campaña de prueba de 2026.<br />Todos los identificadores iniciales son ficticios.</p>{superuser ? <button className="primary" disabled={busy} onClick={() => perform(async () => { const i = await api('initialize', {}); setCid(''); return i; }, 'Espacio de prueba preparado')}>Preparar campaña de prueba <ArrowUpRight size={16}/></button> : <p>Un superadministrador debe preparar la primera campaña.</p>}</div> : !cid ? <div className="panel empty"><Layers size={36}/><h2>Selecciona un equipo</h2><p>Elige el equipo y ejercicio que quieres consultar.</p></div> : !data ? <div className="panel empty">Cargando campaña…</div> : <>
-        <div className="campaign-strip"><span><span className={'status-dot ' + data.campaign.status}/><b>Equipo {team} · {year}</b><span className="status">{labels[data.campaign.status]}</span>{data.campaign.scope_key!=="live"&&<span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>}{data.campaign.data_kind==="demo"&&<span className="tag">Datos de ejemplo</span>}</span><span>{data.preview?(data.preview.writable?'Simulación editable como controlador':'Vista previa de solo lectura'):(data.editable ? 'Área de gestión' : 'Solo lectura')} <span className="separator">/</span> {data.campaign.scope_key==='live'?'Ocupación actual · Consulta pública':'Datos aislados · Solo administradores'} <span className="separator">/</span> <span aria-live="polite">{syncState==='offline'?'Sin conexión · reintentando':syncState==='checking'?'Conectando…':'Actualización automática · hasta 5 s'}</span></span></div>
-        {nav === 'eleccion' && <><ElectionWorkspace onConfigureElection={async()=>{if(await go('administracion'))setJumpToActivation(true);}} onPreferenceEdit={()=>setNotice('')} navigationGuard={preferenceGuard} key={cid} data={data} busy={busy} act={mutateElection} legacy={mutate} identity={identity} superuser={canManage} signinUrl={signinUrl}/><section className="panel"><h2>Compartir y exportar</h2><div className="button-row"><button className="secondary" onClick={() => { const url = new URL(location.href); url.searchParams.set('equipo', team); url.searchParams.set('year', year);url.searchParams.delete('verComo');url.searchParams.delete('escenario'); navigator.clipboard.writeText(url.toString()).then(() => setNotice('Enlace copiado')); }}>Copiar enlace de consulta</button><button className="secondary" onClick={() => { const rows = [['identificador', 'fecha', 'baremo'], ...data.awards.map((a: any) => [data.members.find((m: any) => m.id === a.member_id)?.code, a.cycle_date, result.cycles.find((c: any) => c.date === a.cycle_date)?.score])]; download(`vacaciones-${team}-${year}.csv`, rows.map(r => r.map((s: any) => '"' + String(s ?? '').replaceAll('"', '""') + '"').join(',')).join('\r\n'), 'text/csv'); }}>Exportar adjudicaciones CSV</button></div></section></>}
+        <div className="campaign-strip"><span><span className={'status-dot ' + data.campaign.status}/><b>Equipo {team} · {year}</b><span className="status">{labels[data.campaign.status]}</span>{data.campaign.scope_key!=="live"&&<span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>}{data.campaign.data_kind==="demo"&&<span className="tag">Datos de ejemplo</span>}</span><span>{data.preview?(data.preview.writable?'Simulación editable como controlador':'Vista previa de solo lectura'):(data.editable ? 'Área de gestión' : data.election?.myMemberId ? 'Controlador · preferencias propias' : accessNoticeRequired&&!publicConsultation ? 'Cuenta sin acceso a esta campaña' : 'Consulta pública')} <span className="separator">/</span> {data.campaign.scope_key==='live'?'Ocupación actual · Consulta pública':'Datos aislados · Solo administradores'} <span className="separator">/</span> <span aria-live="polite">{syncState==='offline'?'Sin conexión · reintentando':syncState==='checking'?'Conectando…':'Actualización automática · hasta 5 s'}</span></span></div>
+        {nav === 'eleccion' && (accessNoticeRequired&&!publicConsultation
+          ? <CampaignAccessNotice
+              email={sessionEmail} provider={sessionProvider} team={team} year={year}
+              hasOtherAccess={!!index?.myCampaignIds?.length||index?.principal?.role==='team_admin'}
+              onPublicView={()=>setPublicConsultation(true)}
+              onFirebaseSignOut={async()=>{try{await firebaseSignOut();setPublicConsultation(false);}catch(e:any){setError(e.message??'No se pudo cerrar sesión');}}}
+            />
+          : <>{accessNoticeRequired&&publicConsultation&&<div className="alert warning" role="status">
+            Estás consultando la campaña públicamente. Tu cuenta autenticada no está vinculada a un controlador de este equipo.
+            {' '}<button className="secondary" type="button" onClick={()=>setPublicConsultation(false)}>Volver al aviso de acceso</button>
+          </div>}<ElectionWorkspace onConfigureElection={async()=>{if(await go('administracion'))setJumpToActivation(true);}} onPreferenceEdit={()=>setNotice('')} navigationGuard={preferenceGuard} key={cid} data={data} busy={busy} act={mutateElection} legacy={mutate} identity={identity} superuser={canManage} signinUrl={signinUrl}/><section className="panel"><h2>Compartir y exportar</h2><div className="button-row"><button className="secondary" onClick={() => { const url = new URL(location.href); url.searchParams.set('equipo', team); url.searchParams.set('year', year);url.searchParams.delete('verComo');url.searchParams.delete('escenario'); navigator.clipboard.writeText(url.toString()).then(() => setNotice('Enlace copiado')); }}>Copiar enlace de consulta</button><button className="secondary" onClick={() => { const rows = [['identificador', 'fecha', 'baremo'], ...data.awards.map((a: any) => [data.members.find((m: any) => m.id === a.member_id)?.code, a.cycle_date, result.cycles.find((c: any) => c.date === a.cycle_date)?.score])]; download(`vacaciones-${team}-${year}.csv`, rows.map(r => r.map((s: any) => '"' + String(s ?? '').replaceAll('"', '""') + '"').join(',')).join('\r\n'), 'text/csv'); }}>Exportar adjudicaciones CSV</button></div></section></>)}
 
         {nav === 'administracion' && (canManage ? <>{!superuser&&<section className="panel"><h2>Estado de la campaña</h2><div className="button-row"><button className="secondary" disabled={busy||data.campaign.status!=='open'} onClick={async()=>{if(await confirm('¿Cerrar esta campaña? Los resultados se conservarán.'))mutate({action:'close'},'Campaña cerrada');}}>Cerrar equipo {team}</button><button className="secondary" disabled={busy||data.campaign.status==='open'} onClick={async()=>{if(await confirm('¿Reabrir esta campaña?'))mutate({action:'reopen'},'Campaña reabierta');}}>Reabrir equipo {team}</button></div></section>}{superuser&&<section className="panel"><h2>Campañas anuales</h2><p className="muted">Crea los ocho equipos para el nuevo ejercicio. Elige plantilla y parámetros por separado; no se copian vacaciones.</p><CampaignForm campaigns={index.campaigns} busy={busy} create={(b: any) => perform(() => api('campaigns', b), 'Nuevo ejercicio creado para los ocho equipos')}/><div className="button-row"><button className="secondary" disabled={busy} onClick={async () => { if (await confirm('¿Cerrar esta campaña? Los datos y resultados se conservarán.'))
             mutate({ action: 'close' }, 'Campaña cerrada'); }}>Cerrar equipo {team}</button><button className="secondary" disabled={busy} onClick={async () => { if (await confirm('¿Reabrir esta campaña para editar el borrador? La revisión publicada no se modificará.'))

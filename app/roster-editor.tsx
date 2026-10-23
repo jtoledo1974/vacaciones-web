@@ -142,6 +142,7 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
       <span className="tag">{savedRows.length} controladores</span>
     </div>
     {error&&<div className="alert error" role="alert">{error}</div>}
+    {changedAccounts.length>0&&<div className="alert warning" role="status"><strong>{changedAccounts.length} {changedAccounts.length===1?'acceso pendiente':'accesos pendientes'} de guardar.</strong> Los correos modificados aún no permiten entrar como controlador. Pulsa «Guardar cambios (incluye accesos)» y comprueba la confirmación antes de compartir el enlace.</div>}
     <div className="table-wrap roster-table-wrap"><table className="roster-table">
       <thead><tr><th>Nick</th><th>Nombre</th><th>Puntos {data.campaign.year-1}</th>
         {live&&manageAccounts&&<><th>Correo de acceso / UID</th><th>Autenticación</th></>}
