@@ -42,9 +42,9 @@ test('preverano relaxed rule allows three singles with explicit warning; strict 
 });
 
 test('postverano permits two singles with one fourth; EC3 and EC4 are independent',()=>{
-  const state=completed([2,2,2,2],[2,2,2],[1,1,4]);
+  const state=completed([2,2,2,2],[2,2,2],[1,1,3,4]);
   assert.equal(evaluate2027Final(state).valid,true,JSON.stringify(evaluate2027Final(state).issues));
-  const beyond=completed([2,2,2,2],[2,2,2],[1,1,1,4]);
+  const beyond=completed([2,2,2,2],[2,2,2],[1,1,1,3,4]);
   assert.ok(evaluate2027Final(beyond).issues.some(x=>x.code==='POST_SINGLE_LIMIT'));
 });
 
