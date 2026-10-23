@@ -609,9 +609,12 @@ test('empate anticipado conserva el turno y deja formar grupo conjunto con casil
  await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
  const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
  const checkbox=joint.getByRole('checkbox',{name:'QA_A'});
- const label=joint.locator('.joint-agreement-list label').filter({has:checkbox});
+ // Resolve the associated label from the input: a locator scoped to "joint"
+ // cannot be used inside filter({has: ...}) on a descendant label.
+ const name=checkbox.locator('..').locator('span');
+ await expect(name).toHaveText('QA_A');
  const inputBox=await checkbox.boundingBox();
- const nameBox=await label.getByText('QA_A').boundingBox();
+ const nameBox=await name.boundingBox();
  expect(inputBox&&nameBox&&nameBox.x>=inputBox.x+inputBox.width-1).toBeTruthy();
  await checkbox.check();
  await joint.getByRole('checkbox',{name:'QA_C'}).check();
