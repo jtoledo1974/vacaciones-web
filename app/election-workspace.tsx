@@ -155,7 +155,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <label>Ronda <select value={jointRound||turn?.round||1} onChange={e=>{setJointRound(Number(e.target.value));setJointMembers([]);}}>
      {Array.from({length:data.config.cyclesPerPerson-(turn?.round??1)+1},(_,i)=>(turn?.round??1)+i).map(n=><option value={n} key={n}>{n}</option>)}
     </select></label>
-    <div className="joint-agreement-list" style={{maxHeight:240,overflowY:'auto',display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(150px,1fr))',gap:8}}>
+    <div className="joint-agreement-list">
     {orderForRound(state,(jointRound||turn?.round||1)-1).map((id:string,idx:number)=>{
       const chosenRound=jointRound||turn?.round||1;
       const alreadyPassed=chosenRound===turn?.round&&idx<state.cursor%state.order.length;
@@ -163,7 +163,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       const tied=(state.pendingTieGroups??[]).some((g:string[])=>g.includes(id));
       const grouped=(state.jointGroups??[]).some((g:string[])=>g.includes(id))||(state.jointAgreements??[]).some((g:any)=>!g.cancelledAt&&g.round===chosenRound&&g.members.includes(id));
       const disabled=alreadyPassed||finished||tied||grouped||(jointMembers.length>=3&&!jointMembers.includes(id));
-      return <label key={id}><input type="checkbox" checked={jointMembers.includes(id)} disabled={disabled} onChange={e=>setJointMembers(prev=>e.target.checked?[...prev,id]:prev.filter(person=>person!==id))}/>{codeFor(id)}</label>;
+      return <label key={id}><input type="checkbox" checked={jointMembers.includes(id)} disabled={disabled} onChange={e=>setJointMembers(prev=>e.target.checked?[...prev,id]:prev.filter(person=>person!==id))}/><span title={codeFor(id)}>{codeFor(id)}</span></label>;
     })}
     </div>
     {jointMembers.length>=2&&<p><strong>Se elegiría al llegar a {codeFor(orderForRound(state,(jointRound||turn?.round||1)-1).filter((id:string)=>jointMembers.includes(id)).at(-1)??'')}.</strong> Participantes: {jointMembers.map(codeFor).join(' + ')}</p>}
