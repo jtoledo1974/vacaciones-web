@@ -8,7 +8,6 @@ import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 
 export function ActivationPanel({data,busy,act,onActivated}:any){
- if(data.election.state)return null;
  const scores=data.config?.previousScores,source=data.config?.previousScoresSource??'';
  const ranked=scores?[...data.members].sort((a:any,b:any)=>Number(scores[a.code]??Infinity)-Number(scores[b.code]??Infinity)):[];
  const complete=ranked.length>0&&ranked.every((m:any)=>Number.isFinite(scores[m.code]))&&source.trim().length>=10;
@@ -16,6 +15,7 @@ export function ActivationPanel({data,busy,act,onActivated}:any){
  if(complete)for(const m of ranked)tieCounts.set(scores[m.code],(tieCounts.get(scores[m.code])??0)+1);
  const ties=[...tieCounts.values()].filter(n=>n>1);
  const [confirmed,setConfirmed]=useState(false),[deferral,setDeferral]=useState(true);
+ if(data.election.state)return null;
  return <details id="activation-panel" className="panel"><summary>Activar elección</summary>
  <p>El orden se calcula automáticamente a partir de las puntuaciones del año anterior; los empates se sortean cuando corresponda y los turnos conjuntos se acuerdan durante la elección.</p>
  <p><strong>Puntuaciones:</strong> {ranked.filter((m:any)=>Number.isFinite(scores?.[m.code])).length}/{data.members.length} · <strong>Grupos empatados:</strong> {ties.length} · <strong>Procedencia:</strong> {source||'Pendiente'}</p>
