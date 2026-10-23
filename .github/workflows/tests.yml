@@ -30,14 +30,9 @@ jobs:
         run: pnpm exec tsc --noEmit -p tsconfig.app.json
 
   browser:
-    name: Playwright (${{ matrix.project }})
-    needs: checks
-    # Keep independent browser jobs below the runner's wall-time limits.
-    # One worker per job preserves the isolated database fixture.
-    strategy:
-      fail-fast: false
-      matrix:
-        project: [chromium, mobile]
+    name: Playwright desktop and mobile
+    # This runner is separate from GitHub-hosted checks, so both jobs run concurrently.
+    # One Playwright process and one worker keep RAM and isolated D1 within tested limits.
     # Conditions reduce exposure; repository writers can still change workflows.
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -67,8 +62,8 @@ jobs:
           test -d /ms-playwright
       - name: Install locked dependencies using the local store
         run: pnpm install --frozen-lockfile --store-dir /pnpm/store
-      - name: Playwright ${{ matrix.project }}, one worker
-        run: pnpm exec playwright test --project=${{ matrix.project }} --workers=1 --retries=0 --reporter=list,json
+      - name: Playwright desktop and targeted mobile regressions, one worker
+        run: pnpm exec playwright test --workers=1 --retries=0 --reporter=list,json
 
 # No default upload of screenshots, videos or traces: artifacts stay local.
 # There is no GitHub-hosted fallback for the browser job.
