@@ -1,5 +1,7 @@
 import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
+import {policyState2027} from '../domain/election-2027.ts';
+import {canComplete2027,evaluate2027Candidate,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
@@ -50,6 +52,26 @@ export class ElectionService{
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
+  if(!Array.isArray(selected)||selected.length>turn.needed||new Set(selected).size!==selected.length||selected.some(x=>typeof x!=='string'))
+   throw new ApiError('Selección inicial no válida');
+  if(ctx.year===2027){
+   const policyState=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+   const inspect=(dates:string[])=>evaluate2027Candidate(policyState,dates.map(cycle_date=>({member_id:turn.memberId!,cycle_date})));
+   const chosen=inspect(selected);
+   if(selected.length===turn.needed){
+    return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,allowed:chosen.allowed,
+      available:[],reasons:{},warnings:chosen.warnings};
+   }
+   if(!chosen.allowed)throw new ApiError(chosen.issues.map(i=>i.message).join('; '));
+   const reasons:Record<string,unknown>={},warnings:Record<string,unknown>={},available:string[]=[];
+   for(const date of resultDates(ctx)){
+    const candidate=inspect([...selected,date]);
+    if(candidate.allowed){available.push(date);if(candidate.warnings.length)warnings[date]=candidate.warnings;}
+    else reasons[date]=candidate.issues;
+   }
+   return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,
+      allowed:true,available,reasons,warnings};
+  }
   if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
   return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
  }
@@ -59,6 +81,11 @@ export class ElectionService{
   const focus=manage?turn?.memberId:mine;
   const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
   const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
+  const availabilityReasons:Record<string,string>=ctx.year===2027&&focus
+   ?Object.fromEntries(result.cycles.filter(c=>!available.includes(c.date)).map(c=>{
+    const diagnostic=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),[{member_id:focus,cycle_date:c.date}]);
+    return [c.date,diagnostic.issues.map(i=>i.message).join('; ')||'No disponible en el contexto actual'];
+   })) :{};
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid):null;
   const reconstruction=await this.reconstruction().view(d,raw);
@@ -71,7 +98,7 @@ export class ElectionService{
   }
 
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityReasons,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
@@ -110,7 +137,11 @@ export class ElectionService{
     const groups=new Map<number,string[]>();
     for(const id of order){const m=d.members.find((candidate:any)=>candidate.id===id),score=scores[m.code];groups.set(score,[...(groups.get(score)??[]),id]);}
     const tieGroups=[...groups.values()].filter(group=>group.length>1);
-    state={status:'active',order,cursor:0,credits:{},source:source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:[],jointAgreements:[]};validateElectionState(state,d.members);
+    if(ctx.year===2027){
+    const feasibility=canComplete2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards));
+    if(feasibility.status!=='possible')throw new ApiError('La campaña no tiene completación validada conforme a RRHH 2027: '+(feasibility.reason??feasibility.status));
+   }
+   state={status:'active',order,cursor:0,credits:{},source:source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:[],jointAgreements:[]};validateElectionState(state,d.members);
    }else if(action==='resolve_tie'){
     if(!manage)throw new ApiError('Solo el responsable puede registrar el sorteo',403);
     if(!state)throw new ApiError('No hay una elección configurada');
