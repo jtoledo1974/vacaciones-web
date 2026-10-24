@@ -342,3 +342,40 @@ test('2027 automatic preference transient responses skip solver table but final/
  assert.ok(final.election.available.length>0);
  assert.deepEqual(final.awards.filter((a:any)=>a.member_id===first).map((a:any)=>a.cycle_date),[date]);
 });
+
+test('2027 joint turn of three, each recovering two deferrals, previews and commits nine awards',async()=>{
+ const repo=new SQLiteRepo(),service=new Service(repo,owner);
+ await service.init();
+ await service.createCampaigns(2027,null,null);
+ let d=await service.view((await service.list()).campaigns.find((c:any)=>c.year===2027&&c.team_id==='A').id);
+ const cid=d.campaign.id,codes=Array.from({length:20},(_,i)=>'P'+String(i+1).padStart(2,'0'));
+ d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,
+  source:{format:'vacaciones-roster-v1',team:'A',year:2027,copySelections:false,
+   rows:codes.map(code=>({code,label:'CTA '+code,seniority:''}))}});
+ d=await service.mutate(cid,{action:'config',version:d.campaign.version,
+  config:{...d.config,previousScores:Object.fromEntries(codes.map((code,i)=>[code,200+i])),
+   previousScoresSource:'Listado de puntuaciones de ensayo verificadas para 2027'}});
+ await service.election().mutate(cid,{action:'start',version:d.campaign.version,rulesConfirmed:true,allowDeferral:true});
+ d=await service.view(cid);
+ const trio=d.election.state.order.slice(0,3),dates=d.result.cycles.map((c:any)=>c.date);
+ await service.election().mutate(cid,{action:'register_joint',version:d.campaign.version,members:trio,round:3});
+ // Rounds 1 and 2: the trio defers, everybody else spreads over the year.
+ let step=0;
+ for(d=await service.view(cid);d.election.turn.round<3;d=await service.view(cid),step++){
+  const member=d.election.turn.memberId;
+  if(trio.includes(member))await service.election().mutate(cid,{action:'defer',version:d.campaign.version,memberId:member});
+  else await service.election().mutate(cid,{action:'choose',version:d.campaign.version,memberId:member,dates:[dates[(step*7)%dates.length]]});
+ }
+ assert.deepEqual(d.election.turn.participants,trio);
+ assert.deepEqual(trio.map((id:string)=>d.election.turn.requiredByMember[id]),[3,3,3]);
+ const load=(date:string)=>d.awards.filter((a:any)=>a.cycle_date===date).length;
+ const free=[...dates].sort((a,b)=>load(a)-load(b)||a.localeCompare(b)).slice(0,9);
+ const choices=trio.flatMap((id:string,i:number)=>free.slice(i*3,i*3+3).map(cycle_date=>({member_id:id,cycle_date})));
+ assert.equal(choices.length,9);
+ const preview=await service.election().previewImpact(cid,choices,d.campaign.version);
+ assert.equal(preview.allowed,true);
+ const before=d.awards.length;
+ await service.election().mutate(cid,{action:'choose_joint',version:d.campaign.version,
+  entries:trio.map((id:string,i:number)=>({member_id:id,dates:free.slice(i*3,i*3+3)}))});
+ assert.equal((await service.view(cid)).awards.length,before+9);
+});

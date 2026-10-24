@@ -41,3 +41,16 @@ test('administrative pause, undo and reconstruction never trigger automatic cont
   assert.equal(requests,1,action);
  }
 });
+
+test('continues past one hundred automatic turns and reports a server that never settles',async()=>{
+ let advances=0;
+ const full=await runElectionCommand(async body=>{
+  if(body.action==='advance')advances++;
+  return view(Number(body.version)+1,advances<130);
+ },{action:'choose'},1,()=>{});
+ assert.equal(advances,130);
+ assert.equal(full.continuationError,undefined);
+ const endless=await runElectionCommand(async body=>view(Number(body.version)+1,true),{action:'choose'},1,()=>{});
+ assert.equal(endless.result.election.pendingAutomatic,true);
+ assert.match(String(endless.continuationError),/pendientes/);
+});

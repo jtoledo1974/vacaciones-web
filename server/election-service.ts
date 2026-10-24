@@ -134,7 +134,9 @@ export class ElectionService{
   if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('La elección está congelada durante la reconstrucción',409);
   const contextState=context(d),turn=currentTurn(contextState,raw.state);
   const manage=canWrite(this.actor,d.campaign.team_id);
-  if(!Array.isArray(choices)||choices.length===0||choices.length>6||
+  // No fixed maximum: the checks below require exactly what the turn needs
+  // (a joint turn of three, each recovering two deferrals, is nine awards).
+  if(!Array.isArray(choices)||choices.length===0||
    choices.some(a=>typeof a?.member_id!=='string'||typeof a?.cycle_date!=='string')||
    new Set(choices.map(a=>a.member_id+'|'+a.cycle_date)).size!==choices.length)
    throw new ApiError('Combinación de adjudicaciones no válida',400);

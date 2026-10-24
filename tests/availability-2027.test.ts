@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
- availabilityByCycle, availabilityImpact, previewChoiceImpact, constructCycleWitness2027
+ availabilityByCycle, availabilityImpact, previewChoiceImpact, constructCycleWitness2027,
+ recordedAvailabilityByCycle2027
 } from '../domain/availability-2027.ts';
 import {
  canComplete2027, evaluate2027Final, reassign2027Witness, type PolicyState, type PolicyAward
@@ -291,4 +292,15 @@ test('a block caused only by preverano extra-third permits is attributed by rela
  assert.equal(slot.status,'blocked');
  assert.equal(slot.reasons[0].code,'PRE_EXTRA_THIRD_CONSTRAINT');
  assert.equal(slot.reasons[0].certainty,'proven');
+});
+
+test('a recorded snapshot is not reused when rights differ under identical occupancy',()=>{
+ const full=completedState();
+ const partial={...full,awards:full.awards.slice(0,-2)};
+ const recorded=availabilityByCycle(partial,{useCache:false});
+ assert.ok(recordedAvailabilityByCycle2027(partial,recorded),'same state: the proof is reused');
+ const changed={...partial,members:partial.members.map((m,i)=>i===0?{...m,entitlement:m.entitlement+1}:m)};
+ assert.equal(recordedAvailabilityByCycle2027(changed,recorded),null);
+ const {stateKey:_,...legacy}=recorded;
+ assert.equal(recordedAvailabilityByCycle2027(partial,legacy),null,'a record without fingerprint is not evidence');
 });

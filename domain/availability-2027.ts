@@ -36,6 +36,9 @@ export type AvailabilitySnapshot = {
  status: 'exact' | 'indeterminate' | 'invalid';
  cycles: Record<string, CycleAvailability>;
  checked: number;
+ /** Fingerprint of the exact state proved (policy, calendar, roster with
+  * entitlements, awards). A recorded snapshot is reused only on a match. */
+ stateKey?: string;
 };
 export type AvailabilityChange = {
  cycle: string;
@@ -90,6 +93,17 @@ function keyFor(state:PolicyState,maxChecks:number,exact=false):string {
  const members=[...state.members].sort((a,b)=>a.id.localeCompare(b.id));
  const awards=[...state.awards].map(a=>a.member_id+'|'+a.cycle_date).sort();
  return JSON.stringify([OCCUPANCY_POLICY_2027,maxChecks,exact,cycles,members,awards]);
+}
+/** Stable 53-bit FNV-1a hash of the canonical proved state. */
+export function availabilityStateKey2027(state:PolicyState):string {
+ const text=keyFor(state,0);
+ let high=0x811c9dc5,low=0x01000193;
+ for(let i=0;i<text.length;i++){
+  const code=text.charCodeAt(i);
+  high=Math.imul(high^code,0x01000193)>>>0;
+  low=Math.imul(low^(code*31+i),0x01000193)>>>0;
+ }
+ return high.toString(16).padStart(8,'0')+low.toString(16).padStart(8,'0');
 }
 function capacity(state:PolicyState,index:number):number {
  const c=state.cycles[index];
@@ -215,7 +229,10 @@ export function constructCycleWitness2027(
 export function recordedAvailabilityByCycle2027(
  state:PolicyState,recorded:AvailabilitySnapshot|null|undefined
 ):AvailabilitySnapshot|null {
+ // Identical occupancy with different rights or roster has different global
+ // availability: without a matching fingerprint the record is not evidence.
  if(!recorded||recorded.policyVersion!==OCCUPANCY_POLICY_2027
+   ||recorded.stateKey!==availabilityStateKey2027(state)
    ||!recorded.cycles||Object.keys(recorded.cycles).length!==state.cycles.length)return null;
  for(const [index,cycle] of state.cycles.entries()){
   const entry=recorded.cycles[cycle.date];
@@ -367,7 +384,7 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
  }
  const status:AvailabilitySnapshot['status']=baseline.status==='impossible'?'invalid':
   Object.values(cycles).some(c=>c.status==='indeterminate')?'indeterminate':'exact';
- const result={policyVersion:OCCUPANCY_POLICY_2027,status,cycles,checked};
+ const result={policyVersion:OCCUPANCY_POLICY_2027,status,cycles,checked,stateKey:availabilityStateKey2027(state)};
  if(options.useCache!==false)snapshotCache(cacheKey,result);
  return result;
 }
@@ -426,7 +443,8 @@ function firstAwardSymmetry(
  const snapshot:AvailabilitySnapshot={
   ...previous,
   cycles:{...previous.cycles,[award.cycle_date]:selected},
-  checked:0
+  checked:0,
+  stateKey:availabilityStateKey2027(after)
  };
  if(options.useCache!==false)
     snapshotCache(keyFor(after,options.maxChecks??500,options.exact===true),snapshot);
