@@ -296,6 +296,11 @@ export class Service {
             if(!source||source.format!=='vacaciones-roster-v1'||source.team!==c.team_id||source.year!==c.year)throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
             const importedConfig=source.config?checkedConfig(source.config,c.year):d.config;
             let rows;try{rows=validateRoster(source.rows,c.year,c.team_id,importedConfig);}catch(e:any){throw new ApiError(e.message);}
+            if(c.year===2027){
+                const rosterCodes=new Set(rows.map(r=>r.code));
+                for(const code of Object.keys(importedConfig.individualEntitlements??{}))
+                    if(!rosterCodes.has(code))throw new ApiError('La importación dejaría sin controlador la autorización individual de RRHH: '+code);
+            }
             const imported=rows.map((r,i)=>({...r,id:id(),personId:id(),position:i}));
             const selections=imported.flatMap(m=>(m.dates??[]).map((date,i)=>({id:id(),member_id:m.id,slot:i+1,cycle_date:date})).filter(r=>r.cycle_date));
             // The original selection grid drives both the request and the vacation relation.
@@ -325,6 +330,10 @@ export class Service {
             const touched=new Set(resolved.map(r=>r.member?.id).filter(Boolean));
             if(resolved.some(r=>d.members.some(m=>m.code===r.row.code&&!touched.has(m.id))))throw new ApiError('Hay un identificador duplicado en la plantilla');
 
+            if(c.year===2027)
+                for(const {row:r,member} of resolved)
+                    if(member&&member.code!==r.code&&d.config.individualEntitlements?.[member.code])
+                        throw new ApiError('Actualiza primero la autorización individual de RRHH antes de cambiar el código '+member.code);
             for(const {row:r,member,position} of resolved){
                 if(member)ops.push({sql:'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',args:[r.code,r.label,r.seniority,member.id,cid]});
                 else ops.push(...rowStatements(cid,c.team_id,r,position,id(),id()));
@@ -336,6 +345,8 @@ export class Service {
             if(c.scope_key!=='live')throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Controlador no encontrado',404);
+            if(c.year===2027&&d.config.individualEntitlements?.[member.code])
+                throw new ApiError('Retira primero la excepción individual de RRHH antes de trasladar al controlador');
             if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de cambiar de turno');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.');
             const target=(await this.repo.all('SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key=\'live\'',[body.targetTeam,c.year]))[0];
@@ -354,6 +365,8 @@ export class Service {
         else if(action==='retire_member'){
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Identificador no encontrado',404);
+            if(c.year===2027&&d.config.individualEntitlements?.[member.code])
+                throw new ApiError('Retira primero la excepción individual de RRHH antes de dar de baja al controlador');
             if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de dar la baja');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
             ops.push({sql:'DELETE FROM preferences WHERE member_id=? AND campaign_id=?',args:[member.id,cid]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
@@ -368,6 +381,8 @@ export class Service {
             if(d.members.some(other=>other.code===code&&other.id!==m?.id))
                 throw new ApiError('Ese código ya existe en esta campaña');
             if (m) {
+                if(c.year===2027&&m.code!==code&&d.config.individualEntitlements?.[m.code])
+                    throw new ApiError('Actualiza primero la excepción de RRHH antes de renombrar el controlador');
                 before = m;
                 ops.push({ sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?', args: [code, body.seniority, m.id, cid] });
             }
