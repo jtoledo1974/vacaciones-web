@@ -158,9 +158,30 @@ test('confirmación rápida es opcional y local únicamente en simulaciones',{ta
  await page.reload();
  await expect(page.getByText('Simulación · confirmación rápida')).toBeVisible();
  await cycle(page,scenario.data.result.cycles[0].date);
- await page.getByRole('button',{name:'Confirmar ciclo',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
  await expect(page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'})).toHaveCount(0);
  await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+});
+
+test('el modal de progreso solo aparece si tarda la adjudicación automática',{tag:'@both'},async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);
+ await activate(page);
+ const menu=page.locator('.election-turn-controls > .election-more-actions');
+ await menu.locator('summary').click();
+ await menu.getByRole('checkbox',{name:'Requerir confirmación antes de adjudicar'}).uncheck();
+ await page.route('**/api/election/**',async route=>{
+  if(route.request().method()==='POST'&&JSON.parse(route.request().postData()??'{}').action==='choose')
+   await new Promise(resolve=>setTimeout(resolve,900));
+  await route.continue();
+ });
+ await cycle(page,scenario.data.result.cycles[0].date);
+ await expect(page.getByRole('status').filter({hasText:'Registrando la adjudicación'})).toBeVisible();
+ const dialog=page.getByRole('dialog',{name:'El motor está comprobando el reparto'});
+ await expect(dialog).toBeVisible();
+ await expect(dialog).toContainText('Registrando la adjudicación');
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ await expect(dialog).toHaveCount(0);
 });
 
 test('integración: dos aplazamientos permiten elegir tres ciclos desde el calendario',async({page,request},info)=>{
