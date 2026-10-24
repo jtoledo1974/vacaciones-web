@@ -81,6 +81,9 @@ test('existing 2027 campaign and simulation use the same policy without losing s
   'undo derives locally from the verified historical snapshot without a global solver');
  assert.deepEqual(undone.election.cycleAvailability.cycles,baselineAvailability.cycles,
   'undo must restore exact prior availability, not turn known places provisional');
+ const undoApi=await service.election().availability(cid);
+ assert.equal(undoApi.checked,0,'the availability endpoint must not run a new proof after undo');
+ assert.deepEqual(undoApi.cycles,baselineAvailability.cycles);
  assert.equal(undone.election.cycleAvailability.policyVersion,OCCUPANCY_POLICY_2027);
  assert.equal(undone.awards.length,0);
  assert.equal(undone.election.turn.memberId,user);
@@ -92,6 +95,9 @@ test('existing 2027 campaign and simulation use the same policy without losing s
   'redo must not rerun global feasibility either');
  assert.deepEqual(chosen.election.cycleAvailability.cycles,auditChoice.impact.availabilityAfter.cycles,
   'redo must show the previously verified after-state');
+ const redoApi=await service.election().availability(cid);
+ assert.equal(redoApi.checked,0,'the availability endpoint must not run a new proof after redo');
+ assert.deepEqual(redoApi.cycles,auditChoice.impact.availabilityAfter.cycles);
  assert.equal(chosen.awards.length,1);
  assert.equal(chosen.awards[0].cycle_date,preferred[0]);
  assert.deepEqual(chosen.election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
