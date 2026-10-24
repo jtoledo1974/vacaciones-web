@@ -350,11 +350,11 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
         // permiten omitirla mediante preferencia local explícita por campaña.
         if(!simulation||!quickMode){
          const impactText=impactLines.length
-          ?'\\n\\nConsecuencias sobre la disponibilidad:\\n'+impactLines.slice(0,14).join('\\n')+
-           (impactLines.length>14?'\\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
-          :'\\n\\nNo se han demostrado reducciones adicionales de disponibilidad.';
-         const warningText=warningLines.length?'\\n\\nAvisos normativos:\\n'+warningLines.join('\\n'):'';
-         const summary='¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')+impactText+warningText;
+          ?'\n\nConsecuencias sobre la disponibilidad:\n'+impactLines.slice(0,14).join('\n')+
+           (impactLines.length>14?'\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
+          :'\n\nNo se han demostrado reducciones adicionales de disponibilidad.';
+         const warningText=warningLines.length?'\n\nAvisos normativos:\n'+warningLines.join('\n'):'';
+         const summary='¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')+impactText+warningText;
          if(!await confirm(summary,undefined,{title:'Confirmar adjudicación e impacto',confirmLabel:'Adjudicar'}))return;
         }
         if(turn?.participants?.length>1){const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));act({action:'choose_joint',entries},'Turno conjunto confirmado');}
