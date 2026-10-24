@@ -220,9 +220,9 @@ test('small exact oracle: global feasibility agrees with independent exhaustive 
 });
 
 /**
- * Move an already-awarded summer place into an otherwise ordinary off-summer
- * third. Entitlements are unchanged; the source stays at summer minimum 2.
- * Its target uses the provisional flexible donor rule, not a PRE/POST donor.
+ * Transfer one place from a POST third to a PRE fourth. The POST donor
+ * becomes double, while PRE has no eligible local double donor. This is
+ * admissible provisionally but not under the territorial reading.
  */
 function crossPeriodTeamA(){
  const config=defaultConfig(2027);
@@ -232,17 +232,18 @@ function crossPeriodTeamA(){
  assert.equal(completion.status,'possible',completion.reason);
  const awards=completion.witness!;
  const occupied=(date:string)=>awards.filter(a=>a.cycle_date===date);
- for(const target of state.cycles.filter(c=>c.period!==1&&occupied(c.date).length===2)){
-  for(const source of state.cycles.filter(c=>c.period===1&&occupied(c.date).length===3)){
+ for(const target of state.cycles.filter(c=>c.period===0&&!c.fourthExcluded&&occupied(c.date).length===3)){
+  for(const source of state.cycles.filter(c=>c.period===2&&occupied(c.date).length===3)){
    const moving=occupied(source.date).find(a=>!occupied(target.date).some(b=>b.member_id===a.member_id));
    if(!moving)continue;
    const shifted=awards.map(a=>a===moving?{...a,cycle_date:target.date}:a);
    const result=evaluate2027Final({...state,awards:shifted});
-   if(result.valid&&result.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'))
-    return {config,members,state,awards:shifted,source:source.date};
+   const summerMinimum=state.cycles.find(c=>c.period===1&&shifted.filter(a=>a.cycle_date===c.date).length===2);
+   if(result.valid&&summerMinimum&&result.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'))
+    return {config,members,state,awards:shifted,source:summerMinimum.date};
   }
  }
- throw Error('Expected a verifiable cross-period move in team A');
+  throw Error('Expected a verifiable cross-period move in team A');
 }
 
 test('the permitted cross-period transfer triggers a territorial warning, not an old PRE limit',()=>{
