@@ -86,8 +86,14 @@ export class Service {
     }
     async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
+    private async restoredFromHistory(cid:string,version:number):Promise<boolean>{
+        const rows=await this.repo.all('SELECT action,after_json FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 1',[cid]);
+        const latest=rows[0];
+        if(!latest||!['election_undo','election_redo','undo_vacations','redo_vacations','reconstruction_start','reconstruction_back','reconstruction_cancel'].includes(latest.action))return false;
+        try{return JSON.parse(latest.after_json)?.version===version;}catch{return false;}
+    }
     async view(cid:string){
-        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);const election=await this.election().view(d),result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards);
+        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);const restored=d.campaign.year===2027&&await this.restoredFromHistory(cid,d.campaign.version);const result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards,{skip2027Proof:restored});const election=await this.election().view(d,{restored,result});
         if(canWrite(this.actor,d.campaign.team_id))return {...d,election,undo:await this.vacationUndo(cid,d.campaign.version).then(e=>e&&e.action!=='undo_vacations'?{id:e.id,action:e.action}:null),redo:await this.vacationUndo(cid,d.campaign.version).then(e=>e?.action==='undo_vacations'?{id:e.id}:null),result,runs:d.runs.map((r:any)=>({...r,result_json:undefined})),editable:true};
         return {campaign:{id:cid,year:d.campaign.year,team_id:d.campaign.team_id,status:d.campaign.status,version:d.campaign.version,data_kind:d.campaign.data_kind,scope_key:d.campaign.scope_key,simulation_name:d.campaign.simulation_name},members:d.members.map(m=>({id:m.id,code:m.code})),requests:[],awards:d.awards,result:{...result,ordering:[]},config:null,runs:[],election,participating:!!election.myMemberId,editable:false,preview:this.actor.preview&&this.actor.preview.campaignId===cid?{code:this.actor.preview.code,writable:this.actor.preview.writable}:undefined};
     }
@@ -180,7 +186,9 @@ export class Service {
             if(!entry||entry.id!==body.undoId||(action==='redo_vacations')!==(entry.action==='undo_vacations'))throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.',409);
             const snapshot=JSON.parse(entry.before_json);
             if(!Array.isArray(snapshot.awards))throw new ApiError('La copia para deshacer carece de adjudicaciones verificables',409);
-            this.assert2027Completable(c,d.config,d.members,snapshot.awards,'Deshacer o rehacer');
+            // The target is a prior committed snapshot protected by the campaign
+            // version CAS. Rechecking global completion here is unnecessary and
+            // can make undo unusably slow; new awards are still validated normally.
             // Undo/redo may restore a full preference snapshot. Do not let a delegated
             // administrator overwrite linked controllers' preferences through this route.
             if(c.scope_key==='live'&&this.actor.role!=='superadmin'&&snapshot.election){

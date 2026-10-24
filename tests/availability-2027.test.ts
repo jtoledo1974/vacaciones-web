@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
- availabilityByCycle, availabilityImpact, previewChoiceImpact
+ availabilityByCycle, availabilityImpact, previewChoiceImpact, constructCycleWitness2027
 } from '../domain/availability-2027.ts';
 import {
- canComplete2027, evaluate2027Final, type PolicyState, type PolicyAward
+ canComplete2027, evaluate2027Final, reassign2027Witness, type PolicyState, type PolicyAward
 } from '../domain/policy-2027.ts';
 
 function completedState():PolicyState {
@@ -146,4 +146,40 @@ test('an empty cycle with A=0 cannot be called a valid completion under final mi
  assert.equal(result.status,'invalid');
  assert.equal(result.cycles[extra.date].additional,null,
   'no valid starting completion means invalid, not a fictitious exact zero');
+});
+
+test('verified final assignments prove local availability without combinatorial enumeration',()=>{
+ const state=completedState(),fullAwards=state.awards;
+ const partial:PolicyState={...state,awards:fullAwards.filter(a=>a.cycle_date!=='post0')};
+ const witness=fullAwards.filter(a=>a.cycle_date==='post0');
+ const proven=constructCycleWitness2027(partial,witness,'post0',2);
+ assert.ok(proven,'a verified completion already contains the desired two-person cycle');
+ const forced=fullAwards.find(a=>a.cycle_date==='post0')!;
+ const fixed={...partial,awards:[...partial.awards,forced]};
+ const reassigned=reassign2027Witness(fixed,state);
+ assert.ok(reassigned,'exact histogram flow finds an assignment with the fixed choice');
+ assert.ok(evaluate2027Final({...fixed,awards:[...fixed.awards,...reassigned!]}).valid);
+ const impossible=constructCycleWitness2027(partial,[{member_id:'unknown',cycle_date:'post0'}],'post0',2);
+ assert.equal(impossible,null,'a forged witness must never be accepted');
+});
+
+test('shared budget bounds full-team availability: no per-cycle multiplication of solver work',()=>{
+ const cycles=[
+  ...Array.from({length:17},(_,i)=>({date:'p'+i,period:0 as const})),
+  ...Array.from({length:13},(_,i)=>({date:'s'+i,period:1 as const})),
+  ...Array.from({length:15},(_,i)=>({date:'o'+i,period:2 as const}))
+ ];
+ const state:PolicyState={cycles,
+  members:Array.from({length:20},(_,i)=>({id:'m'+i,entitlement:6})),awards:[]};
+ const start=performance.now();
+ const report=availabilityByCycle(state,{maxChecks:500,useCache:false});
+ const ms=performance.now()-start;
+ assert.ok(report.checked<=500,'the total budget must be shared between all cycles');
+ assert.equal(Object.keys(report.cycles).length,45);
+ assert.notEqual(report.status,'invalid');
+ const uncertain=Object.values(report.cycles).filter(c=>c.status==='indeterminate');
+ assert.ok(uncertain.every(c=>c.additional===null),'unknown must not masquerade as exact zero');
+ console.info('2027 availability budget diagnostic:',JSON.stringify({
+  cycles:45,checked:report.checked,indeterminate:uncertain.length,elapsedMs:Math.round(ms)
+ }));
 });

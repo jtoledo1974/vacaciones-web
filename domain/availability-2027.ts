@@ -1,5 +1,5 @@
 import {
- canComplete2027, evaluate2027Candidate,
+ canComplete2027, evaluate2027Candidate, evaluate2027Final,
  OCCUPANCY_POLICY_2027, type PolicyState, type PolicyAward,
  type RuleProblem, type Completion
 } from './policy-2027.ts';
@@ -142,12 +142,101 @@ function snapshotCache(key:string,value:AvailabilitySnapshot):void {
  if(cache.size>CACHE_LIMIT)cache.delete(cache.keys().next().value!);
 }
 
+/**
+ * Cheap constructive certificate. Move a FUTURE award from a donor to the
+ * target, keeping every person's annual total unchanged. Validate the entire
+ * resulting allocation before accepting the proof. A failure is NOT proof
+ * of impossibility: a more complex reallocation may still exist.
+ *
+ * Existing committed awards are never moved. Bound the search depth by the
+ * target's missing occupants (at most three in a valid partial campaign).
+ */
+export function constructCycleWitness2027(
+ state:PolicyState,witness:PolicyAward[],date:string,target:number
+):PolicyAward[]|null {
+ const fixed=state.awards;
+ const initial=[...fixed,...witness];
+ if(!state.cycles.some(c=>c.date===date)||!Number.isInteger(target)||target<0||target>4)return null;
+ if(!evaluate2027Final({...state,awards:initial}).valid)return null;
+ const current=initial.filter(a=>a.cycle_date===date).length;
+ if(current>=target)return witness;
+ const minByDate=new Map(state.cycles.map(c=>[c.date,c.period===1?2:1]));
+ let attempts=0;
+ const move=(remaining:PolicyAward[],depth:number):PolicyAward[]|null=>{
+  if(++attempts>96)return null;
+  const destinationCount=fixed.filter(a=>a.cycle_date===date).length+
+   remaining.filter(a=>a.cycle_date===date).length;
+  if(destinationCount>=target)
+   return evaluate2027Final({...state,awards:[...fixed,...remaining]}).valid?remaining:null;
+  if(depth===0)return null;
+  const all=[...fixed,...remaining];
+  for(let index=0;index<remaining.length;index++){
+   const currentAward=remaining[index],source=currentAward.cycle_date;
+   if(source===date||all.filter(a=>a.cycle_date===source).length<=(minByDate.get(source)??1))continue;
+   if(all.some(a=>a.member_id===currentAward.member_id&&a.cycle_date===date))continue;
+   const next=[...remaining];next[index]={...currentAward,cycle_date:date};
+   // A transient histogram can be invalid even when a later one is valid,
+   // so check the final policy only after all transfers.
+   const result=move(next,depth-1);
+   if(result)return result;
+  }
+  return null;
+ };
+ return move(witness,Math.min(3,target-current));
+}
+
+/**
+ * Rebuild only the presentation of a restored, previously committed snapshot.
+ * No global completion search is run. A local impossibility (e.g. red fourth,
+ * already consumed period-fourth quota or a full cycle) is exact; everything
+ * else is explicitly provisional until the NEXT actual choice is confirmed.
+ *
+ * This is for undo/redo/reconstruction restore ONLY, never admission control.
+ */
+export function restoredAvailabilityByCycle2027(state:PolicyState):AvailabilitySnapshot {
+ const occupancy=new Map(state.cycles.map(c=>[c.date,[] as string[]]));
+ for(const award of state.awards)occupancy.get(award.cycle_date)?.push(award.member_id);
+ const fourth=[0,0,0];
+ for(const cycle of state.cycles)
+  if((occupancy.get(cycle.date)?.length??0)===4)fourth[cycle.period]++;
+ const cycles:Record<string,CycleAvailability>={};
+ for(const [index,cycle] of state.cycles.entries()){
+  const people=occupancy.get(cycle.date)??[],occupied=people.length,localMaximum=capacity(state,index);
+  const fourthConsumed=fourth[cycle.period]>=periodLimit(cycle.period);
+  const upper=Math.max(0,Math.min(localMaximum,fourthConsumed?3:4)-occupied);
+  const slots:AvailabilitySlot[]=Array.from({length:4},(_,i)=>{
+   const position=i+1,memberId=people[i];
+   const status:AvailabilitySlot['status']=memberId!==undefined?'occupied':
+    position>occupied+upper?'blocked':'indeterminate';
+   const reasons:RuleProblem[]=status==='blocked'
+    ?blockedReasons(state,cycle.date,position,occupied):
+     status==='indeterminate'?[reason('NOT_RECHECKED_AFTER_RESTORE',
+      'Estado recuperado del historial; esta posibilidad se verificará al confirmar una nueva adjudicación.',
+      cycle.period,cycle.date)]:[];
+   return {position,status,...(memberId?{memberId}:{}),reasons};
+  });
+  cycles[cycle.date]={
+   cycle:cycle.date,period:cycle.period,occupied,localMaximum,
+   status:upper===0?'exact':'indeterminate',additional:upper===0?0:null,
+   provenAdditional:0,possibleAdditionalUpperBound:upper,slots
+  };
+ }
+ return {
+  policyVersion:OCCUPANCY_POLICY_2027,
+  status:Object.values(cycles).some(c=>c.status==='indeterminate')?'indeterminate':'exact',
+  cycles,checked:0
+ };
+}
+
 /** Evaluate all cycle capacities from a common verified completion witness. */
 export function availabilityByCycle(state:PolicyState,options:AvailabilityOptions={}):AvailabilitySnapshot {
  const maxChecks=options.maxChecks??500;
  const cacheKey=keyFor(state,maxChecks);
  if(options.useCache!==false&&cache.has(cacheKey))return cache.get(cacheKey)!;
  const baseline=canComplete2027(state,{maxChecks});
+ // One shared budget for the entire table. Do not spend maxChecks for
+ // EACH candidate on EVERY page view (potentially 100+ full searches).
+ let remainingChecks=Math.max(0,maxChecks-baseline.checked);
  const fixed=new Map(state.cycles.map(c=>[c.date,[] as string[]]));
  for(const award of state.awards)fixed.get(award.cycle_date)?.push(award.member_id);
  const witnessCounts=new Map(state.cycles.map(c=>[c.date,fixed.get(c.date)?.length??0]));
@@ -172,8 +261,18 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
     if(k>state.members.reduce((sum,m)=>sum+Math.max(0,m.entitlement-state.awards.filter(a=>a.member_id===m.id).length),0)){
      upper=Math.min(upper,k-1);continue;
     }
-    const check=canComplete2027(state,{maxChecks,minimumCycle:{date:c.date,occupancy:position}});
+    // A concrete valid final allocation is a proof, with zero
+    // combinatorial scenario checks.
+    const repaired=baseline.witness&&constructCycleWitness2027(
+     state,baseline.witness,c.date,position);
+    if(repaired){lower=k;break;}
+    // Reserve enough time for the rest of the table, even when a hard
+    // target needs exponentially many exceptional-cycle scenarios.
+    if(remainingChecks<=0)break;
+    const allowance=Math.min(maxChecks>500?512:32,remainingChecks);
+    const check=canComplete2027(state,{maxChecks:allowance,minimumCycle:{date:c.date,occupancy:position}});
     checked+=check.checked;
+    remainingChecks=Math.max(0,remainingChecks-check.checked);
     if(check.status==='impossible')upper=Math.min(upper,k-1);
     else if(check.status==='possible'){lower=k;break;}
    }
