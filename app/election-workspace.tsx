@@ -293,7 +293,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
    const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
    const nextDates=previous.includes(c.date)?previous.filter(d=>d!==c.date):previous.length>=max?[c.date]:[...previous,c.date];
-   const next={...jointSelected,[target]:nextDates};
+   const next:Record<string,string[]>={...jointSelected,[target]:nextDates};
    setJointSelected(next);
    if(simulation&&quickMode&&!busy&&!previewReadOnly&&!loadingOptions&&
      turn.participants.every((id:string)=>(next[id]??[]).length===turn.requiredByMember[id]))
