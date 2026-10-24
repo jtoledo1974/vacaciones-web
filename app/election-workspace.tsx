@@ -1,223 +1,101 @@
-'use client';
-import {useEffect,useRef,useState} from 'react';
-import CycleCalendar,{formatDate} from './cycle-calendar';
-import {useConfirmation} from './confirmation';
-import {orderForRound,togglePreferenceDate} from '../domain/election';
-import {numberTimelineCycles} from '../domain/timeline-numbering';
-import PreferencesEditor from './preferences-editor';
-import ReconstructionPanel from './reconstruction-panel';
-import {cycleAvailability,slotExplanation,describeImpact} from './cycle-availability-ui';
-
-export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onResolveCycles,onSaveSource}:any){
- const scores=data.config?.previousScores??{},source=typeof data.config?.previousScoresSource==='string'?data.config.previousScoresSource:'';
- const missing=data.members.filter((m:any)=>!Number.isFinite(scores[m.code]));
- const hasMembers=data.members.length>0,hasScores=hasMembers&&missing.length===0;
- const cyclesValid=Number.isInteger(data.config?.cyclesPerPerson)&&data.config.cyclesPerPerson>=1&&data.config.cyclesPerPerson<=6;
- const sourceValid=source.trim().length>=10,open=data.campaign.status==='open',frozen=!!data.election.reconstruction?.active;
- const complete=hasScores&&sourceValid&&cyclesValid&&open&&!frozen;
- const ranked=hasScores?[...data.members].sort((a:any,b:any)=>scores[a.code]-scores[b.code]):[];
- const tieCounts=new Map<number,number>();
- if(hasScores)for(const m of ranked)tieCounts.set(scores[m.code],(tieCounts.get(scores[m.code])??0)+1);
- const ties=[...tieCounts.values()].filter(n=>n>1);
- const [confirmed,setConfirmed]=useState(false),[deferral,setDeferral]=useState(true);
- const [sourceOpen,setSourceOpen]=useState(false),[sourceDraft,setSourceDraft]=useState(''),[sourceError,setSourceError]=useState('');
- const sourceInputRef=useRef<HTMLTextAreaElement>(null);
- useEffect(()=>{if(sourceOpen)sourceInputRef.current?.focus();},[sourceOpen]);
- if(data.election.state)return null;
- const editSource=()=>{setSourceDraft(source);setSourceError('');setSourceOpen(true);};
- const saveSource=async()=>{
-  const text=sourceDraft.trim();
-  if(text.length<10){setSourceError('Describe la procedencia con al menos 10 caracteres.');return;}
-  const result=await onSaveSource(text);
-  if(result?.campaign)setSourceOpen(false);
- };
- return <details id="activation-panel" className="panel"><summary>Activar elección</summary>
-  <p>El orden se calcula a partir de las puntuaciones anteriores. Antes de activar, comprueba los datos y confirma las reglas; los empates se sortearán cuando llegue su turno.</p>
-  <p><strong>Puntuaciones:</strong> {hasMembers?data.members.length-missing.length:0}/{data.members.length} · <strong>Grupos empatados:</strong> {hasScores?ties.length:'Pendiente'} · <strong>Procedencia:</strong> {source||'Sin documentar'}</p>
-  {!hasMembers&&<div role="alert" className="alert warning"><p>La plantilla está vacía. Añade al menos un controlador para iniciar la elección.</p><button type="button" className="secondary" onClick={()=>onResolveScores([])}>Ir a Plantilla del equipo</button></div>}
-  {hasMembers&&missing.length>0&&<div role="alert" className="alert warning"><p>Falta la puntuación anterior de {missing.length} controlador(es): {missing.slice(0,8).map((m:any)=>m.code).join(', ')}{missing.length>8?` y ${missing.length-8} más`:''}.</p><button type="button" className="secondary" onClick={()=>onResolveScores(missing.map((m:any)=>m.code))}>Completar puntuaciones en la plantilla</button></div>}
-  {!sourceValid&&<div role="alert" className="alert warning"><p>Falta documentar de dónde proceden las puntuaciones del ejercicio anterior. Se registra una sola descripción para todo el equipo, no una por controlador.</p><button type="button" className="secondary" disabled={busy} onClick={()=>sourceOpen?setSourceOpen(false):editSource()}>{sourceOpen?'Cerrar formulario':'Documentar procedencia'}</button></div>}
-  {sourceValid&&<p className="muted">¿Necesitas corregir la procedencia? <button type="button" className="secondary" onClick={()=>sourceOpen?setSourceOpen(false):editSource()} disabled={busy}>{sourceOpen?'Cerrar formulario':'Editar procedencia'}</button></p>}
-  {sourceOpen&&<section id="election-score-source-editor" role="group" aria-label="Documentar origen de las puntuaciones" className="election-score-source-editor">
-   <h3>Documentar origen de las puntuaciones</h3>
-   <p className="muted">Indica de dónde proceden las puntuaciones del ejercicio {data.campaign.year-1}: por ejemplo, la clasificación comunicada por el responsable, su fecha y el documento utilizado. Esta descripción queda guardada para todo el equipo en este ejercicio y permite revisar posteriormente el origen del orden de elección. No modifica ninguna puntuación.</p>
-   <label htmlFor="election-score-source">Procedencia del equipo {data.campaign.team_id}
-    <textarea ref={sourceInputRef} id="election-score-source" aria-label="Procedencia de las puntuaciones" rows={4} maxLength={500} value={sourceDraft} onChange={e=>{setSourceDraft(e.target.value);setSourceError('');}} placeholder="Ej.: puntuaciones facilitadas por el responsable el 22/10/2026, según clasificación anual" disabled={busy}/>
-   </label>
-   {sourceError&&<p className="alert error" role="alert">{sourceError}</p>}
-   <div className="button-row">
-    <button type="button" className="secondary" disabled={busy} onClick={()=>setSourceOpen(false)}>Cancelar</button>
-    <button type="button" className="primary" disabled={busy||sourceDraft.trim().length<10} onClick={saveSource}>Guardar procedencia</button>
-   </div>
-  </section>}
-  {!cyclesValid&&<div role="alert" className="alert warning"><p>La elección requiere entre uno y seis ciclos por persona. Revisa el parámetro «Ciclos por persona».</p><button type="button" className="secondary" onClick={onResolveCycles}>Revisar parámetros del ejercicio</button></div>}
-  {!open&&<p role="alert" className="alert warning">La campaña está cerrada. Reábrela desde «Estado de la campaña» antes de iniciar la elección.</p>}
-  {frozen&&<p role="alert" className="alert warning">Hay una reconstrucción en curso. Finalízala antes de activar la elección.</p>}
-  {hasScores&&<details><summary>Ver orden calculado (solo lectura)</summary><ol>{ranked.map((m:any)=><li key={m.id}>{m.code}: {scores[m.code]} puntos</li>)}</ol></details>}
-  <div className="team-checkboxes">
-   <label><input type="checkbox" checked={deferral} onChange={e=>setDeferral(e.target.checked)}/> Permitir uno o dos aplazamientos</label>
-   <label><input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Confirmo Criterios Vacaciones 1.1 (2025) y las puntuaciones</label>
-  </div>
-  <button type="button" className="primary" disabled={busy||!complete||!confirmed} onClick={async()=>{const result=await act({action:'start',rulesConfirmed:true,allowDeferral:deferral},'Puntuaciones confirmadas y elección activada');if(result?.campaign)onActivated?.();}}>Activar elección</button>
-
-
- </details>;
-}
-function TieResolver({group,data,busy,act,manage,open,early=false}:any){
- const confirm=useConfirmation(),[order,setOrder]=useState<string[]>([]);
- const code=(id:string)=>data.members.find((m:any)=>m.id===id)?.code??id;
- return <section className="panel" aria-label="Resolver empate"><h2>Empate pendiente de sorteo</h2>
- <p>{group.map(code).join(', ')}. {early?'Puedes resolver este empate antes de que llegue su turno.':'La elección y los automatismos esperan hasta que se guarde el orden del sorteo.'} En las siguientes rondas se rotará este orden.</p>
- {manage&&open?<><button className="primary" disabled={busy} onClick={async()=>{if(await confirm('¿Sortear y guardar el orden de este grupo? El resultado quedará registrado y no se podrá repetir.'))act({action:'resolve_tie',method:'random',...(early?{groupMemberIds:group}:{})},'Sorteo guardado');}}>Sortear y guardar orden</button>
- <h3>Registrar un sorteo realizado fuera de la app</h3><p>Pulsa los nombres en el orden obtenido: primero quien elige antes, después el siguiente, hasta completar el grupo.</p>
- <div className="button-row">{group.map((id:string)=><button type="button" className="secondary" key={id} aria-label={'Añadir al sorteo '+code(id)} disabled={busy||order.includes(id)} onClick={()=>setOrder([...order,id])}>{code(id)}</button>)}</div>
- <ol aria-label="Orden del sorteo externo">{order.map(id=><li key={id}>{code(id)}</li>)}</ol>
- <div className="button-row"><button className="secondary" disabled={busy||!order.length} onClick={()=>setOrder(order.slice(0,-1))}>Quitar último</button><button className="primary" disabled={busy||order.length!==group.length} onClick={async()=>{if(await confirm('¿Guardar este orden del sorteo externo: '+order.map(code).join(' → ')+'?'))act({action:'resolve_tie',method:'external',order,...(early?{groupMemberIds:group}:{})},'Orden del sorteo externo guardado');}}>Guardar orden externo</button></div></>:<p>El responsable del equipo debe registrar el resultado antes de continuar.</p>}
- </section>;
-}
-
-function PendingTieDialog({data,busy,act,onClose}:any){
- const pending:string[][]=data.election.state?.pendingTieGroups??[];
- const resolved=data.election.state?.tieResolutions??[];
- const [selected,setSelected]=useState('');
- const group=pending.find(g=>g.includes(selected))??pending[0];
- const code=(id:string)=>data.members.find((m:any)=>m.id===id)?.code??id;
- useEffect(()=>{
-  const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onClose();};
-  document.addEventListener('keydown',onKey);
-  return ()=>document.removeEventListener('keydown',onKey);
- },[onClose]);
- useEffect(()=>{if(!pending.length)onClose();},[pending.length,onClose]);
- return <div className="tie-dialog-backdrop" onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
-  <section className="tie-dialog" role="dialog" aria-modal="true" aria-labelledby="pending-ties-title">
-   <header className="tie-dialog-head"><div><span className="eyebrow">ADMINISTRACIÓN DE LA ELECCIÓN</span><h2 id="pending-ties-title">Resolver empates pendientes</h2><p className="muted">Puedes resolverlos sin esperar al turno de sus participantes.</p></div>
-    <button type="button" className="secondary" onClick={onClose} aria-label="Cerrar resolución de empates">✕</button></header>
-   <div className="tie-dialog-content">
-    <aside className="tie-dialog-groups"><strong>Pendientes · {pending.length}</strong>
-     {pending.map(g=><button type="button" key={g.join('|')} className={'tie-dialog-group'+(g===group?' selected':'')} aria-pressed={g===group} onClick={()=>setSelected(g[0])}>
-      <b>{g.map(code).join(' · ')}</b><small>{data.config?.previousScores?.[code(g[0])]??'—'} puntos · {g.length} controladores</small>
-     </button>)}
-     {!!resolved.length&&<div className="tie-dialog-resolved"><strong>Resueltos · {resolved.length}</strong>{resolved.map((r:any,i:number)=><p key={i}>✓ {r.order.map(code).join(' → ')}{r.anticipated?' · Anticipado':''}</p>)}</div>}
-    </aside>
-    <div className="tie-dialog-editor">{group?<TieResolver key={group.join('|')} group={group} data={data} busy={busy} act={act} manage open early/>:<p>Todos los empates están resueltos.</p>}</div>
-   </div>
-  </section>
- </div>;
-}
-
-export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit,onConfigureElection}:any){
- const confirm=useConfirmation();
- const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
- const previewReadOnly=!!data.preview&&!data.preview.writable;
- const simulation=data.campaign.scope_key!=='live';
- const [quickMode,setQuickMode]=useState(false);
- useEffect(()=>{
-  try{setQuickMode(simulation&&localStorage.getItem('vacaciones_quick_confirm_'+data.campaign.id)==='true');}
-  catch{setQuickMode(false);}
- },[data.campaign.id,simulation]);
- function changeQuickMode(enabled:boolean){
-  if(!simulation)return;
-  setQuickMode(enabled);
-  try{localStorage.setItem('vacaciones_quick_confirm_'+data.campaign.id,String(enabled));}catch{/* Opción válida solo en esta sesión. */}
- }
-  const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
-  const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
- const [historyLimit,setHistoryLimit]=useState(40);
- const [jointOpen,setJointOpen]=useState(false),[jointMembers,setJointMembers]=useState<string[]>([]),[jointRound,setJointRound]=useState(0);
-
- const [tieDialogOpen,setTieDialogOpen]=useState(false);
- const pendingGroups:string[][]=state?.pendingTieGroups??[];
- useEffect(()=>{if(frozen||!manage||!open||!pendingGroups.length)setTieDialogOpen(false);},[frozen,manage,open,pendingGroups.length]);
-
- const cycleNumbers=numberTimelineCycles(election.timeline??[]);
- const [choosingReconstructionStart,setChoosingReconstructionStart]=useState(false);
- const [archivedTarget,setArchivedTarget]=useState('');
- const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
- useEffect(()=>{setSelected([]);setJointSelected({});setJointTarget('');setDetail(null);setMessage('');},[turn?.memberId,turn?.round,turn?.needed,state?.status]);
- useEffect(()=>{if(!preferenceMemberIds.includes(memberId))setMemberId(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??'');},[memberId,mine,preferenceMemberIds.join('|')]);
- useEffect(()=>{setDetail((current:any)=>current?data.result.cycles.find((c:any)=>c.date===current.date)??null:null);},[data.campaign.version]);
- const existing=election.preferences.find((p:any)=>p.member_id===memberId);
- const serverPreferences=JSON.stringify({dates:existing?.dates??[],persistent:existing?.persistent??false});
- const [persistent,setPersistent]=useState(false),[preferenceMessage,setPreferenceMessage]=useState('');
- const lastSavedPreferences=useRef({memberId:'',value:serverPreferences});
- const draftValue=JSON.stringify({dates,persistent});
- const dirty=draftValue!==serverPreferences;
- useEffect(()=>{
-  const previous=lastSavedPreferences.current;
-  if(previous.memberId!==memberId||draftValue===previous.value){
-   const incoming=JSON.parse(serverPreferences);setDates(incoming.dates);setPersistent(incoming.persistent);
-  }
-  lastSavedPreferences.current={memberId,value:serverPreferences};
- },[memberId,serverPreferences]);
- useEffect(()=>{
-  if(!dirty)return;
-  const warn=(event:BeforeUnloadEvent)=>{event.preventDefault();event.returnValue='';};
-  window.addEventListener('beforeunload',warn);
-  return ()=>window.removeEventListener('beforeunload',warn);
- },[dirty]);
- async function leavePreferences(){
-  if(busy)return false;
-  if(!dirty)return true;
-  if(!await confirm('Has modificado tu lista de preferencias, pero aún no la has guardado. Si descartas los cambios, recuperarás la última lista guardada. Si no tenías ninguna, la lista quedará vacía.',undefined,{title:'¿Descartar los cambios?',cancelLabel:'Seguir editando',confirmLabel:'Descartar cambios'}))return false;
-  const saved=JSON.parse(serverPreferences);setDates(saved.dates);setPersistent(saved.persistent);setPreferenceMessage('');
-  return true;
- }
- async function cancelPreferences(){
-  if(!await leavePreferences())return;
-  setMode('choose');setDetail(null);
- }
- useEffect(()=>{if(navigationGuard)navigationGuard.current=leavePreferences;return ()=>{if(navigationGuard)navigationGuard.current=null;};});
- function editDates(next:string[]){setDates(next);setPreferenceMessage('Lista modificada. Cambios sin guardar.');onPreferenceEdit?.();}
- function editPersistence(next:boolean){setPersistent(next);setPreferenceMessage('Uso de la lista modificado. Cambios sin guardar.');onPreferenceEdit?.();}
- async function savePreferences(){
-   if(previewReadOnly)return;
-  if(state?.status==='active'&&!state.automaticPaused&&turn?.memberId===memberId&&turn.participants?.length===1&&dates.length>0){
-   const quantity=turn.needed===1?'un ciclo':turn.needed+' ciclos';
-   const code=data.members.find((m:any)=>m.id===memberId)?.code;
-   if(!await confirm('Es el turno de '+code+'. Al guardar estas preferencias, el sistema intentará adjudicar inmediatamente '+quantity+' según el orden de la lista y los cupos disponibles. Si hay opciones válidas suficientes, la adjudicación se registrará automáticamente y se avanzará al siguiente turno, sin otra confirmación. ¿Guardar y continuar?'))return;
-  }
-  const result=await act({action:'preferences',memberId,dates,persistent},'Preferencias guardadas');
-  setPreferenceMessage(result?.campaign?'Preferencias guardadas. Tu lista está confirmada.':'No se ha confirmado el guardado. Revisa el error y vuelve a intentarlo.');
- }
- useEffect(()=>{
-  setPairOptions(null);if(turn?.participants?.length!==1||turn?.needed<2||!selected.length||selected.length>=turn.needed)return;
-  let active=true;setLoadingOptions(true);
-  const query=new URLSearchParams();selected.forEach(date=>query.append('selected',date));const preview=new URLSearchParams(location.search).get('verComo');if(preview)query.set('verComo',preview);
-  fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{
-    const body:any=await response.json();if(!response.ok)throw new Error(body.error);
-    if(!active)return;
-    const currentPolicy=data.campaign.year===2027?election.occupancyPolicyVersion:null;
-    if(body.version!==data.campaign.version||(currentPolicy&&body.policyVersion!==currentPolicy)){
-     setPairOptions([]);setMessage('Los cupos se han recalculado con otra versión del reparto. Actualiza la vista antes de confirmar.');return;
+ type SelectedChoice={member_id:string;cycle_date:string};
+ /**
+  * The sole path for both explicit and automatic selections.
+  * The synchronous ref prevents a second request while React updates state.
+  * The server still performs version/CAS validation before committing.
+  */
+ async function submitChoice(choices:SelectedChoice[]):Promise<void>{
+  if(choiceLock.current||busy||previewReadOnly||loadingOptions||!canChoose||!turn?.memberId)return;
+  if(turn.participants?.length>1){
+   if(turn.participants.some((id:string)=>choices.filter(choice=>choice.member_id===id).length!==turn.requiredByMember[id])||
+      choices.some(choice=>!turn.participants.includes(choice.member_id)))return;
+  }else if(choices.length!==turn.needed||choices.some(choice=>choice.member_id!==turn.memberId))return;
+  choiceLock.current=true;
+  setChoiceSubmitting(true);
+  setMessage('');
+  try{
+   const names=turn.participants?.length>1?turn.participants.map(codeFor).join(' + '):current?.code??'';
+   let impactLines:string[]=[];
+   let warningLines:string[]=[];
+   if(data.campaign.year===2027){
+    setChoicePhase('checking');
+    const query=new URLSearchParams({version:String(data.campaign.version),choices:JSON.stringify(choices)});
+    const preview=new URLSearchParams(location.search).get('verComo');
+    if(preview)query.set('verComo',preview);
+    const response=await fetch('/api/election/'+data.campaign.id+'/impact?'+query,{cache:'no-store'});
+    const report:any=await response.json();
+    if(!response.ok)throw new Error(report.error??'No se pudo previsualizar la elección');
+    if(report.version!==data.campaign.version||report.policyVersion!==election.occupancyPolicyVersion)
+     throw new Error('El reparto o las normas han cambiado. Actualiza antes de elegir.');
+    if(report.allowed===false){
+     setMessage((report.issues??[]).map((issue:any)=>issue.message).join('; ')||'La elección impediría completar el reparto.');
+     return;
     }
-    setPairOptions(body.available??[]);
-   }).catch(e=>{if(active){setPairOptions([]);setMessage(e.message);}}).finally(()=>{if(active)setLoadingOptions(false);});
-  return ()=>{active=false;setLoadingOptions(false);};
- },[selected.join(','),turn?.needed,data.campaign.version,election.occupancyPolicyVersion]);
- const canChoose=open&&!frozen&&state?.status==='active'&&!!turn?.memberId&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&!frozen&&preferenceMemberIds.length>0;
- const reconstructionCandidates:any[]=election.reconstruction?.candidates??[];
- const candidatesById=new Map<string,any>(reconstructionCandidates.filter((candidate:any)=>!candidate.archived).map((candidate:any)=>[candidate.id,candidate]));
- const archivedCandidates=reconstructionCandidates.filter((candidate:any)=>candidate.archived);
- const canOpenReconstruction=manage&&open&&!frozen&&!previewReadOnly&&reconstructionCandidates.length>0;
- const codeFor=(id:string)=>data.members.find((member:any)=>member.id===id)?.code??'?';
- useEffect(()=>{if(frozen||!canOpenReconstruction){setChoosingReconstructionStart(false);setArchivedTarget('');}},[frozen,canOpenReconstruction]);
- async function startReconstructionFrom(candidate:any){
-  if(!candidate||busy||!canOpenReconstruction)return;
-  const names=candidate.memberIds.map(codeFor).join(' + ');
-  const subject=candidate.action==='resolve_tie'?'el sorteo de '+names:'la decisión de '+names;
-  const source=candidate.archived?' (rama anterior)':'';
-  if(!await confirm('¿Reconstruir desde '+subject+', ronda '+candidate.round+source+'? Se volverá al estado anterior a esa decisión y se revisarán los turnos posteriores. Durante la sesión, los controladores no podrán elegir ni editar preferencias y los automatismos permanecerán detenidos. Podrás cancelar para restaurar el estado actual.'))return;
-  const result=await act({action:'reconstruction_start',historyId:candidate.id},'Reconstrucción iniciada');
-  if(result?.election?.reconstruction?.active){setChoosingReconstructionStart(false);setArchivedTarget('');}
+    impactLines=report.impact?describeImpact(report.impact):['El impacto no se pudo determinar exactamente; las cotas inciertas no se consideran bloqueos.'];
+    warningLines=(report.warnings??[]).map((issue:any)=>issue.message);
+   }
+   // In real campaigns, and by default in simulations, confirmation is mandatory.
+   // Fast simulation mode commits as soon as the complete choice is clicked.
+   if(!simulation||!quickMode){
+    setChoicePhase(null);
+    const impactText=impactLines.length
+     ?'\\n\\nConsecuencias sobre la disponibilidad:\\n'+impactLines.slice(0,14).join('\\n')+
+       (impactLines.length>14?'\\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
+     :'\\n\\nNo se han demostrado reducciones adicionales de disponibilidad.';
+    const warningText=warningLines.length?'\\n\\nAvisos normativos:\\n'+warningLines.join('\\n'):'';
+    const summary='¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')+impactText+warningText;
+    if(!await confirm(summary,undefined,{title:'Confirmar adjudicación e impacto',confirmLabel:'Adjudicar'}))return;
+   }
+   setChoicePhase('saving');
+   const result=turn.participants?.length>1
+    ?await act({action:'choose_joint',entries:turn.participants.map((id:string)=>({member_id:id,dates:choices.filter(choice=>choice.member_id===id).map(choice=>choice.cycle_date)}))},'Turno conjunto confirmado')
+    :await act({action:'choose',memberId:turn.memberId,dates:choices.map(choice=>choice.cycle_date)},'Elección confirmada');
+   if(!result?.campaign)setMessage('No se ha confirmado la adjudicación. Revisa el aviso de error antes de volver a intentarlo.');
+  }catch(error:any){
+   setMessage(error?.message??'No se pudo verificar la elección.');
+  }finally{
+   choiceLock.current=false;
+   setChoiceSubmitting(false);
+   setChoicePhase(null);
+  }
  }
- const roundOrder=state?orderForRound(state,Math.max(0,(turn?.round??1)-1)):data.members.map((m:any)=>m.id);
- function clickCycle(c:any){if(mode==='choose')setDetail(c);setMessage('');
- if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
-  const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
-  setJointSelected({...jointSelected,[target]:previous.includes(c.date)?previous.filter(d=>d!==c.date):previous.length>=max?[c.date]:[...previous,c.date]});return;
+ function clickCycle(c:any){
+  if(choiceSubmitting)return;
+  if(mode==='choose')setDetail(c);
+  setMessage('');
+  if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
+   const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
+   const nextDates=previous.includes(c.date)?previous.filter(d=>d!==c.date):previous.length>=max?[c.date]:[...previous,c.date];
+   const next={...jointSelected,[target]:nextDates};
+   setJointSelected(next);
+   if(simulation&&quickMode&&!busy&&!previewReadOnly&&!loadingOptions&&
+     turn.participants.every((id:string)=>(next[id]??[]).length===turn.requiredByMember[id]))
+    void submitChoice(turn.participants.flatMap((id:string)=>(next[id]??[]).map((date:string)=>({member_id:id,cycle_date:date}))));
+   return;
+  }
+  if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){
+   if(dates.includes(c.date)){editDates(togglePreferenceDate(dates,c.date,false));setPreferenceMessage('Ciclo retirado de tus preferencias. Sin guardar.');return;}
+   editDates(togglePreferenceDate(dates,c.date,true));setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');return;
+  }
+  if(!canChoose||previewReadOnly)return;
+  if(loadingOptions){setMessage('Comprobando qué segundo ciclo es compatible…');return;}
+  if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){
+   setMessage(election.availabilityReasons?.[c.date]??'Este ciclo no es viable en el reparto actual.');return;
+  }
+  const next=selected.includes(c.date)?selected.filter(d=>d!==c.date)
+   :turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date];
+  setSelected(next);
+  if(simulation&&quickMode&&!busy&&next.length===turn.needed&&turn?.participants?.length===1)
+   void submitChoice(next.map(date=>({member_id:turn.memberId,cycle_date:date})));
  }
- if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(dates.includes(c.date)){editDates(togglePreferenceDate(dates,c.date,false));setPreferenceMessage('Ciclo retirado de tus preferencias. Sin guardar.');return;}/* Preferences can remain in the list even when currently unavailable. */editDates(togglePreferenceDate(dates,c.date,true));setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage(election.availabilityReasons?.[c.date]??'Este ciclo no es viable en el reparto actual.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
  return <>
+  {thinking&&<div className="election-thinking-inline" role="status" aria-live="polite"><span className="election-thinking-spinner" aria-hidden="true"/>{thinkingMessage}</div>}
+  {thinking&&slowChoice&&<div className="election-thinking-backdrop"><section className="election-thinking-dialog" role="dialog" aria-modal="true" aria-labelledby="election-thinking-title">
+   <span className="election-thinking-spinner" aria-hidden="true"/>
+   <h2 id="election-thinking-title">El motor está comprobando el reparto</h2>
+   <p aria-live="polite">{thinkingMessage}</p>
+   <p className="muted">Algunas elecciones, especialmente al ocupar una cuarta plaza, necesitan verificar que todos los controladores puedan completar sus vacaciones. No se ha confirmado ninguna adjudicación hasta que termine la comprobación.</p>
+  </section></div>}
   {data.campaign.year===2027&&
    <details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
     <summary>Cómo se aplican los cupos de 2027</summary>
@@ -294,7 +172,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    <div className="election-calendar-wrap">
     <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} cycles={data.result.cycles}
      selected={mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
-     busy={busy||loadingOptions} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
+     busy={busy||loadingOptions||choiceSubmitting} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
      awards={data.awards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability}/>
    </div>
    <aside className="election-side">
@@ -317,49 +195,20 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
      {message&&<p role="status" className="alert warning">{message}</p>}
      {mode==='choose'&&canChoose&&<>
+      {simulation&&quickMode&&<p className="election-auto-notice">La adjudicación se realiza automáticamente al completar todos los ciclos de este turno.</p>}
       {turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}
       <p className="election-selected-summary">Elige <strong>{turn?.participants?.length>1?data.members.find((m:any)=>m.id===(jointTarget||turn.participants[0]))?.code:current?.code}</strong></p>
       {turn.needed>1&&turn?.participants?.length===1&&<p className="election-multiple-summary">{selected.length}/{turn.needed} ciclos seleccionados: {selected.map(formatDate).join(' + ')||'ninguno'}</p>}
       {turn?.participants?.length>1&&<p className="election-multiple-summary">{turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | ')}</p>}
       <div className="button-row">
-       <button type="button" className="primary" disabled={busy||previewReadOnly||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={async()=>{
-        const choices:{member_id:string;cycle_date:string}[]=turn?.participants?.length>1
-         ?turn.participants.flatMap((id:string)=>(jointSelected[id]??[]).map(date=>({member_id:id,cycle_date:date})))
-         :selected.map(date=>({member_id:current.id,cycle_date:date}));
-        const names=turn?.participants?.length>1?turn.participants.map(codeFor).join(' + '):current?.code??'';
-        let impactLines:string[]=[];
-        let warningLines:string[]=[];
-        if(data.campaign.year===2027){
-         const query=new URLSearchParams({version:String(data.campaign.version),choices:JSON.stringify(choices)});
-         const preview=new URLSearchParams(location.search).get('verComo');
-         if(preview)query.set('verComo',preview);
-         try{
-          const response=await fetch('/api/election/'+data.campaign.id+'/impact?'+query,{cache:'no-store'});
-          const report:any=await response.json();
-          if(!response.ok)throw new Error(report.error??'No se pudo previsualizar la elección');
-          if(report.version!==data.campaign.version||report.policyVersion!==election.occupancyPolicyVersion)
-           throw new Error('El reparto o las normas han cambiado. Actualiza antes de confirmar.');
-          if(report.allowed===false){
-           setMessage((report.issues??[]).map((issue:any)=>issue.message).join('; ')||'La elección impediría completar el reparto.');return;
-          }
-          impactLines=report.impact?describeImpact(report.impact):['No se pudo establecer el impacto exacto; los resultados no concluyentes no se consideran bloqueos.'];
-          warningLines=(report.warnings??[]).map((issue:any)=>issue.message);
-         }catch(error:any){setMessage(error?.message??'Error al calcular el impacto');return;}
-        }
-        // Confirmación siempre obligatoria en campañas reales. Solo simulaciones
-        // permiten omitirla mediante preferencia local explícita por campaña.
-        if(!simulation||!quickMode){
-         const impactText=impactLines.length
-          ?'\n\nConsecuencias sobre la disponibilidad:\n'+impactLines.slice(0,14).join('\n')+
-           (impactLines.length>14?'\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
-          :'\n\nNo se han demostrado reducciones adicionales de disponibilidad.';
-         const warningText=warningLines.length?'\n\nAvisos normativos:\n'+warningLines.join('\n'):'';
-         const summary='¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')+impactText+warningText;
-         if(!await confirm(summary,undefined,{title:'Confirmar adjudicación e impacto',confirmLabel:'Adjudicar'}))return;
-        }
-        if(turn?.participants?.length>1){const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));act({action:'choose_joint',entries},'Turno conjunto confirmado');}
-        else act({action:'choose',memberId:current.id,dates:selected},'Elección confirmada');
-       }}>Confirmar {turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo'}</button>
+       {(!simulation||!quickMode||!!message)&&<button type="button" className="primary"
+        disabled={busy||choiceSubmitting||previewReadOnly||loadingOptions||
+         (turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)}
+        onClick={()=>void submitChoice(turn?.participants?.length>1
+         ?turn.participants.flatMap((id:string)=>(jointSelected[id]??[]).map((date:string)=>({member_id:id,cycle_date:date})))
+         :selected.map(date=>({member_id:turn.memberId,cycle_date:date})))}>
+        {simulation&&quickMode?'Reintentar adjudicación':'Confirmar '+(turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo')}
+       </button>}
        <button type="button" className="secondary" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>Cancelar selección</button>
       </div>
      </>}
