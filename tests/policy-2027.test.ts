@@ -208,7 +208,9 @@ test('preverano warning persists in an incomplete allocation only when the third
  const canAvoidThird={...full,awards:full.awards.filter(a=>a!==preAward&&a!==thirdAward)};
  const avoidable=evaluate2027Candidate(canAvoidThird,[]);
  assert.equal(avoidable.completion.status,'possible');
- assert.ok(avoidable.completion.witness?.some(a=>['p1','p2'].includes(a.cycle_date)),'The strict witness can fill one of the other originally single cycles');
+ const stricter=canComplete2027(canAvoidThird,{strictPre:true});
+ assert.equal(stricter.status,'possible','A fully valid completion respecting at most two pre-summer singles must exist');
+ assert.ok(evaluate2027Final({...canAvoidThird,awards:[...canAvoidThird.awards,...stricter.witness!]},true).valid);
  assert.equal(avoidable.warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
  assert.equal(canAvoidThird.awards.filter(a=>a.cycle_date==='p0').length,0);
 });
