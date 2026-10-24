@@ -187,8 +187,22 @@ test('2027 guided reconstruction previews and replays a joint award through the 
  assert.equal(d.awards.length,0);
  assert.equal(d.election.reconstruction.current.originalAction,'choose_joint');
  assert.equal(d.election.reconstruction.current.originalPossible,true);
+ const unassignedAvailability=d.election.cycleAvailability;
  await service.election().mutate(cid,{action:'reconstruction_step',kind:'choose_joint',mode:'original',version:d.campaign.version});
  d=await service.view(cid);
+ assert.equal(d.awards.length,2);
+ assert.equal(d.election.reconstruction.status,'review');
+ const steppedAvailability=d.election.cycleAvailability;
+ await service.election().mutate(cid,{action:'reconstruction_back',version:d.campaign.version});
+ d=await service.view(cid);
+ assert.equal(d.election.cycleAvailability.checked,0);
+ assert.deepEqual(d.election.cycleAvailability.cycles,unassignedAvailability.cycles,
+  'reconstruction back must replay the saved before-state availability');
+ assert.equal(d.awards.length,0);
+ await service.election().mutate(cid,{action:'reconstruction_forward',version:d.campaign.version});
+ d=await service.view(cid);
+ assert.deepEqual(d.election.cycleAvailability.cycles,steppedAvailability.cycles,
+  'reconstruct forward must recover the original verified availability');
  assert.equal(d.awards.length,2);
  assert.equal(d.election.reconstruction.status,'review');
  await service.election().mutate(cid,{action:'reconstruction_finish',version:d.campaign.version});
