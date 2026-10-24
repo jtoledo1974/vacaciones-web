@@ -1,5 +1,6 @@
 import {currentTurn,orderForRound,type ElectionContext,type ElectionState} from '../domain/election.ts';
 import {appliedAudit} from './reconstruction.ts';
+import type {AvailabilityChange, ImpactEvent} from '../domain/availability-2027.ts';
 
 type AuditRow={id:string;action:string;before_json:string|null;after_json:string|null;created_at:string};
 type LoggedChoice={member_id:string;cycle_date:string};
@@ -8,6 +9,11 @@ export type ElectionTimelineItem={
  memberIds:string[];choices:LoggedChoice[];deferredTurns:number;
  ties:{memberId:string;position:number;total:number;order:string[]}[];
  method?:'random'|'external';order?:string[];anticipated?:boolean;jointAction?:'register_joint'|'cancel_joint';
+ impact?: {
+  policyVersion:string; status:'exact'|'indeterminate'|'invalid';
+  campaignVersionBefore:number; campaignVersionAfter:number;
+  changes:AvailabilityChange[];events:ImpactEvent[];
+ };
 };
 
 function parse(value:string|null):any{
@@ -86,7 +92,8 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
    }
    events.push({sequence:indices.get(row.id)??0,item:{
     id:row.id,kind:kind==='defer'?'defer':'choice',round,createdAt:row.created_at,
-    memberIds,choices,deferredTurns:memberIds.length===1?(previous.credits?.[memberIds[0]]??0):0,ties
+    memberIds,choices,deferredTurns:memberIds.length===1?(previous.credits?.[memberIds[0]]??0):0,ties,
+    ...(after?.impact?{impact:after.impact}:{})
    }});
   }
   for(const row of draws){
