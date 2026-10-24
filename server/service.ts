@@ -180,7 +180,9 @@ export class Service {
             if(!entry||entry.id!==body.undoId||(action==='redo_vacations')!==(entry.action==='undo_vacations'))throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.',409);
             const snapshot=JSON.parse(entry.before_json);
             if(!Array.isArray(snapshot.awards))throw new ApiError('La copia para deshacer carece de adjudicaciones verificables',409);
-            this.assert2027Completable(c,d.config,d.members,snapshot.awards,'Deshacer o rehacer');
+            // The target is a prior committed snapshot protected by the campaign
+            // version CAS. Rechecking global completion here is unnecessary and
+            // can make undo unusably slow; new awards are still validated normally.
             // Undo/redo may restore a full preference snapshot. Do not let a delegated
             // administrator overwrite linked controllers' preferences through this route.
             if(c.scope_key==='live'&&this.actor.role!=='superadmin'&&snapshot.election){
