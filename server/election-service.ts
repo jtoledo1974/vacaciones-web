@@ -1,4 +1,4 @@
-import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,createChoiceChecker,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -50,34 +50,28 @@ export class ElectionService{
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
-  const baseline=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
-  const check=createChoiceChecker(ctx,baseline);
-  if(selected.length>=turn.needed||check(turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
-  return {version:d.campaign.version,available:baseline.cycles.filter(cycle=>!check(turn.memberId!,[...selected,cycle.date]).length).map(cycle=>cycle.date)};
+  if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
+  return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
  }
- async view(d:any,options:{skipAvailableForPendingAutomatic?:boolean}={}){
+ async view(d:any){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
   const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
-  const check=focus?createChoiceChecker(ctx,result):null;
-  // In an intermediate POST response, an automatic turn immediately advances
-  // from saved preferences. Validate those candidates first: there is no need
-  // to run a second sweep through every cycle just to serve that transient view.
-  const reconstruction=await this.reconstruction().view(d,raw);
-  const pendingAutomatic=!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences,check??undefined));
-  const available=options.skipAvailableForPendingAutomatic&&pendingAutomatic
-   ?[]
-   :check&&focus?result.cycles.filter(c=>!check(focus,[c.date]).length).map(c=>c.date):[];
+  const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
-  // Undo/redo and the visible timeline derive from the same ordered audit
-  // snapshot, avoiding a second full-history database read on every refresh.
-  const auditRows=manage?await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]):null;
-  const history=auditRows?appliedAudit(auditRows):null;
-  const timeline:ReturnType<typeof buildElectionTimeline>=auditRows?buildElectionTimeline(auditRows as any,ctx,raw.state):[];
+  const history=manage?await this.history(cid):null;
+  const reconstruction=await this.reconstruction().view(d,raw);
+  // Replay persisted actions rather than inferring turns from individual awards.
+  // Return all events; the UI reveals older entries incrementally.
+  let timeline:ReturnType<typeof buildElectionTimeline>=[];
+  if(manage){
+   const rows=await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
+   timeline=buildElectionTimeline(rows as any,ctx,raw.state);
+  }
 
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
@@ -147,11 +141,10 @@ export class ElectionService{
     state={...state,automaticPaused:false};
    }else if(action==='advance'){
     if(!state)throw new ApiError('No hay una elección configurada');
-    // advanceAutomatic validates the saved preference itself. Avoid running
-    // the same search twice; an unavailable preference is a no-op.
-    // Each successful advance still commits EXACTLY ONE undoable turn.
+    if(!preferredChoice(ctx,state,preferences))return {changed:false};
+    // Each advance commits EXACTLY ONE turn, with its own undo snapshot.
+    // Manual selections and preceding automated turns are already committed.
     const next=advanceAutomatic(ctx,state,preferences,1);
-    if(!next.choices.length)return {changed:false};
     state=next.state;preferences=next.preferences;choices=next.choices;
    }else if(action==='link_account'){
     if(c.scope_key!=='live')throw new ApiError('Vincula las cuentas desde una campaña real');
