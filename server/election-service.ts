@@ -76,9 +76,15 @@ export class ElectionService{
       available:[],reasons:{},warnings:chosen.warnings};
    }
    if(!chosen.allowed)throw new ApiError(chosen.issues.map(i=>i.message).join('; '));
+   // All candidates extend exactly this same already-valid selection.
+   // The current completion witness can often be reused or repaired by an
+   // atomic exchange rather than solving the full campaign for every date.
+   const partialState={...policyState,awards:[...policyState.awards,
+     ...selected.map(cycle_date=>({member_id:turn.memberId!,cycle_date}))]};
    const reasons:Record<string,unknown>={},warnings:Record<string,unknown>={},available:string[]=[];
    for(const date of resultDates(ctx)){
-    const candidate=inspect([...selected,date]);
+    const candidate=evaluate2027Candidate(partialState,
+      [{member_id:turn.memberId!,cycle_date:date}],2000,chosen.completion.witness);
     if(candidate.allowed){available.push(date);if(candidate.warnings.length)warnings[date]=candidate.warnings;}
     else reasons[date]=candidate.issues;
    }
@@ -100,8 +106,10 @@ export class ElectionService{
   let available:string[]=[];
   if(focus&&ctx.year===2027){
    const allocation=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+   const baseline=canComplete2027(allocation,{maxChecks:2000});
    for(const cycle of result.cycles){
-    const diagnostic=evaluate2027Candidate(allocation,[{member_id:focus,cycle_date:cycle.date}]);
+    const diagnostic=evaluate2027Candidate(allocation,
+      [{member_id:focus,cycle_date:cycle.date}],2000,baseline.witness);
     if(diagnostic.allowed){
      available.push(cycle.date);
      if(diagnostic.warnings.length)availabilityWarnings[cycle.date]=diagnostic.warnings;
