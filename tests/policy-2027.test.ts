@@ -312,7 +312,7 @@ test('a completed 2027 allocation is decided immediately without a bounded searc
  assert.equal(relaxed.status,'possible');
  assert.equal(relaxed.checked,1);
  assert.deepEqual(relaxed.witness,[]);
- const strict=canComplete2027(full,{strictPre:true,maxChecks:0});
+ const strict=canComplete2027(full,{strictRegions:true,maxChecks:0});
  assert.equal(strict.status,'possible');
  assert.equal(strict.checked,1);
  const summer=full.awards.filter(a=>a.cycle_date.startsWith('s')).length;
