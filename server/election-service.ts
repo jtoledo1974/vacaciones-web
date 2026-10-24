@@ -8,6 +8,7 @@ import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
 import {buildElectionTimeline} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
+import {historicalAvailability} from './availability-history.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
@@ -109,8 +110,12 @@ export class ElectionService{
    throw new ApiError('Simulación reservada a administradores',403);
   if(d.campaign.year!==2027)throw new ApiError('Disponibilidad global solo disponible con política 2027',400);
   const ctx=context(d);
-  return {version:d.campaign.version,
-   ...availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))};
+  const state=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+  const history=await historicalAvailability(this.repo,cid,d.campaign.version);
+  const availability=history.restored
+   ?recordedAvailabilityByCycle2027(state,history.recordedAvailability)??restoredAvailabilityByCycle2027(state)
+   :availabilityByCycle(state);
+  return {version:d.campaign.version,...availability};
  }
  /**
   * Non-mutating preflight for the complete atomic choice at the current turn.
