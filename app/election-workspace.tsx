@@ -6,6 +6,7 @@ import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
+import {cycleAvailability,slotExplanation,describeImpact} from './cycle-availability-ui';
 
 export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onResolveCycles,onSaveSource}:any){
  const scores=data.config?.previousScores??{},source=typeof data.config?.previousScoresSource==='string'?data.config.previousScoresSource:'';
@@ -108,6 +109,17 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const confirm=useConfirmation();
  const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
  const previewReadOnly=!!data.preview&&!data.preview.writable;
+ const simulation=data.campaign.scope_key!=='live';
+ const [quickMode,setQuickMode]=useState(false);
+ useEffect(()=>{
+  try{setQuickMode(simulation&&localStorage.getItem('vacaciones_quick_confirm_'+data.campaign.id)==='true');}
+  catch{setQuickMode(false);}
+ },[data.campaign.id,simulation]);
+ function changeQuickMode(enabled:boolean){
+  if(!simulation)return;
+  setQuickMode(enabled);
+  try{localStorage.setItem('vacaciones_quick_confirm_'+data.campaign.id,String(enabled));}catch{/* Opción válida solo en esta sesión. */}
+ }
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
  const [historyLimit,setHistoryLimit]=useState(40);
@@ -225,6 +237,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {frozen&&<div className="reconstruction-status" role="status"><span aria-hidden="true">Ⅱ</span><strong>Reconstrucción en curso</strong><span>Elección congelada · Preferencias bloqueadas · Automatismos detenidos</span></div>}
   {!frozen&&<section className="panel election-turn election-workflow-head" aria-label="Turno de elección">
    <div className="election-turn-status">
+    {simulation&&quickMode&&<span className="election-fast-indicator" role="status">Simulación · confirmación rápida</span>}
     <span className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'ELECCIÓN SIN INICIAR'}</span>
     <h2>{turn?.pendingTie?'Empate pendiente antes del siguiente turno':state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:'Consulta de ciclos'}</h2>
     {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed} ciclo(s) por elegir</span>}
@@ -236,7 +249,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     </div>}
     {manage&&!state&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={onConfigureElection}>Configurar e iniciar elección</button>}
     {manage&&state?.status==='paused'&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={()=>act({action:'resume'},'Elección reanudada')}>Reanudar elección</button>}
-    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(manage&&open&&pendingGroups.length>0)||(superuser&&state?.status==='active'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
+    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(manage&&open&&pendingGroups.length>0)||(superuser&&state?.status==='active')||(simulation&&manage))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
+     {simulation&&manage&&<label className="election-fast-mode"><input type="checkbox" checked={!quickMode} onChange={event=>changeQuickMode(!event.target.checked)} disabled={busy}/>Requerir confirmación antes de adjudicar</label>}
      {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
      {manage&&open&&pendingGroups.length>0&&<button type="button" className="secondary election-pending-ties-action" disabled={busy||previewReadOnly} onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');setTieDialogOpen(true);}}>Resolver empates pendientes <span className="election-pending-count">{pendingGroups.length}</span></button>}
      {manage&&state?.status==='active'&&<button type="button" className="secondary" onClick={()=>{setJointRound(turn?.round??1);setJointMembers([]);setJointOpen(true);}}>Gestionar turnos conjuntos…</button>}
@@ -281,7 +295,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} cycles={data.result.cycles}
      selected={mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
      busy={busy||loadingOptions} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
-     awards={data.awards} members={data.members} order={roundOrder} points={election.points}/>
+     awards={data.awards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability}/>
    </div>
    <aside className="election-side">
     {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} cancel={cancelPreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?'La lista coincide con la versión guardada.':preferenceMessage}/>}
@@ -292,6 +306,12 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {data.campaign.year===2027
       ?'Hasta '+Math.max(0,detail.max-detail.occupied)+' plazas adicionales bajo el máximo local, sujetas a las reglas globales'
       :Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
+     {data.campaign.year===2027&&<>
+      <p><strong>Disponibilidad global:</strong> {cycleAvailability(detail,election.cycleAvailability,2027).description}</p>
+      {election.cycleAvailability?.cycles?.[detail.date]&&<details className="election-cycle-rules"><summary>Detalle de las cuatro plazas y motivos de bloqueo</summary>
+       <ul>{election.cycleAvailability.cycles[detail.date].slots.map((slot:any)=><li key={slot.position}><strong>{slot.position}ª plaza:</strong> {slotExplanation(slot)}</li>)}</ul>
+      </details>}
+     </>}
      {data.campaign.year===2027&&mode==='choose'&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)&&
       <p className="alert warning" role="status">{election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'}</p>}
      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
@@ -365,6 +385,11 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
          {event.kind==='legacy'&&<p className="election-log-note">Adjudicación importada o anterior al registro de turnos.</p>}
          {event.kind==='choice'&&event.memberIds.length>1&&<p className="election-log-note">Turno conjunto de {event.memberIds.length} controladores.</p>}
          {event.kind==='choice'&&event.deferredTurns>0&&<p className="election-log-note">Turno {event.deferredTurns===1?'doble':'triple'}: recupera {event.deferredTurns} aplazamiento(s) anterior(es).</p>}
+         {event.impact&&<details className="election-log-impact">
+          <summary>Impacto registrado · {event.impact.changes?.length??0} ciclos modificados · política {event.impact.policyVersion}</summary>
+          <ul>{describeImpact(event.impact).map((line:string,i:number)=><li key={i}>{line}</li>)}</ul>
+          {event.impact.status!=='exact'&&<p>El cálculo contiene cotas indeterminadas; no se ha supuesto disponibilidad cero.</p>}
+         </details>}
          {(event.ties??[]).map((tie:any)=>{
           const memberCode=code(tie.memberId),previous=data.config?.previousScores?.[memberCode];
           return <p className="election-log-note election-log-tie" key={tie.memberId}>Empate{previous!==undefined?' a '+previous+' puntos':''} · {memberCode}: {tie.position}.º de {tie.total} · Orden de esta ronda: {tie.order.map(code).join(' → ')}</p>;
