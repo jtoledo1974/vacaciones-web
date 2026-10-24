@@ -82,15 +82,22 @@ export class ElectionService{
    // atomic exchange rather than solving the full campaign for every date.
    const partialState={...policyState,awards:[...policyState.awards,
      ...selected.map(cycle_date=>({member_id:turn.memberId!,cycle_date}))]};
-   const reasons:Record<string,unknown>={},warnings:Record<string,unknown>={},available:string[]=[];
+   const reasons:Record<string,unknown>={},warnings:Record<string,unknown>={},available:string[]=[],pending:string[]=[];
+   let remainingChecks=256;
    for(const date of resultDates(ctx)){
+    const budget=Math.min(32,remainingChecks);
     const candidate=evaluate2027Candidate(partialState,
-      [{member_id:turn.memberId!,cycle_date:date}],2000,chosen.completion.witness,false);
-    if(candidate.allowed){available.push(date);if(candidate.warnings.length)warnings[date]=candidate.warnings;}
-    else reasons[date]=candidate.issues;
+      [{member_id:turn.memberId!,cycle_date:date}],budget,chosen.completion.witness,false);
+    remainingChecks=Math.max(0,remainingChecks-candidate.completion.checked);
+    if(candidate.allowed)available.push(date);
+    else if(candidate.completion.status==='indeterminate'){
+     // A slow proof is not a veto. Allow a provisional selection and validate
+     // the entire atomic choice on confirmation with the full budget.
+     available.push(date);pending.push(date);
+    }else reasons[date]=candidate.issues;
    }
    return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,
-      allowed:true,available,reasons,warnings};
+      allowed:true,available,pending,reasons,warnings};
   }
   if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
   return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
@@ -146,16 +153,22 @@ export class ElectionService{
   // 2027 choices twice and reconstructed the full HR calendar for every date.
   const availabilityReasons:Record<string,string>={};
   const availabilityWarnings:Record<string,unknown>={};
+  const availabilityPending:string[]=[];
   let available:string[]=[];
   if(focus&&ctx.year===2027){
    const allocation=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
    const baseline=canComplete2027(allocation,{maxChecks:2000});
+   let remainingChecks=256;
    for(const cycle of result.cycles){
+    const budget=Math.min(32,remainingChecks);
     const diagnostic=evaluate2027Candidate(allocation,
-      [{member_id:focus,cycle_date:cycle.date}],2000,baseline.witness,false);
-    if(diagnostic.allowed){
-     available.push(cycle.date);
-     if(diagnostic.warnings.length)availabilityWarnings[cycle.date]=diagnostic.warnings;
+      [{member_id:focus,cycle_date:cycle.date}],budget,baseline.witness,false);
+    remainingChecks=Math.max(0,remainingChecks-diagnostic.completion.checked);
+    if(diagnostic.allowed)available.push(cycle.date);
+    else if(diagnostic.completion.status==='indeterminate'){
+     available.push(cycle.date);availabilityPending.push(cycle.date);
+     availabilityWarnings[cycle.date]=[{code:'COMPLETION_UNDETERMINED',
+      message:'Disponibilidad provisional: se comprobará con el solver completo al confirmar.'}];
     }else availabilityReasons[cycle.date]=diagnostic.issues.map(i=>i.message).join('; ')||'No disponible en el contexto actual';
    }
   }else if(focus)
@@ -173,7 +186,7 @@ export class ElectionService{
 
   const cycleAvailability=ctx.year===2027?availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards)):null;
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
