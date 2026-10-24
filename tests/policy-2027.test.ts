@@ -231,16 +231,33 @@ function crossPeriodTeamA(){
  const completion=canComplete2027(state,{maxChecks:1000});
  assert.equal(completion.status,'possible',completion.reason);
  const awards=completion.witness!;
- const occupied=(date:string)=>awards.filter(a=>a.cycle_date===date);
- for(const target of state.cycles.filter(c=>c.period===0&&!c.fourthExcluded&&occupied(c.date).length===3)){
-  for(const source of state.cycles.filter(c=>c.period===2&&occupied(c.date).length===3)){
-   const moving=occupied(source.date).find(a=>!occupied(target.date).some(b=>b.member_id===a.member_id));
-   if(!moving)continue;
-   const shifted=awards.map(a=>a===moving?{...a,cycle_date:target.date}:a);
-   const result=evaluate2027Final({...state,awards:shifted});
-   const summerMinimum=state.cycles.find(c=>c.period===1&&shifted.filter(a=>a.cycle_date===c.date).length===2);
-   if(result.valid&&summerMinimum&&result.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'))
-    return {config,members,state,awards:shifted,source:summerMinimum.date};
+ const candidates=[awards];
+ const count=(list:typeof awards,date:string)=>list.filter(a=>a.cycle_date===date);
+ // The first exact completion may put every summer cycle at two. Create
+ // an ordinary 2/3 redistribution from POST into summer before the test
+ // transfer if a summer three does not yet exist.
+ if(!state.cycles.some(c=>c.period===1&&count(awards,c.date).length===3)){
+  for(const post of state.cycles.filter(c=>c.period===2&&count(awards,c.date).length===3)){
+   for(const summer of state.cycles.filter(c=>c.period===1&&count(awards,c.date).length===2)){
+    const moving=count(awards,post.date).find(a=>!count(awards,summer.date).some(b=>a.member_id===b.member_id));
+    if(moving){
+     const redistributed=awards.map(a=>a===moving?{...a,cycle_date:summer.date}:a);
+     if(evaluate2027Final({...state,awards:redistributed}).valid)candidates.push(redistributed);
+    }
+   }
+  }
+ }
+ for(const baseline of candidates){
+  for(const target of state.cycles.filter(c=>c.period===0&&!c.fourthExcluded&&count(baseline,c.date).length===3)){
+   for(const source of state.cycles.filter(c=>c.period===1&&count(baseline,c.date).length===3)){
+    const moving=count(baseline,source.date).find(a=>!count(baseline,target.date).some(b=>b.member_id===a.member_id));
+    if(!moving)continue;
+    const shifted=baseline.map(a=>a===moving?{...a,cycle_date:target.date}:a);
+    const final=evaluate2027Final({...state,awards:shifted});
+    const summerMin=state.cycles.find(c=>c.period===1&&count(shifted,c.date).length===2);
+    if(final.valid&&summerMin&&final.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'))
+     return {config,members,state,awards:shifted,source:summerMin.date};
+   }
   }
  }
   throw Error('Expected a verifiable cross-period move in team A');
