@@ -344,3 +344,44 @@ test('witness reuse and full 2027 evaluator agree across all period boundaries o
  }
  assert.ok(reused>0,'At least the chosen baseline assignments should reuse proven completions');
 });
+
+test('late-stage 2027 previews preserve feasibility and report solver reuse without timing assertions',()=>{
+ const config=defaultConfig(2027),members=Array.from({length:20},(_,i)=>({id:'m'+i,code:'CTA'+i,seniority:''}));
+ const empty=policyState2027(2027,'A',config,members,[]);
+ const original=canComplete2027(empty,{maxChecks:1000});
+ assert.equal(original.status,'possible');
+ const settled=original.witness!.filter((_,i)=>i%5!==0);
+ const partial={...empty,awards:settled};
+ const base=canComplete2027(partial,{maxChecks:2000});
+ assert.equal(base.status,'possible',base.reason);
+ const member=original.witness!.find(a=>!settled.some(b=>a.member_id===b.member_id&&a.cycle_date===b.cycle_date))!.member_id;
+ const own=new Set(settled.filter(a=>a.member_id===member).map(a=>a.cycle_date));
+ const candidates=[
+  ...empty.cycles.filter(c=>c.period===0&&!own.has(c.date)).slice(0,2),
+  ...empty.cycles.filter(c=>c.period===1&&!own.has(c.date)).slice(0,2),
+  ...empty.cycles.filter(c=>c.period===2&&!own.has(c.date)).slice(0,2)
+ ].map(c=>({member_id:member,cycle_date:c.date}));
+ const classic=[],optimized=[];
+ const time0=performance.now();
+ for(const choice of candidates)classic.push(evaluate2027Candidate(partial,[choice]));
+ const time1=performance.now();
+ for(const choice of candidates)optimized.push(evaluate2027Candidate(partial,[choice],2000,base.witness));
+ const time2=performance.now();
+ let proofs=0;
+ for(let i=0;i<candidates.length;i++){
+  const x=classic[i],y=optimized[i];
+  if(x.completion.status!=='indeterminate'){
+   assert.equal(y.allowed,x.allowed,candidates[i].cycle_date);
+   assert.deepEqual(y.issues.map(z=>z.code).sort(),x.issues.map(z=>z.code).sort());
+  }
+  if(y.completion.checked===0){
+   proofs++;
+   assert.ok(y.allowed);
+   assert.ok(evaluate2027Final({...partial,awards:[...partial.awards,candidates[i],...y.completion.witness!]}).valid);
+  }
+ }
+ console.info('2027 A partial availability diagnostic:',JSON.stringify({
+  assigned:settled.length,candidates:candidates.length,verifiedProofs:proofs,
+  baselineMs:Math.round(time1-time0),reusedMs:Math.round(time2-time1)
+ }));
+});
