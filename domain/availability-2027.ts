@@ -186,6 +186,33 @@ export function constructCycleWitness2027(
 }
 
 /**
+ * Recover the previously proven EXACT or bounded status, without a new solver
+ * call. We must reject a record from another policy/roster/calendar/occupancy.
+ * A prior indeterminate place remains indeterminate; evidence is not invented.
+ */
+export function recordedAvailabilityByCycle2027(
+ state:PolicyState,recorded:AvailabilitySnapshot|null|undefined
+):AvailabilitySnapshot|null {
+ if(!recorded||recorded.policyVersion!==OCCUPANCY_POLICY_2027
+   ||!recorded.cycles||Object.keys(recorded.cycles).length!==state.cycles.length)return null;
+ for(const [index,cycle] of state.cycles.entries()){
+  const entry=recorded.cycles[cycle.date];
+  const people=state.awards.filter(a=>a.cycle_date===cycle.date).map(a=>a.member_id);
+  if(!entry||entry.period!==cycle.period||entry.occupied!==people.length||
+    entry.localMaximum!==capacity(state,index)||!Array.isArray(entry.slots)||
+    entry.slots.length!==4||
+    entry.slots.filter(s=>s.status==='occupied').length!==people.length||
+    entry.slots.filter(s=>s.memberId!==undefined).some(s=>!people.includes(s.memberId!))||
+    people.some(id=>!entry.slots.some(slot=>slot.status==='occupied'&&slot.memberId===id))||
+    !Number.isInteger(entry.provenAdditional)||!Number.isInteger(entry.possibleAdditionalUpperBound)||
+    entry.provenAdditional>entry.possibleAdditionalUpperBound ||
+    entry.possibleAdditionalUpperBound>Math.max(0,capacity(state,index)-people.length)
+  )return null;
+ }
+ return {...recorded,checked:0};
+}
+
+/**
  * Rebuild only the presentation of a restored, previously committed snapshot.
  * No global completion search is run. A local impossibility (e.g. red fourth,
  * already consumed period-fourth quota or a full cycle) is exact; everything
