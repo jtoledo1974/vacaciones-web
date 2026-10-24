@@ -113,9 +113,25 @@ function blockedReasons(
      'Alcanzado el límite de un ciclo con cuarta plaza en este periodo.',
     c.period,date,four,periodLimit(c.period))];
  }
- const pending=state.members.reduce((sum,m)=>sum+Math.max(0,m.entitlement-state.awards.filter(a=>a.member_id===m.id).length),0);
- if(position-occupied>pending)
-  return [reason('INDIVIDUAL_RIGHTS_EXHAUSTED','Los derechos pendientes no alcanzan para ocupar esta plaza.',c.period,date,pending,position-occupied)];
+ const outstanding=state.members.map(m=>({
+  member:m.id,remaining:Math.max(0,m.entitlement-state.awards.filter(a=>a.member_id===m.id).length)
+ }));
+ const pending=outstanding.reduce((sum,m)=>sum+m.remaining,0);
+ const targetNeed=position-occupied;
+ if(targetNeed>pending)
+  return [reason('INDIVIDUAL_RIGHTS_EXHAUSTED','Los derechos pendientes no alcanzan para ocupar esta plaza.',c.period,date,pending,targetNeed)];
+ const eligible=outstanding.filter(m=>m.remaining>0&&
+  !state.awards.some(a=>a.member_id===m.member&&a.cycle_date===date)).length;
+ if(eligible<targetNeed)
+  return [reason('DISTINCT_CONTROLLER_SHORTAGE',
+   'No hay suficientes controladores con derechos pendientes que puedan elegir este ciclo sin repetirlo.',
+   c.period,date,eligible,targetNeed)];
+ const remainingMinimums=state.cycles.filter(x=>x.date!==date)
+  .reduce((sum,x)=>sum+Math.max(0,(x.period===1?2:1)-state.awards.filter(a=>a.cycle_date===x.date).length),0);
+ if(pending<targetNeed+remainingMinimums)
+  return [reason('MINIMUM_COVERAGE',
+   'Esta plaza impediría alcanzar los mínimos obligatorios de los demás ciclos.',
+   c.period,date,pending,targetNeed+remainingMinimums)];
  return [reason('GLOBAL_COMPLETION_CONSTRAINT',
   'Ocupar esta plaza impediría completar legalmente todas las vacaciones pendientes (restricciones globales de RRHH y derechos individuales).',
   c.period,date)];
@@ -237,6 +253,18 @@ export function availabilityImpact(
    reasons});
  }
  const events:ImpactEvent[]=[];
+ // A lost third-place opportunity is an observable result, but not proof
+ // that one specific EC3 permit was consumed: ordinary third places share a pool.
+ for(const period of [0,1,2] as const){
+  const thirdClosed=changes.filter(change=>{
+   if(change.period!==period||change.kind!=='globalConstraint')return false;
+   const before=left.cycles[change.cycle],after=right.cycles[change.cycle];
+   return before.status==='exact'&&after.status==='exact'&&
+    before.occupied+(before.additional??0)>=3&&
+    after.occupied+(after.additional??0)<3;
+  }).map(change=>change.cycle);
+  if(thirdClosed.length)events.push({code:'THIRD_POSITION_CLOSED',period,cycles:thirdClosed});
+ }
  for(const period of [0,1,2] as const){
   if(oldFour[period]<periodLimit(period)&&newFour[period]>=periodLimit(period)){
    const related=changes.filter(x=>x.period===period&&x.kind==='globalConstraint'&&
