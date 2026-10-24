@@ -188,6 +188,15 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
  assert.equal(d.result.policyWarnings.some((w:any)=>w.code==='CROSS_PERIOD_FLEXIBILITY'),true);
  d=await service.mutate(cid,{action:'calculate',version:d.campaign.version});
  const runId=d.runs[0].id;
+ // An old computed snapshot must not be republished under policy v2,
+ // even if its campaign version still matches.
+ const originalRun=(await repo.all('SELECT result_json FROM runs WHERE id=?',[runId]))[0].result_json as string;
+ const legacy=JSON.parse(originalRun);
+ legacy.result.occupancyPolicyVersion='lecs-2027-occupancy-v1';
+ await repo.batch([{sql:'UPDATE runs SET result_json=? WHERE id=?',args:[JSON.stringify(legacy),runId]}]);
+ await assert.rejects(service.mutate(cid,{action:'publish',version:d.campaign.version,runId}),/otra versión de normas 2027/);
+ assert.equal((await service.load(cid)).campaign.status,'open');
+ await repo.batch([{sql:'UPDATE runs SET result_json=? WHERE id=?',args:[originalRun,runId]}]);
  await assert.rejects(service.mutate(cid,{action:'publish',version:d.campaign.version,runId}),
   /Confirma expresamente los avisos/);
  assert.equal((await service.load(cid)).campaign.status,'open');
