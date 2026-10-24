@@ -226,7 +226,7 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
     // Reserve enough time for the rest of the table, even when a hard
     // target needs exponentially many exceptional-cycle scenarios.
     if(remainingChecks<=0)break;
-    const allowance=Math.min(32,remainingChecks);
+    const allowance=Math.min(maxChecks>500?512:32,remainingChecks);
     const check=canComplete2027(state,{maxChecks:allowance,minimumCycle:{date:c.date,occupancy:position}});
     checked+=check.checked;
     remainingChecks=Math.max(0,remainingChecks-check.checked);
