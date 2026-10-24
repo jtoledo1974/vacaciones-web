@@ -35,3 +35,12 @@ test('el usuario autenticado ve su identidad y rol en cabecera y menú móvil', 
   await expect(session).toContainText('Acceso mediante ChatGPT');
   await expect(session.getByRole('link', { name: 'Cerrar sesión' })).toBeVisible();
 });
+
+
+test('el pie muestra qué código se ha compilado y cuándo', async ({page}) => {
+  await page.goto('/');
+  const stamp=page.locator('.content > footer .footer-build');
+  await expect(stamp).toBeVisible();
+  await expect(stamp).toContainText(/Código (?:[a-f0-9]{10}|no identificada) · compilado/);
+  await expect(stamp.locator('time')).toHaveAttribute('dateTime', /^\d{4}-\d{2}-\d{2}T/);
+});
