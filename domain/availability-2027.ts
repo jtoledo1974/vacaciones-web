@@ -1,5 +1,5 @@
 import {
- canComplete2027, evaluate2027Candidate,
+ canComplete2027, evaluate2027Candidate, evaluate2027Final,
  OCCUPANCY_POLICY_2027, type PolicyState, type PolicyAward,
  type RuleProblem, type Completion
 } from './policy-2027.ts';
@@ -161,7 +161,9 @@ export function constructCycleWitness2027(
  const current=initial.filter(a=>a.cycle_date===date).length;
  if(current>=target)return witness;
  const minByDate=new Map(state.cycles.map(c=>[c.date,c.period===1?2:1]));
+ let attempts=0;
  const move=(remaining:PolicyAward[],depth:number):PolicyAward[]|null=>{
+  if(++attempts>96)return null;
   const destinationCount=fixed.filter(a=>a.cycle_date===date).length+
    remaining.filter(a=>a.cycle_date===date).length;
   if(destinationCount>=target)
