@@ -478,3 +478,17 @@ test('la respuesta automática transitoria omite barrido de ciclos sin alterar l
  assert.equal(waiting.election.pendingAutomatic,false);
  assert.ok(waiting.election.available.length>0);
 });
+
+test('preferencias agotadas fuerzan el barrido legal para el siguiente turno manual',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members,date=d.result.cycles[0].date;
+ await actOne(s,cid,{action:'preferences',memberId:c.id,dates:[date]});
+ await actOne(s,cid,start(d));
+ await actOne(s,cid,{action:'choose',memberId:a.id,dates:[date]});
+ await actOne(s,cid,{action:'choose',memberId:b.id,dates:[date]});
+ const state=await s.view(cid,{skipAvailableForPendingAutomatic:true});
+ assert.equal(state.election.turn.memberId,c.id);
+ assert.equal(state.election.pendingAutomatic,false);
+ assert.ok(state.election.available.length>0);
+ assert.ok(!state.election.available.includes(date));
+ assert.equal(state.awards.length,2);
+});
