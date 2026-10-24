@@ -132,7 +132,7 @@ export class ElectionService{
    choices.length!==turn.needed||choices.some(a=>a.member_id!==turn.memberId))
    throw new ApiError('La previsualización no corresponde al turno completo',403);
   const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
-  return {version,policyVersion:OCCUPANCY_POLICY_2027,...previewChoiceImpact(allocation,choices)};
+  return {version,...previewChoiceImpact(allocation,choices)};
  }
  async view(d:any){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
