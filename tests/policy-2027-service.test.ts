@@ -54,6 +54,7 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  assert.equal(availability.version,d.campaign.version);
  assert.ok(availability.cycles[preferred[0]]);
  assert.equal(availability.policyVersion,OCCUPANCY_POLICY_2027);
+ const baselineAvailability=d.election.cycleAvailability;
  const preflight=await service.election().previewImpact(cid,
   [{member_id:user,cycle_date:preferred[0]}],d.campaign.version);
  assert.equal(preflight.allowed,true);
@@ -63,6 +64,10 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  const auditChoice=chosen.election.timeline.find((event:any)=>event.kind==='choice'&&
   event.choices.some((choice:any)=>choice.member_id===user&&choice.cycle_date===preferred[0]));
  assert.ok(auditChoice?.impact,'the impact was committed with the choice');
+ assert.deepEqual(auditChoice.impact.availabilityBefore.cycles,baselineAvailability.cycles,
+  'persist the complete availability previously verified before the choice');
+ assert.deepEqual(auditChoice.impact.availabilityAfter.cycles,chosen.election.cycleAvailability.cycles,
+  'persist the verified availability immediately after the choice');
  assert.deepEqual(auditChoice.impact.changes,preflight.impact?.changes);
  await assert.rejects(service.election().previewImpact(cid,
   [{member_id:user,cycle_date:preferred[0]}],d.campaign.version),/cambió/i);
@@ -74,6 +79,11 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  const undone=await service.view(cid);
  assert.equal(undone.election.cycleAvailability.checked,0,
   'undo derives locally from the verified historical snapshot without a global solver');
+ assert.deepEqual(undone.election.cycleAvailability.cycles,baselineAvailability.cycles,
+  'undo must restore exact prior availability, not turn known places provisional');
+ const undoApi=await service.election().availability(cid);
+ assert.equal(undoApi.checked,0,'the availability endpoint must not run a new proof after undo');
+ assert.deepEqual(undoApi.cycles,baselineAvailability.cycles);
  assert.equal(undone.election.cycleAvailability.policyVersion,OCCUPANCY_POLICY_2027);
  assert.equal(undone.awards.length,0);
  assert.equal(undone.election.turn.memberId,user);
@@ -83,6 +93,11 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  chosen=await service.view(cid);
  assert.equal(chosen.election.cycleAvailability.checked,0,
   'redo must not rerun global feasibility either');
+ assert.deepEqual(chosen.election.cycleAvailability.cycles,auditChoice.impact.availabilityAfter.cycles,
+  'redo must show the previously verified after-state');
+ const redoApi=await service.election().availability(cid);
+ assert.equal(redoApi.checked,0,'the availability endpoint must not run a new proof after redo');
+ assert.deepEqual(redoApi.cycles,auditChoice.impact.availabilityAfter.cycles);
  assert.equal(chosen.awards.length,1);
  assert.equal(chosen.awards[0].cycle_date,preferred[0]);
  assert.deepEqual(chosen.election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
@@ -124,17 +139,22 @@ test('2027 administrative undo and redo restore saved awards without any expensi
   source:{format:'vacaciones-roster-v1',year:2027,team:'A',copySelections:false,
    rows:codes.map(code=>({code,label:'Controlador '+code,seniority:''}))}});
  const date=d.result.cycles[0].date,memberId=d.members[0].id;
+ const beforeAvailability=d.election.cycleAvailability;
  d=await service.mutate(cid,{action:'award',version:d.campaign.version,memberId,date});
+ const afterAvailability=d.election.cycleAvailability;
  assert.equal(d.awards.length,1);
  assert.ok(d.undo?.id);
  d=await service.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId:d.undo.id});
  assert.equal(d.awards.length,0);
  assert.equal(d.election.cycleAvailability.checked,0);
- assert.equal(d.election.cycleAvailability.status,'indeterminate');
+ assert.deepEqual(d.election.cycleAvailability.cycles,beforeAvailability.cycles,
+  'admin undo recovers the exact previously certified per-cycle values');
  assert.ok(d.redo?.id);
  d=await service.mutate(cid,{action:'redo_vacations',version:d.campaign.version,undoId:d.redo.id});
  assert.equal(d.awards.length,1);
  assert.equal(d.election.cycleAvailability.checked,0);
+ assert.deepEqual(d.election.cycleAvailability.cycles,afterAvailability.cycles,
+  'admin redo recovers the exact previously certified per-cycle values');
  assert.equal(d.awards[0].cycle_date,date);
 });
 
@@ -173,8 +193,22 @@ test('2027 guided reconstruction previews and replays a joint award through the 
  assert.equal(d.awards.length,0);
  assert.equal(d.election.reconstruction.current.originalAction,'choose_joint');
  assert.equal(d.election.reconstruction.current.originalPossible,true);
+ const unassignedAvailability=d.election.cycleAvailability;
  await service.election().mutate(cid,{action:'reconstruction_step',kind:'choose_joint',mode:'original',version:d.campaign.version});
  d=await service.view(cid);
+ assert.equal(d.awards.length,2);
+ assert.equal(d.election.reconstruction.status,'review');
+ const steppedAvailability=d.election.cycleAvailability;
+ await service.election().mutate(cid,{action:'reconstruction_back',version:d.campaign.version});
+ d=await service.view(cid);
+ assert.equal(d.election.cycleAvailability.checked,0);
+ assert.deepEqual(d.election.cycleAvailability.cycles,unassignedAvailability.cycles,
+  'reconstruction back must replay the saved before-state availability');
+ assert.equal(d.awards.length,0);
+ await service.election().mutate(cid,{action:'reconstruction_forward',version:d.campaign.version});
+ d=await service.view(cid);
+ assert.deepEqual(d.election.cycleAvailability.cycles,steppedAvailability.cycles,
+  'reconstruct forward must recover the original verified availability');
  assert.equal(d.awards.length,2);
  assert.equal(d.election.reconstruction.status,'review');
  await service.election().mutate(cid,{action:'reconstruction_finish',version:d.campaign.version});

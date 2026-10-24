@@ -2,15 +2,15 @@ import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,
 import {calculate} from '../domain/vacations.ts';
 import {immediate2027Issues} from '../domain/policy-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {availabilityImpact} from '../domain/availability-2027.ts';
+import {availabilityImpact,availabilityByCycle,type AvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
 
 type Snapshot={format?:string;state:ElectionState|null;preferences:Preference[];awards:any[];requests:any[]};
 type Historical={id:string;action:string;before:Snapshot;after:any;round:number;participants:string[];memberId:string|null};
-type Applied={before:Snapshot;usedId:string|null;kind:string;dates?:string[];entries?:any[];order?:string[];agreementIds?:string[];actor:string;at:string};
-type Session={status:'active'|'review'|'completed';startedBy:string;startedAt:string;targetId:string;targetCursor:number;keepCount:number;origin:Snapshot;originalEvents:Historical[];originalAuditIds:string[];applied:Applied[];undone:Applied[];completedAt?:string;impact?:any[]};
+type Applied={before:Snapshot;usedId:string|null;kind:string;dates?:string[];entries?:any[];order?:string[];agreementIds?:string[];actor:string;at:string;beforeAvailability?:AvailabilitySnapshot};
+type Session={status:'active'|'review'|'completed';startedBy:string;startedAt:string;targetId:string;targetCursor:number;keepCount:number;origin:Snapshot;originalEvents:Historical[];originalAuditIds:string[];applied:Applied[];undone:Applied[];completedAt?:string;impact?:any[];originAvailability?:AvailabilitySnapshot};
 type Host={load:(cid:string)=>Promise<any>;commit:(statements:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const ctx=(d:any,awards=d.awards,requests=d.requests):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,awards,requests});
 const snap=(state:ElectionState|null,preferences:Preference[],d:any):Snapshot=>({state:structuredClone(state),preferences:structuredClone(preferences),awards:structuredClone(d.awards),requests:structuredClone(d.requests)});
@@ -195,7 +195,8 @@ export class ReconstructionService{
    const restoreTo:Snapshot={...previous,requests:origin.requests,preferences:working,state:{...previous.state!,automaticPaused:true}};
    const last=originalEvents.at(-1);
    const lastCursor=(last?.before.state?.cursor??0)+(last&&['choose','choose_joint','advance','defer','reconstruction_step'].includes(last.action)?1:0);
-   const s:Session={status:'active',startedBy:this.actor.id!,startedAt:new Date().toISOString(),targetId:target.id,targetCursor:Math.max(origin.state?.cursor??0,lastCursor),keepCount,origin,originalEvents,originalAuditIds,applied:[],undone:[]};
+   const originAvailability=c.year===2027?availabilityByCycle(policyState2027(c.year,c.team_id,d.config,d.members,d.awards)):undefined;
+   const s:Session={originAvailability,status:'active',startedBy:this.actor.id!,startedAt:new Date().toISOString(),targetId:target.id,targetCursor:Math.max(origin.state?.cursor??0,lastCursor),keepCount,origin,originalEvents,originalAuditIds,applied:[],undone:[]};
    const completed=restoreTo.state!.status==='complete'||restoreTo.state!.cursor>=s.targetCursor;
    if(completed)s.status='review';
    ops.push(...restore(cid,restoreTo),this.write(cid,s),this.host.audit('reconstruction_start',c,null,{targetId:target.id,keepCount,originalIds:originalAuditIds,version:c.version+1}));
@@ -204,13 +205,13 @@ export class ReconstructionService{
   if(!existing||existing.status==='completed')throw new ApiError('No hay una reconstrucción abierta',409);
   const s=structuredClone(existing) as Session;
   if(action==='reconstruction_cancel'){
-   ops.push(...restore(cid,s.origin),{sql:'DELETE FROM reconstruction_sessions WHERE campaign_id=?',args:[cid]},this.host.audit('reconstruction_cancel',c,null,{targetId:s.targetId,keepCount:s.keepCount,originalIds:s.originalAuditIds,version:c.version+1}));
+   ops.push(...restore(cid,s.origin),{sql:'DELETE FROM reconstruction_sessions WHERE campaign_id=?',args:[cid]},this.host.audit('reconstruction_cancel',c,null,{targetId:s.targetId,keepCount:s.keepCount,originalIds:s.originalAuditIds,recordedAvailability:s.originAvailability,version:c.version+1}));
    await this.host.commit(ops);return;
   }
   if(action==='reconstruction_back'){
    const previous=s.applied.pop();if(!previous)throw new ApiError('No hay decisiones reconstruidas que deshacer');
    s.undone.push(previous);s.status='active';
-   ops.push(...restore(cid,{...previous.before,state:previous.before.state?{...previous.before.state,automaticPaused:true}:null}),this.write(cid,s),this.host.audit('reconstruction_back',c,null,{version:c.version+1}));
+   ops.push(...restore(cid,{...previous.before,state:previous.before.state?{...previous.before.state,automaticPaused:true}:null}),this.write(cid,s),this.host.audit('reconstruction_back',c,null,{version:c.version+1,recordedAvailability:previous.beforeAvailability}));
    await this.host.commit(ops);return;
   }
   if(action==='reconstruction_finish'){
@@ -284,10 +285,12 @@ export class ReconstructionService{
      policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
      policyState2027(c.year,c.team_id,d.config,d.members,[...d.awards,...choices])
    ):null;
+  if(impact&&s.applied.length)s.applied[s.applied.length-1].beforeAvailability=impact.before;
   const auditImpact=impact?{
    policyVersion:impact.policyVersion,status:impact.status,
    campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
-   changes:impact.changes,events:impact.events
+   changes:impact.changes,events:impact.events,
+   availabilityBefore:impact.before,availabilityAfter:impact.after
   }:null;
   ops.push(this.write(cid,s),this.host.audit('reconstruction_step',c,{format:'election-undo-v1',...before},{version:c.version+1,choices,kind,usedId,impact:auditImpact,...(kind==='resolve_tie'?{order}: {})}));
   await this.host.commit(ops);

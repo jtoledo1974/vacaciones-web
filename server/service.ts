@@ -2,6 +2,8 @@ import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
+import {availabilityImpact} from '../domain/availability-2027.ts';
+import {historicalAvailability} from './availability-history.ts';
 import {evaluate2027Candidate,evaluate2027Final,canComplete2027,immediate2027Issues,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
@@ -86,14 +88,8 @@ export class Service {
     }
     async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
-    private async restoredFromHistory(cid:string,version:number):Promise<boolean>{
-        const rows=await this.repo.all('SELECT action,after_json FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 1',[cid]);
-        const latest=rows[0];
-        if(!latest||!['election_undo','election_redo','undo_vacations','redo_vacations','reconstruction_back','reconstruction_cancel'].includes(latest.action))return false;
-        try{return JSON.parse(latest.after_json)?.version===version;}catch{return false;}
-    }
     async view(cid:string){
-        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);const restored=d.campaign.year===2027&&await this.restoredFromHistory(cid,d.campaign.version);const result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards,{skip2027Proof:restored});const election=await this.election().view(d,{restored,result});
+        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);const recovery=d.campaign.year===2027?await historicalAvailability(this.repo,cid,d.campaign.version):{restored:false};const restored=recovery.restored;const result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards,{skip2027Proof:restored});const election=await this.election().view(d,{restored,result,recordedAvailability:recovery.recordedAvailability});
         if(canWrite(this.actor,d.campaign.team_id))return {...d,election,undo:await this.vacationUndo(cid,d.campaign.version).then(e=>e&&e.action!=='undo_vacations'?{id:e.id,action:e.action}:null),redo:await this.vacationUndo(cid,d.campaign.version).then(e=>e?.action==='undo_vacations'?{id:e.id}:null),result,runs:d.runs.map((r:any)=>({...r,result_json:undefined})),editable:true};
         return {campaign:{id:cid,year:d.campaign.year,team_id:d.campaign.team_id,status:d.campaign.status,version:d.campaign.version,data_kind:d.campaign.data_kind,scope_key:d.campaign.scope_key,simulation_name:d.campaign.simulation_name},members:d.members.map(m=>({id:m.id,code:m.code})),requests:[],awards:d.awards,result:{...result,ordering:[]},config:null,runs:[],election,participating:!!election.myMemberId,editable:false,preview:this.actor.preview&&this.actor.preview.campaignId===cid?{code:this.actor.preview.code,writable:this.actor.preview.writable}:undefined};
     }
@@ -445,6 +441,14 @@ export class Service {
         if(action==='reset_vacations'){ops.push({sql:c.scope_key==='live'&&this.actor.role!=='superadmin'?'DELETE FROM preferences WHERE campaign_id=? AND member_id NOT IN (SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?)':'DELETE FROM preferences WHERE campaign_id=?',args:c.scope_key==='live'&&this.actor.role!=='superadmin'?[cid,cid]:[cid]},electionStateStatement(cid,null));}
         else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0]});}}
         else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
+        if(c.year===2027&&['award','delete_award'].includes(action)){
+            const updated=action==='award'?[...d.awards,after]:
+                d.awards.filter((a:any)=>a.id!==body.id);
+            const impact=availabilityImpact(
+                policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
+                policyState2027(c.year,c.team_id,d.config,d.members,updated));
+            after={...after,availabilityHistory:{before:impact.before,after:impact.after}};
+        }
         ops.push(this.audit(action, c, before, after));
         await this.commit(ops);
         return this.view(cid);

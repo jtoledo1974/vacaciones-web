@@ -2,12 +2,13 @@ import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences
 import {calculate} from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
 import {canComplete2027,evaluate2027Candidate,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
-import {availabilityByCycle,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact} from '../domain/availability-2027.ts';
+import {availabilityByCycle,recordedAvailabilityByCycle2027,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact,type AvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
 import {buildElectionTimeline} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
+import {historicalAvailability} from './availability-history.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
@@ -109,8 +110,12 @@ export class ElectionService{
    throw new ApiError('Simulación reservada a administradores',403);
   if(d.campaign.year!==2027)throw new ApiError('Disponibilidad global solo disponible con política 2027',400);
   const ctx=context(d);
-  return {version:d.campaign.version,
-   ...availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))};
+  const state=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+  const history=await historicalAvailability(this.repo,cid,d.campaign.version);
+  const availability=history.restored
+   ?recordedAvailabilityByCycle2027(state,history.recordedAvailability)??restoredAvailabilityByCycle2027(state)
+   :availabilityByCycle(state);
+  return {version:d.campaign.version,...availability};
  }
  /**
   * Non-mutating preflight for the complete atomic choice at the current turn.
@@ -141,7 +146,7 @@ export class ElectionService{
   const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
   return {version,...previewChoiceImpact(allocation,choices)};
  }
- async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>}={}){
+ async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|null}={}){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
@@ -192,7 +197,7 @@ export class ElectionService{
    timeline=buildElectionTimeline(rows as any,ctx,raw.state);
   }
 
-  const cycleAvailability=ctx.year===2027?(options.restored?restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards)):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
+  const cycleAvailability=ctx.year===2027?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
   return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
@@ -341,7 +346,8 @@ export class ElectionService{
   const auditImpact=impact?{
    policyVersion:impact.policyVersion, status:impact.status,
    campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
-   changes:impact.changes,events:impact.events
+   changes:impact.changes,events:impact.events,
+   availabilityBefore:impact.before,availabilityAfter:impact.after
   }:null;
   ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{impact:auditImpact,version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
   await this.host.commit(ops);return {changed:true};
