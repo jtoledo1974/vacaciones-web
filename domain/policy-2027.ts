@@ -522,7 +522,7 @@ export function transplant2027Witness(
 /** Evaluate an atomic batch of choices on the same prior state. */
 export function evaluate2027Candidate(
   state:PolicyState,choices:PolicyAward[],maxChecks=2000,
-  knownWitness?:PolicyAward[]
+  knownWitness?:PolicyAward[],includeWarnings=true
 ):CandidateAssessment {
   const next={...state,awards:[...state.awards,...choices]};
   const immediate=immediate2027Issues(state,choices);
@@ -540,7 +540,7 @@ export function evaluate2027Candidate(
     completion.status==='indeterminate'
       ?[problem('COMPLETION_UNDETERMINED','No se ha demostrado que exista una completación válida; no se adjudica automáticamente.')]:[];
   const warnings:RuleProblem[]=[];
-  if(completion.status==='possible'){
+  if(completion.status==='possible'&&includeWarnings){
     // A positively verified final completion is a constructive proof for
     // either informative comparison; do not pay for another exact search.
     const finalWitness={...next,awards:[...next.awards,...(completion.witness??[])]};
