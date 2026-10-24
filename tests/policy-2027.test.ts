@@ -131,19 +131,32 @@ test('candidate reports duplicate and entitlement limits with stable codes',()=>
  assert.ok(evaluate2027Candidate(state,[{member_id:'m',cycle_date:'s'}]).issues.some(i=>i.code==='ENTITLEMENT_EXCEEDED'));
 });
 
-test('a locally available seat can be blocked by the remaining global cycle minimums',()=>{
+test('a locally available seat can be blocked by remaining global cycle minimums',()=>{
  const state:PolicyState={
-  cycles:[{date:'p',period:0},{date:'s',period:1},{date:'o',period:2}],
-  members:Array.from({length:6},(_,i)=>({id:'m'+i,entitlement:1})),
-  awards:[{member_id:'m0',cycle_date:'p'},{member_id:'m1',cycle_date:'p'}]
+  cycles:[
+   {date:'p0',period:0},{date:'p1',period:0},
+   {date:'s0',period:1},{date:'o0',period:2},{date:'o1',period:2}
+  ],
+  members:Array.from({length:10},(_,i)=>({id:'m'+i,entitlement:1})),
+  awards:[
+   {member_id:'m0',cycle_date:'p0'},{member_id:'m1',cycle_date:'p0'},
+   {member_id:'m2',cycle_date:'p1'},{member_id:'m3',cycle_date:'p1'},
+   {member_id:'m4',cycle_date:'s0'},
+   {member_id:'m5',cycle_date:'o0'},{member_id:'m6',cycle_date:'o0'},
+   {member_id:'m7',cycle_date:'o1'},{member_id:'m8',cycle_date:'o1'}
+  ]
  };
- // Two awards in pre are possible; a third would strand summer/post.
- assert.equal(canComplete2027(state).status,'possible');
- const result=evaluate2027Candidate(state,[{member_id:'m2',cycle_date:'p'}]);
+ // A complete baseline of two per cycle exists by giving m9 summer.
+ const feasible=canComplete2027(state,{maxChecks:2000});
+ assert.equal(feasible.status,'possible',feasible.reason);
+ assert.equal(feasible.witness?.[0]?.cycle_date,'s0');
+ // p0 has a legal local third place, but taking it strands summer at one.
+ const result=evaluate2027Candidate(state,[{member_id:'m9',cycle_date:'p0'}]);
  assert.equal(result.allowed,false);
+ assert.ok(result.issues.some(i=>i.code==='SUMMER_MINIMUM_IMPOSSIBLE'));
  assert.ok(result.issues.some(i=>i.code==='CYCLE_MINIMUM_IMPOSSIBLE'));
  assert.equal(result.issues.some(i=>i.code==='CYCLE_MAXIMUM'),false);
- assert.equal(state.awards.length,2);
+ assert.equal(state.awards.length,9);
 });
 
 test('small exact oracle: global feasibility agrees with independent exhaustive enumerator',()=>{
