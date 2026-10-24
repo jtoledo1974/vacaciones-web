@@ -350,7 +350,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    <div className="election-turn-controls">
     {canPreferences&&<div className="election-view-switch" role="group" aria-label="Vista de vacaciones">
      <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode!=='choose')await cancelPreferences();}}>Calendario</button>
-     <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>Preferencias</button>
+     <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>{manage?'Preferencias':'Mis preferencias'}</button>
     </div>}
     {manage&&!state&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={onConfigureElection}>Configurar e iniciar elección</button>}
     {manage&&state?.status==='paused'&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={()=>act({action:'resume'},'Elección reanudada')}>Reanudar elección</button>}
