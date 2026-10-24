@@ -188,3 +188,19 @@ test('small exact oracle: global feasibility agrees with independent exhaustive 
  }
  assert.equal(checked,66);
 });
+
+test('preverano warning persists in an incomplete allocation only when the third single is unavoidable',()=>{
+ const full=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
+ const summerAward=full.awards.find(a=>a.cycle_date==='s0')!;
+ const stillNeedsSummer={...full,awards:full.awards.filter(a=>a!==summerAward)};
+ const inevitable=evaluate2027Candidate(stillNeedsSummer,[]);
+ assert.equal(inevitable.completion.status,'possible');
+ assert.ok(inevitable.warnings.some(w=>w.code==='PRE_SINGLE_3'));
+
+ const preAward=full.awards.find(a=>a.cycle_date==='p0')!;
+ const canAvoidThird={...full,awards:full.awards.filter(a=>a!==preAward)};
+ const avoidable=evaluate2027Candidate(canAvoidThird,[]);
+ assert.equal(avoidable.completion.status,'possible');
+ assert.equal(avoidable.warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
+ assert.equal(canAvoidThird.awards.filter(a=>a.cycle_date==='p0').length,0);
+});
