@@ -1,5 +1,7 @@
 import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,entitlementFor,resolveTie,registerJointAgreement,cancelJointAgreement,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
+import {policyState2027} from '../domain/election-2027.ts';
+import {availabilityImpact} from '../domain/availability-2027.ts';
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
@@ -270,7 +272,17 @@ export class ReconstructionService{
   ops.push(statement(cid,state),...inserts('awards',['id','campaign_id','member_id','cycle_date','version'],awardRows),
    ...inserts('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
   for(const p of preferences){const previous=raw.preferences.find(q=>q.member_id===p.member_id);if(previous&&previous.active!==p.active)ops.push({sql:'UPDATE preferences SET active=? WHERE member_id=? AND campaign_id=?',args:[p.active!==false?1:0,p.member_id,cid]});}
-  ops.push(this.write(cid,s),this.host.audit('reconstruction_step',c,{format:'election-undo-v1',...before},{version:c.version+1,choices,kind,usedId,...(kind==='resolve_tie'?{order}: {})}));
+  const impact=c.year===2027&&choices.length
+   ?availabilityImpact(
+     policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
+     policyState2027(c.year,c.team_id,d.config,d.members,[...d.awards,...choices])
+   ):null;
+  const auditImpact=impact?{
+   policyVersion:impact.policyVersion,status:impact.status,
+   campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
+   changes:impact.changes,events:impact.events
+  }:null;
+  ops.push(this.write(cid,s),this.host.audit('reconstruction_step',c,{format:'election-undo-v1',...before},{version:c.version+1,choices,kind,usedId,impact:auditImpact,...(kind==='resolve_tie'?{order}: {})}));
   await this.host.commit(ops);
  }
 }
