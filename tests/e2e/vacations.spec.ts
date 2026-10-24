@@ -137,7 +137,8 @@ async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data
 async function confirm(page:Page,button:string){
  const target=page.getByRole('button',{name:button,exact:true});
  if(button.startsWith('Aplazar')&&!await target.isVisible())await page.locator('.election-more-actions > summary').click();
- await target.click();
+ // A covered/unclickable control should fail locally, not consume the entire 45 s test timeout.
+ await target.click({timeout:10_000});
  if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
   const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'});
   await expect(dialog).toBeVisible();
