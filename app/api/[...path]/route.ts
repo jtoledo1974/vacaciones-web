@@ -101,7 +101,7 @@ async function serve(request: Request) {
         if(path[0]==='simulations'&&path[1])return reply(b.action==='delete'?await service.deleteSimulation(path[1],b):await service.createSimulation(path[1],b));
         if(path[0]==='election'&&path[1]){
             const changed=await effectiveService.election().mutate(path[1],b);
-            const view=await effectiveService.view(path[1]);
+            const view=await effectiveService.view(path[1],{skipAvailableForPendingAutomatic:true});
             // The election is committed and its response prepared before any push work.
             if(changed?.changed && view.campaign.scope_key==='live'){
                 try{
