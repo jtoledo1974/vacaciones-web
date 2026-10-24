@@ -588,3 +588,35 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-score-source-editor textarea{width:100%;min-width:0;max-width:100%;font-size:13px;font-weight:400}
 .election-score-source-editor .button-row{margin-top:12px}
 @media(max-width:580px){.election-score-source-editor{padding:13px}}
+
+/* Disponibilidad GLOBAL 2027: contraste inequívoco 4 → 0; no confundir timeout con bloqueo. */
+.vac2-year-2027 .vac2-free-4{--vac2-status:#16844b;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-free-3{--vac2-status:#80c65a;--vac2-foreground:#162a1c}
+.vac2-year-2027 .vac2-free-2{--vac2-status:#f1d65d;--vac2-foreground:#302600}
+.vac2-year-2027 .vac2-free-1{--vac2-status:#e88d43;--vac2-foreground:#2b1b0c}
+.vac2-year-2027 .vac2-free-0{--vac2-status:#662033;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-unknown{--vac2-status:#6c7480;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-key.vac2-free-4{background:#16844b}
+.vac2-year-2027 .vac2-key.vac2-free-3{background:#80c65a}
+.vac2-year-2027 .vac2-key.vac2-free-2{background:#f1d65d}
+.vac2-year-2027 .vac2-key.vac2-free-1{background:#e88d43}
+.vac2-year-2027 .vac2-key.vac2-free-0{background:#662033}
+.vac2-year-2027 .vac2-key.vac2-unknown{background:repeating-linear-gradient(135deg,#69727f 0 4px,#c4c9ce 4px 8px)}
+.vac2-year-2027 .vac2-cycle{border-left-width:5px;background:var(--vac2-status);color:var(--vac2-foreground)}
+.vac2-year-2027 .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
+.vac2-year-2027 .vac2-cycle-sub,.vac2-year-2027 .vac2-names{color:inherit;opacity:.9}
+.vac2-year-2027 .vac2-day{background:var(--vac2-status);color:var(--vac2-foreground);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px}
+.vac2-year-2027 .vac2-day-count{display:block;font-size:9px;font-weight:900;line-height:1}
+.vac2-year-2027 .vac2-cycle.vac2-selected,.vac2-year-2027 .vac2-day.vac2-selected{outline:3px solid #1836a6;outline-offset:1px}
+.vac3-2027 .vac3-table td.vac3-slot{background:#fff;color:#1e2f26}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-occupied{background:#e4ece8;color:#26372d}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled{background:#292e33;color:#fff}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled .vac3-slot-code{color:#fff}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown{background:repeating-linear-gradient(135deg,#f0f1f2 0 6px,#d8dddf 6px 12px);color:#303741}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown .vac3-slot-code{color:#303741}
+.vac3-2027 .vac3-table .vac3-selected td.vac3-slot{border-top:2px solid #237a4f;border-bottom:2px solid #237a4f}
+.election-fast-mode{display:flex;align-items:center;gap:8px;padding:7px;border-radius:6px;background:#fff8e7;color:#4b360d;font-size:11px}
+.election-fast-indicator{font-size:10px;font-weight:750;border:1px solid #c58527;background:#fff5d7;border-radius:5px;padding:5px 8px}
+.election-log-impact{margin:7px 0 0;padding:6px 8px;border-left:3px solid #879b9e;background:#f4f6f6}
+.election-log-impact summary{cursor:pointer;font-size:10px;font-weight:650}
+.election-log-impact li{padding:3px 0 2px 3px;margin-left:16px;border:0;list-style:disc}
