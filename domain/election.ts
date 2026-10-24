@@ -176,6 +176,10 @@ export function createChoiceChecker(ctx:ElectionContext,baseline=calculate(ctx.y
  const relation=config.relation??{minimum:1,base:2,maximum:3,graceJanuary:0,graceOctober:0};
  const conventionSummer=baseline.totals.conventionSummer,conventionWinter=baseline.totals.conventionWinter;
  const convention=[config.commonConvention?conventionWinter:Math.min(conventionWinter,config.conventionJanuary),conventionSummer,config.commonConvention?conventionWinter:Math.max(0,conventionWinter-config.conventionJanuary)];
+ const baselineExtras=[0,0,0];
+ for(let i=0;i<cycles.length;i++)baselineExtras[periods[i]]+=Math.max(0,occupancy[i]-config.base[periods[i]]);
+ const relationParams={...relation,people,necessary:neededTotal,baseTotal};
+ const relationT=(n:number)=>n>relation.maximum?relation.maximum:n>relation.base?n:relation.base;
  const slow=(memberId:string,dates:string[])=>calculate(ctx.year,ctx.team,config,ctx.members,ctx.requests,[...ctx.awards,...dates.map((date,i)=>({id:'candidate-'+i,member_id:memberId,cycle_date:date}))]).issues;
  return (memberId:string,dates:string[]):string[]=>{
   const member=members.get(memberId);
@@ -183,18 +187,35 @@ export function createChoiceChecker(ctx:ElectionContext,baseline=calculate(ctx.y
   if(new Set(dates).size!==dates.length)return ['No se puede elegir el mismo ciclo dos veces'];
   if(dates.some(date=>awardedByMember.get(memberId)!.has(date)))return ['Este controlador ya tiene uno de esos ciclos'];
   if(baseline.issues.length||dates.some(date=>!datesToIndex.has(date)))return slow(memberId,dates);
-  const hypothetical=occupancy.slice();
-  for(const date of dates)hypothetical[datesToIndex.get(date)!]++;
+
+  // When T does not change, relationQuotas gives the same maxima for all
+  // cycles. For the standard configuration, 1->2 falls into this fast path.
+  const candidateIndices=dates.map(date=>datesToIndex.get(date)!);
+  const changedRelation=candidateIndices.some(i=>relationT(occupancy[i]+1)!==relationT(occupancy[i]));
+  const extra=baselineExtras.slice();
+  for(const i of candidateIndices){
+   const before=occupancy[i],p=periods[i];
+   extra[p]+=Math.max(0,before+1-config.base[p])-Math.max(0,before-config.base[p]);
+  }
   const issues:string[]=[];
   if(memberCounts.get(memberId)!+dates.length>config.cyclesPerPerson)issues.push(`${member.code}: supera los ciclos anuales`);
-  const extra=[0,0,0];
-  for(let i=0;i<hypothetical.length;i++)extra[periods[i]]+=Math.max(0,hypothetical[i]-config.base[periods[i]]);
   if(extra[1]>conventionSummer+config.grace[1])issues.push('Se han agotado los extracupos de verano');
   if((config.commonConvention||config.commonGrace)&&extra[0]+extra[2]>conventionWinter+config.grace[0]+config.grace[2])issues.push('Se han agotado los extracupos de no verano');
   if(!config.commonConvention&&!config.commonGrace){
    for(const p of [0,2])if(extra[p]>convention[p]+config.grace[p])issues.push('Se han agotado los extracupos del período');
   }
-  const quotas=relationQuotas(periods,hypothetical,{...relation,people,necessary:neededTotal,baseTotal});
+  if(!changedRelation){
+   // Existing cycles remain valid: inspect only the changed cells.
+   for(const i of candidateIndices.sort((a,b)=>a-b)){
+    if(occupancy[i]+1>cycles[i].max)issues.push(`${cycles[i].date}: supera el cupo máximo de la relación`);
+   }
+   return issues;
+  }
+  // 2->3 (normally) consumes global capacity. Keep the authoritative
+  // Excel-derived relationQuotas calculation for those candidates.
+  const hypothetical=occupancy.slice();
+  for(const i of candidateIndices)hypothetical[i]++;
+  const quotas=relationQuotas(periods,hypothetical,relationParams);
   for(let i=0;i<cycles.length;i++){
    const max=config.specialQuotas?.[cycles[i].date]??quotas[i].max;
    if(hypothetical[i]>max)issues.push(`${cycles[i].date}: supera el cupo máximo de la relación`);
