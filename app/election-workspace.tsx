@@ -323,23 +323,39 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       {turn?.participants?.length>1&&<p className="election-multiple-summary">{turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | ')}</p>}
       <div className="button-row">
        <button type="button" className="primary" disabled={busy||previewReadOnly||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={async()=>{
+        const choices:{member_id:string;cycle_date:string}[]=turn?.participants?.length>1
+         ?turn.participants.flatMap((id:string)=>(jointSelected[id]??[]).map(date=>({member_id:id,cycle_date:date})))
+         :selected.map(date=>({member_id:current.id,cycle_date:date}));
+        const names=turn?.participants?.length>1?turn.participants.map(codeFor).join(' + '):current?.code??'';
+        let impactLines:string[]=[];
+        let warningLines:string[]=[];
         if(data.campaign.year===2027){
-         const query=new URLSearchParams();
-         const entries=turn?.participants?.length>1?turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]})):null;
-         if(entries)query.set('joint',JSON.stringify(entries));
-         else selected.forEach(date=>query.append('selected',date));
+         const query=new URLSearchParams({version:String(data.campaign.version),choices:JSON.stringify(choices)});
          const preview=new URLSearchParams(location.search).get('verComo');
          if(preview)query.set('verComo',preview);
          try{
-          const response=await fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'});
+          const response=await fetch('/api/election/'+data.campaign.id+'/impact?'+query,{cache:'no-store'});
           const report:any=await response.json();
-          if(!response.ok)throw new Error(report.error??'No se pudo validar la selección');
-          if(report.version!==data.campaign.version)throw new Error('La campaña ha cambiado. Actualiza antes de confirmar.');
-          if(report.allowed===false){setMessage((report.issues??[]).map((issue:any)=>issue.message).join('; ')||'La elección impediría completar el reparto.');return;}
-          if(Array.isArray(report.warnings)&&report.warnings.length){
-           if(!await confirm('La elección está permitida, pero requiere revisar estos avisos de RRHH:\\n\\n'+report.warnings.map((w:any)=>w.message).join('\\n')+'\\n\\n¿Confirmar la adjudicación con estos avisos?'))return;
+          if(!response.ok)throw new Error(report.error??'No se pudo previsualizar la elección');
+          if(report.version!==data.campaign.version||report.policyVersion!==election.occupancyPolicyVersion)
+           throw new Error('El reparto o las normas han cambiado. Actualiza antes de confirmar.');
+          if(report.allowed===false){
+           setMessage((report.issues??[]).map((issue:any)=>issue.message).join('; ')||'La elección impediría completar el reparto.');return;
           }
-         }catch(error:any){setMessage(error?.message??'Error al comprobar la viabilidad');return;}
+          impactLines=report.impact?describeImpact(report.impact):['No se pudo establecer el impacto exacto; los resultados no concluyentes no se consideran bloqueos.'];
+          warningLines=(report.warnings??[]).map((issue:any)=>issue.message);
+         }catch(error:any){setMessage(error?.message??'Error al calcular el impacto');return;}
+        }
+        // Confirmación siempre obligatoria en campañas reales. Solo simulaciones
+        // permiten omitirla mediante preferencia local explícita por campaña.
+        if(!simulation||!quickMode){
+         const impactText=impactLines.length
+          ?'\\n\\nConsecuencias sobre la disponibilidad:\\n'+impactLines.slice(0,14).join('\\n')+
+           (impactLines.length>14?'\\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
+          :'\\n\\nNo se han demostrado reducciones adicionales de disponibilidad.';
+         const warningText=warningLines.length?'\\n\\nAvisos normativos:\\n'+warningLines.join('\\n'):'';
+         const summary='¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')+impactText+warningText;
+         if(!await confirm(summary,undefined,{title:'Confirmar adjudicación e impacto',confirmLabel:'Adjudicar'}))return;
         }
         if(turn?.participants?.length>1){const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));act({action:'choose_joint',entries},'Turno conjunto confirmado');}
         else act({action:'choose',memberId:current.id,dates:selected},'Elección confirmada');
