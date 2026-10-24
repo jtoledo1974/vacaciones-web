@@ -1,4 +1,4 @@
-import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,resolveTie,registerJointAgreement,cancelJointAgreement,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
+import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,entitlementFor,resolveTie,registerJointAgreement,cancelJointAgreement,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -105,10 +105,16 @@ export class ReconstructionService{
   const originalChoices=(original?.after?.choices??[]) as {member_id:string;cycle_date:string}[];
   const originalEntries=turn.participants.map((id:string)=>({member_id:id,dates:originalChoices.filter(a=>a.member_id===id).map(a=>a.cycle_date)}));
   let canOriginal=false;
-  if(original&&(original.action==='defer'||original.action==='reconstruction_step'&&original.after.kind==='defer')){try{if(!turn.memberId)throw Error();defer(ctx(d,awards,requests),state,turn.memberId);canOriginal=true;}catch{canOriginal=false;}}
+  if(original&&(original.action==='defer'||original.action==='reconstruction_step'&&original.after.kind==='defer')){try{if(!turn.memberId)throw Error();defer(ctx(d,awards,requests),working,turn.memberId);canOriginal=true;}catch{canOriginal=false;}}
   else if(original&&(original.action==='resolve_tie'||original.action==='reconstruction_step'&&original.after.kind==='resolve_tie'))canOriginal=!!turn.pendingTie&&Array.isArray(original.after?.resolution?.order??original.after?.order);
-  else if(original&&turn.participants.length>1)canOriginal=originalEntries.every((entry:any)=>entry.dates.length===turn.requiredByMember[entry.member_id]&&!choiceIssues(ctx(d,awards,requests),entry.member_id,entry.dates).length);
-  else if(original&&turn.memberId)canOriginal=originalEntries[0]?.dates.length===turn.needed&&!choiceIssues(ctx(d,awards,requests),turn.memberId,originalEntries[0].dates).length;
+  else if(original&&turn.participants.length>1){
+   // The preview must use exactly the same atomic joint validation as replay.
+   // Per-person checks against the old state can incorrectly approve a batch
+   // that consumes a single shared 2027 quota more than once.
+   try{chooseJoint(ctx(d,awards,requests),working,originalEntries);canOriginal=true;}catch{canOriginal=false;}
+  }else if(original&&turn.memberId){
+   try{choose(ctx(d,awards,requests),working,turn.memberId,originalEntries[0]?.dates??[]);canOriginal=true;}catch{canOriginal=false;}
+  }
   const available=turn.participants.length===1&&turn.memberId?calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,requests,awards).cycles.filter(c=>!choiceIssues(ctx(d,awards,requests),turn.memberId!,[c.date]).length).map(c=>c.date):[];
   return {turn,original,first,originalEntries,canOriginal,available,historicalPreferences,workingState:working,agreementIds};
  }
@@ -118,7 +124,7 @@ export class ReconstructionService{
   for(const member of d.members){
    const oldCount=s.origin.awards.filter(a=>a.member_id===member.id).length;
    const newCount=awards.filter(a=>a.member_id===member.id).length;
-   if(newCount>=d.config.cyclesPerPerson&&oldCount>=d.config.cyclesPerPerson)continue;
+   if(newCount>=entitlementFor(now,member.id)&&oldCount>=entitlementFor(base,member.id))continue;
    const pref=s.origin.preferences.find(p=>p.member_id===member.id);
    const previous=pref?.dates.filter(date=>!choiceIssues(base,member.id,[date]).length)??[];
    const current=pref?.dates.filter(date=>!choiceIssues(now,member.id,[date]).length)??[];
