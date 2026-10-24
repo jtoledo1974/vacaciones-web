@@ -128,19 +128,30 @@ test('preverano 2027 B: 19 ciclos con tres plazas agotan los extracupos no estiv
  assert.equal(result.totals.conventionSummer,8);
  assert.equal(result.cycles.filter(c=>c.period===0).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),20);
  assert.equal(result.cycles.filter(c=>c.period===1).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),5);
- const post=dates.find(c=>c.period===2)!.date;
- const twoMore:Award[]=[
-  {id:'post-a',member_id:'P0',cycle_date:post},
-  {id:'post-b',member_id:'P1',cycle_date:post}
+ // Besides the 20 planned winter extra places, default config permits
+ // 1+1 grace places. A third post-summer occupant may use those two places.
+ const postDates=dates.filter(c=>c.period===2).map(c=>c.date);
+ const firstPost:Award[]=[
+  {id:'post-a',member_id:'P0',cycle_date:postDates[0]},
+  {id:'post-b',member_id:'P1',cycle_date:postDates[0]}
  ];
- const next={...ctx,awards:[...awards,...twoMore]};
- const nextResult=calculate(2027,'B',config,members,ctx.requests,next.awards);
- assert.deepEqual(nextResult.issues,[]);
- // Post-summer still has 2 standard seats, but a third is illegal: the
- // winter surplus is already spent before reaching the fourth round.
- const issues=createChoiceChecker(next,nextResult)('P2',[post]);
- assert.ok(issues.some(issue=>issue.includes('extracupos de no verano')));
- assert.deepEqual(issues,reference(next,'P2',[post]));
- // The summer sector retains three of its eight authorized extra seats.
+ const beforeGrace={...ctx,awards:[...awards,...firstPost]};
+ assert.deepEqual(calculate(2027,'B',config,members,ctx.requests,beforeGrace.awards).issues,[]);
+ assert.deepEqual(createChoiceChecker(beforeGrace)('P2',[postDates[0]]),[]);
+ const graceChoices:Award[]=[
+  {id:'post-grace-1',member_id:'P2',cycle_date:postDates[0]},
+  {id:'post-c',member_id:'P3',cycle_date:postDates[1]},
+  {id:'post-d',member_id:'P4',cycle_date:postDates[1]},
+  {id:'post-grace-2',member_id:'P5',cycle_date:postDates[1]},
+  {id:'post-e',member_id:'P6',cycle_date:postDates[2]},
+  {id:'post-f',member_id:'P7',cycle_date:postDates[2]}
+ ];
+ const afterGrace={...ctx,awards:[...beforeGrace.awards,...graceChoices]};
+ const afterResult=calculate(2027,'B',config,members,ctx.requests,afterGrace.awards);
+ assert.deepEqual(afterResult.issues,[]);
+ const blocked=createChoiceChecker(afterGrace,afterResult)('P8',[postDates[2]]);
+ assert.ok(blocked.some(issue=>issue.includes('extracupos de no verano')));
+ assert.deepEqual(blocked,reference(afterGrace,'P8',[postDates[2]]));
+ // Five of the eight summer extra places are already in use.
  assert.equal(8-result.cycles.filter(c=>c.period===1).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),3);
 });
