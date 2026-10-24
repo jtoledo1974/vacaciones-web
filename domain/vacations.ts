@@ -1,3 +1,4 @@
+import {winterExtraExceeded} from './winter-extras.ts';
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
 export type Member = {
@@ -58,16 +59,10 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
     }
     const baseTotal = counts.reduce((n, count, i) => n + count * c.base[i], 0);
     const neededTotal = members.length * c.cyclesPerPerson;
-    const graceWinter = c.grace[0] + c.grace[2];
     if (summerExtra > conventionSummer + c.grace[1])
         issues.push('Se han agotado los extracupos de verano');
-    if ((c.commonConvention || c.commonGrace) && winterExtra[0] + winterExtra[2] > conventionWinter + graceWinter)
-        issues.push('Se han agotado los extracupos de no verano');
-    if (!c.commonConvention && !c.commonGrace) {
-        for (const p of [0, 2])
-            if (winterExtra[p] > convention[p] + c.grace[p])
-                issues.push('Se han agotado los extracupos del período');
-    }
+    if (winterExtraExceeded(c,conventionWinter,convention,winterExtra))
+        issues.push(c.commonConvention||c.commonGrace?'Se han agotado los extracupos de no verano':'Se han agotado los extracupos del período');
     const relation = c.relation ?? { minimum: 1, base: 2, maximum: 3, graceJanuary: 0, graceOctober: 0 };
     const originalQuotas = relationQuotas(cycles.map(s => s.period), cycles.map(s => (occupiedByDate.get(s.date)??0)), { ...relation, people: members.length, necessary: neededTotal, baseTotal });
     const result = cycles.map((s, i) => { const occupied = (occupiedByDate.get(s.date)??0); const requested = (requestedByDate.get(s.date)??0); const original = originalQuotas[i]; const specialQuota=c.specialQuotas?.[s.date]; const q=specialQuota===undefined?original:{...original,max:specialQuota,available:occupied<specialQuota}; if (occupied > q.max)
