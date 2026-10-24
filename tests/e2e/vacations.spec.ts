@@ -145,6 +145,24 @@ async function confirm(page:Page,button:string){
  }else await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
 }
 
+test('confirmación rápida es opcional y local únicamente en simulaciones',{tag:'@both'},async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);
+ await activate(page);
+ const menu=page.locator('.election-turn-controls > .election-more-actions');
+ await menu.locator('summary').click();
+ const checkbox=menu.getByRole('checkbox',{name:'Requerir confirmación antes de adjudicar'});
+ await expect(checkbox).toBeChecked();
+ await checkbox.uncheck();
+ await expect(page.getByText('Simulación · confirmación rápida')).toBeVisible();
+ await page.reload();
+ await expect(page.getByText('Simulación · confirmación rápida')).toBeVisible();
+ await cycle(page,scenario.data.result.cycles[0].date);
+ await page.getByRole('button',{name:'Confirmar ciclo',exact:true}).click();
+ await expect(page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+});
+
 test('integración: dos aplazamientos permiten elegir tres ciclos desde el calendario',async({page,request},info)=>{
  const s=await setup(request,page);await open(page,s.id);await activate(page);
  const dates=s.data.result.cycles.map((c:any)=>c.date);
