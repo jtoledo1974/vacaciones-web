@@ -149,15 +149,29 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
  const completion=canComplete2027(policy,{maxChecks:1200});
  assert.equal(completion.status,'possible',completion.reason);
  const initial=completion.witness!;
- const occupied=(date:string)=>initial.filter(a=>a.cycle_date===date);
- let shifted:typeof initial|null=null;
- for(const target of policy.cycles.filter(c=>c.period===0&&!c.fourthExcluded&&occupied(c.date).length===3)){
-  for(const source of policy.cycles.filter(c=>c.period===2&&occupied(c.date).length===3)){
-   const moving=occupied(source.date).find(a=>!occupied(target.date).some(b=>b.member_id===a.member_id));
-   if(!moving)continue;
-   const candidate=initial.map(a=>a===moving?{...a,cycle_date:target.date}:a);
-   const final=evaluate2027Final({...policy,awards:candidate});
-   if(final.valid&&final.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY')){shifted=candidate;break;}
+ const count=(list:typeof initial,date:string)=>list.filter(a=>a.cycle_date===date);
+ const candidates=[initial];
+ if(!policy.cycles.some(c=>c.period===1&&count(initial,c.date).length===3)){
+  for(const post of policy.cycles.filter(c=>c.period===2&&count(initial,c.date).length===3)){
+   for(const summer of policy.cycles.filter(c=>c.period===1&&count(initial,c.date).length===2)){
+    const moving=count(initial,post.date).find(a=>!count(initial,summer.date).some(b=>b.member_id===a.member_id));
+    if(moving){
+     const redistributed=initial.map(a=>a===moving?{...a,cycle_date:summer.date}:a);
+     if(evaluate2027Final({...policy,awards:redistributed}).valid)candidates.push(redistributed);
+    }
+   }
+  }
+ }
+ for(const baseline of candidates){
+  for(const target of policy.cycles.filter(c=>c.period===0&&!c.fourthExcluded&&count(baseline,c.date).length===3)){
+   for(const source of policy.cycles.filter(c=>c.period===1&&count(baseline,c.date).length===3)){
+    const moving=count(baseline,source.date).find(a=>!count(baseline,target.date).some(b=>b.member_id===a.member_id));
+    if(!moving)continue;
+    const candidate=baseline.map(a=>a===moving?{...a,cycle_date:target.date}:a);
+    const final=evaluate2027Final({...policy,awards:candidate});
+    if(final.valid&&final.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY')){shifted=candidate;break;}
+   }
+   if(shifted)break;
   }
   if(shifted)break;
  }
