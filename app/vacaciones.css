@@ -623,3 +623,17 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 
 /* Multiline legal-impact preview inside the standard confirmation dialog. */
 .confirmation-dialog p{white-space:pre-line;max-height:min(48dvh,380px);overflow-y:auto;text-align:left}
+
+/* Feedback while policy solver or allocation persistence is in progress. */
+.election-thinking-inline{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#edf5f4;border:1px solid #b6d4c9;border-radius:8px;font-size:12px;color:#245e4d;margin:9px 0}
+.election-thinking-spinner{display:inline-block;flex:0 0 auto;width:23px;height:23px;border:3px solid #a7ccc0;border-top-color:#126c53;border-radius:50%;animation:election-thinking-spin .75s linear infinite}
+.election-thinking-inline .election-thinking-spinner{width:15px;height:15px;border-width:2px}
+.election-thinking-backdrop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:#091c19a6;padding:20px}
+.election-thinking-dialog{width:min(440px,100%);padding:28px 24px;border-radius:14px;background:#fff;box-shadow:0 16px 58px #0004;text-align:center}
+.election-thinking-dialog .election-thinking-spinner{width:40px;height:40px;margin-bottom:16px}
+.election-thinking-dialog h2{font-size:19px;line-height:1.25;margin:0 0 10px}
+.election-thinking-dialog p{font-size:13px;line-height:1.5;margin:8px 0}
+.election-thinking-dialog .muted{font-size:11px;color:#62766e}
+.election-auto-notice{font-size:11px;color:#365e50;padding:8px;background:#f1f7f3;border-radius:5px;margin:5px 0}
+@keyframes election-thinking-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.election-thinking-spinner{animation:none;border-top-color:#126c53}}
