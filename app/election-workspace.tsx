@@ -294,6 +294,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       :Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
      {data.campaign.year===2027&&mode==='choose'&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)&&
       <p className="alert warning" role="status">{election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'}</p>}
+     {data.campaign.year===2027&&mode==='choose'&&canChoose&&election.availabilityPending?.includes(detail.date)&&
+      <p className="alert warning" role="status">Posibilidad provisional: todavía no se ha demostrado la compatibilidad global de esta elección. Se comprobará íntegramente al confirmar; una selección no equivale a adjudicación.</p>}
      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
      {message&&<p role="status" className="alert warning">{message}</p>}
      {mode==='choose'&&canChoose&&<>
