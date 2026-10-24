@@ -426,8 +426,10 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
        <ul>{election.cycleAvailability.cycles[detail.date].slots.map((slot:any)=><li key={slot.position}><strong>{slot.position}ª plaza:</strong> {slotExplanation(slot)}</li>)}</ul>
       </details>}
      </>}
+     {/* Not a problem: after undo/redo availability is shown without rerunning the solver. In fast mode the award is verified at once. */}
      {data.campaign.year===2027&&mode==='choose'&&canChoose&&election.availabilityPending?.includes(detail.date)&&
-      <p className="alert warning" role="status">Posibilidad provisional: todavía no se ha demostrado la compatibilidad global de esta elección. Se comprobará íntegramente al confirmar; una selección no equivale a adjudicación.</p>}
+      !choiceSubmitting&&!(simulation&&quickMode)&&
+      <p className="election-auto-notice" role="status">Disponibilidad aún sin comprobar del todo (por ejemplo, tras deshacer o rehacer): la elección se comprobará por completo al confirmar.</p>}
      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
      {(message||(data.campaign.year===2027&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)
        ?election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'
