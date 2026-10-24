@@ -76,15 +76,12 @@ export class ElectionService{
   const check=focus?createChoiceChecker(ctx,result):null;
   const available=check&&focus?result.cycles.filter(c=>!check(focus,[c.date]).length).map(c=>c.date):[];
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
-  const history=manage?await this.history(cid):null;
+  // Undo/redo and the visible timeline derive from the same ordered audit
+  // snapshot, avoiding a second full-history database read on every refresh.
+  const auditRows=manage?await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]):null;
+  const history=auditRows?appliedAudit(auditRows):null;
   const reconstruction=await this.reconstruction().view(d,raw);
-  // Replay persisted actions rather than inferring turns from individual awards.
-  // Return all events; the UI reveals older entries incrementally.
-  let timeline:ReturnType<typeof buildElectionTimeline>=[];
-  if(manage){
-   const rows=await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
-   timeline=buildElectionTimeline(rows as any,ctx,raw.state);
-  }
+  const timeline:ReturnType<typeof buildElectionTimeline>=auditRows?buildElectionTimeline(auditRows as any,ctx,raw.state):[];
 
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
   return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
