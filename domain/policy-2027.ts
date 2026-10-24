@@ -374,15 +374,56 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
   return result;
 }
 
+/**
+ * Reuse a previously proved final allocation for one candidate.
+ *
+ * A proposed person/cycle pair can be taken directly from a completion
+ * witness; otherwise an alternating two-person/two-cycle swap may preserve
+ * exactly the same final occupation histogram. Neither case changes existing
+ * awards. Every proposed result is verified with the complete final policy
+ * before it may bypass the bounded search.
+ *
+ * Returns only the FUTURE awards after the candidate has been applied.
+ */
+export function transplant2027Witness(
+  state:PolicyState,choice:PolicyAward,witness:PolicyAward[]
+):PolicyAward[]|null {
+  const finalState={...state,awards:[...state.awards,...witness]};
+  if(!evaluate2027Final(finalState).valid)return null;
+  const same=(a:PolicyAward,b:PolicyAward)=>a.member_id===b.member_id&&a.cycle_date===b.cycle_date;
+  // It is not valid to claim that an already allocated pair is newly chosen.
+  if(state.awards.some(a=>same(a,choice)))return null;
+  const direct=witness.findIndex(a=>same(a,choice));
+  if(direct!==-1)return witness.filter((_,i)=>i!==direct);
+  const mine=witness.flatMap((a,i)=>a.member_id===choice.member_id?[i]:[]);
+  const holders=witness.flatMap((a,i)=>a.cycle_date===choice.cycle_date?[i]:[]);
+  for(const i of mine)for(const j of holders){
+    if(i===j)continue;
+    const displaced=witness[i],replaced=witness[j];
+    const remainder=witness.map((a,k)=>k===i?choice:k===j
+      ?{member_id:replaced.member_id,cycle_date:displaced.cycle_date}:a);
+    if(evaluate2027Final({...state,awards:[...state.awards,...remainder]}).valid)
+      return remainder.filter((_,k)=>k!==i);
+  }
+  return null;
+}
+
 /** Evaluate an atomic batch of choices on the same prior state. */
-export function evaluate2027Candidate(state:PolicyState,choices:PolicyAward[],maxChecks=2000):CandidateAssessment {
+export function evaluate2027Candidate(
+  state:PolicyState,choices:PolicyAward[],maxChecks=2000,
+  knownWitness?:PolicyAward[]
+):CandidateAssessment {
   const next={...state,awards:[...state.awards,...choices]};
   const immediate=immediate2027Issues(state,choices);
   if(immediate.length){
     return {allowed:false,completion:{status:'impossible',checked:0,reason:'Restricción inmediata vulnerada'},
       issues:immediate,warnings:[]};
   }
-  const completion=canComplete2027(next,{maxChecks});
+  const repaired=choices.length===1&&knownWitness
+    ?transplant2027Witness(state,choices[0],knownWitness):null;
+  const completion:Completion=repaired
+    ?{status:'possible',checked:0,witness:repaired}
+    :canComplete2027(next,{maxChecks});
   const issues:RuleProblem[]=completion.status==='impossible'
     ?[problem('NO_VALID_COMPLETION','Esta combinación impediría completar las vacaciones respetando las reglas.')]:
     completion.status==='indeterminate'
