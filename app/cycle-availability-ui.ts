@@ -51,8 +51,10 @@ export function summarizeImpact(impact:AvailabilityImpact):{highlights:string[];
    const closed=event.cycles.filter(c=>!ownRightsOnly.has(c));
    if(closed.length)highlights.push('Cierra la tercera plaza en '+closed.length+' ciclo(s) del '+period+': '+closed.map(shortDate).join(', ')+'.');
    event.cycles.forEach(c=>covered.add(c));
-  }else if(event.code==='EXTRA_THIRD_MARGIN_LOST')
-   highlights.push('Reduce el margen para ampliaciones extraordinarias a tercera plaza en '+period+'.');
+  }else if(event.code==='EXTRA_THIRD_MARGIN_LOST'){
+   highlights.push('Consume el margen de ampliaciones extraordinarias a tercera plaza del '+period+': ya no se puede llegar a 3 en '+event.cycles.map(shortDate).join(', ')+'.');
+   event.cycles.forEach(c=>covered.add(c));
+  }
  }
  const details:string[]=[];
  for(const change of impact.changes){

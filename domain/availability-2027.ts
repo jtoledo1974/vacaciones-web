@@ -1,7 +1,7 @@
 import {
  canComplete2027, evaluate2027Candidate, evaluate2027Final, regularFlowCertificate2027,
  OCCUPANCY_POLICY_2027, type PolicyState, type PolicyAward,
- type RuleProblem, type Completion
+ type RuleProblem, type Completion, type PolicyCycle, type Permits2027
 } from './policy-2027.ts';
 
 /**
@@ -74,6 +74,7 @@ export type AvailabilityOptions = {maxChecks?: number; useCache?: boolean; exact
 const cache = new Map<string, AvailabilitySnapshot>();
 const CACHE_LIMIT = 96;
 const periodLimit = (period:0|1|2):number => period===1?2:1;
+const EXTRA_THIRD_PROBE_LIMIT=8;
 const reason = (
  code:string,message:string,period?:0|1|2,cycle?:string,actual?:number,limit?:number
 ):RuleProblem=>({
@@ -135,6 +136,27 @@ function blockedReasons(
  return [reason('GLOBAL_COMPLETION_CONSTRAINT',
   'Ocupar esta plaza impediría completar legalmente todas las vacaciones pendientes (restricciones globales de RRHH y derechos individuales).',
   c.period,date)];
+}
+/**
+ * Prove, by relaxation, that an extraordinary third-place permit causes a
+ * block: the place is impossible under the policy (already established by
+ * the caller) but becomes possible with exactly one more permit of a period.
+ * That consequence then holds in every admissible completion. An inconclusive
+ * relaxed search proves nothing and leaves the generic reason in place.
+ */
+const EXTRA_THIRD_PROBES:{code:string;permits:Permits2027;message:string}[]=[
+ {code:'PRE_EXTRA_THIRD_CONSTRAINT',permits:{preThird:3},
+  message:'Ocupar esta plaza exigiría más ampliaciones extraordinarias a tercera plaza en preverano de las dos autorizadas.'},
+ {code:'POST_EXTRA_THIRD_CONSTRAINT',permits:{postThird:2},
+  message:'Ocupar esta plaza exigiría más ampliaciones extraordinarias a tercera plaza en posverano de la autorizada.'}
+];
+function extraThirdCause(state:PolicyState,c:PolicyCycle,position:number,maxChecks:number):RuleProblem|null {
+ for(const probe of EXTRA_THIRD_PROBES){
+  const relaxed=canComplete2027(state,{maxChecks,permits:probe.permits,minimumCycle:{date:c.date,occupancy:position}});
+  if(relaxed.status==='possible')
+   return {...reason(probe.code,probe.message,c.period,c.date),certainty:'proven',evidence:'Posible con un permiso más de este tipo e imposible con los autorizados.'};
+ }
+ return null;
 }
 function snapshotCache(key:string,value:AvailabilitySnapshot):void {
  cache.delete(key);
@@ -276,7 +298,7 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
   assignedByMember.set(award.member_id,(assignedByMember.get(award.member_id)??0)+1);
  const outstandingRights=state.members.reduce((sum,member)=>
   sum+Math.max(0,member.entitlement-(assignedByMember.get(member.id)??0)),0);
- let checked=baseline.checked;
+ let checked=baseline.checked,probes=0;
  const cycles:Record<string,CycleAvailability>={};
  for(let index=0;index<state.cycles.length;index++){
   const c=state.cycles[index],people=fixed.get(c.date)??[],occupied=people.length;
@@ -324,9 +346,17 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
     status==='invalid'?'indeterminate':
     position<=occupied+lower?'available':
     position>occupied+upper?'blocked':'indeterminate';
+   let blocked=slotStatus==='blocked'?blockedReasons(state,c.date,position,occupied):[];
+   // Only a solver-proven block (not a bound cut short) may be attributed.
+   if(blocked[0]?.code==='GLOBAL_COMPLETION_CONSTRAINT'&&position===3&&c.period!==1&&
+     baseline.status==='possible'&&probes<EXTRA_THIRD_PROBE_LIMIT){
+    probes++;
+    const cause=extraThirdCause(state,c,position,64);
+    if(cause)blocked=[cause];
+   }
    slots.push({position,status:slotStatus,
     ...(memberId!==undefined?{memberId}:{}),
-    reasons:slotStatus==='blocked'?blockedReasons(state,c.date,position,occupied):
+    reasons:slotStatus==='blocked'?blocked:
       slotStatus==='indeterminate'?[reason('INDETERMINATE',
        'La búsqueda no ha demostrado todavía si esta plaza puede adjudicarse.',c.period,c.date)]:[]
    });
@@ -461,6 +491,19 @@ export function availabilityImpact(
   }).map(change=>change.cycle);
   if(thirdClosed.length)events.push({code:'THIRD_POSITION_CLOSED',period,cycles:thirdClosed});
  }
+ // Group proven per-cycle causes of lost places into period-level events.
+ // A cause counts only where this operation newly lost a place for it.
+ const lostFor=(codes:string[])=>changes.filter(change=>change.kind==='globalConstraint'&&
+  change.delta!==null&&change.delta<0&&change.reasons.some(r=>codes.includes(r.code)));
+ for(const period of [0,2] as const){
+  const code=period===0?'PRE_EXTRA_THIRD_CONSTRAINT':'POST_EXTRA_THIRD_CONSTRAINT';
+  const cycles=lostFor([code]).filter(change=>change.period===period).map(change=>change.cycle);
+  if(cycles.length)events.push({code:'EXTRA_THIRD_MARGIN_LOST',period,cycles});
+ }
+ const minimum=lostFor(['MINIMUM_COVERAGE']).map(change=>change.cycle);
+ if(minimum.length)events.push({code:'MINIMUM_COVERAGE_REDUCED',cycles:minimum});
+ const rights=lostFor(['INDIVIDUAL_RIGHTS_EXHAUSTED','DISTINCT_CONTROLLER_SHORTAGE']).map(change=>change.cycle);
+ if(rights.length)events.push({code:'INDIVIDUAL_RIGHTS_REDUCED',cycles:rights});
  for(const period of [0,1,2] as const){
   if(oldFour[period]<periodLimit(period)&&newFour[period]>=periodLimit(period)){
    const related=changes.filter(x=>x.period===period&&x.kind==='globalConstraint'&&

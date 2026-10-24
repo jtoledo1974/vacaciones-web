@@ -265,3 +265,30 @@ test('nonuniform entitlements do not invoke the controller-permutation shortcut'
  const fresh=availabilityByCycle(after,{maxChecks:100,useCache:false});
  assert.deepEqual(impact.after,fresh);
 });
+
+test('a block caused only by preverano extra-third permits is attributed by relaxation',()=>{
+ // Four one-person cycles need four extraordinary moves; the policy grants
+ // three (two PRE EC3 and one POST EC3) and no fourth place is used.
+ const counts=[1,1,1,3,3,3,2,2,1,3,2];
+ const cycles=counts.map((_,i)=>({
+  date:i<6?'2027-01-0'+(i+1):i<8?'2027-07-0'+(i-5):'2027-11-0'+(i-7),
+  period:(i<6?0:i<8?1:2) as 0|1|2
+ }));
+ const memberCounts=new Array(6).fill(0) as number[];
+ const awards:PolicyAward[]=[];
+ let cursor=0;
+ for(const [i,count] of counts.entries())for(let n=0;n<count;n++){
+  const member=cursor++%6;memberCounts[member]++;
+  awards.push({member_id:'m'+member,cycle_date:cycles[i].date});
+ }
+ const full:PolicyState={cycles,members:memberCounts.map((entitlement,i)=>({id:'m'+i,entitlement})),awards};
+ assert.equal(evaluate2027Final(full).valid,false);
+ assert.equal(evaluate2027Final(full,false,{preThird:3}).valid,true);
+ // Withdraw one occupant of a PRE three: returning there needs a third PRE EC3.
+ const target=cycles[3].date,removed=awards.findIndex(a=>a.cycle_date===target);
+ const partial={...full,awards:awards.filter((_,i)=>i!==removed)};
+ const slot=availabilityByCycle(partial,{useCache:false}).cycles[target].slots[2];
+ assert.equal(slot.status,'blocked');
+ assert.equal(slot.reasons[0].code,'PRE_EXTRA_THIRD_CONSTRAINT');
+ assert.equal(slot.reasons[0].certainty,'proven');
+});

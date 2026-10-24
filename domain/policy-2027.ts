@@ -18,7 +18,13 @@ export type RuleProblem = {
   cycle?: string;
   actual?: number;
   limit?: number;
+  /** 'proven' holds in every admissible completion; never set from one witness. */
+  certainty?: 'proven' | 'indeterminate';
+  evidence?: string;
 };
+/** Extraordinary third-place permits per period (preverano 2, posverano 1).
+ * Overridden only to test, by relaxation, which permit causes a block. */
+export type Permits2027 = { preThird?: number; postThird?: number };
 const MONTHS_2027=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const PERIOD_NAMES_2027=['preverano','verano','posverano'];
 /** "2027-09-30" -> "30 sep", for messages shown to people. */
@@ -86,7 +92,7 @@ type Scenario = { single: Set<number>; fourth: Set<number> };
  * This is not the withdrawn "maximum two PRE singles" interpretation.
  * The summer reference of two per person is never a hard total.
  */
-function has2027Accounting(state: PolicyState, counts: number[], strictRegions: boolean): boolean {
+function has2027Accounting(state: PolicyState, counts: number[], strictRegions: boolean, permits?: Permits2027): boolean {
   const tally = [0,1,2].map(p=>({
     one:0,two:0,three:0,four:0,cycles:0
   }));
@@ -103,10 +109,10 @@ function has2027Accounting(state: PolicyState, counts: number[], strictRegions: 
     } else if (value===4)h.four++;
     else return false;
   }
-  return accountingForTally(tally,summerThirdDonorCapacity,strictRegions);
+  return accountingForTally(tally,summerThirdDonorCapacity,strictRegions,permits);
 }
 type PeriodTally={one:number;two:number;three:number;four:number;cycles:number};
-function accountingForTally(tally:PeriodTally[],summerThirdDonorCapacity:number,strictRegions:boolean):boolean {
+function accountingForTally(tally:PeriodTally[],summerThirdDonorCapacity:number,strictRegions:boolean,permits?:Permits2027):boolean {
   const pre=tally[0],summer=tally[1],post=tally[2];
   if(pre.four>1||post.four>1||summer.four>2||pre.one>3||post.one>2||summer.one>0)return false;
   const summerDonorCapacity=summer.two+Math.min(summerThirdDonorCapacity,Math.max(0,2-summer.four));
@@ -114,10 +120,11 @@ function accountingForTally(tally:PeriodTally[],summerThirdDonorCapacity:number,
   const baselineCount=pre.cycles+post.cycles;
   // Distinct PRE third destinations are final threes. A PRE fourth is
   // necessarily a fourth destination, never chained with an extra third.
-  for(let preThird=0;preThird<=Math.min(2,pre.three);preThird++){
-    for(let postThird=0;postThird<=Math.min(1,post.three);postThird++){
+  const preThirdPermits=permits?.preThird??2,postThirdPermits=permits?.postThird??1;
+  for(let preThird=0;preThird<=Math.min(preThirdPermits,pre.three);preThird++){
+    for(let postThird=0;postThird<=Math.min(postThirdPermits,post.three);postThird++){
       for(let postChain=0;postChain<=post.four;postChain++){
-        if(postThird+postChain>1)continue;
+        if(postThird+postChain>postThirdPermits)continue;
         const operations=preThird+pre.four+postThird+postChain+post.four;
         if(operations<singles)continue;
         const otherDonors=operations-singles;
@@ -185,13 +192,13 @@ function scenarioAccountingPossible(state:PolicyState,scenario:Scenario,opts:Com
       const threes=[pre,summer,post];
       const tally=periods.map((p,i)=>({one:p.singles,two:p.n-p.singles-p.fours-threes[i],three:threes[i],four:p.fours,cycles:p.n}));
       const s=periods[1],minEligible=Math.max(s.eligibleForced,summer-s.other),maxEligible=Math.min(s.eligible,summer-s.otherForced);
-      for(let q=minEligible;q<=maxEligible;q++)if(accountingForTally(tally,q,opts.strictRegions===true))return true;
+      for(let q=minEligible;q<=maxEligible;q++)if(accountingForTally(tally,q,opts.strictRegions===true,opts.permits))return true;
     }
   }
   return false;
 }
 
-export function evaluate2027Final(state: PolicyState, strictRegions = false): FinalAssessment {
+export function evaluate2027Final(state: PolicyState, strictRegions = false, permits?: Permits2027): FinalAssessment {
   const issues: RuleProblem[] = [], warnings: RuleProblem[] = [];
   const dates = new Map(state.cycles.map((c, i) => [c.date, i]));
   const ids = new Map(state.members.map((m, i) => [m.id, i]));
@@ -243,14 +250,14 @@ export function evaluate2027Final(state: PolicyState, strictRegions = false): Fi
     issues.push(problem('PRE_SINGLE_LIMIT', `Preverano admite como máximo tres ciclos con una persona y tiene ${singles[0]} (${cycleList(singleCycles[0])}).`, {period:0,actual:singles[0],limit:3}));
   // A cap of three PRE singles is NOT a third EC3 permission.
   // Both applied and strict evaluations use the same ordinary pool.
-  const accounting=has2027Accounting(state,counts,strictRegions);
+  const accounting=has2027Accounting(state,counts,strictRegions,permits);
   if(!accounting)
     issues.push(problem('REDISTRIBUTION_WITNESS',
       strictRegions
         ?'Este reparto no admite justificación con origen y destino de cada permiso en el mismo periodo (lectura territorial estricta de RRHH).'
         :'No existe un reparto ordinario que justifique las ampliaciones adicionales, sus destinos y sus fuentes autorizadas.',
       {period:0}));
-  if(!strictRegions&&accounting&&!has2027Accounting(state,counts,true))
+  if(!strictRegions&&accounting&&!has2027Accounting(state,counts,true,permits))
     warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',strictRegionCause2027(state,[],true)??
       'La distribución es admisible con flexibilidad entre periodos autorizada provisionalmente por el responsable, pero no cumple la interpretación territorial estricta expuesta por RRHH. Requiere revisión administrativa.'));
   const summerTotal = sums[1], summerReference = state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
@@ -357,7 +364,7 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCy
  */
 export function regularFlowCertificate2027(
  state:PolicyState,
- opts:{strictRegions?:boolean;summerTotal?:number;minimumCycle?:{date:string;occupancy:number}}={}
+ opts:{strictRegions?:boolean;summerTotal?:number;minimumCycle?:{date:string;occupancy:number};permits?:Permits2027}={}
 ):PolicyAward[]|null {
  const dates=new Set(state.cycles.map(c=>c.date));
  if(opts.minimumCycle&&(!dates.has(opts.minimumCycle.date)||
@@ -380,7 +387,7 @@ export function regularFlowCertificate2027(
  const witness=match(state,{single:new Set(),fourth},
   opts.summerTotal,opts.minimumCycle,undefined,opts.strictRegions===true);
  if(witness===null)return null;
- return evaluate2027Final({...state,awards:[...state.awards,...witness]},opts.strictRegions).valid
+ return evaluate2027Final({...state,awards:[...state.awards,...witness]},opts.strictRegions,opts.permits).valid
   ?witness:null;
 }
 
@@ -400,7 +407,7 @@ const combinations = function* (values:number[],count:number,start=0,picked:numb
  */
 export type CompletionOptions2027={
   strictRegions?:boolean; summerTotal?:number; maxChecks?:number;
-  minimumCycle?:{date:string;occupancy:number}; exact?:boolean;
+  minimumCycle?:{date:string;occupancy:number}; exact?:boolean; permits?:Permits2027;
 };
 const completionWitnessCache=new Map<string,PolicyAward[]>();
 function witnessFamily(state:PolicyState,opts:CompletionOptions2027):string {
@@ -411,7 +418,7 @@ function witnessFamily(state:PolicyState,opts:CompletionOptions2027):string {
 }
 /** Cached complete allocations are certificates, never cached assumptions. */
 export function canComplete2027(state:PolicyState,opts:CompletionOptions2027={}):Completion {
-  const family=opts.exact?witnessFamily(state,opts):null;
+  const family=opts.exact&&!opts.permits?witnessFamily(state,opts):null;
   const previous=family?completionWitnessCache.get(family):undefined;
   if(previous&&(!opts.minimumCycle||state.cycles.some(c=>c.date===opts.minimumCycle!.date)&&
       Number.isInteger(opts.minimumCycle.occupancy)&&opts.minimumCycle.occupancy>=0&&opts.minimumCycle.occupancy<=4)){
@@ -464,7 +471,7 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
   // This is also important for publication and review: a timeout must never
   // turn a valid finished allocation into an indeterminate one.
   if(state.members.every(m=>people.get(m.id)===m.entitlement)){
-    const final=evaluate2027Final(state,opts.strictRegions);
+    const final=evaluate2027Final(state,opts.strictRegions,opts.permits);
     const targetCount=opts.minimumCycle?state.awards.filter(a=>a.cycle_date===opts.minimumCycle!.date).length:0;
     const summer=state.awards.filter(a=>C.get(a.cycle_date)?.period===1).length;
     return final.valid&&(!opts.minimumCycle||targetCount>=opts.minimumCycle.occupancy)&&(opts.summerTotal===undefined||summer===opts.summerTotal)
@@ -484,7 +491,7 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
       if(state.awards.some(a=>a.member_id===memberId&&a.cycle_date===c.date))continue;
       examined++;
       const nextAward={member_id:memberId,cycle_date:c.date};
-      const final=evaluate2027Final({...state,awards:[...state.awards,nextAward]},opts.strictRegions);
+      const final=evaluate2027Final({...state,awards:[...state.awards,nextAward]},opts.strictRegions,opts.permits);
       if(!final.valid)continue;
        if(opts.minimumCycle&&state.awards.filter(a=>a.cycle_date===opts.minimumCycle!.date).length+(c.date===opts.minimumCycle.date?1:0)<opts.minimumCycle.occupancy)continue;
       if(opts.summerTotal!==undefined){
@@ -520,7 +527,7 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
       if(!scenarioAccountingPossible(state,scenario,opts))return null;
       const extra=match(state,scenario,opts.summerTotal,opts.minimumCycle);if(!extra)return null;
       const end:PolicyState={...state,awards:[...state.awards,...extra]};
-      const final=evaluate2027Final(end,opts.strictRegions);
+      const final=evaluate2027Final(end,opts.strictRegions,opts.permits);
       if(!final.valid)return null;
       if(opts.summerTotal!==undefined){
         const summer=new Set(state.cycles.filter(c=>c.period===1).map(c=>c.date));
