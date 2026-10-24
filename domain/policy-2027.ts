@@ -302,6 +302,29 @@ export function canComplete2027(state:PolicyState,opts:{
       ?{status:'possible',checked:1,witness:[]}
       :{status:'impossible',checked:1,reason:final.issues[0]?.message??'El total de verano no coincide con la referencia solicitada'};
   }
+  // A nearly complete allocation can be proved (or disproved) by direct
+  // enumeration of the outstanding person/cycle pairs. This avoids the
+  // combinatorial exceptional-cycle search and, crucially, prevents a
+  // bounded timeout from hiding a provable strict-territorial warning.
+  const pending=state.members.flatMap(m=>range(m.entitlement-(people.get(m.id)??0))
+    .map(()=>m.id));
+  if(pending.length===1&&maxChecks>=state.cycles.length){
+    const memberId=pending[0];
+    let examined=0;
+    for(const c of state.cycles){
+      if(state.awards.some(a=>a.member_id===memberId&&a.cycle_date===c.date))continue;
+      examined++;
+      const nextAward={member_id:memberId,cycle_date:c.date};
+      const final=evaluate2027Final({...state,awards:[...state.awards,nextAward]},opts.strictRegions);
+      if(!final.valid)continue;
+      if(opts.summerTotal!==undefined){
+        const total=state.awards.filter(a=>C.get(a.cycle_date)?.period===1).length+(c.period===1?1:0);
+        if(total!==opts.summerTotal)continue;
+      }
+      return {status:'possible',checked:examined,witness:[nextAward]};
+    }
+    return {status:'impossible',checked:examined,reason:'No existe una asignación para la última plaza pendiente que cumpla la política solicitada'};
+  }
   const slots=[0,1,2].map(p=>range(state.cycles.length).filter(i=>state.cycles[i].period===p));
   if(slots.some(s=>s.length===0))return {status:'impossible',checked:0,reason:'Calendario sin uno de los periodos'};
   const forcedFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)===4));
