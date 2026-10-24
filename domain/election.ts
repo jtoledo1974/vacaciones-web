@@ -1,6 +1,6 @@
 import {calculate,type Member,type Request,type Award} from './vacations.ts';
 import type {Config} from './calendar.ts';
-import {policyState2027} from './election-2027.ts';
+import {policyState2027,cyclesEntitlement2027} from './election-2027.ts';
 import {evaluate2027Candidate, evaluate2027Final} from './policy-2027.ts';
 
 // Criterios Vacaciones 1.1 (10/06/2025), pp. 1-3.
@@ -37,6 +37,11 @@ export type ElectionContext={year:number;team:string;config:Config;members:Membe
 export type Choice={member_id:string;cycle_date:string};
 export type JointChoice={member_id:string;dates:string[]};
 const count=(ctx:ElectionContext,id:string)=>ctx.awards.filter(a=>a.member_id===id).length;
+export function entitlementFor(ctx:ElectionContext,id:string):number{
+ const member=ctx.members.find(m=>m.id===id);
+ if(!member)throw new Error('Controlador ajeno a la campaña');
+ return ctx.year===2027?cyclesEntitlement2027(ctx.config,member):ctx.config.cyclesPerPerson;
+}
 export function validateOrder(order:unknown,members:Member[]):asserts order is string[]{
  if(!Array.isArray(order)||order.length!==members.length||!order.length||new Set(order).size!==order.length||order.some(id=>!members.some(m=>m.id===id)))
   throw new Error('El orden debe incluir una vez a cada controlador del equipo');
@@ -87,7 +92,7 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
  const n=state.order.length;
  const round=Math.floor(state.cursor/n)+1;
  if(state.status!=='active')return {state,memberId:null,needed:0,round,participants:[] as string[],requiredByMember:{} as Record<string,number>};
- if(ctx.members.every(m=>count(ctx,m.id)>=ctx.config.cyclesPerPerson)){
+ if(ctx.members.every(m=>count(ctx,m.id)>=entitlementFor(ctx,m.id))){
   if(ctx.year===2027){
     const evaluation=evaluate2027Final(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards));
     if(!evaluation.valid)throw new Error('No se puede finalizar la elección: '+evaluation.issues.map(i=>i.message).join('; '));
@@ -98,14 +103,14 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
  for(let scanned=0;scanned<n*(ctx.config.cyclesPerPerson+4);scanned++){
   const currentRound=Math.floor(state.cursor/n);
   const inRound=orderForRound(state,currentRound),id=inRound[state.cursor%n];
-  const remaining=ctx.config.cyclesPerPerson-count(ctx,id);
+  const remaining=entitlementFor(ctx,id)-count(ctx,id);
   if(remaining===0){state.cursor++;continue;}
   const pendingTie=(state.pendingTieGroups??[]).find(group=>group.includes(id));
   if(pendingTie)return {state,memberId:null,needed:0,round:currentRound+1,participants:[] as string[],requiredByMember:{} as Record<string,number>,pendingTie};
   const joint=[...(state.jointGroups??[]),...(state.jointAgreements??[]).filter(a=>!a.cancelledAt&&a.round===currentRound+1).map(a=>a.members)].find(g=>g.includes(id));
-  const participants=joint?inRound.filter(person=>joint.includes(person)&&count(ctx,person)<ctx.config.cyclesPerPerson):[id];
+  const participants=joint?inRound.filter(person=>joint.includes(person)&&count(ctx,person)<entitlementFor(ctx,person)):[id];
   if(participants[participants.length-1]!==id){state.cursor++;continue;}
-  const requiredByMember=Object.fromEntries(participants.map(person=>[person,Math.min(1+(state.credits[person]??0),ctx.config.cyclesPerPerson-count(ctx,person))]));
+  const requiredByMember=Object.fromEntries(participants.map(person=>[person,Math.min(1+(state.credits[person]??0),entitlementFor(ctx,person)-count(ctx,person))]));
   return {state,memberId:id,needed:Object.values(requiredByMember).reduce((a,b)=>a+b,0),round:currentRound+1,participants,requiredByMember};
  }
  throw new Error('No se ha podido avanzar la elección');
@@ -132,7 +137,7 @@ export function registerJointAgreement(ctx:ElectionContext,input:ElectionState,m
  if(state.status!=='active')throw new Error('La elección no está activa');
  if(!Array.isArray(members)||members.length<2||members.length>3||new Set(members).size!==members.length||members.some(id=>!state.order.includes(id)))throw new Error('Selecciona dos o tres controladores diferentes');
  if(!Number.isInteger(round)||round<currentRound||round>ctx.config.cyclesPerPerson)throw new Error('Solo pueden acordarse turnos de la ronda actual o una futura');
- if(members.some(id=>count(ctx,id)>=ctx.config.cyclesPerPerson))throw new Error('Hay controladores que ya han terminado sus ciclos');
+ if(members.some(id=>count(ctx,id)>=entitlementFor(ctx,id)))throw new Error('Hay controladores que ya han terminado sus ciclos');
  if(members.some(id=>(state.pendingTieGroups??[]).some(t=>t.includes(id))))throw new Error('Resuelve el empate antes de agrupar a sus integrantes');
  const ordered=orderForRound(state,round-1),first=Math.min(...members.map(id=>ordered.indexOf(id)));
  if(round===currentRound&&first<state.cursor%n)throw new Error('El primer turno del grupo ya ha pasado en esta ronda');
@@ -218,7 +223,7 @@ export function defer(ctx:ElectionContext,input:ElectionState,memberId:string){
  if(turn.memberId!==memberId||turn.participants.length!==1)throw new Error('No es el turno individual de este controlador');
  if(!input.allowDeferral)throw new Error('El aplazamiento no está habilitado para esta campaña');
  const credits=input.credits[memberId]??0;
- const remaining=ctx.config.cyclesPerPerson-count(ctx,memberId);
+ const remaining=entitlementFor(ctx,memberId)-count(ctx,memberId);
  if(credits>=2||remaining<=credits+1)throw new Error('No se puede acumular otro aplazamiento ni aplazar los últimos ciclos');
  turn.state.credits[memberId]=credits+1;turn.state.cursor++;
  return currentTurn(ctx,turn.state).state;
