@@ -151,8 +151,8 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
  const initial=completion.witness!;
  const occupied=(date:string)=>initial.filter(a=>a.cycle_date===date);
  let shifted:typeof initial|null=null;
- for(const target of policy.cycles.filter(c=>c.period!==1&&occupied(c.date).length===2)){
-  for(const source of policy.cycles.filter(c=>c.period===1&&occupied(c.date).length===3)){
+ for(const target of policy.cycles.filter(c=>c.period===0&&!c.fourthExcluded&&occupied(c.date).length===3)){
+  for(const source of policy.cycles.filter(c=>c.period===2&&occupied(c.date).length===3)){
    const moving=occupied(source.date).find(a=>!occupied(target.date).some(b=>b.member_id===a.member_id));
    if(!moving)continue;
    const candidate=initial.map(a=>a===moving?{...a,cycle_date:target.date}:a);
@@ -161,7 +161,7 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
   }
   if(shifted)break;
  }
- assert.ok(shifted,'A valid provisional cross-period allocation must be constructible');
+  assert.ok(shifted,'A valid provisional cross-period allocation must be constructible');
  const final=evaluate2027Final({...policy,awards:shifted!});
  assert.equal(final.valid,true,JSON.stringify(final.issues));
  assert.ok(final.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'));
