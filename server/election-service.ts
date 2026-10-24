@@ -19,6 +19,19 @@ export class ElectionService{
   const result=await this.repo.batch([{sql:'SELECT json FROM election_states WHERE campaign_id=?',args:[cid]},{sql:'SELECT * FROM preferences WHERE campaign_id=?',args:[cid]}]);
   return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic,persistent:!!p.persistent,active:!!p.active})) as Preference[]};
  }
+ /**
+  * Drain contiguous automatic turns without rebuilding the full UI after each
+  * one. Each mutate('advance') still commits its own audit/undo snapshot and CAS.
+  */
+ async advancePending(cid:string,version:number,maxTurns=100):Promise<number>{
+  let processed=0;
+  for(;processed<maxTurns;processed++){
+   const result=await this.mutate(cid,{action:'advance',version});
+   if(!result.changed)break;
+   version++;
+  }
+  return processed;
+ }
  async memberForAccount(d:any){
   if(this.actor.preview)return this.actor.preview.campaignId===d.campaign.id&&d.members.some((m:any)=>m.id===this.actor.preview!.memberId)?this.actor.preview.memberId:null;
   if(!this.actor.id)return null;
