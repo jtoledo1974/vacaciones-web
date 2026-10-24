@@ -161,6 +161,12 @@ test('confirmación rápida es opcional y local únicamente en simulaciones',{ta
  await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
  await expect(page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'})).toHaveCount(0);
  await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'↶ Deshacer'}).click();
+ await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'↷ Rehacer'}).click();
+ await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
 });
 
 test('el modal de progreso solo aparece si tarda la adjudicación automática',{tag:'@both'},async({page,request})=>{
