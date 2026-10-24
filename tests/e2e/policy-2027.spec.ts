@@ -26,8 +26,19 @@ async function setup2027(api:APIRequestContext,page:Page){
   previousScores:Object.fromEntries(codes.map((code,i)=>[code,100+i])),previousScoresSource:'Puntuaciones de Playwright verificadas'}});
  d=await election(api,clone.id,{action:'start',rulesConfirmed:true,allowDeferral:false});
  for(let step=0;step<100&&d.election.pendingAutomatic;step++)d=await election(api,clone.id,{action:'advance'});
+ created.push(clone.id);
  return {id:clone.id,data:await read(api,clone.id)};
 }
+// 2027 audit rows carry full availability snapshots. Remove each simulation
+// afterwards so later specs (e.g. the full backup restore) see a lean DB.
+const created:string[]=[];
+test.afterEach(async({request})=>{
+ for(const id of created.splice(0)){
+  const r=await request.get("/api/campaign/"+id);if(!r.ok())continue;
+  const d=await r.json();
+  await post(request,"simulations/"+id,{action:"delete",version:d.campaign.version});
+ }
+});
 async function open(page:Page,id:string){
  await page.goto('/?equipo=C&year=2027');
  await page.getByLabel('Escenario',{exact:true}).selectOption(id);
