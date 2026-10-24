@@ -71,6 +71,16 @@ export class Service {
         await this.commit(ops);
         return {ok:true};
     }
+    /** Validate prospective roster/award edits before writing them. A local
+     * capacity check is not enough for 2027: every controller must still be
+     * able to finish, and final summer minimums must be reachable. */
+    private assert2027Completable(c:any,config:Config,members:any[],awards:any[],action:string){
+        if(c.year!==2027||awards.length===0)return;
+        const proof=canComplete2027(policyState2027(c.year,c.team_id,config,members,awards),{maxChecks:2000});
+        if(proof.status!=='possible')throw new ApiError(
+            action+': la adjudicación resultante no tiene una completación validada según RRHH 2027. '+
+            (proof.reason??proof.status),409);
+    }
     async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
     async view(cid:string){
@@ -166,6 +176,8 @@ export class Service {
             const entry=await this.vacationUndo(cid,c.version);
             if(!entry||entry.id!==body.undoId||(action==='redo_vacations')!==(entry.action==='undo_vacations'))throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.',409);
             const snapshot=JSON.parse(entry.before_json);
+            if(!Array.isArray(snapshot.awards))throw new ApiError('La copia para deshacer carece de adjudicaciones verificables',409);
+            this.assert2027Completable(c,d.config,d.members,snapshot.awards,'Deshacer o rehacer');
             // Undo/redo may restore a full preference snapshot. Do not let a delegated
             // administrator overwrite linked controllers' preferences through this route.
             if(c.scope_key==='live'&&this.actor.role!=='superadmin'&&snapshot.election){
@@ -307,6 +319,7 @@ export class Service {
             const importedAwards=source.copySelections?selections.map(r=>({id:id(),member_id:r.member_id,cycle_date:r.cycle_date})):[];
             const check=calculate(c.year,c.team_id,importedConfig,imported,selections,importedAwards);
             if(check.issues.length)throw new ApiError('Revisa la plantilla: '+check.issues.join('; '));
+            this.assert2027Completable(c,importedConfig,imported,importedAwards,'Importar plantilla');
 
             ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null),{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM campaign_members WHERE campaign_id=?',args:[cid]});
 
@@ -334,6 +347,14 @@ export class Service {
                 for(const {row:r,member} of resolved)
                     if(member&&member.code!==r.code&&d.config.individualEntitlements?.[member.code])
                         throw new ApiError('Actualiza primero la autorización individual de RRHH antes de cambiar el código '+member.code);
+            if(c.year===2027&&d.awards.length){
+                const revised=d.members.map(m=>{
+                    const updated=resolved.find(item=>item.member?.id===m.id);
+                    return updated?{...m,code:updated.row.code}:m;
+                });
+                const additions=resolved.filter(item=>!item.member).map((item,i)=>({id:'new-roster-'+i,code:item.row.code,seniority:item.row.seniority}));
+                this.assert2027Completable(c,d.config,[...revised,...additions],d.awards,'Actualizar plantilla');
+            }
             for(const {row:r,member,position} of resolved){
                 if(member)ops.push({sql:'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',args:[r.code,r.label,r.seniority,member.id,cid]});
                 else ops.push(...rowStatements(cid,c.team_id,r,position,id(),id()));
@@ -358,6 +379,8 @@ export class Service {
             if(targetElection.state?.status==='active')throw new ApiError('Pausa también la elección del equipo de destino antes del traslado');
             if(destination.members.some(m=>m.person_id===member.person_id||m.code===member.code))throw new ApiError('La persona o su identificador ya existe en el equipo de destino');
             if(destination.members.length>=100)throw new ApiError('El equipo de destino ha alcanzado el máximo de 100 controladores');
+            this.assert2027Completable(target,destination.config,
+                [...destination.members,{...member,id:'transfer-prospective'}],destination.awards,'Trasladar controlador');
             ops.push(...cas(target.id,target.version),electionStateStatement(target.id,null),{sql:'DELETE FROM preferences WHERE member_id=? AND campaign_id=?',args:[member.id,cid]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[id(),target.id,member.person_id,member.code,member.label,member.seniority,Math.max(-1,...destination.members.map(m=>m.position))+1]},{sql:"UPDATE campaigns SET data_kind='configured' WHERE id IN (?,?)",args:[cid,target.id]});
             before=member;after={code:member.code,from:c.team_id,to:target.team_id,year:c.year};
             ops.push(this.audit('transfer_received',target,null,after));
@@ -367,6 +390,7 @@ export class Service {
             if(!member)throw new ApiError('Identificador no encontrado',404);
             if(c.year===2027&&d.config.individualEntitlements?.[member.code])
                 throw new ApiError('Retira primero la excepción individual de RRHH antes de dar de baja al controlador');
+            this.assert2027Completable(c,d.config,d.members.filter(m=>m.id!==member.id),d.awards,'Dar de baja controlador');
             if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de dar la baja');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
             ops.push({sql:'DELETE FROM preferences WHERE member_id=? AND campaign_id=?',args:[member.id,cid]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
@@ -387,6 +411,9 @@ export class Service {
                 ops.push({ sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?', args: [code, body.seniority, m.id, cid] });
             }
             else {
+                this.assert2027Completable(c,d.config,
+                    [...d.members,{id:'new-member-prospective',code,seniority:body.seniority}],
+                    d.awards,'Añadir controlador');
                 const pid = id();
                 ops.push(...rowStatements(cid,c.team_id,{code,label:'',seniority:body.seniority},d.members.length,pid,id()));
             }
