@@ -166,7 +166,7 @@ test('a fifth candidate does not invalidate the four already-authorised occupant
   cycles:[{date:'2027-01-01',period:0,fourthExcluded:true}],
   members,awards:awards.slice(0,3)
  },[{member_id:'m3',cycle_date:'2027-01-01'}]);
- assert.ok(red.some(issue=>issue.code==='FOURTH_EXCLUDED'&&/tres adjudicaciones válidas/.test(issue.message)));
+ assert.ok(red.some(issue=>issue.code==='FOURTH_EXCLUDED'&&/ya tiene tres personas y RR. HH. excluye su cuarta plaza/.test(issue.message)));
 });
 
 test('candidate reports duplicate and entitlement limits with stable codes',()=>{

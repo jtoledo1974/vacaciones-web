@@ -270,8 +270,12 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      ?'\n\nConsecuencias sobre la disponibilidad:\n'+impactLines.slice(0,14).join('\n')+
        (impactLines.length>14?'\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
      :'';
-    const warningText=warningLines.length?'\n\nAvisos normativos:\n'+warningLines.join('\n'):'';
-    const summary='¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')+impactText+warningText;
+    // Policy warnings are why this dialog interrupts: show them first and in bold.
+    const summary=<>
+     {'¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')}
+     {warningLines.length>0&&<strong>{'\n\nAvisos normativos:\n'+warningLines.join('\n')}</strong>}
+     {impactText}
+    </>;
     if(!await confirm(summary,undefined,{title:'Confirmar adjudicación e impacto',confirmLabel:'Adjudicar'}))return;
    }
    setChoicePhase('saving');

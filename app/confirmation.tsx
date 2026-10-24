@@ -1,8 +1,8 @@
 'use client';
 import {createContext,useContext,useEffect,useRef,useState,type ReactNode} from 'react';
 type ConfirmOptions={title?:string;cancelLabel?:string;confirmLabel?:string};
-type Confirm=(message:string,requiredText?:string,options?:ConfirmOptions)=>Promise<boolean>;
-type Pending={message:string;requiredText?:string;options?:ConfirmOptions;resolve:(answer:boolean)=>void};
+type Confirm=(message:ReactNode,requiredText?:string,options?:ConfirmOptions)=>Promise<boolean>;
+type Pending={message:ReactNode;requiredText?:string;options?:ConfirmOptions;resolve:(answer:boolean)=>void};
 const Context=createContext<Confirm|null>(null);
 export function useConfirmation(){const confirm=useContext(Context);if(!confirm)throw new Error('ConfirmationProvider is required');return confirm;}
 export function ConfirmationProvider({children}:{children:ReactNode}){

@@ -19,6 +19,36 @@ export type RuleProblem = {
   actual?: number;
   limit?: number;
 };
+const MONTHS_2027=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+const PERIOD_NAMES_2027=['preverano','verano','posverano'];
+/** "2027-09-30" -> "30 sep", for messages shown to people. */
+export const day2027=(date:string)=>Number(date.slice(8,10))+' '+(MONTHS_2027[Number(date.slice(5,7))-1]??date.slice(5,7));
+const cycleList=(dates:string[])=>dates.map(day2027).join(', ');
+/**
+ * Concrete reason, when there is a simple one, why the strict territorial
+ * reading fails: a period's fourth place has no same-period donor left. In
+ * preverano the donor must end with two people; in posverano with one or two.
+ * `final` reads finished occupancies; otherwise a cycle still at two or fewer
+ * may yet end as a donor.
+ */
+function strictRegionCause2027(state:PolicyState,choices:PolicyAward[],final:boolean):string|null {
+  const before=new Map<string,number>(),after=new Map<string,number>();
+  for(const a of state.awards){before.set(a.cycle_date,(before.get(a.cycle_date)??0)+1);after.set(a.cycle_date,(after.get(a.cycle_date)??0)+1);}
+  for(const a of choices)after.set(a.cycle_date,(after.get(a.cycle_date)??0)+1);
+  for(const period of [0,2] as const){
+    const cycles=state.cycles.filter(c=>c.period===period);
+    const fours=cycles.filter(c=>(after.get(c.date)??0)>=4);
+    if(!fours.length)continue;
+    const donor=(n:number)=>final?(period===0?n===2:n===1||n===2):n<=2;
+    if(cycles.some(c=>!fours.includes(c)&&donor(after.get(c.date)??0)))continue;
+    const last=choices.map(c=>c.cycle_date).filter(d=>cycles.some(c=>c.date===d)&&donor(before.get(d)??0));
+    const need=period===0?'termine con dos personas':'termine con una o dos personas';
+    return `Lectura estricta de RR. HH.: la cuarta plaza del ${PERIOD_NAMES_2027[period]} (${cycleList(fours.map(c=>c.date))}) debe salir de otro ciclo del ${PERIOD_NAMES_2027[period]} que ${need}, y `+
+      (final?'ninguno termina así.':`con esta elección ya no queda ninguno que pueda hacerlo${last.length?' ('+cycleList(last)+' era el último)':''}.`)+
+      ' Se admite con la flexibilidad provisional entre periodos; requiere revisión administrativa.';
+  }
+  return null;
+}
 export type FinalAssessment = { valid: boolean; issues: RuleProblem[]; warnings: RuleProblem[] };
 export type Completion = {
   status: 'possible' | 'impossible' | 'indeterminate';
@@ -185,31 +215,32 @@ export function evaluate2027Final(state: PolicyState, strictRegions = false): Fi
   }
   for (let i = 0; i < state.members.length; i++)
     if (personCounts[i] !== state.members[i].entitlement)
-      issues.push(problem('ENTITLEMENT_INCOMPLETE', 'Los ciclos anuales de una persona no coinciden con su derecho.', { actual: personCounts[i], limit: state.members[i].entitlement }));
+      issues.push(problem('ENTITLEMENT_INCOMPLETE', `Una persona tiene ${personCounts[i]} ciclos adjudicados y su derecho es de ${state.members[i].entitlement}.`, { actual: personCounts[i], limit: state.members[i].entitlement }));
   const periods = [0, 1, 2] as const;
+  const fourCycles: string[][] = [[], [], []], singleCycles: string[][] = [[], [], []];
   const singles = [0, 0, 0], fourth = [0, 0, 0], ordinary = [0, 0, 0], n = [0, 0, 0], sums = [0, 0, 0];
   for (let i = 0; i < state.cycles.length; i++) {
     const c = state.cycles[i], occupied = counts[i], p = c.period;
     if (!periods.includes(p)) { issues.push(problem('UNKNOWN_PERIOD', 'Periodo de RRHH no identificado.', {cycle:c.date})); continue; }
     n[p]++; sums[p] += occupied;
     const minimum = p === 1 ? 2 : 1, maximum = Math.min(c.maximum ?? 4, c.fourthExcluded ? 3 : 4);
-    if (occupied < minimum) issues.push(problem('CYCLE_MINIMUM', 'El ciclo no alcanza el mínimo final.', {period:p,cycle:c.date,actual:occupied,limit:minimum}));
-    if (occupied > maximum) issues.push(problem(c.fourthExcluded ? 'FOURTH_EXCLUDED' : 'CYCLE_MAXIMUM', c.fourthExcluded ? 'RRHH excluye este ciclo de la cuarta plaza.' : 'Un ciclo no puede superar cuatro personas.', {period:p,cycle:c.date,actual:occupied,limit:maximum}));
-    if (occupied === 1) singles[p]++;
-    if (occupied === 4) fourth[p]++;
+    if (occupied < minimum) issues.push(problem('CYCLE_MINIMUM', `El ${day2027(c.date)} termina con ${occupied} persona(s); el mínimo es ${minimum}.`, {period:p,cycle:c.date,actual:occupied,limit:minimum}));
+    if (occupied > maximum) issues.push(problem(c.fourthExcluded ? 'FOURTH_EXCLUDED' : 'CYCLE_MAXIMUM', c.fourthExcluded ? `RR. HH. excluye la cuarta plaza del ${day2027(c.date)}, que tiene ${occupied}.` : `El ${day2027(c.date)} tiene ${occupied} personas; el máximo es ${maximum}.`, {period:p,cycle:c.date,actual:occupied,limit:maximum}));
+    if (occupied === 1) { singles[p]++; singleCycles[p].push(c.date); }
+    if (occupied === 4) { fourth[p]++; fourCycles[p].push(c.date); }
     if (occupied === 3) ordinary[p]++;
   }
   for (const p of periods) {
     const maxFourth = p === 1 ? 2 : 1;
     if (fourth[p] > maxFourth)
-      issues.push(problem('FOURTH_LIMIT', 'Demasiados ciclos con cuatro personas en este periodo.', {period:p, actual:fourth[p],limit:maxFourth}));
+      issues.push(problem('FOURTH_LIMIT', `El ${PERIOD_NAMES_2027[p]} tiene ${fourth[p]} ciclos con cuatro (${cycleList(fourCycles[p])}); el máximo es ${maxFourth}.`, {period:p, actual:fourth[p],limit:maxFourth}));
   }
   if (singles[1] > 0)
-    issues.push(problem('SUMMER_SINGLE', 'En verano todos los ciclos requieren al menos dos personas.', {period:1,actual:singles[1],limit:0}));
+    issues.push(problem('SUMMER_SINGLE', `En verano todos los ciclos requieren al menos dos personas; quedan con una: ${cycleList(singleCycles[1])}.`, {period:1,actual:singles[1],limit:0}));
   if (singles[2] > 2)
-    issues.push(problem('POST_SINGLE_LIMIT', 'Postverano permite como máximo dos ciclos con una persona.', {period:2,actual:singles[2],limit:2}));
+    issues.push(problem('POST_SINGLE_LIMIT', `Posverano admite como máximo dos ciclos con una persona y tiene ${singles[2]} (${cycleList(singleCycles[2])}).`, {period:2,actual:singles[2],limit:2}));
   if (singles[0] > 3)
-    issues.push(problem('PRE_SINGLE_LIMIT', 'Preverano admite como máximo tres ciclos con una persona.', {period:0,actual:singles[0],limit:3}));
+    issues.push(problem('PRE_SINGLE_LIMIT', `Preverano admite como máximo tres ciclos con una persona y tiene ${singles[0]} (${cycleList(singleCycles[0])}).`, {period:0,actual:singles[0],limit:3}));
   // A cap of three PRE singles is NOT a third EC3 permission.
   // Both applied and strict evaluations use the same ordinary pool.
   const accounting=has2027Accounting(state,counts,strictRegions);
@@ -220,11 +251,11 @@ export function evaluate2027Final(state: PolicyState, strictRegions = false): Fi
         :'No existe un reparto ordinario que justifique las ampliaciones adicionales, sus destinos y sus fuentes autorizadas.',
       {period:0}));
   if(!strictRegions&&accounting&&!has2027Accounting(state,counts,true))
-    warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',
+    warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',strictRegionCause2027(state,[],true)??
       'La distribución es admisible con flexibilidad entre periodos autorizada provisionalmente por el responsable, pero no cumple la interpretación territorial estricta expuesta por RRHH. Requiere revisión administrativa.'));
   const summerTotal = sums[1], summerReference = state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
   if (summerTotal !== summerReference)
-    warnings.push(problem('SUMMER_REFERENCE', 'La distribución estival difiere de la referencia informativa de dos ciclos por persona.', {period:1,actual:summerTotal,limit:summerReference}));
+    warnings.push(problem('SUMMER_REFERENCE', `El verano termina con ${summerTotal} turnos frente a los ${summerReference} de referencia (dos por controlador). Es informativo.`, {period:1,actual:summerTotal,limit:summerReference}));
   return { valid: issues.length === 0, issues, warnings };
 }
 
@@ -545,27 +576,30 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
   for(const member of state.members) {
     const count=personCounts.get(member.id)??0;
     if(count>member.entitlement)
-      result.push(problem('ENTITLEMENT_EXCEEDED','Esta adjudicación superaría los ciclos anuales autorizados a una persona.',{actual:count,limit:member.entitlement}));
+      result.push(problem('ENTITLEMENT_EXCEEDED',`Esta persona ya tiene sus ${member.entitlement} ciclos anuales; no puede recibir otro.`,{actual:count,limit:member.entitlement}));
   }
-  const fours=[0,0,0];
+  const fours=[0,0,0],priorFours:string[][]=[[],[],[]];
+  const priorCounts=new Map<string,number>();
+  for(const award of state.awards)priorCounts.set(award.cycle_date,(priorCounts.get(award.cycle_date)??0)+1);
   for(const cycle of state.cycles){
     const occupied=cycleCounts.get(cycle.date)??0;
     const cap=Math.min(cycle.maximum??4,cycle.fourthExcluded?3:4);
     if(occupied>cap)
       result.push(problem(cycle.fourthExcluded&&occupied>=4?'FOURTH_EXCLUDED':'CYCLE_MAXIMUM',
         cycle.fourthExcluded&&occupied>=4
-          ?'Este ciclo ya tiene tres adjudicaciones válidas. RR. HH. excluye la cuarta plaza, por lo que no se puede añadir otra persona.'
-          :`Este ciclo ya tiene sus ${cap} plazas autorizadas ocupadas. No se puede adjudicar una ${cap+1}.ª plaza; las ${cap} existentes son válidas.`,
+          ?`El ${day2027(cycle.date)} ya tiene tres personas y RR. HH. excluye su cuarta plaza.`
+          :`El ${day2027(cycle.date)} ya tiene sus ${cap} plazas autorizadas ocupadas. No se puede adjudicar una ${cap+1}.ª plaza; las ${cap} existentes son válidas.`,
         {period:cycle.period,cycle:cycle.date,actual:occupied,limit:cap}));
     if(occupied>=4)fours[cycle.period]++;
+    if((priorCounts.get(cycle.date)??0)>=4)priorFours[cycle.period].push(cycle.date);
   }
   for(const period of [0,1,2] as const){
     const limit=period===1?2:1;
     if(fours[period]>limit)
       result.push(problem('FOURTH_LIMIT',
         period===1
-          ?'En verano solo pueden existir dos ciclos con cuatro personas.'
-          :'En este periodo solo puede existir un ciclo con cuatro personas.',
+          ?`El verano ya tiene sus dos ciclos con cuatro${priorFours[1].length?' ('+cycleList(priorFours[1])+')':''}; no admite otro.`
+          :`El ${PERIOD_NAMES_2027[period]} ya tiene su ciclo con cuatro${priorFours[period].length?' ('+cycleList(priorFours[period])+')':''}; no admite otro.`,
         {period,actual:fours[period],limit}));
   }
   // Necessary (not sufficient) global bounds. They provide a concrete reason
@@ -577,15 +611,15 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
     .reduce((n,c)=>n+Math.max(0,2-(cycleCounts.get(c.date)??0)),0);
   if(remaining<summerMissing)
     result.push(problem('SUMMER_MINIMUM_IMPOSSIBLE',
-      'La elección dejaría menos adjudicaciones pendientes que las necesarias para completar el mínimo de dos personas en todos los ciclos de verano.',
+      `Quedarían ${remaining} vacaciones por adjudicar y el verano aún necesita ${summerMissing} para tener dos personas en cada ciclo.`,
       {period:1,actual:remaining,limit:summerMissing}));
   if(remaining<minMissing)
     result.push(problem('CYCLE_MINIMUM_IMPOSSIBLE',
-      'La elección dejaría menos vacaciones pendientes que las plazas mínimas aún obligatorias en todos los ciclos.',
+      `Quedarían ${remaining} vacaciones por adjudicar y aún hacen falta ${minMissing} para cubrir el mínimo de todos los ciclos (dos en verano, una fuera).`,
       {actual:remaining,limit:minMissing}));
   if(remaining>capacity)
     result.push(problem('INSUFFICIENT_CAPACITY',
-      'No quedan suficientes plazas físicas autorizadas para adjudicar todos los ciclos pendientes.',
+      `Quedarían ${remaining} vacaciones por adjudicar y solo ${capacity} plazas autorizadas libres.`,
       {actual:capacity,limit:remaining}));
   for(const member of state.members){
     const held=new Set([...state.awards,...choices].filter(a=>a.member_id===member.id).map(a=>a.cycle_date));
@@ -595,7 +629,7 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
       (cycleCounts.get(c.date)??0)<Math.min(c.maximum??4,c.fourthExcluded?3:4)).length;
     if(pending>options)
       result.push(problem('PERSON_CYCLES_EXHAUSTED',
-        'No quedan suficientes ciclos distintos disponibles para que una persona complete sus vacaciones sin repetir ciclo.',
+        `${choices.some(c=>c.member_id===member.id)?'A esta persona':'A otro controlador'} le quedarían ${pending} ciclos por adjudicar y solo ${options} ciclos distintos con plaza libre.`,
         {actual:options,limit:pending}));
   }
   return result;
@@ -708,17 +742,30 @@ export function evaluate2027Candidate(
     const strict=strictAlreadyPossible?{status:'possible' as const}
       :canComplete2027(next,{strictRegions:true,maxChecks,exact:options.exact});
     if(strict.status==='impossible')
-      warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',
+      warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',strictRegionCause2027(state,choices,false)??
         'Esta elección impide terminar con el origen de cada ampliación en su propio periodo (lectura estricta de RRHH). La flexibilidad entre periodos es provisional y requiere revisión administrativa.'));
     const summerReference=state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
     const summerDates=new Set(state.cycles.filter(c=>c.period===1).map(c=>c.date));
     const currentSummer=finalWitness.awards.filter(a=>summerDates.has(a.cycle_date)).length;
     const reference=currentSummer===summerReference?{status:'possible' as const}
       :canComplete2027(next,{summerTotal:summerReference,maxChecks,exact:options.exact});
-    if(reference.status==='impossible')
-      warnings.push(problem('SUMMER_REFERENCE','La terminación necesita un total estival distinto de la referencia informativa.',{period:1,limit:summerReference}));
-    else if(reference.status==='indeterminate')
-      warnings.push(problem('SUMMER_UNDETERMINED','No se ha podido comprobar si aún es posible terminar con el total estival de referencia.',{period:1,limit:summerReference}));
+    if(reference.status==='impossible'){
+      // Find the achievable summer total closest to the reference. The witness
+      // total is already proven, so the search only spans the (small) gap.
+      const step=currentSummer<summerReference?-1:1;
+      let closest=currentSummer,exactClosest=true;
+      for(let total=summerReference+step;total!==currentSummer;total+=step){
+        const check=canComplete2027(next,{summerTotal:total,maxChecks,exact:options.exact});
+        if(check.status==='possible'){closest=total;break;}
+        if(check.status==='indeterminate'){exactClosest=false;break;}
+      }
+      const bound=exactClosest?(step<0?'como máximo':'como mínimo'):'en una terminación válida';
+      warnings.push(problem('SUMMER_REFERENCE',step<0
+        ?`Con esta elección el verano ya no podrá cubrir los ${summerReference} turnos de referencia (dos por controlador): ${bound} se cubrirán ${closest}. ${summerReference-closest===1?'El turno restante pasará':`Los ${summerReference-closest} restantes pasarán`} a preverano o posverano. Es informativo: no bloquea la elección.`
+        :`Con esta elección el verano tendrá ${bound} ${closest} turnos, más que los ${summerReference} de referencia (dos por controlador). Es informativo: no bloquea la elección.`,
+        {period:1,actual:closest,limit:summerReference}));
+    }else if(reference.status==='indeterminate')
+      warnings.push(problem('SUMMER_UNDETERMINED',`No se ha podido comprobar si el verano aún puede cubrir los ${summerReference} turnos de referencia (dos por controlador).`,{period:1,limit:summerReference}));
   }
   return {allowed:completion.status==='possible',completion,issues,warnings};
 }

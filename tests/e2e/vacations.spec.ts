@@ -217,7 +217,7 @@ test('el modal de progreso solo aparece si tarda la adjudicación automática',{
  await menu.getByRole('checkbox',{name:'Requerir confirmación antes de adjudicar'}).uncheck();
  await page.route('**/api/election/**',async route=>{
   if(route.request().method()==='POST'&&JSON.parse(route.request().postData()??'{}').action==='choose')
-   await new Promise(resolve=>setTimeout(resolve,900));
+   await new Promise(resolve=>setTimeout(resolve,2000));
   await route.continue();
  });
  await cycle(page,scenario.data.result.cycles[0].date);

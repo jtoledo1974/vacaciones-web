@@ -125,7 +125,7 @@ test('2027 administrative roster edits cannot strand existing awards; denial is 
  const additions=Array.from({length:30},(_,i)=>({code:'NEW'+String(i+1).padStart(2,'0'),label:'Controlador de prueba',seniority:''}));
  await assert.rejects(
   service.mutate(cid,{action:'bulk_members',version:beforeVersion,rows:additions}),
-  /plazas físicas|completación|capacidad|vacaciones restantes/i);
+  /plazas físicas|plazas autorizadas|completación|capacidad|vacaciones restantes/i);
  const after=await service.view(cid);
  assert.equal(after.campaign.version,beforeVersion);
  assert.equal(after.members.length,beforeMembers);
