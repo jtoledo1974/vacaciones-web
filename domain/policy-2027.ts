@@ -73,6 +73,10 @@ function has2027Accounting(state: PolicyState, counts: number[], strictRegions: 
     } else if (value===4)h.four++;
     else return false;
   }
+  return accountingForTally(tally,summerThirdDonorCapacity,strictRegions);
+}
+type PeriodTally={one:number;two:number;three:number;four:number;cycles:number};
+function accountingForTally(tally:PeriodTally[],summerThirdDonorCapacity:number,strictRegions:boolean):boolean {
   const pre=tally[0],summer=tally[1],post=tally[2];
   if(pre.four>1||post.four>1||summer.four>2||pre.one>3||post.one>2||summer.one>0)return false;
   const summerDonorCapacity=summer.two+Math.min(summerThirdDonorCapacity,Math.max(0,2-summer.four));
@@ -113,6 +117,45 @@ function has2027Accounting(state: PolicyState, counts: number[], strictRegions: 
           if(ordinary>=0&&ordinary<=baselineCount)return true;
         }
       }
+    }
+  }
+  return false;
+}
+
+/** Reject impossible occupancy histograms BEFORE constructing a person graph.
+ * The graph still proves the actual distinct-person assignment; arithmetic
+ * alone is never used to accept a campaign. */
+function scenarioAccountingPossible(state:PolicyState,scenario:Scenario,opts:CompletionOptions2027):boolean {
+  const occupied=new Map(state.cycles.map(c=>[c.date,0]));
+  for(const a of state.awards)occupied.set(a.cycle_date,(occupied.get(a.cycle_date)??0)+1);
+  const periods=[0,1,2].map(()=>({n:0,singles:0,fours:0,minThree:0,maxThree:0,eligible:0,eligibleForced:0,other:0,otherForced:0}));
+  for(const [i,c] of state.cycles.entries()){
+    const p=periods[c.period],count=occupied.get(c.date)??0;
+    if(!p)return false;p.n++;
+    const single=scenario.single.has(i),fourth=scenario.fourth.has(i);
+    const minimum=Math.max(single?1:fourth?4:2,c.date===opts.minimumCycle?.date?opts.minimumCycle.occupancy:0,count);
+    const maximum=single?1:fourth?4:Math.min(3,c.maximum??4,c.fourthExcluded?3:4);
+    if(minimum>maximum||maximum>Math.min(c.maximum??4,c.fourthExcluded?3:4))return false;
+    if(single){p.singles++;continue;}if(fourth){p.fours++;continue;}
+    if(minimum>=3)p.minThree++;
+    if(maximum>=3)p.maxThree++;
+    if(c.period===1&&maximum>=3){
+      if(!c.fourthExcluded&&(c.maximum??4)>=4){p.eligible++;if(minimum>=3)p.eligibleForced++;}
+      else {p.other++;if(minimum>=3)p.otherForced++;}
+    }
+  }
+  const bases=periods.map(p=>2*p.n-p.singles+2*p.fours);
+  const total=state.members.reduce((s,m)=>s+m.entitlement,0)-bases.reduce((s,n)=>s+n,0);
+  if(total<periods.reduce((s,p)=>s+p.minThree,0)||total>periods.reduce((s,p)=>s+p.maxThree,0))return false;
+  for(let pre=periods[0].minThree;pre<=periods[0].maxThree;pre++){
+    for(let summer=periods[1].minThree;summer<=periods[1].maxThree;summer++){
+      const post=total-pre-summer;
+      if(post<periods[2].minThree||post>periods[2].maxThree)continue;
+      if(opts.summerTotal!==undefined&&bases[1]+summer!==opts.summerTotal)continue;
+      const threes=[pre,summer,post];
+      const tally=periods.map((p,i)=>({one:p.singles,two:p.n-p.singles-p.fours-threes[i],three:threes[i],four:p.fours,cycles:p.n}));
+      const s=periods[1],minEligible=Math.max(s.eligibleForced,summer-s.other),maxEligible=Math.min(s.eligible,summer-s.otherForced);
+      for(let q=minEligible;q<=maxEligible;q++)if(accountingForTally(tally,q,opts.strictRegions===true))return true;
     }
   }
   return false;
@@ -217,7 +260,7 @@ class Network {
 }
 
 /** Exact integer circulation for one choice of one-person and four-person cycles. */
-function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCycle?:{date:string;occupancy:number},exactCounts?:ReadonlyMap<string,number>):PolicyAward[]|null {
+function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCycle?:{date:string;occupancy:number},exactCounts?:ReadonlyMap<string,number>,strictRegular=false):PolicyAward[]|null {
   const M=state.members.length,C=state.cycles.length;
   const mapM=new Map(state.members.map((m,i)=>[m.id,i])),mapC=new Map(state.cycles.map((c,i)=>[c.date,i]));
   const occupied=new Array(C).fill(0) as number[], mine=range(M).map(()=>new Set<number>());
@@ -252,7 +295,10 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCy
   for(let p=0;p<3;p++){
     const target=p===1&&summerTotal!==undefined ? summerTotal-periodUsed[p] : undefined;
     const lower=target!==undefined ? target : 0;
-    const upper=target!==undefined ? target : remaining;
+    // In a regular territorial allocation every fourth needs a double in
+    // the same outside period: total = 3*n - doubles + fourths <= 3*n.
+    const upper=target!==undefined ? target : strictRegular&&p!==1
+      ?Math.max(0,3*periodSize[p]-periodUsed[p]):remaining;
     if(!bounded(periodBase+p,sink,lower,upper))return null;
   }
   if(!bounded(sink,source,0,remaining))return null;
@@ -301,7 +347,7 @@ export function regularFlowCertificate2027(
  }
  if(byPeriod.some((n,p)=>n>[1,2,1][p]))return null;
  const witness=match(state,{single:new Set(),fourth},
-  opts.summerTotal,opts.minimumCycle);
+  opts.summerTotal,opts.minimumCycle,undefined,opts.strictRegions===true);
  if(witness===null)return null;
  return evaluate2027Final({...state,awards:[...state.awards,...witness]},opts.strictRegions).valid
   ?witness:null;
@@ -321,9 +367,49 @@ const combinations = function* (values:number[],count:number,start=0,picked:numb
  * Strict territorial and fixed-summer checks are used to decide *warnings* on a
  * pending choice, not to reject an otherwise permitted choice.
  */
-export function canComplete2027(state:PolicyState,opts:{
-  strictRegions?:boolean; summerTotal?:number; maxChecks?:number; minimumCycle?:{date:string;occupancy:number}
-}={}):Completion {
+export type CompletionOptions2027={
+  strictRegions?:boolean; summerTotal?:number; maxChecks?:number;
+  minimumCycle?:{date:string;occupancy:number}; exact?:boolean;
+};
+const completionWitnessCache=new Map<string,PolicyAward[]>();
+function witnessFamily(state:PolicyState,opts:CompletionOptions2027):string {
+  return JSON.stringify([OCCUPANCY_POLICY_2027,
+    [...state.cycles].sort((a,b)=>a.date.localeCompare(b.date)),
+    [...state.members].sort((a,b)=>a.id.localeCompare(b.id)),
+    !!opts.strictRegions,opts.summerTotal??null]);
+}
+/** Cached complete allocations are certificates, never cached assumptions. */
+export function canComplete2027(state:PolicyState,opts:CompletionOptions2027={}):Completion {
+  const family=opts.exact?witnessFamily(state,opts):null;
+  const previous=family?completionWitnessCache.get(family):undefined;
+  if(previous&&(!opts.minimumCycle||state.cycles.some(c=>c.date===opts.minimumCycle!.date)&&
+      Number.isInteger(opts.minimumCycle.occupancy)&&opts.minimumCycle.occupancy>=0&&opts.minimumCycle.occupancy<=4)){
+    const fixed=new Set(state.awards.map(a=>a.member_id+'|'+a.cycle_date));
+    const keys=new Set(previous.map(a=>a.member_id+'|'+a.cycle_date));
+    let future=state.awards.every(a=>keys.has(a.member_id+'|'+a.cycle_date))
+      ?previous.filter(a=>!fixed.has(a.member_id+'|'+a.cycle_date)):null;
+    if(!future)future=reassign2027Witness(state,{...state,awards:previous});
+    if(future){
+      const full={...state,awards:[...state.awards,...future]};
+      const summerDates=new Set(state.cycles.filter(c=>c.period===1).map(c=>c.date));
+      if(evaluate2027Final(full,opts.strictRegions).valid&&
+        (opts.summerTotal===undefined||full.awards.filter(a=>summerDates.has(a.cycle_date)).length===opts.summerTotal)&&
+        (!opts.minimumCycle||full.awards.filter(a=>a.cycle_date===opts.minimumCycle!.date).length>=opts.minimumCycle.occupancy)){
+        completionWitnessCache.set(family!,full.awards.map(a=>({...a})));
+        return {status:'possible',checked:0,witness:future.map(a=>({...a}))};
+      }
+    }
+  }
+  const result=solveCompletion2027(state,opts);
+  if(family&&result.status==='possible'){
+    completionWitnessCache.delete(family);
+    completionWitnessCache.set(family,[...state.awards,...result.witness??[]].map(a=>({...a})));
+    if(completionWitnessCache.size>32)completionWitnessCache.delete(completionWitnessCache.keys().next().value!);
+  }
+  return result;
+}
+function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Completion {
+  // Keep the search bounded: an unproved state stays indeterminate, never exhaustive.
   const maxChecks=opts.maxChecks??2000;
   const M=new Map(state.members.map(m=>[m.id,m])), C=new Map(state.cycles.map(c=>[c.date,c]));
   if(state.members.length!==M.size||state.cycles.length!==C.size)return {status:'impossible',checked:0,reason:'Identificadores duplicados'};
@@ -336,6 +422,13 @@ export function canComplete2027(state:PolicyState,opts:{
   }
   if(state.members.some(m=>!Number.isInteger(m.entitlement)||m.entitlement<0||m.entitlement>6||people.get(m.id)!>m.entitlement))return {status:'impossible',checked:0,reason:'Derechos individuales excedidos'};
   for(const c of state.cycles)if(counts.get(c.date)!>Math.min(c.maximum??4,c.fourthExcluded?3:4))return {status:'impossible',checked:0,reason:'Ciclo con ocupación superior al máximo'};
+  // Territorial redistribution preserves the ordinary 2/3 capacity inside
+  // each outside period. Fixed awards can never be removed by a completion.
+  if(opts.strictRegions)for(const p of [0,2]){
+    const dates=new Set(state.cycles.filter(c=>c.period===p).map(c=>c.date));
+    if(state.awards.filter(a=>dates.has(a.cycle_date)).length>3*dates.size)
+      return {status:'impossible',checked:0,reason:'La ocupación fija supera la capacidad territorial ordinaria del periodo'};
+  }
   // A fully allocated campaign needs no combinatorial scenario search.
   // This is also important for publication and review: a timeout must never
   // turn a valid finished allocation into an indeterminate one.
@@ -392,6 +485,8 @@ export function canComplete2027(state:PolicyState,opts:{
     if(exhausted)return null;
     if(p===3){
       if(++checked>maxChecks){exhausted=true;return null;}
+      // Count pruned scenarios too: the budget must bound enumeration itself.
+      if(!scenarioAccountingPossible(state,scenario,opts))return null;
       const extra=match(state,scenario,opts.summerTotal,opts.minimumCycle);if(!extra)return null;
       const end:PolicyState={...state,awards:[...state.awards,...extra]};
       const final=evaluate2027Final(end,opts.strictRegions);
@@ -571,7 +666,7 @@ export function transplant2027Witness(
 /** Evaluate an atomic batch of choices on the same prior state. */
 export function evaluate2027Candidate(
   state:PolicyState,choices:PolicyAward[],maxChecks=2000,
-  knownWitness?:PolicyAward[],includeWarnings=true
+  knownWitness?:PolicyAward[],includeWarnings=true,options:{exact?:boolean}={}
 ):CandidateAssessment {
   const next={...state,awards:[...state.awards,...choices]};
   const immediate=immediate2027Issues(state,choices);
@@ -583,7 +678,7 @@ export function evaluate2027Candidate(
     ?transplant2027Witness(state,choices[0],knownWitness):null;
   const completion:Completion=repaired
     ?{status:'possible',checked:0,witness:repaired}
-    :canComplete2027(next,{maxChecks});
+    :canComplete2027(next,{maxChecks,exact:options.exact});
   const issues:RuleProblem[]=completion.status==='impossible'
     ?[problem('NO_VALID_COMPLETION','Esta combinación impediría completar las vacaciones respetando las reglas.')]:
     completion.status==='indeterminate'
@@ -595,7 +690,7 @@ export function evaluate2027Candidate(
     const finalWitness={...next,awards:[...next.awards,...(completion.witness??[])]};
     const strictAlreadyPossible=evaluate2027Final(finalWitness,true).valid;
     const strict=strictAlreadyPossible?{status:'possible' as const}
-      :canComplete2027(next,{strictRegions:true,maxChecks});
+      :canComplete2027(next,{strictRegions:true,maxChecks,exact:options.exact});
     if(strict.status==='impossible')
       warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',
         'Esta elección impide terminar con el origen de cada ampliación en su propio periodo (lectura estricta de RRHH). La flexibilidad entre periodos es provisional y requiere revisión administrativa.'));
@@ -603,7 +698,7 @@ export function evaluate2027Candidate(
     const summerDates=new Set(state.cycles.filter(c=>c.period===1).map(c=>c.date));
     const currentSummer=finalWitness.awards.filter(a=>summerDates.has(a.cycle_date)).length;
     const reference=currentSummer===summerReference?{status:'possible' as const}
-      :canComplete2027(next,{summerTotal:summerReference,maxChecks});
+      :canComplete2027(next,{summerTotal:summerReference,maxChecks,exact:options.exact});
     if(reference.status==='impossible')
       warnings.push(problem('SUMMER_REFERENCE','La terminación necesita un total estival distinto de la referencia informativa.',{period:1,limit:summerReference}));
     else if(reference.status==='indeterminate')

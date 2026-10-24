@@ -6,6 +6,8 @@ import {availabilityImpact,availabilityByCycle,type AvailabilitySnapshot} from '
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
+import {AuditContext,appliedAudit,auditBefore,auditAfter} from './audit-context.ts';
+export {appliedAudit} from './audit-context.ts';
 
 type Snapshot={format?:string;state:ElectionState|null;preferences:Preference[];awards:any[];requests:any[]};
 type Historical={id:string;action:string;before:Snapshot;after:any;round:number;participants:string[];memberId:string|null};
@@ -33,41 +35,12 @@ function restore(cid:string,s:Snapshot):Statement[]{
 }
 function sameList(a:Preference,b:Preference){return JSON.stringify([a.dates,a.persistent===true])===JSON.stringify([b.dates,b.persistent===true]);}
 const isDecision=(action:string)=>['choose','choose_joint','defer','advance','resolve_tie','reconstruction_step','register_joint','cancel_joint'].includes(action);
-export function appliedAudit(rows:any[]){
- const done:any[]=[],redo:{original:any;undo:any}[]=[];
- const byId=new Map(rows.map(row=>[row.id,row]));
- for(const row of rows){
-  if(row.action==='election_undo'){
-   const original=done.pop();if(original)redo.push({original,undo:row});
-  }else if(row.action==='election_redo'){
-   const item=redo.pop();if(item)done.push(item.original);
-  }else if(row.action==='reconstruction_start'){
-   const after=JSON.parse(row.after_json??'{}'),index=done.findIndex(e=>e.id===after.targetId);
-   const keep=index>=0?index:after.keepCount;
-   if(Number.isInteger(keep)&&keep>=0)done.splice(keep);redo.length=0;
-  }else if(row.action==='reconstruction_back'){
-   done.pop();redo.length=0;
-  }else if(row.action==='reconstruction_cancel'){
-   const after=JSON.parse(row.after_json??'{}');
-   const index=done.findIndex(e=>e.id===after.targetId);
-   const keep=index>=0?index:after.keepCount;
-   if(Number.isInteger(keep)&&keep>=0)done.splice(keep);
-   for(const id of after.originalIds??[]){const original=byId.get(id);if(original)done.push(original);}
-   redo.length=0;
-  }else if(row.before_json&&JSON.parse(row.before_json).format==='election-undo-v1'){
-   done.push(row);redo.length=0;
-  }else if(row.action==='resolve_tie'){
-   redo.length=0;
-  }
- }
- return {done,undo:done.at(-1)??null,redo:redo.at(-1)?.undo??null};
-}
 function historical(d:any,row:any):Historical|null{
  if(!isDecision(row.action)||!row.before_json)return null;
- const before=JSON.parse(row.before_json) as Snapshot;
+ const before=auditBefore(row) as Snapshot;
  if(before.format!=='election-undo-v1'||!before.state)return null;
  let turn;try{turn=currentTurn(ctx(d,before.awards,before.requests),before.state);}catch{return null;}
- const after=JSON.parse(row.after_json??'{}');
+ const after=auditAfter(row)??{};
  return {id:row.id,action:row.action,before,after,round:after?.joint?.round??turn.round,participants:after?.joint?.members??turn.pendingTie??turn.participants,memberId:['register_joint','cancel_joint'].includes(row.action)?null:turn.memberId};
 }
 export class ReconstructionService{
@@ -78,8 +51,8 @@ export class ReconstructionService{
  }
  private write(cid:string,s:Session):Statement{return {sql:'INSERT INTO reconstruction_sessions(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',args:[cid,JSON.stringify(s)]};}
  private async auditRows(cid:string){return this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);}
- async candidates(d:any){
-  const rows=await this.auditRows(d.campaign.id),current=appliedAudit(rows);
+ async candidates(d:any,audit?:AuditContext){
+  const rows=await (audit?.rows()??this.auditRows(d.campaign.id)),current=audit?await audit.replay():appliedAudit(rows);
   const currentIds=new Set(current.done.map(row=>row.id));
   return rows.map(row=>historical(d,row)).filter((entry):entry is Historical=>!!entry&&!['register_joint','cancel_joint'].includes(entry.action)).map(entry=>({
    id:entry.id,action:entry.action,round:entry.round,memberIds:entry.participants,choices:entry.after.choices??[],cursor:entry.before.state?.cursor??0,archived:!currentIds.has(entry.id)
@@ -141,10 +114,10 @@ export class ReconstructionService{
   }
   return result;
  }
- async view(d:any,raw:{state:ElectionState|null;preferences:Preference[]},skipProof=false){
+ async view(d:any,raw:{state:ElectionState|null;preferences:Preference[]},skipProof=false,audit?:AuditContext){
   const s=await this.read(d.campaign.id);
   if(this.actor.preview||!canWrite(this.actor,d.campaign.team_id))return {active:!!s&&s.status!=='completed'};
-  const candidates=await this.candidates(d);
+  const candidates=await this.candidates(d,audit);
   if(!s)return {active:false,candidates};
   const active=s.status!=='completed',state=raw.state;
   const pick=active&&state?this.pick(d,s,state,d.awards,d.requests,skipProof):null;

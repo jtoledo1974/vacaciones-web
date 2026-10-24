@@ -156,3 +156,20 @@ test('impacto auditado: el timeline conserva solo decisiones vigentes tras undo 
   row('redo','election_redo',null,{})],ctx,state(2));
  assert.equal(redone.find(e=>e.id==='second')?.impact?.changes[0].delta,null);
 });
+
+test('timeline projects impact summaries without removing certified audit snapshots',()=>{
+ const a=award('a','A','2027-01-08');
+ const ctx:ElectionContext={year:2027,team:'A',config:defaultConfig(2027),
+  members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[a]};
+ const impact={policyVersion:'lecs-2027-occupancy-v2',status:'exact',
+  campaignVersionBefore:2,campaignVersionAfter:3,changes:[],events:[],
+  availabilityBefore:{privateSnapshot:'before'},availabilityAfter:{privateSnapshot:'after'}};
+ const decision=row('choice','choose',snap(0,[]),{choices:[choice('A',a.cycle_date)],impact});
+ const persisted=decision.after_json;
+ const event=buildElectionTimeline([decision],ctx,state(1))[0];
+ assert.deepEqual(event.impact,{policyVersion:impact.policyVersion,status:impact.status,
+  campaignVersionBefore:2,campaignVersionAfter:3,changes:[],events:[]});
+ assert.equal(decision.after_json,persisted);
+ assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityBefore,impact.availabilityBefore);
+ assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityAfter,impact.availabilityAfter);
+});

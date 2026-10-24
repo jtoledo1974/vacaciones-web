@@ -170,6 +170,44 @@ test('confirmación rápida es opcional y local únicamente en simulaciones',{ta
  await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
 });
 
+test('una elección confirmada no espera el índice ni pierde su éxito si falla su actualización',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page);await open(page,s.id);await activate(page);
+ await page.route('**/api/index',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Metadatos temporalmente no disponibles'})}));
+ await cycle(page,s.data.result.cycles[0].date);await confirm(page,'Confirmar ciclo');
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ await expect(page.getByRole('status').filter({hasText:'Elección confirmada'})).toBeVisible();
+ await expect(page.getByText(/No se ha confirmado la adjudicación/)).toHaveCount(0);
+ await expect(page.locator('.vac2-cycle').first()).toBeEnabled();
+ expect((await read(request,s.id)).awards).toHaveLength(1);
+});
+
+test('los pasos automáticos confirmados se muestran antes de terminar y se conservan si falla continuar',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date);
+ for(const person of [1,2])await election(request,s.id,{action:'preferences',memberId:s.data.members[person].id,dates:[dates[person]],persistent:false});
+ await open(page,s.id);await activate(page);
+ let advances=0,release!:()=>void;
+ const held=new Promise<void>(resolve=>{release=resolve;});
+ await page.route('**/api/election/**',async route=>{
+  const body=route.request().method()==='POST'?route.request().postDataJSON():null;
+  if(body?.action==='advance'&&++advances===2){
+   await held;
+   await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Continuación temporalmente no disponible'})});
+  }else await route.continue();
+ });
+ try{
+  await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
+  await expect.poll(()=>advances).toBe(2);
+  await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
+  await expect(page.locator('.vac2-cycle').first()).toBeDisabled();
+ }finally{release();}
+ await expect(page.getByText('La operación se ha guardado, pero no se han completado los automatismos. Puedes continuar los pendientes sin repetir la elección.')).toBeVisible();
+ await expect(page.getByRole('button',{name:'Continuar automatismos',exact:true})).toBeEnabled();
+ await expect(page.getByText(/No se ha confirmado la adjudicación/)).toHaveCount(0);
+ const saved=await read(request,s.id);
+ expect(saved.awards).toHaveLength(2);
+ expect(saved.election.turn.memberId).toBe(s.data.members[2].id);
+});
+
 test('el modal de progreso solo aparece si tarda la adjudicación automática',{tag:'@both'},async({page,request})=>{
  const scenario=await setup(request,page);
  await open(page,scenario.id);

@@ -9,6 +9,7 @@ import {ApiError} from './errors.ts';
 import {buildElectionTimeline} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
 import {historicalAvailability} from './availability-history.ts';
+import {AuditContext} from './audit-context.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
@@ -40,7 +41,8 @@ export class ElectionService{
   const restricted=new Set(linked.map((row:any)=>row.id));
   return d.members.filter((m:any)=>m.id===mine||!restricted.has(m.id)).map((m:any)=>m.id);
  }
- async history(cid:string){
+ async history(cid:string,audit?:AuditContext){
+  if(audit)return audit.replay();
   // Replay the append-only audit to recover independent undo and redo stacks.
   // A new decision after an undo creates a new branch and clears only the redo stack.
   const rows=await this.repo.all('SELECT id,action,before_json,after_json FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
@@ -146,12 +148,12 @@ export class ElectionService{
   const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
   return {version,...previewChoiceImpact(allocation,choices)};
  }
- async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|null;skipAvailabilityForPendingAutomatic?:boolean}={}){
+ async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|null;skipAvailabilityForPendingAutomatic?:boolean;auditContext?:AuditContext}={}){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
   const result=options.result??calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards,{skip2027Proof:options.restored});
-  const reconstruction=await this.reconstruction().view(d,raw,options.restored===true);
+  const reconstruction=await this.reconstruction().view(d,raw,options.restored===true,options.auditContext);
   // Determine whether the next automatic turn can be resolved by its stored
   // preferences BEFORE starting the table-wide global availability searches.
   // The intermediate POST response is not rendered: the client immediately
@@ -211,13 +213,13 @@ export class ElectionService{
   }else if(focus&&!skipFullAvailability)
    available=result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date);
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
-  const history=manage?await this.history(cid):null;
+  const history=manage?await this.history(cid,options.auditContext):null;
   // Replay persisted actions rather than inferring turns from individual awards.
   // Return all events; the UI reveals older entries incrementally.
   let timeline:ReturnType<typeof buildElectionTimeline>=[];
   if(manage){
-   const rows=await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
-   timeline=buildElectionTimeline(rows as any,ctx,raw.state);
+   const rows=await (options.auditContext?.rows()??this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]));
+   timeline=buildElectionTimeline(rows as any,ctx,raw.state,history!);
   }
 
   const cycleAvailability=ctx.year===2027&&!skipFullAvailability?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;

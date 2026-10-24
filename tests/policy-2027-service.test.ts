@@ -64,9 +64,13 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  const auditChoice=chosen.election.timeline.find((event:any)=>event.kind==='choice'&&
   event.choices.some((choice:any)=>choice.member_id===user&&choice.cycle_date===preferred[0]));
  assert.ok(auditChoice?.impact,'the impact was committed with the choice');
- assert.deepEqual(auditChoice.impact.availabilityBefore.cycles,baselineAvailability.cycles,
+ // The timeline carries only the summary; the full snapshots stay in the audit.
+ assert.equal(auditChoice.impact.availabilityBefore,undefined);
+ const [auditRow]=await repo.all('SELECT after_json FROM audit WHERE id=?',[auditChoice.id]);
+ const persisted=JSON.parse(auditRow.after_json).impact;
+ assert.deepEqual(persisted.availabilityBefore.cycles,baselineAvailability.cycles,
   'persist the complete availability previously verified before the choice');
- assert.deepEqual(auditChoice.impact.availabilityAfter.cycles,chosen.election.cycleAvailability.cycles,
+ assert.deepEqual(persisted.availabilityAfter.cycles,chosen.election.cycleAvailability.cycles,
   'persist the verified availability immediately after the choice');
  assert.deepEqual(auditChoice.impact.changes,preflight.impact?.changes);
  await assert.rejects(service.election().previewImpact(cid,
@@ -93,11 +97,11 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  chosen=await service.view(cid);
  assert.equal(chosen.election.cycleAvailability.checked,0,
   'redo must not rerun global feasibility either');
- assert.deepEqual(chosen.election.cycleAvailability.cycles,auditChoice.impact.availabilityAfter.cycles,
+ assert.deepEqual(chosen.election.cycleAvailability.cycles,persisted.availabilityAfter.cycles,
   'redo must show the previously verified after-state');
  const redoApi=await service.election().availability(cid);
  assert.equal(redoApi.checked,0,'the availability endpoint must not run a new proof after redo');
- assert.deepEqual(redoApi.cycles,auditChoice.impact.availabilityAfter.cycles);
+ assert.deepEqual(redoApi.cycles,persisted.availabilityAfter.cycles);
  assert.equal(chosen.awards.length,1);
  assert.equal(chosen.awards[0].cycle_date,preferred[0]);
  assert.deepEqual(chosen.election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);

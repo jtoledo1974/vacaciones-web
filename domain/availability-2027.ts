@@ -69,7 +69,7 @@ export type PreviewChoiceImpact = {
  warnings: RuleProblem[];
  impact: AvailabilityImpact | null;
 };
-export type AvailabilityOptions = {maxChecks?: number; useCache?: boolean};
+export type AvailabilityOptions = {maxChecks?: number; useCache?: boolean; exact?:boolean};
 
 const cache = new Map<string, AvailabilitySnapshot>();
 const CACHE_LIMIT = 96;
@@ -84,11 +84,11 @@ const reason = (
  ...(limit!==undefined?{limit}:{})
 });
 
-function keyFor(state:PolicyState,maxChecks:number):string {
+function keyFor(state:PolicyState,maxChecks:number,exact=false):string {
  const cycles=[...state.cycles].sort((a,b)=>a.date.localeCompare(b.date));
  const members=[...state.members].sort((a,b)=>a.id.localeCompare(b.id));
  const awards=[...state.awards].map(a=>a.member_id+'|'+a.cycle_date).sort();
- return JSON.stringify([OCCUPANCY_POLICY_2027,maxChecks,cycles,members,awards]);
+ return JSON.stringify([OCCUPANCY_POLICY_2027,maxChecks,exact,cycles,members,awards]);
 }
 function capacity(state:PolicyState,index:number):number {
  const c=state.cycles[index];
@@ -258,9 +258,10 @@ export function restoredAvailabilityByCycle2027(state:PolicyState):AvailabilityS
 /** Evaluate all cycle capacities from a common verified completion witness. */
 export function availabilityByCycle(state:PolicyState,options:AvailabilityOptions={}):AvailabilitySnapshot {
  const maxChecks=options.maxChecks??500;
- const cacheKey=keyFor(state,maxChecks);
+ const exact=options.exact===true;
+ const cacheKey=keyFor(state,maxChecks,exact);
  if(options.useCache!==false&&cache.has(cacheKey))return cache.get(cacheKey)!;
- const baseline=canComplete2027(state,{maxChecks});
+ const baseline=canComplete2027(state,{maxChecks,exact});
  // One shared budget for the entire table. Do not spend maxChecks for
  // EACH candidate on EVERY page view (potentially 100+ full searches).
  let remainingChecks=Math.max(0,maxChecks-baseline.checked);
@@ -305,9 +306,9 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
     if(repaired){lower=k;break;}
     // Reserve enough time for the rest of the table, even when a hard
     // target needs exponentially many exceptional-cycle scenarios.
-    if(remainingChecks<=0)break;
+    if(!exact&&remainingChecks<=0)break;
     const allowance=Math.min(maxChecks>500?512:32,remainingChecks);
-    const check=canComplete2027(state,{maxChecks:allowance,minimumCycle:{date:c.date,occupancy:position}});
+    const check=canComplete2027(state,{maxChecks:allowance,exact,minimumCycle:{date:c.date,occupancy:position}});
     checked+=check.checked;
     remainingChecks=Math.max(0,remainingChecks-check.checked);
     if(check.status==='impossible')upper=Math.min(upper,k-1);
@@ -398,7 +399,7 @@ function firstAwardSymmetry(
   checked:0
  };
  if(options.useCache!==false)
-  snapshotCache(keyFor(after,options.maxChecks??500),snapshot);
+    snapshotCache(keyFor(after,options.maxChecks??500,options.exact===true),snapshot);
  return snapshot;
 }
 
@@ -478,7 +479,8 @@ export function availabilityImpact(
 export function previewChoiceImpact(
  state:PolicyState,choices:PolicyAward[],options:AvailabilityOptions={}
 ):PreviewChoiceImpact {
- const assessment=evaluate2027Candidate(state,choices,options.maxChecks??2000);
+ const assessment=evaluate2027Candidate(state,choices,options.maxChecks??2000,undefined,true,
+  {exact:options.exact===true});
  return {policyVersion:OCCUPANCY_POLICY_2027,
   allowed:assessment.allowed,completionStatus:assessment.completion.status,
   issues:assessment.issues,warnings:assessment.warnings,

@@ -57,6 +57,13 @@
       "when": 1792441800000,
       "tag": "0007_reconstruction_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792868400000,
+      "tag": "0008_audit_campaign",
+      "breakpoints": true
     }
   ]
 }

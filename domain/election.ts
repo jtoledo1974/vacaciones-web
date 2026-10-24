@@ -172,7 +172,8 @@ export function choiceIssues(ctx:ElectionContext,memberId:string,dates:string[])
  if(dates.some(d=>ctx.awards.some(a=>a.member_id===memberId&&a.cycle_date===d)))return ['Este controlador ya tiene uno de esos ciclos'];
  if(ctx.year===2027){
   const state=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
-  const check=evaluate2027Candidate(state,dates.map(cycle_date=>({member_id:memberId,cycle_date})));
+  // Admission consumes issues only; informative warnings belong to preflight.
+  const check=evaluate2027Candidate(state,dates.map(cycle_date=>({member_id:memberId,cycle_date})),2000,undefined,false,{exact:true});
   return check.issues.map(i=>i.message);
  }
  const awards=[...ctx.awards,...dates.map((d,i)=>({id:'candidate-'+i,member_id:memberId,cycle_date:d}))];
@@ -200,7 +201,7 @@ export function chooseJoint(ctx:ElectionContext,input:ElectionState,entries:Join
  if(ctx.year===2027){
   // Validate the whole proposed batch, not its members sequentially.
   const check=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),
-   choices.map(c=>({member_id:c.member_id,cycle_date:c.cycle_date})));
+   choices.map(c=>({member_id:c.member_id,cycle_date:c.cycle_date})),2000,undefined,false,{exact:true});
   if(!check.allowed)throw new Error(check.issues.map(i=>i.message).join('; '));
  }else{
   const incremental:Choice[]=[];
