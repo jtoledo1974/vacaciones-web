@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {defaultConfig} from '../domain/defaults.ts';
-import {calendar} from '../domain/calendar.ts';
+import {defaultConfig,copyConfig} from '../domain/defaults.ts';
+import {calendar,validateConfig} from '../domain/calendar.ts';
 import {calculate} from '../domain/vacations.ts';
-import {policyState2027} from '../domain/election-2027.ts';
+import {policyState2027,cyclesEntitlement2027} from '../domain/election-2027.ts';
+import {currentTurn,type ElectionState} from '../domain/election.ts';
 import {HR_2027, hr2027Period, hr2027FourthExcluded} from '../domain/hr-2027.ts';
 import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,immediate2027Issues,type PolicyState} from '../domain/policy-2027.ts';
 
@@ -224,4 +225,35 @@ test('warnings remain visible through calculate during a real-sized incomplete 2
  assert.ok(view.policyWarnings.some(w=>w.code==='PRE_SINGLE_3'),JSON.stringify(view.policyWarnings));
  assert.ok(view.warnings.some(text=>text.includes('Preverano')));
  assert.equal(view.issues.length,0,view.issues.join('; '));
+});
+
+test('2027 individual HR exceptions must be authorized, change effective rights and never copy to another year',()=>{
+ const config=defaultConfig(2027);
+ config.individualEntitlements={X:{cycles:0,authorization:'Acuerdo específico RRHH referencia prueba R-27'},Y:{cycles:3,authorization:'Acuerdo específico RRHH referencia prueba S-27'}};
+ assert.doesNotThrow(()=>validateConfig(config,2027));
+ const members=[{id:'x',code:'X',seniority:''},{id:'y',code:'Y',seniority:''}];
+ assert.equal(cyclesEntitlement2027(config,members[0]),0);
+ assert.equal(cyclesEntitlement2027(config,members[1]),3);
+ const snapshot=policyState2027(2027,'A',config,members,[]);
+ assert.deepEqual(snapshot.members.map(m=>m.entitlement),[0,3]);
+ assert.equal(calculate(2027,'A',config,members,[],[]).totals.necessary,3);
+ const next=copyConfig(config,2027,2028);
+ assert.equal(next.individualEntitlements,undefined);
+ config.individualEntitlements.X.authorization='';
+ assert.throws(()=>validateConfig(config,2027),/excepción individual/);
+ assert.throws(()=>validateConfig({...config,individualEntitlements:{X:{cycles:3,authorization:'Documento RRHH referencia R-27'}}},2028),/este ejercicio/);
+});
+
+test('2027 election skips controllers with approved lower entitlement without changing other members',()=>{
+ const config=defaultConfig(2027);
+ config.individualEntitlements={X:{cycles:0,authorization:'Autorización de RRHH específica para X'}};
+ const members=[{id:'x',code:'X',seniority:''},{id:'y',code:'Y',seniority:''}];
+ const state:ElectionState={
+  status:'active',order:['x','y'],cursor:0,credits:{},source:'Prueba documentada',
+  allowDeferral:true
+ };
+ const turn=currentTurn({year:2027,team:'A',config,members,requests:[],awards:[]},state);
+ assert.equal(turn.memberId,'y');
+ assert.equal(turn.needed,1);
+ assert.equal(turn.state.cursor,1);
 });
