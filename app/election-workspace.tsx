@@ -417,10 +417,10 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
        <ul>{election.cycleAvailability.cycles[detail.date].slots.map((slot:any)=><li key={slot.position}><strong>{slot.position}ª plaza:</strong> {slotExplanation(slot)}</li>)}</ul>
       </details>}
      </>}
-     {data.campaign.year===2027&&mode==='choose'&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)&&
-      <p className="alert warning" role="status">{election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'}</p>}
      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
-     {message&&<p role="status" className="alert warning">{message}</p>}
+     {(message||(data.campaign.year===2027&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)
+       ?election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'
+       :''))&&<p role="status" className="alert warning">{message||(election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.')}</p>}
      {mode==='choose'&&canChoose&&<>
       {simulation&&quickMode&&<p className="election-auto-notice">La adjudicación se realiza automáticamente al completar todos los ciclos de este turno.</p>}
       {turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}
