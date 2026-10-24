@@ -304,7 +304,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
      <h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2>
      <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {data.campaign.year===2027
-      ?'Hasta '+Math.max(0,detail.max-detail.occupied)+' plazas adicionales bajo el máximo local, sujetas a las reglas globales'
+      ?'Plazas ocupadas; consulta debajo la disponibilidad global demostrada'
       :Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
      {data.campaign.year===2027&&<>
       <p><strong>Disponibilidad global:</strong> {cycleAvailability(detail,election.cycleAvailability,2027).description}</p>
