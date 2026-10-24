@@ -146,11 +146,18 @@ export class ElectionService{
   const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
   return {version,...previewChoiceImpact(allocation,choices)};
  }
- async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|null}={}){
+ async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|null;skipAvailabilityForPendingAutomatic?:boolean}={}){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
   const result=options.result??calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards,{skip2027Proof:options.restored});
+  const reconstruction=await this.reconstruction().view(d,raw,options.restored===true);
+  // Determine whether the next automatic turn can be resolved by its stored
+  // preferences BEFORE starting the table-wide global availability searches.
+  // The intermediate POST response is not rendered: the client immediately
+  // sends the next advance request. Normal GET and final POST stay complete.
+  const pendingAutomatic=!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences));
+  const skipFullAvailability=!!options.skipAvailabilityForPendingAutomatic&&pendingAutomatic;
   // Per-cell availability never enumerates optional strict-territorial or
   // informative summer-warning alternatives. Only the actual selected batch
   // needs their exhaustive review at preflight and commit.
@@ -160,7 +167,7 @@ export class ElectionService{
   const availabilityWarnings:Record<string,unknown>={};
   const availabilityPending:string[]=[];
   let available:string[]=[];
-  if(focus&&ctx.year===2027){
+  if(focus&&ctx.year===2027&&!skipFullAvailability){
    const allocation=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
    if(options.restored){
     for(const cycle of result.cycles){
@@ -184,11 +191,10 @@ export class ElectionService{
     }else availabilityReasons[cycle.date]=diagnostic.issues.map(i=>i.message).join('; ')||'No disponible en el contexto actual';
    }
    }
-  }else if(focus)
+  }else if(focus&&!skipFullAvailability)
    available=result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date);
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid):null;
-  const reconstruction=await this.reconstruction().view(d,raw,options.restored===true);
   // Replay persisted actions rather than inferring turns from individual awards.
   // Return all events; the UI reveals older entries incrementally.
   let timeline:ReturnType<typeof buildElectionTimeline>=[];
@@ -197,9 +203,9 @@ export class ElectionService{
    timeline=buildElectionTimeline(rows as any,ctx,raw.state);
   }
 
-  const cycleAvailability=ctx.year===2027?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
+  const cycleAvailability=ctx.year===2027&&!skipFullAvailability?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
