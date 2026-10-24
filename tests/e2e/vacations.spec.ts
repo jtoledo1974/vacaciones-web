@@ -214,6 +214,21 @@ test('integración: dos aplazamientos permiten elegir tres ciclos desde el calen
  if(!process.env.CI)await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
 });
 
+
+test('vista de controlador distingue Mis preferencias de la navegación administrativa',async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);
+ await page.getByLabel('Probar simulación como controlador').selectOption('QA_A');
+ await expect(page.getByText('Vista como controlador QA_A')).toBeVisible();
+ const tabs=page.getByRole('group',{name:'Vista de vacaciones'});
+ const mine=tabs.getByRole('button',{name:'Mis preferencias',exact:true});
+ await expect(mine).toBeVisible();
+ await expect(tabs.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
+ await mine.click();
+ await expect(mine).toHaveAttribute('aria-pressed','true');
+ await expect(page.locator('.preferences-panel')).toBeVisible();
+});
+
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
  const s=await setup(request,page);await open(page,s.id);
  const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
