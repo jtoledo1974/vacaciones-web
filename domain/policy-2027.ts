@@ -5,7 +5,7 @@
  * A witness contains all additional person/cycle assignments. A failed
  * bounded search is INDETERMINATE, never silently treated as impossible.
  */
-export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v1' as const;
+export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v2' as const;
 export type Period2027 = 0 | 1 | 2;
 export type PolicyCycle = { date: string; period: Period2027; fourthExcluded?: boolean; maximum?: number };
 export type PolicyMember = { id: string; entitlement: number };
@@ -37,7 +37,88 @@ const problem = (code: string, message: string, other: Partial<RuleProblem> = {}
 const range = (size: number): number[] => Array.from({ length: size }, (_, i) => i);
 type Scenario = { single: Set<number>; fourth: Set<number> };
 
-export function evaluate2027Final(state: PolicyState, strictPre = false): FinalAssessment {
+/**
+ * Existential, order-independent accounting of additional placements.
+ *
+ * The ordinary starting histogram has two or three places per off-summer
+ * cycle, with conventional third places pooled across PRE and POST.
+ * PRE permits two distinct extra-third destinations and a separate fourth;
+ * unlike POST, its fourth MUST NOT create another one-person cycle.
+ * POST's third and fourth can be chained onto the same destination.
+ *
+ * Reversing each optional extra placement selects a recipient (final 3/4)
+ * and a source (final 1/2 outside, or a final 2/3 in summer under the
+ * provisional cross-period policy). There are at most five operations, so
+ * counting source types avoids factorial assignment histories.
+ *
+ * strictRegions compares the same allocation against the territorial
+ * interpretation: each permission's source remains in its own period.
+ * This is not the withdrawn "maximum two PRE singles" interpretation.
+ * The summer reference of two per person is never a hard total.
+ */
+function has2027Accounting(state: PolicyState, counts: number[], strictRegions: boolean): boolean {
+  const tally = [0,1,2].map(p=>({
+    one:0,two:0,three:0,four:0,cycles:0
+  }));
+  let summerThirdDonorCapacity=0;
+  for (let i=0;i<state.cycles.length;i++) {
+    const cycle=state.cycles[i], value=counts[i], period=cycle.period;
+    if (period!==0&&period!==1&&period!==2) return false;
+    const h=tally[period]; h.cycles++;
+    if (value===1)h.one++;
+    else if (value===2)h.two++;
+    else if (value===3) {
+      h.three++;
+      if(period===1&&!cycle.fourthExcluded&&(cycle.maximum??4)>=4)summerThirdDonorCapacity++;
+    } else if (value===4)h.four++;
+    else return false;
+  }
+  const pre=tally[0],summer=tally[1],post=tally[2];
+  if(pre.four>1||post.four>1||summer.four>2||pre.one>3||post.one>2||summer.one>0)return false;
+  const summerDonorCapacity=summer.two+Math.min(summerThirdDonorCapacity,Math.max(0,2-summer.four));
+  const singles=pre.one+post.one;
+  const baselineCount=pre.cycles+post.cycles;
+  // Distinct PRE third destinations are final threes. A PRE fourth is
+  // necessarily a fourth destination, never chained with an extra third.
+  for(let preThird=0;preThird<=Math.min(2,pre.three);preThird++){
+    for(let postThird=0;postThird<=Math.min(1,post.three);postThird++){
+      for(let postChain=0;postChain<=post.four;postChain++){
+        if(postThird+postChain>1)continue;
+        const operations=preThird+pre.four+postThird+postChain+post.four;
+        if(operations<singles)continue;
+        const otherDonors=operations-singles;
+        // The PRE EC4 donor must remain at least double in the final
+        // allocation. It cannot create another one-person cycle.
+        if(otherDonors<pre.four)continue;
+        const baselineThirdsWithoutDoubleDonors=
+          pre.three+post.three-preThird-postThird+pre.four+post.four*(1-postChain);
+        if(strictRegions) {
+          // PRE EC3 takes its source from a PRE one; its EC4 takes a
+          // PRE two. POST's EC3 takes a POST one, while its EC4 may
+          // take either a POST one or a POST two.
+          if(pre.one!==preThird||pre.two<pre.four)continue;
+          const postFourthFromOne=post.one-(postThird+postChain);
+          if(postFourthFromOne<0||postFourthFromOne>post.four)continue;
+          const postFourthFromTwo=post.four-postFourthFromOne;
+          if(post.two<postFourthFromTwo)continue;
+          const ordinary=baselineThirdsWithoutDoubleDonors+pre.four+postFourthFromTwo;
+          if(ordinary>=0&&ordinary<=baselineCount)return true;
+          continue;
+        }
+        const outsideDoubles=pre.two+post.two;
+        const minOutside=Math.max(0,otherDonors-summerDonorCapacity);
+        const maxOutside=Math.min(otherDonors,outsideDoubles);
+        for(let doubles=minOutside;doubles<=maxOutside;doubles++){
+          const ordinary=baselineThirdsWithoutDoubleDonors+doubles;
+          if(ordinary>=0&&ordinary<=baselineCount)return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+export function evaluate2027Final(state: PolicyState, strictRegions = false): FinalAssessment {
   const issues: RuleProblem[] = [], warnings: RuleProblem[] = [];
   const dates = new Map(state.cycles.map((c, i) => [c.date, i]));
   const ids = new Map(state.members.map((m, i) => [m.id, i]));
@@ -84,45 +165,20 @@ export function evaluate2027Final(state: PolicyState, strictPre = false): FinalA
     issues.push(problem('SUMMER_SINGLE', 'En verano todos los ciclos requieren al menos dos personas.', {period:1,actual:singles[1],limit:0}));
   if (singles[2] > 2)
     issues.push(problem('POST_SINGLE_LIMIT', 'Postverano permite como máximo dos ciclos con una persona.', {period:2,actual:singles[2],limit:2}));
-  if (singles[0] > (strictPre ? 2 : 3))
-    issues.push(problem('PRE_SINGLE_LIMIT', 'Preverano supera el máximo de ciclos con una persona.', {period:0,actual:singles[0],limit:strictPre?2:3}));
-  if (!strictPre && singles[0] === 3)
-    warnings.push(problem('PRE_SINGLE_3', 'Preverano necesita tres ciclos con una persona; permitido con revisión administrativa frente al criterio de dos.', {period:0,actual:3,limit:2}));
-  // Accounting witness: reverse the authorised redistributions on the FINAL
-  // histogram. The base then consists exclusively of ordinary 2/3 cycles.
-  //
-  // EC3: (1,3) -> (2,2)
-  // EC4: (1,4) -> (2,3) OR (2,4) -> (3,3)
-  //
-  // Crucially, we are proving that such a base EXISTS. No claim is made
-  // about which historical controller donated a particular place.
-  // Conventional thirds may lie anywhere across both outside periods.
-  for (const p of [0, 2] as const) {
-    const ones=singles[p], fours=fourth[p];
-    const twos=state.cycles.reduce((n,c,i)=>n+(c.period===p&&counts[i]===2?1:0),0);
-    const threes=ordinary[p];
-    let hasWitness=false;
-    // Via 1/4 consumes a single in the reversed accounting, via 2/4 a double.
-    for (let viaOne=0;viaOne<=Math.min(ones,fours);viaOne++) {
-      const thirdMoves=ones-viaOne, fourthViaTwo=fours-viaOne;
-      // One EC4 replaces one EC3 in pre. The contested third single in
-      // relaxed pre is granted one extra accounting move, not an extra EC4.
-      const thirdBudget=p===0?2-fours+(!strictPre&&ones===3?1:0):1;
-      if (thirdMoves>thirdBudget||threes<thirdMoves||twos<fourthViaTwo)
-        continue;
-      hasWitness=true;break;
-    }
-    if(!hasWitness)
-      issues.push(problem('REDISTRIBUTION_WITNESS',
-       'No existe reparto ordinario de ciclos de dos/tres que justifique las redistribuciones autorizadas.',
-       {period:p,actual:ones,limit:p===0?(strictPre?2:3):2}));
-  }
-  const outsideCount=n[0]+n[2], outsideTotal=sums[0]+sums[2];
-  const conventionalThirds=outsideTotal-2*outsideCount;
-  if(conventionalThirds<0||conventionalThirds>outsideCount)
-    issues.push(problem('ORDINARY_THIRD_POOL',
-      'La bolsa compartida de terceras plazas ordinarias fuera del verano no admite este total.',
-      {actual:conventionalThirds,limit:outsideCount}));
+  if (singles[0] > 3)
+    issues.push(problem('PRE_SINGLE_LIMIT', 'Preverano admite como máximo tres ciclos con una persona.', {period:0,actual:singles[0],limit:3}));
+  // A cap of three PRE singles is NOT a third EC3 permission.
+  // Both applied and strict evaluations use the same ordinary pool.
+  const accounting=has2027Accounting(state,counts,strictRegions);
+  if(!accounting)
+    issues.push(problem('REDISTRIBUTION_WITNESS',
+      strictRegions
+        ?'Este reparto no admite justificación con origen y destino de cada permiso en el mismo periodo (lectura territorial estricta de RRHH).'
+        :'No existe un reparto ordinario que justifique las ampliaciones adicionales, sus destinos y sus fuentes autorizadas.',
+      {period:0}));
+  if(!strictRegions&&accounting&&!has2027Accounting(state,counts,true))
+    warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',
+      'La distribución es admisible con flexibilidad entre periodos autorizada provisionalmente por el responsable, pero no cumple la interpretación territorial estricta expuesta por RRHH. Requiere revisión administrativa.'));
   const summerTotal = sums[1], summerReference = state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
   if (summerTotal !== summerReference)
     warnings.push(problem('SUMMER_REFERENCE', 'La distribución estival difiere de la referencia informativa de dos ciclos por persona.', {period:1,actual:summerTotal,limit:summerReference}));
@@ -194,8 +250,8 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number):PolicyAw
   }
   for(let p=0;p<3;p++){
     const target=p===1&&summerTotal!==undefined ? summerTotal-periodUsed[p] : undefined;
-    const lower=target!==undefined ? target : p===1 ? 0 : Math.max(0,2*periodSize[p]-periodUsed[p]);
-    const upper=target!==undefined ? target : p===1 ? remaining : Math.min(remaining,3*periodSize[p]-periodUsed[p]);
+    const lower=target!==undefined ? target : 0;
+    const upper=target!==undefined ? target : remaining;
     if(!bounded(periodBase+p,sink,lower,upper))return null;
   }
   if(!bounded(sink,source,0,remaining))return null;
@@ -252,7 +308,7 @@ export function canComplete2027(state:PolicyState,opts:{
   const possibleFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!==4&&!state.cycles[i].fourthExcluded&&(state.cycles[i].maximum??4)>=4));
   const forcedSingle=slots.map(s=>s.filter(i=>(state.cycles[i].maximum??4)===1));
   const possibleSingle=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!<=1&&!forcedSingle.some(group=>group.includes(i))));
-  const maxFour=[1,2,1],maxSingle=[opts.strictPre?2:3,0,2];
+  const maxFour=[1,2,1],maxSingle=[3,0,2];
   if(forcedFour.some((x,p)=>x.length>maxFour[p])||forcedSingle.some((x,p)=>x.length>maxSingle[p]))return {status:'impossible',checked:0,reason:'Límite de cuartas o plazas individuales excedido'};
   // Deterministic preference: no optional concentration until it is necessary.
   let checked=0,exhausted=false;
@@ -276,7 +332,7 @@ export function canComplete2027(state:PolicyState,opts:{
       const candidates=possibleSingle[p].filter(i=>!fourth.includes(i));
       for(let n=0;n<=Math.min(sMax-forcedSingle[p].length,candidates.length);n++){
         if(p===0&&n+forcedSingle[p].length>maxSingle[p])continue;
-        if(p===2&&n+forcedSingle[p].length>1+fourth.length)continue;
+        // POST can use its EC3 and EC4 together; PRE EC4 is separate.
         for(const singles of combinations(candidates,n)){
           const next:Scenario={single:new Set([...scenario.single,...forcedSingle[p],...singles]),fourth:new Set([...scenario.fourth,...fourth])};
           const result=choose(p+1,next);if(result)return result;
@@ -432,9 +488,8 @@ export function evaluate2027Candidate(
   if(completion.status==='possible'){
     const strict=canComplete2027(next,{strictPre:true,maxChecks});
     if(strict.status==='impossible')
-      warnings.push(problem('PRE_SINGLE_3','Esta elección hace inevitable utilizar tres ciclos con una persona en preverano; permitida con revisión administrativa.',{period:0,actual:3,limit:2}));
-    else if(strict.status==='indeterminate')
-      warnings.push(problem('PRE_SINGLE_UNDETERMINED','No se ha podido comprobar si aún es posible terminar con solo dos ciclos individuales en preverano.',{period:0,limit:2}));
+      warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',
+        'Esta elección impide terminar con el origen de cada ampliación en su propio periodo (lectura estricta de RRHH). La flexibilidad entre periodos es provisional y requiere revisión administrativa.'));
     const summerReference=state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
     const reference=canComplete2027(next,{summerTotal:summerReference,maxChecks});
     if(reference.status==='impossible')
