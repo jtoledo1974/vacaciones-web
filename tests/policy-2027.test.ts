@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {defaultConfig} from '../domain/defaults.ts';
 import {calendar} from '../domain/calendar.ts';
+import {calculate} from '../domain/vacations.ts';
+import {policyState2027} from '../domain/election-2027.ts';
 import {HR_2027, hr2027Period, hr2027FourthExcluded} from '../domain/hr-2027.ts';
 import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,immediate2027Issues,type PolicyState} from '../domain/policy-2027.ts';
 
@@ -203,4 +205,23 @@ test('preverano warning persists in an incomplete allocation only when the third
  assert.equal(avoidable.completion.status,'possible');
  assert.equal(avoidable.warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
  assert.equal(canAvoidThird.awards.filter(a=>a.cycle_date==='p0').length,0);
+});
+
+test('warnings remain visible through calculate during a real-sized incomplete 2027 campaign',()=>{
+ const team='A', config=defaultConfig(2027),dates=calendar(2027,team,config);
+ const pre=dates.filter(c=>c.period===0).slice(0,3).map(c=>c.date);
+ config.specialQuotas=Object.fromEntries(pre.map(d=>[d,1]));
+ const members=Array.from({length:20},(_,i)=>({id:'m'+i,code:'CTA'+i,seniority:''}));
+ const state=policyState2027(2027,team,config,members,[]);
+ const complete=canComplete2027(state,{maxChecks:1000});
+ assert.equal(complete.status,'possible',complete.reason);
+ const full=complete.witness!.map((a,i)=>({...a,id:'a'+i}));
+ assert.ok(evaluate2027Final({...state,awards:full}).warnings.some(w=>w.code==='PRE_SINGLE_3'));
+ const summerDate=dates.find(c=>c.period===1)!.date;
+ const remove=full.find(a=>a.cycle_date===summerDate)!;
+ const partial=full.filter(a=>a!==remove);
+ const view=calculate(2027,team,config,members,[],partial);
+ assert.ok(view.policyWarnings.some(w=>w.code==='PRE_SINGLE_3'),JSON.stringify(view.policyWarnings));
+ assert.ok(view.warnings.some(text=>text.includes('Preverano')));
+ assert.equal(view.issues.length,0,view.issues.join('; '));
 });
