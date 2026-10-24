@@ -67,7 +67,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   return <button type="button" key={c.date} data-cycle-date={c.date} disabled={busy} onClick={()=>onSelect(c)}
    aria-pressed={selected.includes(c.date)}
    aria-label={cycleTitle(c,year,availability)+(people.length?' · '+people.join(', '):'')}
-   title={cycleTitle(c,year)}
+   title={cycleTitle(c,year,availability)}
    className={'vac2-cycle '+status.className+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(highlighted.includes(c.date)?' vac2-person':'')}>
     <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{year===2027?status.label+' viables':extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
     <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{c.occupied}/{c.max} ocupadas{extraAvailable(c)?' · ampliable':''}</span></span>
@@ -89,7 +89,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
      return <button type="button" key={i} data-cycle-date={c.date} disabled={busy} onClick={()=>onSelect(c)}
       className={'vac2-day '+status.className+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(first?' vac2-cycle-start':'')}
       aria-pressed={selected.includes(c.date)}
-      title={cycleTitle(c,year)} aria-label={day+' '+months[m]+': '+cycleTitle(c,year)}>{day}{year===2027&&first&&<small className="vac2-day-count" aria-hidden="true">{status.label}</small>}</button>;
+      title={cycleTitle(c,year,availability)} aria-label={day+' '+months[m]+': '+cycleTitle(c,year,availability)}>{day}{year===2027&&first&&<small className="vac2-day-count" aria-hidden="true">{status.label}</small>}</button>;
     })}</div>
     <div className="vac2-month-people">{cycles.filter(c=>c.date<=new Date(Date.UTC(year,m+1,0)).toISOString().slice(0,10)&&c.end>=new Date(Date.UTC(year,m,1)).toISOString().slice(0,10)).map(c=>
      <button type="button" className="vac2-occupants" key={c.date} onClick={()=>onSelect(c)} disabled={busy}>
@@ -115,7 +115,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    })}</div>
   </div>;
  }
- return <section className="panel vac2-panel" aria-label="Calendario de ciclos">
+ return <section className={"panel vac2-panel"+(year===2027?" vac2-year-2027":"")} aria-label="Calendario de ciclos">
   <div className="vac2-heading">
    <div><h2>Disponibilidad y baremo</h2><p className="muted">{preferenceMode?'Pulsa un ciclo para añadirlo y vuelve a pulsarlo para quitarlo. El orden de selección determina la prioridad; revisa y guarda tu lista.':'Selecciona cualquier ciclo para ver detalles y ocupantes.'}</p></div>
    <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
