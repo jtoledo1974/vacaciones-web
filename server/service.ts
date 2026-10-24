@@ -2,7 +2,7 @@ import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {evaluate2027Candidate,evaluate2027Final,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
+import {evaluate2027Candidate,evaluate2027Final,canComplete2027,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
 import {validateRoster,rowStatements} from './roster.ts';
@@ -182,6 +182,24 @@ export class Service {
         }
         else if (action === 'config') {
             const cfg = checkedConfig(body.config, c.year);
+            if(c.year===2027){
+                const known=new Set(d.members.map((m:any)=>m.code));
+                for(const code of Object.keys(cfg.individualEntitlements??{}))
+                    if(!known.has(code))
+                        throw new ApiError('La excepción de RRHH hace referencia a un controlador inexistente en esta plantilla: '+code);
+                if(election.state){
+                    const normalize=(items:Record<string,unknown>|undefined)=>JSON.stringify(Object.entries(items??{}).sort(([a],[b])=>a.localeCompare(b)));
+                    if(normalize(d.config.individualEntitlements)!==normalize(cfg.individualEntitlements)||
+                       normalize(d.config.specialQuotas)!==normalize(cfg.specialQuotas)||
+                       d.config.cyclesPerPerson!==cfg.cyclesPerPerson)
+                        throw new ApiError('Los derechos individuales y cupos de RRHH se congelan al activar la elección. Reinicia la elección antes de cambiarlos.');
+                }
+                if(d.awards.length){
+                    const candidate=canComplete2027(policyState2027(c.year,c.team_id,cfg,d.members,d.awards),{maxChecks:2000});
+                    if(candidate.status!=='possible')
+                        throw new ApiError('Estos parámetros dejarían las adjudicaciones sin una terminación validada: '+(candidate.reason??candidate.status),409);
+                }
+            }
             if(election.state){
                 const previous=d.config.previousScores??{},updated=cfg.previousScores??{};
                 const keys=new Set([...Object.keys(previous),...Object.keys(updated)]);
