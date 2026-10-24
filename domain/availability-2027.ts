@@ -76,7 +76,13 @@ const CACHE_LIMIT = 96;
 const periodLimit = (period:0|1|2):number => period===1?2:1;
 const reason = (
  code:string,message:string,period?:0|1|2,cycle?:string,actual?:number,limit?:number
-):RuleProblem=>({code,message,period,cycle,actual,limit});
+):RuleProblem=>({
+ code,message,
+ ...(period!==undefined?{period}:{}),
+ ...(cycle!==undefined?{cycle}:{}),
+ ...(actual!==undefined?{actual}:{}),
+ ...(limit!==undefined?{limit}:{})
+});
 
 function keyFor(state:PolicyState,maxChecks:number):string {
  const cycles=[...state.cycles].sort((a,b)=>a.date.localeCompare(b.date));
