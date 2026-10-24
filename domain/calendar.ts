@@ -54,6 +54,9 @@ export type Config = {
     specialCycles: string[];
     // Explicit HR exception for an individual cycle; 1 restricts it to one CTA.
     specialQuotas?: Record<string,number>;
+    // Approved 2027 HR exceptions, keyed by the controller's campaign code.
+    // Absence always means the ordinary six cycles (or cyclesPerPerson).
+    individualEntitlements?: Record<string,{cycles:number;authorization:string}>;
     rotation: string[][];
     holidays: Holiday[];
 };
@@ -86,7 +89,20 @@ export function validateConfig(c: Config, y: number) { if (!c || !Number.isInteg
             throw new Error('Cupo de relación no válido');
     if (c.relation.minimum > c.relation.base || c.relation.base > c.relation.maximum)
         throw new Error('Orden de cupos no válido');
-} if(c.specialQuotas){for(const [date,max] of Object.entries(c.specialQuotas)){serial(date);if(!Number.isInteger(max)||max<1||max>12)throw new Error('Cupo especial de RRHH no válido');}} c.specialCycles.forEach(serial); return c; }
+} if(c.specialQuotas){for(const [date,max] of Object.entries(c.specialQuotas)){serial(date);if(!Number.isInteger(max)||max<1||max>12)throw new Error('Cupo especial de RRHH no válido');}}
+    if(c.individualEntitlements!==undefined){
+        const values=c.individualEntitlements;
+        if(y!==2027||!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>100)
+            throw new Error('Excepciones de ciclos individuales no válidas para este ejercicio');
+        for(const [code,approval] of Object.entries(values)){
+            if(!code||code.length>24||!approval||typeof approval!=='object'||Array.isArray(approval)||
+                !Number.isInteger(approval.cycles)||approval.cycles<0||approval.cycles>6||
+                typeof approval.authorization!=='string'||approval.authorization.trim().length<10||
+                approval.authorization.length>500)
+                throw new Error('Cada excepción individual debe indicar de 0 a 6 ciclos y autorización documentada de RRHH');
+        }
+    }
+    c.specialCycles.forEach(serial); return c; }
 export function holidayDates(y: number, c: Config) { return c.holidays.map(h => { let n = h.offset !== undefined ? easter(y) + h.offset : serial(date(y + (h.nextYear ? 1 : 0), h.month!, h.day!)); if (h.shiftSunday && weekday(n) === 7)
     n++; return { ...h, date: iso(n), serial: n }; }); }
 export function dailyScorer(y: number, c: Config) {
