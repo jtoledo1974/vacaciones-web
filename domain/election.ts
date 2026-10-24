@@ -1,4 +1,5 @@
 import {calculate,type Member,type Request,type Award} from './vacations.ts';
+import {relationQuotas} from './quotas.ts';
 import type {Config} from './calendar.ts';
 
 // Criterios Vacaciones 1.1 (10/06/2025), pp. 1-3.
@@ -155,12 +156,54 @@ export function drawTie(group:string[]):string[]{
  for(let i=order.length-1;i>0;i--){const size=i+1,limit=0x100000000-0x100000000%size;let value:number;do{crypto.getRandomValues(word);value=word[0];}while(value>=limit);const j=value%size;[order[i],order[j]]=[order[j],order[i]];}
  return order;
 }
+/**
+ * Check candidate cycles against one immutable election snapshot.
+ * Calendar scores and existing occupancy are computed once; every hypothetical
+ * selection still passes through the original, dynamic relationQuotas formula.
+ * The fallback keeps the original behaviour for malformed/imported campaigns.
+ */
+export function createChoiceChecker(ctx:ElectionContext,baseline=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards)){
+ const cycles=baseline.cycles,periods=cycles.map(c=>c.period),datesToIndex=new Map(cycles.map((cycle,i)=>[cycle.date,i]));
+ const occupancy=cycles.map(c=>c.occupied),config=ctx.config,people=ctx.members.length;
+ const members=new Map(ctx.members.map(m=>[m.id,m]));
+ const memberCounts=new Map(ctx.members.map(m=>[m.id,0]));
+ const awardedByMember=new Map(ctx.members.map(m=>[m.id,new Set<string>()]));
+ for(const a of ctx.awards){
+  memberCounts.set(a.member_id,(memberCounts.get(a.member_id)??0)+1);
+  awardedByMember.get(a.member_id)?.add(a.cycle_date);
+ }
+ const baseTotal=baseline.totals.base,neededTotal=people*config.cyclesPerPerson;
+ const relation=config.relation??{minimum:1,base:2,maximum:3,graceJanuary:0,graceOctober:0};
+ const conventionSummer=baseline.totals.conventionSummer,conventionWinter=baseline.totals.conventionWinter;
+ const convention=[config.commonConvention?conventionWinter:Math.min(conventionWinter,config.conventionJanuary),conventionSummer,config.commonConvention?conventionWinter:Math.max(0,conventionWinter-config.conventionJanuary)];
+ const slow=(memberId:string,dates:string[])=>calculate(ctx.year,ctx.team,config,ctx.members,ctx.requests,[...ctx.awards,...dates.map((date,i)=>({id:'candidate-'+i,member_id:memberId,cycle_date:date}))]).issues;
+ return (memberId:string,dates:string[]):string[]=>{
+  const member=members.get(memberId);
+  if(!member)return ['Controlador ajeno a la campaña'];
+  if(new Set(dates).size!==dates.length)return ['No se puede elegir el mismo ciclo dos veces'];
+  if(dates.some(date=>awardedByMember.get(memberId)!.has(date)))return ['Este controlador ya tiene uno de esos ciclos'];
+  if(baseline.issues.length||dates.some(date=>!datesToIndex.has(date)))return slow(memberId,dates);
+  const hypothetical=occupancy.slice();
+  for(const date of dates)hypothetical[datesToIndex.get(date)!]++;
+  const issues:string[]=[];
+  if(memberCounts.get(memberId)!+dates.length>config.cyclesPerPerson)issues.push(`${member.code}: supera los ciclos anuales`);
+  const extra=[0,0,0];
+  for(let i=0;i<hypothetical.length;i++)extra[periods[i]]+=Math.max(0,hypothetical[i]-config.base[periods[i]]);
+  if(extra[1]>conventionSummer+config.grace[1])issues.push('Se han agotado los extracupos de verano');
+  if((config.commonConvention||config.commonGrace)&&extra[0]+extra[2]>conventionWinter+config.grace[0]+config.grace[2])issues.push('Se han agotado los extracupos de no verano');
+  if(!config.commonConvention&&!config.commonGrace){
+   for(const p of [0,2])if(extra[p]>convention[p]+config.grace[p])issues.push('Se han agotado los extracupos del período');
+  }
+  const quotas=relationQuotas(periods,hypothetical,{...relation,people,necessary:neededTotal,baseTotal});
+  for(let i=0;i<cycles.length;i++){
+   const max=config.specialQuotas?.[cycles[i].date]??quotas[i].max;
+   if(hypothetical[i]>max)issues.push(`${cycles[i].date}: supera el cupo máximo de la relación`);
+  }
+  return issues;
+ };
+}
 export function choiceIssues(ctx:ElectionContext,memberId:string,dates:string[]){
- if(!ctx.members.some(m=>m.id===memberId))return ['Controlador ajeno a la campaña'];
- if(new Set(dates).size!==dates.length)return ['No se puede elegir el mismo ciclo dos veces'];
- if(dates.some(d=>ctx.awards.some(a=>a.member_id===memberId&&a.cycle_date===d)))return ['Este controlador ya tiene uno de esos ciclos'];
- const awards=[...ctx.awards,...dates.map((d,i)=>({id:'candidate-'+i,member_id:memberId,cycle_date:d}))];
- return calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,awards).issues;
+ return createChoiceChecker(ctx)(memberId,dates);
 }
 export function choose(ctx:ElectionContext,input:ElectionState,memberId:string,dates:string[]){
  const turn=currentTurn(ctx,input);
@@ -209,13 +252,16 @@ export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferen
  const pref=preferences.find(p=>p.member_id===turn.memberId&&p.active!==false);
  if(!pref)return null;
  const needed=turn.needed;
+ // Reuse one snapshot for all preference candidates instead of recalculating
+ // the calendar and every award on each backtracking branch.
+ const check=createChoiceChecker(ctx);
  // Explicit bounded backtracking avoids accepting a pair/triple that breaks joint quota accounting.
  let budget=3000;
  const search=(at:number,selected:string[]):string[]|null=>{
   if(selected.length===needed)return selected;
   for(let i=at;i<pref.dates.length&&budget-->0;i++){
    const candidate=[...selected,pref.dates[i]];
-   if(choiceIssues(ctx,turn.memberId!,candidate).length)continue;
+   if(check(turn.memberId!,candidate).length)continue;
    const found=search(i+1,candidate);
    if(found)return found;
   }
