@@ -282,7 +282,13 @@ export class Service {
             const run = d.runs.find(r => r.id === body.runId);
             if (!run || run.source_version !== c.version)
                 throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
-            if (JSON.parse(run.result_json).result.issues.length)
+            const savedResult=JSON.parse(run.result_json).result;
+            // A review created with the withdrawn occupancy policy cannot
+            // be acknowledged and published as if it had been calculated
+            // under the current rules. Historical snapshots stay untouched.
+            if(c.year===2027&&savedResult.occupancyPolicyVersion!==OCCUPANCY_POLICY_2027)
+                throw new ApiError('La revisión utiliza otra versión de normas 2027. Calcula una nueva revisión antes de publicar.',409);
+            if (savedResult.issues.length)
                 throw new ApiError('Resuelve las incidencias antes de publicar');
             if(c.year===2027){
                 const reviewed=evaluate2027Final(policyState2027(c.year,c.team_id,d.config,d.members,d.awards));
