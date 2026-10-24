@@ -99,29 +99,35 @@ export class Service {
         try{metadata=JSON.parse(latest.after_json);}catch{return {restored:false};}
         if(metadata?.version!==version)return {restored:false};
         const restored={restored:true};
-        if(latest.action!=='election_undo'&&latest.action!=='election_redo')
-          return restored;
-        // The redo event points to its undo; that undo points to the original
-        // adjudication. Only the original audit owns certified before/after
-        // availability. Never infer a proof from a subsequent current state.
-        let originalId=metadata.undoTargetId;
-        if(latest.action==='election_redo'){
-          if(typeof metadata.redoTargetId!=='string')return restored;
-          const undo=await this.repo.all(
-           'SELECT after_json FROM audit WHERE campaign_id=? AND id=?',
-           [cid,metadata.redoTargetId]);
-          if(!undo[0])return restored;
-          try{originalId=JSON.parse(undo[0].after_json).undoTargetId;}catch{return restored;}
+        const undo=latest.action==='election_undo'||latest.action==='undo_vacations';
+        const redo=latest.action==='election_redo'||latest.action==='redo_vacations';
+        if(!undo&&!redo)return restored;
+        // Redo points to an undo audit; undo points to the original atomic
+        // operation. Read its recorded availability, never re-run the solver.
+        let originalId=latest.action==='election_undo'?metadata.undoTargetId:
+          latest.action==='undo_vacations'?metadata.undone:undefined;
+        if(redo){
+          const undoId=latest.action==='election_redo'?metadata.redoTargetId:metadata.undone;
+          if(typeof undoId!=='string')return restored;
+          const undone=await this.repo.all(
+           'SELECT after_json FROM audit WHERE campaign_id=? AND id=?',[cid,undoId]);
+          if(!undone[0])return restored;
+          try{
+           const originalUndo=JSON.parse(undone[0].after_json);
+           originalId=latest.action==='election_redo'?originalUndo.undoTargetId:originalUndo.undone;
+          }catch{return restored;}
         }
         if(typeof originalId!=='string')return restored;
         const original=await this.repo.all(
-          'SELECT after_json FROM audit WHERE campaign_id=? AND id=?',[cid,originalId]);
+         'SELECT after_json FROM audit WHERE campaign_id=? AND id=?',[cid,originalId]);
         if(!original[0])return restored;
         try{
-          const impact=JSON.parse(original[0].after_json)?.impact;
-          const recordedAvailability=latest.action==='election_undo'
-            ?impact?.availabilityBefore:impact?.availabilityAfter;
-          return recordedAvailability?{restored:true,recordedAvailability}:restored;
+         const details=JSON.parse(original[0].after_json);
+         const certified=details?.impact;
+         const administrative=details?.availabilityHistory;
+         const recordedAvailability=undo?(certified?.availabilityBefore??administrative?.before):
+           (certified?.availabilityAfter??administrative?.after);
+         return recordedAvailability?{restored:true,recordedAvailability}:restored;
         }catch{return restored;}
     }
     async view(cid:string){
