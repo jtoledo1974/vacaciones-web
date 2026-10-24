@@ -139,7 +139,9 @@ async function confirm(page:Page,button:string){
  if(button.startsWith('Aplazar')&&!await target.isVisible())await page.locator('.election-more-actions > summary').click();
  await target.click();
  if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'});
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button',{name:'Adjudicar',exact:true}).click();
  }else await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
 }
 
