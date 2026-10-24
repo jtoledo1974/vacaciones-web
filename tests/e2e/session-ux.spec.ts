@@ -42,5 +42,5 @@ test('el pie muestra qué código se ha compilado y cuándo', async ({page}) => 
   const stamp=page.locator('.content > footer .footer-build');
   await expect(stamp).toBeVisible();
   await expect(stamp).toContainText(/Código (?:[a-f0-9]{10}|no identificada) · compilado/);
-  await expect(stamp.locator('time')).toHaveAttribute('dateTime', /^\d{4}-\d{2}-\d{2}T/);
+  await expect(stamp.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/);
 });
