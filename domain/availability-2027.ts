@@ -1,5 +1,5 @@
 import {
- canComplete2027, evaluate2027Candidate, evaluate2027Final,
+ canComplete2027, evaluate2027Candidate, evaluate2027Final, regularFlowCertificate2027,
  OCCUPANCY_POLICY_2027, type PolicyState, type PolicyAward,
  type RuleProblem, type Completion
 } from './policy-2027.ts';
@@ -293,8 +293,13 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
     if(k>outstandingRights){
      upper=Math.min(upper,k-1);continue;
     }
-    // A concrete valid final allocation is a proof, with zero
-    // combinatorial scenario checks.
+    // A single full circulation proves many extra third and fourth places
+    // without trying exponential exceptional-cycle combinations.
+    // Failure is inconclusive and continues through existing fallbacks.
+    const flow=regularFlowCertificate2027(state,{
+     minimumCycle:{date:c.date,occupancy:position}
+    });
+    if(flow!==null){lower=k;break;}
     const repaired=baseline.witness&&constructCycleWitness2027(
      state,baseline.witness,c.date,position);
     if(repaired){lower=k;break;}

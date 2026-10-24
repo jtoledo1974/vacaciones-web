@@ -6,7 +6,7 @@ import {calculate} from '../domain/vacations.ts';
 import {policyState2027,cyclesEntitlement2027} from '../domain/election-2027.ts';
 import {currentTurn,type ElectionState} from '../domain/election.ts';
 import {HR_2027, hr2027Period, hr2027FourthExcluded} from '../domain/hr-2027.ts';
-import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,immediate2027Issues,transplant2027Witness,type PolicyState} from '../domain/policy-2027.ts';
+import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,immediate2027Issues,transplant2027Witness,regularFlowCertificate2027,type PolicyState} from '../domain/policy-2027.ts';
 
 test('2027 RRHH calendar: every team has exact cycle count and boundary',()=>{
   for(const team of 'ABCDEFGH'){
@@ -457,4 +457,37 @@ test('late-stage 2027 previews preserve feasibility and report solver reuse with
   assigned:settled.length,candidates:candidates.length,verifiedProofs:proofs,
   baselineMs:Math.round(time1-time0),reusedMs:Math.round(time2-time1)
  }));
+});
+
+test('ordinary PRE thirds admit a flow certificate with a single solver check',()=>{
+ const cycles=[
+  ...Array.from({length:17},(_,i)=>({date:'p'+i,period:0 as const})),
+  ...Array.from({length:13},(_,i)=>({date:'s'+i,period:1 as const})),
+  ...Array.from({length:15},(_,i)=>({date:'o'+i,period:2 as const}))
+ ];
+ const members=Array.from({length:20},(_,i)=>({id:'m'+i,entitlement:6}));
+ const awards=cycles.filter(c=>c.period===0).flatMap((c,i)=>
+  Array.from({length:3},(_,j)=>({member_id:'m'+((i*3+j)%20),cycle_date:c.date})));
+ const state:PolicyState={cycles,members,awards};
+ // All 17 PRE cycles already have three CTA: this is not a reason to
+ // enumerate combinations of possible singles and fourths.
+ const result=canComplete2027(state,{maxChecks:1});
+ assert.equal(result.status,'possible',result.reason);
+ assert.equal(result.checked,1,'one circulation proves all remaining entitlements');
+ assert.equal(result.witness?.length,69);
+ assert.equal(evaluate2027Final({...state,awards:[...awards,...result.witness!]}).valid,true);
+ const candidate=evaluate2027Candidate(state,[{member_id:'m0',cycle_date:'s0'}],1,undefined,false);
+ assert.equal(candidate.allowed,true,JSON.stringify(candidate.issues));
+ assert.equal(candidate.completion.checked,1);
+});
+
+test('flow certificate failure never rejects a valid allocation needing singles',()=>{
+ const full=completed([1,1,2,3,3,4],[2,2,2],[2,2,2]);
+ assert.equal(evaluate2027Final(full).valid,true);
+ const missing=full.awards.find(a=>a.cycle_date==='p0')!;
+ const partial={...full,awards:full.awards.filter(a=>a!==missing)};
+ assert.equal(regularFlowCertificate2027(partial),null);
+ const completion=canComplete2027(partial,{maxChecks:100});
+ assert.equal(completion.status,'possible',completion.reason);
+ assert.ok(completion.witness?.some(a=>a.member_id===missing.member_id&&a.cycle_date==='p0'));
 });

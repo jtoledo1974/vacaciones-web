@@ -265,6 +265,48 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCy
   return memberEdges.filter(x=>x.edge.initial-x.edge.cap>0).map(x=>({member_id:state.members[x.m].id,cycle_date:state.cycles[x.c].date}));
 }
 
+/**
+ * A polynomial-time, constructive certificate for ordinary allocations.
+ *
+ * Search an allocation in which each cycle finishes with two or three people,
+ * except for fourth places already fixed or required by the target. The
+ * exact integer circulation also enforces every person's remaining rights
+ * and prevents duplicate person/cycle pairs. The resulting FULL allocation
+ * is independently checked against the real 2027 policy.
+ *
+ * This is a SUFFICIENT condition only. A null result must fall back to the
+ * complete exceptional-distribution solver; singles or different fourth
+ * placements can still be feasible.
+ */
+export function regularFlowCertificate2027(
+ state:PolicyState,
+ opts:{strictRegions?:boolean;summerTotal?:number;minimumCycle?:{date:string;occupancy:number}}={}
+):PolicyAward[]|null {
+ const dates=new Set(state.cycles.map(c=>c.date));
+ if(opts.minimumCycle&&(!dates.has(opts.minimumCycle.date)||
+   !Number.isInteger(opts.minimumCycle.occupancy)||
+   opts.minimumCycle.occupancy<0||opts.minimumCycle.occupancy>4))return null;
+ const occupied=new Map(state.cycles.map(c=>[c.date,0]));
+ for(const award of state.awards)
+  occupied.set(award.cycle_date,(occupied.get(award.cycle_date)??0)+1);
+ const fourth=new Set<number>(),byPeriod=[0,0,0];
+ for(let i=0;i<state.cycles.length;i++){
+  const c=state.cycles[i];
+  if((occupied.get(c.date)??0)===4||
+    (c.date===opts.minimumCycle?.date&&opts.minimumCycle.occupancy===4)){
+   if(c.period<0||c.period>2)return null;
+   fourth.add(i);
+   byPeriod[c.period]++;
+  }
+ }
+ if(byPeriod.some((n,p)=>n>[1,2,1][p]))return null;
+ const witness=match(state,{single:new Set(),fourth},
+  opts.summerTotal,opts.minimumCycle);
+ if(witness===null)return null;
+ return evaluate2027Final({...state,awards:[...state.awards,...witness]},opts.strictRegions).valid
+  ?witness:null;
+}
+
 const combinations = function* (values:number[],count:number,start=0,picked:number[]=[]):Generator<number[]> {
   if(count===0){yield [...picked];return;}
   for(let i=start;i<=values.length-count;i++){
@@ -328,6 +370,13 @@ export function canComplete2027(state:PolicyState,opts:{
       return {status:'possible',checked:examined,witness:[nextAward]};
     }
     return {status:'impossible',checked:examined,reason:'No existe una asignación para la última plaza pendiente que cumpla la política solicitada'};
+  }
+  // Prefer a single polynomial-time circulation to enumerating sets of
+  // optional single/fourth cycles. No generic capacity-only shortcuts:
+  // the completion witness proves that every CTA can still finish.
+  if(maxChecks>0){
+    const certificate=regularFlowCertificate2027(state,opts);
+    if(certificate!==null)return {status:'possible',checked:1,witness:certificate};
   }
   const slots=[0,1,2].map(p=>range(state.cycles.length).filter(i=>state.cycles[i].period===p));
   if(slots.some(s=>s.length===0))return {status:'impossible',checked:0,reason:'Calendario sin uno de los periodos'};
