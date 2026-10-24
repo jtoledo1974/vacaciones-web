@@ -132,6 +132,10 @@ test('2027 guided reconstruction previews and replays a joint award through the 
   entries:ids.map((member_id:string,i:number)=>({member_id,dates:[dates[i]]}))});
  d=await service.view(cid);
  assert.equal(d.awards.length,2);
+ const originalJoint=d.election.timeline.find((item:any)=>
+  item.kind==='choice'&&item.choices.length===2);
+ assert.ok(originalJoint?.impact,'the joint award must produce one atomic impact');
+ assert.equal(originalJoint.impact.policyVersion,OCCUPANCY_POLICY_2027);
  const target=d.election.reconstruction.candidates.find((item:any)=>item.action==='choose_joint');
  assert.ok(target);
  await service.election().mutate(cid,{action:'reconstruction_start',version:d.campaign.version,historyId:target.id});
@@ -146,6 +150,11 @@ test('2027 guided reconstruction previews and replays a joint award through the 
  await service.election().mutate(cid,{action:'reconstruction_finish',version:d.campaign.version});
  d=await service.view(cid);
  assert.equal(d.election.reconstruction.status,'completed');
+ const reconstructed=d.election.timeline.filter((event:any)=>event.kind==='choice');
+ assert.equal(reconstructed.length,1,'historically replaced joint decision is not current');
+ assert.equal(reconstructed[0].choices.length,2);
+ assert.ok(reconstructed[0].impact,'guided reconstruction keeps its own atomic impact');
+ assert.deepEqual(reconstructed[0].impact.changes,originalJoint.impact.changes);
  assert.deepEqual(d.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),ids.map((id:string,i:number)=>id+'|'+dates[i]).sort());
 });
 
