@@ -46,6 +46,26 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  assert.equal(options.policyVersion,OCCUPANCY_POLICY_2027);
  assert.ok(options.available.includes(preferred[0]));
  assert.deepEqual((await service.view(cid)).election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
+ // The ordinary 2027 election undo/redo must preserve the selected date,
+ // cursor and the user's saved preferences under the new policy.
+ d=await service.view(cid);
+ await service.election().mutate(cid,{action:'choose',version:d.campaign.version,memberId:user,dates:[preferred[0]]});
+ let chosen=await service.view(cid);
+ assert.equal(chosen.awards.length,1);
+ assert.equal(chosen.awards[0].cycle_date,preferred[0]);
+ const undoId=chosen.election.undo;
+ assert.ok(undoId);
+ await service.election().mutate(cid,{action:'election_undo',version:chosen.campaign.version,historyId:undoId});
+ const undone=await service.view(cid);
+ assert.equal(undone.awards.length,0);
+ assert.equal(undone.election.turn.memberId,user);
+ assert.deepEqual(undone.election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
+ assert.ok(undone.election.redo);
+ await service.election().mutate(cid,{action:'election_redo',version:undone.campaign.version,historyId:undone.election.redo});
+ chosen=await service.view(cid);
+ assert.equal(chosen.awards.length,1);
+ assert.equal(chosen.awards[0].cycle_date,preferred[0]);
+ assert.deepEqual(chosen.election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
 });
 
 test('2027 administrative roster edits cannot strand existing awards; denial is atomic',async()=>{
