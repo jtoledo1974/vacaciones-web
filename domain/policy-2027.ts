@@ -217,7 +217,7 @@ class Network {
 }
 
 /** Exact integer circulation for one choice of one-person and four-person cycles. */
-function match(state:PolicyState,scenario:Scenario,summerTotal?:number):PolicyAward[]|null {
+function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCycle?:{date:string;occupancy:number}):PolicyAward[]|null {
   const M=state.members.length,C=state.cycles.length;
   const mapM=new Map(state.members.map((m,i)=>[m.id,i])),mapC=new Map(state.cycles.map((c,i)=>[c.date,i]));
   const occupied=new Array(C).fill(0) as number[], mine=range(M).map(()=>new Set<number>());
@@ -245,7 +245,7 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number):PolicyAw
     if(p<0||p>2||fixedSingle&&fixedFourth||item.fourthExcluded&&fixedFourth)return null;
     periodUsed[p]+=occupied[c];periodSize[p]++;
     const localMax=Math.min(item.maximum??4,item.fourthExcluded?3:4);
-    const lo=fixedSingle?1:fixedFourth?4:2,hi=fixedSingle?1:fixedFourth?4:Math.min(3,localMax);
+    const lo=Math.max(fixedSingle?1:fixedFourth?4:2,item.date===minimumCycle?.date?minimumCycle.occupancy:0),hi=fixedSingle?1:fixedFourth?4:Math.min(3,localMax);
     if(occupied[c]>hi||hi>localMax||!bounded(cycleBase+c,periodBase+p,Math.max(0,lo-occupied[c]),hi-occupied[c]))return null;
   }
   for(let p=0;p<3;p++){
@@ -279,11 +279,12 @@ const combinations = function* (values:number[],count:number,start=0,picked:numb
  * pending choice, not to reject an otherwise permitted choice.
  */
 export function canComplete2027(state:PolicyState,opts:{
-  strictRegions?:boolean; summerTotal?:number; maxChecks?:number
+  strictRegions?:boolean; summerTotal?:number; maxChecks?:number; minimumCycle?:{date:string;occupancy:number}
 }={}):Completion {
   const maxChecks=opts.maxChecks??2000;
   const M=new Map(state.members.map(m=>[m.id,m])), C=new Map(state.cycles.map(c=>[c.date,c]));
   if(state.members.length!==M.size||state.cycles.length!==C.size)return {status:'impossible',checked:0,reason:'Identificadores duplicados'};
+  if(opts.minimumCycle&&(!C.has(opts.minimumCycle.date)||!Number.isInteger(opts.minimumCycle.occupancy)||opts.minimumCycle.occupancy<0||opts.minimumCycle.occupancy>4))return {status:'impossible',checked:0,reason:'Límite solicitado para un ciclo desconocido o inválido'};
   const counts=new Map(state.cycles.map(c=>[c.date,0])),people=new Map(state.members.map(m=>[m.id,0])),pairs=new Set<string>();
   for(const a of state.awards){
     const member=M.get(a.member_id),cycle=C.get(a.cycle_date),key=a.member_id+':'+a.cycle_date;
@@ -297,8 +298,9 @@ export function canComplete2027(state:PolicyState,opts:{
   // turn a valid finished allocation into an indeterminate one.
   if(state.members.every(m=>people.get(m.id)===m.entitlement)){
     const final=evaluate2027Final(state,opts.strictRegions);
+    const targetCount=opts.minimumCycle?state.awards.filter(a=>a.cycle_date===opts.minimumCycle!.date).length:0;
     const summer=state.awards.filter(a=>C.get(a.cycle_date)?.period===1).length;
-    return final.valid&&(opts.summerTotal===undefined||summer===opts.summerTotal)
+    return final.valid&&(!opts.minimumCycle||targetCount>=opts.minimumCycle.occupancy)&&(opts.summerTotal===undefined||summer===opts.summerTotal)
       ?{status:'possible',checked:1,witness:[]}
       :{status:'impossible',checked:1,reason:final.issues[0]?.message??'El total de verano no coincide con la referencia solicitada'};
   }
@@ -317,6 +319,7 @@ export function canComplete2027(state:PolicyState,opts:{
       const nextAward={member_id:memberId,cycle_date:c.date};
       const final=evaluate2027Final({...state,awards:[...state.awards,nextAward]},opts.strictRegions);
       if(!final.valid)continue;
+       if(opts.minimumCycle&&state.awards.filter(a=>a.cycle_date===opts.minimumCycle!.date).length+(c.date===opts.minimumCycle.date?1:0)<opts.minimumCycle.occupancy)continue;
       if(opts.summerTotal!==undefined){
         const total=state.awards.filter(a=>C.get(a.cycle_date)?.period===1).length+(c.period===1?1:0);
         if(total!==opts.summerTotal)continue;
@@ -327,10 +330,10 @@ export function canComplete2027(state:PolicyState,opts:{
   }
   const slots=[0,1,2].map(p=>range(state.cycles.length).filter(i=>state.cycles[i].period===p));
   if(slots.some(s=>s.length===0))return {status:'impossible',checked:0,reason:'Calendario sin uno de los periodos'};
-  const forcedFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)===4));
+  const forcedFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)===4||(state.cycles[i].date===opts.minimumCycle?.date&&opts.minimumCycle.occupancy===4)));
   const possibleFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!==4&&!state.cycles[i].fourthExcluded&&(state.cycles[i].maximum??4)>=4));
   const forcedSingle=slots.map(s=>s.filter(i=>(state.cycles[i].maximum??4)===1));
-  const possibleSingle=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!<=1&&!forcedSingle.some(group=>group.includes(i))));
+  const possibleSingle=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)!<=1&&state.cycles[i].date!==opts.minimumCycle?.date&&!forcedSingle.some(group=>group.includes(i))));
   const maxFour=[1,2,1],maxSingle=[3,0,2];
   if(forcedFour.some((x,p)=>x.length>maxFour[p])||forcedSingle.some((x,p)=>x.length>maxSingle[p]))return {status:'impossible',checked:0,reason:'Límite de cuartas o plazas individuales excedido'};
   // Deterministic preference: no optional concentration until it is necessary.
@@ -339,7 +342,7 @@ export function canComplete2027(state:PolicyState,opts:{
     if(exhausted)return null;
     if(p===3){
       if(++checked>maxChecks){exhausted=true;return null;}
-      const extra=match(state,scenario,opts.summerTotal);if(!extra)return null;
+      const extra=match(state,scenario,opts.summerTotal,opts.minimumCycle);if(!extra)return null;
       const end:PolicyState={...state,awards:[...state.awards,...extra]};
       const final=evaluate2027Final(end,opts.strictRegions);
       if(!final.valid)return null;
