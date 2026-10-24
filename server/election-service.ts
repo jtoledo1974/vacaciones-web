@@ -93,12 +93,22 @@ export class ElectionService{
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
   const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
-  const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
-  const availabilityReasons:Record<string,string>=ctx.year===2027&&focus
-   ?Object.fromEntries(result.cycles.filter(c=>!available.includes(c.date)).map(c=>{
-    const diagnostic=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),[{member_id:focus,cycle_date:c.date}]);
-    return [c.date,diagnostic.issues.map(i=>i.message).join('; ')||'No disponible en el contexto actual'];
-   })) :{};
+  // A single source of truth per snapshot. Previous code evaluated rejected
+  // 2027 choices twice and reconstructed the full HR calendar for every date.
+  const availabilityReasons:Record<string,string>={};
+  const availabilityWarnings:Record<string,unknown>={};
+  let available:string[]=[];
+  if(focus&&ctx.year===2027){
+   const allocation=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+   for(const cycle of result.cycles){
+    const diagnostic=evaluate2027Candidate(allocation,[{member_id:focus,cycle_date:cycle.date}]);
+    if(diagnostic.allowed){
+     available.push(cycle.date);
+     if(diagnostic.warnings.length)availabilityWarnings[cycle.date]=diagnostic.warnings;
+    }else availabilityReasons[cycle.date]=diagnostic.issues.map(i=>i.message).join('; ')||'No disponible en el contexto actual';
+   }
+  }else if(focus)
+   available=result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date);
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid):null;
   const reconstruction=await this.reconstruction().view(d,raw);
@@ -111,7 +121,7 @@ export class ElectionService{
   }
 
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityReasons,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityReasons,availabilityWarnings,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
