@@ -236,6 +236,16 @@ export function canComplete2027(state:PolicyState,opts:{
   }
   if(state.members.some(m=>!Number.isInteger(m.entitlement)||m.entitlement<0||m.entitlement>6||people.get(m.id)!>m.entitlement))return {status:'impossible',checked:0,reason:'Derechos individuales excedidos'};
   for(const c of state.cycles)if(counts.get(c.date)!>Math.min(c.maximum??4,c.fourthExcluded?3:4))return {status:'impossible',checked:0,reason:'Ciclo con ocupación superior al máximo'};
+  // A fully allocated campaign needs no combinatorial scenario search.
+  // This is also important for publication and review: a timeout must never
+  // turn a valid finished allocation into an indeterminate one.
+  if(state.members.every(m=>people.get(m.id)===m.entitlement)){
+    const final=evaluate2027Final(state,opts.strictPre);
+    const summer=state.awards.filter(a=>C.get(a.cycle_date)?.period===1).length;
+    return final.valid&&(opts.summerTotal===undefined||summer===opts.summerTotal)
+      ?{status:'possible',checked:1,witness:[]}
+      :{status:'impossible',checked:1,reason:final.issues[0]?.message??'El total de verano no coincide con la referencia solicitada'};
+  }
   const slots=[0,1,2].map(p=>range(state.cycles.length).filter(i=>state.cycles[i].period===p));
   if(slots.some(s=>s.length===0))return {status:'impossible',checked:0,reason:'Calendario sin uno de los periodos'};
   const forcedFour=slots.map(s=>s.filter(i=>counts.get(state.cycles[i].date)===4));
