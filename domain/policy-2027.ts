@@ -469,12 +469,12 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
  * certificate rather than interpreting null as impossibility.
  */
 export function reassign2027Witness(
- state:PolicyState,knownWitness:PolicyAward[]
+ state:PolicyState,verifiedFinal:PolicyState
 ):PolicyAward[]|null {
- const completed={...state,awards:[...state.awards,...knownWitness]};
- if(!evaluate2027Final(completed).valid)return null;
- const histogram=new Map(state.cycles.map(c=>[
-  c.date,completed.awards.filter(a=>a.cycle_date===c.date).length
+ if(!evaluate2027Final(verifiedFinal).valid)return null;
+ if(state.cycles.length!==verifiedFinal.cycles.length||state.members.length!==verifiedFinal.members.length)return null;
+ const histogram=new Map(verifiedFinal.cycles.map(c=>[
+  c.date,verifiedFinal.awards.filter(a=>a.cycle_date===c.date).length
  ]));
  const assignments=match(state,{single:new Set(),fourth:new Set()},undefined,undefined,histogram);
  if(assignments===null)return null;
@@ -514,8 +514,7 @@ export function transplant2027Witness(
   }
   // Try any augmenting flow that preserves the same validated final cycle
   // counts. The preceding direct and two-person shortcuts cover cheap cases.
-  const rebuilt=reassign2027Witness({...state,awards:[...state.awards,choice]},
-    witness.filter(a=>!same(a,choice)));
+  const rebuilt=reassign2027Witness({...state,awards:[...state.awards,choice]},finalState);
   if(rebuilt)return rebuilt;
   return null;
 }
