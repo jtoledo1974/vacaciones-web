@@ -183,3 +183,20 @@ test('shared budget bounds full-team availability: no per-cycle multiplication o
   cycles:45,checked:report.checked,indeterminate:uncertain.length,elapsedMs:Math.round(ms)
  }));
 });
+
+test('full PRE third occupancy still proves summer third places with one shared check',()=>{
+ const cycles=[
+  ...Array.from({length:17},(_,i)=>({date:'p'+i,period:0 as const})),
+  ...Array.from({length:13},(_,i)=>({date:'s'+i,period:1 as const})),
+  ...Array.from({length:15},(_,i)=>({date:'o'+i,period:2 as const}))
+ ];
+ const members=Array.from({length:20},(_,i)=>({id:'m'+i,entitlement:6}));
+ const awards=cycles.filter(c=>c.period===0).flatMap((c,i)=>
+  Array.from({length:3},(_,j)=>({member_id:'m'+((i*3+j)%20),cycle_date:c.date})));
+ const snapshot=availabilityByCycle({cycles,members,awards},{maxChecks:1,useCache:false});
+ assert.equal(snapshot.checked,1);
+ assert.notEqual(snapshot.status,'invalid');
+ assert.ok(snapshot.cycles.s0.provenAdditional>=3,
+  'ordinary circulation proves a third summer occupant without exceptional search');
+ assert.equal(snapshot.cycles.s0.slots[2].status,'available');
+});
