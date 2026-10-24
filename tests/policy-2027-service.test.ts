@@ -47,3 +47,28 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  assert.ok(options.available.includes(preferred[0]));
  assert.deepEqual((await service.view(cid)).election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
 });
+
+test('2027 administrative roster edits cannot strand existing awards; denial is atomic',async()=>{
+ const repo=new SQLiteRepo(),service=new Service(repo,owner);
+ await service.init();
+ await service.createCampaigns(2027,null,null);
+ const cid=(await service.list()).campaigns.find((c:any)=>c.year===2027&&c.team_id==='A').id;
+ let d=await service.view(cid);
+ const roster=Array.from({length:20},(_,i)=>'CTA'+String(i+1).padStart(2,'0'));
+ d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,
+  source:{format:'vacaciones-roster-v1',team:'A',year:2027,copySelections:false,
+   rows:roster.map(code=>({code,label:'Ensayo '+code,seniority:''}))}});
+ // A valid first award still leaves a completion for the ordinary 20 CTAs.
+ const date=d.result.cycles[0].date;
+ d=await service.mutate(cid,{action:'award',version:d.campaign.version,memberId:d.members[0].id,date});
+ const beforeVersion=d.campaign.version,beforeMembers=d.members.length,beforeAwards=d.awards.length;
+ const additions=Array.from({length:30},(_,i)=>({code:'NEW'+String(i+1).padStart(2,'0'),label:'Controlador de prueba',seniority:''}));
+ await assert.rejects(
+  service.mutate(cid,{action:'bulk_members',version:beforeVersion,rows:additions}),
+  /plazas físicas|completación|capacidad|vacaciones restantes/i);
+ const after=await service.view(cid);
+ assert.equal(after.campaign.version,beforeVersion);
+ assert.equal(after.members.length,beforeMembers);
+ assert.equal(after.awards.length,beforeAwards);
+ assert.equal(after.awards[0].cycle_date,date);
+});
