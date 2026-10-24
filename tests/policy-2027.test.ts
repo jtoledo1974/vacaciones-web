@@ -200,10 +200,15 @@ test('preverano warning persists in an incomplete allocation only when the third
  assert.equal(inevitable.completion.status,'possible');
  assert.ok(inevitable.warnings.some(w=>w.code==='PRE_SINGLE_3'));
 
+ // Free two awards so that a different completion can fill the formerly
+ // single p1 and restore p0. Removing only p0 cannot avoid the third single:
+ // the missing entitlement must be given back to p0.
  const preAward=full.awards.find(a=>a.cycle_date==='p0')!;
- const canAvoidThird={...full,awards:full.awards.filter(a=>a!==preAward)};
+ const thirdAward=full.awards.find(a=>a.cycle_date==='p3')!;
+ const canAvoidThird={...full,awards:full.awards.filter(a=>a!==preAward&&a!==thirdAward)};
  const avoidable=evaluate2027Candidate(canAvoidThird,[]);
  assert.equal(avoidable.completion.status,'possible');
+ assert.ok(avoidable.completion.witness?.some(a=>a.cycle_date==='p1'),'The strict witness can fill a different originally single cycle');
  assert.equal(avoidable.warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
  assert.equal(canAvoidThird.awards.filter(a=>a.cycle_date==='p0').length,0);
 });
@@ -223,7 +228,7 @@ test('warnings remain visible through calculate during a real-sized incomplete 2
  const partial=full.filter(a=>a!==remove);
  const view=calculate(2027,team,config,members,[],partial);
  assert.ok(view.policyWarnings.some(w=>w.code==='PRE_SINGLE_3'),JSON.stringify(view.policyWarnings));
- assert.ok(view.warnings.some(text=>text.includes('Preverano')));
+ assert.ok(view.warnings.some(text=>/preverano/i.test(text)),'The partial warning text must remain visible');
  assert.equal(view.issues.length,0,view.issues.join('; '));
 });
 
@@ -241,7 +246,9 @@ test('2027 individual HR exceptions must be authorized, change effective rights 
  assert.equal(next.individualEntitlements,undefined);
  config.individualEntitlements.X.authorization='';
  assert.throws(()=>validateConfig(config,2027),/excepción individual/);
- assert.throws(()=>validateConfig({...config,individualEntitlements:{X:{cycles:3,authorization:'Documento RRHH referencia R-27'}}},2028),/este ejercicio/);
+ const outsideYear={...copyConfig(defaultConfig(2027),2027,2028),
+  individualEntitlements:{X:{cycles:3,authorization:'Documento RRHH referencia R-27'}}};
+ assert.throws(()=>validateConfig(outsideYear,2028),/este ejercicio/);
 });
 
 test('2027 election skips controllers with approved lower entitlement without changing other members',()=>{
