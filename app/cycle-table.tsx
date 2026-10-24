@@ -36,7 +36,7 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
  const columns=Math.max(4,...cycles.map(c=>Math.max(c.max,c.occupied)));
  const chosen=new Set(selected),marked=new Set(highlighted);
  const styles={'--vac3-font-size':fontSize+'px'} as CSSProperties;
- return <div className="vac3" style={styles}>
+ return <div className={"vac3"+(year===2027?" vac3-2027":"")} style={styles}>
   <div className="vac3-tools">
    <span><strong>{cycles.length}</strong> ciclos · 8 días por ciclo</span>
    <span className="vac3-size-actions">
