@@ -50,8 +50,22 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  // The ordinary 2027 election undo/redo must preserve the selected date,
  // cursor and the user's saved preferences under the new policy.
  d=await service.view(cid);
+ const availability=await service.election().availability(cid);
+ assert.equal(availability.version,d.campaign.version);
+ assert.ok(availability.cycles[preferred[0]]);
+ assert.equal(availability.policyVersion,OCCUPANCY_POLICY_2027);
+ const preflight=await service.election().previewImpact(cid,
+  [{member_id:user,cycle_date:preferred[0]}],d.campaign.version);
+ assert.equal(preflight.allowed,true);
+ assert.ok(preflight.impact);
  await service.election().mutate(cid,{action:'choose',version:d.campaign.version,memberId:user,dates:[preferred[0]]});
  let chosen=await service.view(cid);
+ const auditChoice=chosen.election.timeline.find((event:any)=>event.kind==='choice'&&
+  event.choices.some((choice:any)=>choice.member_id===user&&choice.cycle_date===preferred[0]));
+ assert.ok(auditChoice?.impact,'the impact was committed with the choice');
+ assert.deepEqual(auditChoice.impact.changes,preflight.impact?.changes);
+ await assert.rejects(service.election().previewImpact(cid,
+  [{member_id:user,cycle_date:preferred[0]}],d.campaign.version),/cambió/i);
  assert.equal(chosen.awards.length,1);
  assert.equal(chosen.awards[0].cycle_date,preferred[0]);
  const undoId=chosen.election.undo;
