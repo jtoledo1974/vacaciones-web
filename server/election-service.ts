@@ -19,19 +19,6 @@ export class ElectionService{
   const result=await this.repo.batch([{sql:'SELECT json FROM election_states WHERE campaign_id=?',args:[cid]},{sql:'SELECT * FROM preferences WHERE campaign_id=?',args:[cid]}]);
   return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic,persistent:!!p.persistent,active:!!p.active})) as Preference[]};
  }
- /**
-  * Drain contiguous automatic turns without rebuilding the full UI after each
-  * one. Each mutate('advance') still commits its own audit/undo snapshot and CAS.
-  */
- async advancePending(cid:string,version:number,maxTurns=100):Promise<number>{
-  let processed=0;
-  for(;processed<maxTurns;processed++){
-   const result=await this.mutate(cid,{action:'advance',version});
-   if(!result.changed)break;
-   version++;
-  }
-  return processed;
- }
  async memberForAccount(d:any){
   if(this.actor.preview)return this.actor.preview.campaignId===d.campaign.id&&d.members.some((m:any)=>m.id===this.actor.preview!.memberId)?this.actor.preview.memberId:null;
   if(!this.actor.id)return null;
@@ -84,7 +71,7 @@ export class ElectionService{
   const timeline:ReturnType<typeof buildElectionTimeline>=auditRows?buildElectionTimeline(auditRows as any,ctx,raw.state):[];
 
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences,check??undefined)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
