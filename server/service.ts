@@ -2,7 +2,7 @@ import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {evaluate2027Candidate,evaluate2027Final,canComplete2027,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
+import {evaluate2027Candidate,evaluate2027Final,canComplete2027,immediate2027Issues,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
 import {validateRoster,rowStatements} from './roster.ts';
@@ -76,7 +76,10 @@ export class Service {
      * able to finish, and final summer minimums must be reachable. */
     private assert2027Completable(c:any,config:Config,members:any[],awards:any[],action:string){
         if(c.year!==2027||awards.length===0)return;
-        const proof=canComplete2027(policyState2027(c.year,c.team_id,config,members,awards),{maxChecks:2000});
+        const state=policyState2027(c.year,c.team_id,config,members,awards);
+        const violations=immediate2027Issues(state,[]);
+        if(violations.length)throw new ApiError(action+': '+violations.map(x=>x.message).join('; '),409);
+        const proof=canComplete2027(state,{maxChecks:2000});
         if(proof.status!=='possible')throw new ApiError(
             action+': la adjudicación resultante no tiene una completación validada según RRHH 2027. '+
             (proof.reason??proof.status),409);
