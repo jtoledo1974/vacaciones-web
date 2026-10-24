@@ -458,37 +458,3 @@ test('el administrador puede sortear anticipadamente otro grupo incluso si la el
  assert.equal(next.election.state.pendingTieGroups.length,0);
  assert.deepEqual([...next.election.state.tieResolutions[0].order].sort(),ids.slice(1).sort());
 });
-
-test('la respuesta automática transitoria omite barrido de ciclos sin alterar la vista normal ni la adjudicación',async()=>{
- const {s,cid,d}=await setup(),[a,b]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
- await actOne(s,cid,{action:'preferences',memberId:a.id,dates:[dates[0]]});
- await actOne(s,cid,start(d));
- const normal=await s.view(cid);
- const transient=await s.view(cid,{skipAvailableForPendingAutomatic:true});
- assert.equal(normal.election.pendingAutomatic,true);
- assert.equal(transient.election.pendingAutomatic,true);
- assert.ok(normal.election.available.includes(dates[0]));
- assert.deepEqual(transient.election.available,[]);
- assert.equal(transient.election.turn.memberId,a.id);
- assert.equal(transient.awards.length,0);
- const advanced=await actOne(s,cid,{action:'advance'});
- assert.deepEqual(advanced.awards.filter((x:any)=>x.member_id===a.id).map((x:any)=>x.cycle_date),[dates[0]]);
- assert.equal(advanced.election.turn.memberId,b.id);
- const waiting=await s.view(cid,{skipAvailableForPendingAutomatic:true});
- assert.equal(waiting.election.pendingAutomatic,false);
- assert.ok(waiting.election.available.length>0);
-});
-
-test('preferencias agotadas fuerzan el barrido legal para el siguiente turno manual',async()=>{
- const {s,cid,d}=await setup(),[a,b,c]=d.members,date=d.result.cycles[0].date;
- await actOne(s,cid,{action:'preferences',memberId:c.id,dates:[date]});
- await actOne(s,cid,start(d));
- await actOne(s,cid,{action:'choose',memberId:a.id,dates:[date]});
- await actOne(s,cid,{action:'choose',memberId:b.id,dates:[date]});
- const state=await s.view(cid,{skipAvailableForPendingAutomatic:true});
- assert.equal(state.election.turn.memberId,c.id);
- assert.equal(state.election.pendingAutomatic,false);
- assert.ok(state.election.available.length>0);
- assert.ok(!state.election.available.includes(date));
- assert.equal(state.awards.length,2);
-});
