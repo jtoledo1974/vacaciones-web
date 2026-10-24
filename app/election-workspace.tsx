@@ -171,9 +171,17 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   setPairOptions(null);if(turn?.participants?.length!==1||turn?.needed<2||!selected.length||selected.length>=turn.needed)return;
   let active=true;setLoadingOptions(true);
   const query=new URLSearchParams();selected.forEach(date=>query.append('selected',date));const preview=new URLSearchParams(location.search).get('verComo');if(preview)query.set('verComo',preview);
-  fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{const body:any=await response.json();if(!response.ok)throw new Error(body.error);if(active)setPairOptions(body.available);}).catch(e=>{if(active){setPairOptions([]);setMessage(e.message);}}).finally(()=>{if(active)setLoadingOptions(false);});
+  fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{
+    const body:any=await response.json();if(!response.ok)throw new Error(body.error);
+    if(!active)return;
+    const currentPolicy=data.campaign.year===2027?election.occupancyPolicyVersion:null;
+    if(body.version!==data.campaign.version||(currentPolicy&&body.policyVersion!==currentPolicy)){
+     setPairOptions([]);setMessage('Los cupos se han recalculado con otra versión del reparto. Actualiza la vista antes de confirmar.');return;
+    }
+    setPairOptions(body.available??[]);
+   }).catch(e=>{if(active){setPairOptions([]);setMessage(e.message);}}).finally(()=>{if(active)setLoadingOptions(false);});
   return ()=>{active=false;setLoadingOptions(false);};
- },[selected.join(','),turn?.needed,data.campaign.version]);
+ },[selected.join(','),turn?.needed,data.campaign.version,election.occupancyPolicyVersion]);
  const canChoose=open&&!frozen&&state?.status==='active'&&!!turn?.memberId&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&!frozen&&preferenceMemberIds.length>0;
  const reconstructionCandidates:any[]=election.reconstruction?.candidates??[];
  const candidatesById=new Map<string,any>(reconstructionCandidates.filter((candidate:any)=>!candidate.archived).map((candidate:any)=>[candidate.id,candidate]));
