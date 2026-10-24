@@ -145,22 +145,33 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
  d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,
   source:{format:'vacaciones-roster-v1',team:'A',year:2027,copySelections:false,
    rows:codes.map(code=>({code,label:'Validación '+code,seniority:''}))}});
- const selectedPre=d.result.cycles.filter((cycle:any)=>cycle.period===0).slice(0,3).map((cycle:any)=>cycle.date);
- d=await service.mutate(cid,{action:'config',version:d.campaign.version,
-  config:{...d.config,specialQuotas:Object.fromEntries(selectedPre.map((date:string)=>[date,1]))}});
  const policy=policyState2027(2027,'A',d.config,d.members,[]);
  const completion=canComplete2027(policy,{maxChecks:1200});
  assert.equal(completion.status,'possible',completion.reason);
- const final=evaluate2027Final({...policy,awards:completion.witness!});
- assert.ok(final.valid,JSON.stringify(final.issues));
- assert.ok(final.warnings.some(w=>w.code==='PRE_SINGLE_3'));
- await repo.batch(completion.witness!.map((award,i)=>({
+ const initial=completion.witness!;
+ const occupied=(date:string)=>initial.filter(a=>a.cycle_date===date);
+ let shifted:typeof initial|null=null;
+ for(const target of policy.cycles.filter(c=>c.period!==1&&occupied(c.date).length===2)){
+  for(const source of policy.cycles.filter(c=>c.period===1&&occupied(c.date).length===3)){
+   const moving=occupied(source.date).find(a=>!occupied(target.date).some(b=>b.member_id===a.member_id));
+   if(!moving)continue;
+   const candidate=initial.map(a=>a===moving?{...a,cycle_date:target.date}:a);
+   const final=evaluate2027Final({...policy,awards:candidate});
+   if(final.valid&&final.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY')){shifted=candidate;break;}
+  }
+  if(shifted)break;
+ }
+ assert.ok(shifted,'A valid provisional cross-period allocation must be constructible');
+ const final=evaluate2027Final({...policy,awards:shifted!});
+ assert.equal(final.valid,true,JSON.stringify(final.issues));
+ assert.ok(final.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'));
+ await repo.batch(shifted!.map((award,i)=>({
   sql:'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
   args:['fixture-award-'+i,cid,award.member_id,award.cycle_date]
  })));
  d=await service.view(cid);
  assert.equal(d.result.issues.length,0);
- assert.equal(d.result.policyWarnings.some((w:any)=>w.code==='PRE_SINGLE_3'),true);
+ assert.equal(d.result.policyWarnings.some((w:any)=>w.code==='CROSS_PERIOD_FLEXIBILITY'),true);
  d=await service.mutate(cid,{action:'calculate',version:d.campaign.version});
  const runId=d.runs[0].id;
  await assert.rejects(service.mutate(cid,{action:'publish',version:d.campaign.version,runId}),
