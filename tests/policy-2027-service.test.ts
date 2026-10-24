@@ -92,3 +92,44 @@ test('2027 administrative roster edits cannot strand existing awards; denial is 
  assert.equal(after.awards.length,beforeAwards);
  assert.equal(after.awards[0].cycle_date,date);
 });
+
+test('2027 guided reconstruction previews and replays a joint award through the same atomic evaluator',async()=>{
+ const repo=new SQLiteRepo(),service=new Service(repo,owner);
+ await service.init();
+ await service.createCampaigns(2027,null,null);
+ const cid=(await service.list()).campaigns.find((c:any)=>c.year===2027&&c.team_id==='A').id;
+ let d=await service.view(cid);
+ const codes=Array.from({length:20},(_,i)=>'J'+String(i+1).padStart(2,'0'));
+ d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,
+  source:{format:'vacaciones-roster-v1',team:'A',year:2027,copySelections:false,
+   rows:codes.map(code=>({code,label:'Prueba conjunta '+code,seniority:''}))}});
+ d=await service.mutate(cid,{action:'config',version:d.campaign.version,
+  config:{...d.config,previousScores:Object.fromEntries(codes.map((code,i)=>[code,10+i])),
+   previousScoresSource:'Puntuaciones conjuntas certificadas para ensayo 2027'}});
+ const ids=d.members.slice(0,2).map((m:any)=>m.id);
+ const dates=d.result.cycles.slice(0,2).map((c:any)=>c.date);
+ await service.election().mutate(cid,{action:'start',version:d.campaign.version,rulesConfirmed:true,allowDeferral:true});
+ d=await service.view(cid);
+ await service.election().mutate(cid,{action:'register_joint',round:1,members:ids,version:d.campaign.version});
+ d=await service.view(cid);
+ assert.deepEqual(d.election.turn.participants,ids);
+ await service.election().mutate(cid,{action:'choose_joint',version:d.campaign.version,
+  entries:ids.map((member_id:string,i:number)=>({member_id,dates:[dates[i]]}))});
+ d=await service.view(cid);
+ assert.equal(d.awards.length,2);
+ const target=d.election.reconstruction.candidates.find((item:any)=>item.action==='choose_joint');
+ assert.ok(target);
+ await service.election().mutate(cid,{action:'reconstruction_start',version:d.campaign.version,historyId:target.id});
+ d=await service.view(cid);
+ assert.equal(d.awards.length,0);
+ assert.equal(d.election.reconstruction.current.originalAction,'choose_joint');
+ assert.equal(d.election.reconstruction.current.originalPossible,true);
+ await service.election().mutate(cid,{action:'reconstruction_step',kind:'choose_joint',mode:'original',version:d.campaign.version});
+ d=await service.view(cid);
+ assert.equal(d.awards.length,2);
+ assert.equal(d.election.reconstruction.status,'review');
+ await service.election().mutate(cid,{action:'reconstruction_finish',version:d.campaign.version});
+ d=await service.view(cid);
+ assert.equal(d.election.reconstruction.status,'completed');
+ assert.deepEqual(d.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),ids.map((id:string,i:number)=>id+'|'+dates[i]).sort());
+});
