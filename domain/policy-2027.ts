@@ -123,7 +123,7 @@ export function evaluate2027Final(state: PolicyState, strictPre = false): FinalA
     issues.push(problem('ORDINARY_THIRD_POOL',
       'La bolsa compartida de terceras plazas ordinarias fuera del verano no admite este total.',
       {actual:conventionalThirds,limit:outsideCount}));
-  const summerTotal = sums[1], summerReference = state.members.reduce((s,m)=>s+m.entitlement,0) === 0 ? 0 : state.members.length * 2;
+  const summerTotal = sums[1], summerReference = state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
   if (summerTotal !== summerReference)
     warnings.push(problem('SUMMER_REFERENCE', 'La distribución estival difiere de la referencia informativa de dos ciclos por persona.', {period:1,actual:summerTotal,limit:summerReference}));
   return { valid: issues.length === 0, issues, warnings };
@@ -384,7 +384,7 @@ export function evaluate2027Candidate(state:PolicyState,choices:PolicyAward[],ma
       warnings.push(problem('PRE_SINGLE_3','Esta elección hace inevitable utilizar tres ciclos con una persona en preverano; permitida con revisión administrativa.',{period:0,actual:3,limit:2}));
     else if(strict.status==='indeterminate')
       warnings.push(problem('PRE_SINGLE_UNDETERMINED','No se ha podido comprobar si aún es posible terminar con solo dos ciclos individuales en preverano.',{period:0,limit:2}));
-    const summerReference=state.members.length*2;
+    const summerReference=state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
     const reference=canComplete2027(next,{summerTotal:summerReference,maxChecks});
     if(reference.status==='impossible')
       warnings.push(problem('SUMMER_REFERENCE','La terminación necesita un total estival distinto de la referencia informativa.',{period:1,limit:summerReference}));
