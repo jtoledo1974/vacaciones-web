@@ -19,7 +19,10 @@ export type Award = {
     member_id: string;
     cycle_date: string;
 };
-export function calculate(y: number, team: string, c: Config, members: Member[], requests: Request[], awards: Award[]) {
+export function calculate(
+ y: number, team: string, c: Config, members: Member[], requests: Request[], awards: Award[],
+ options: {skip2027Proof?:boolean}={}
+) {
     const cycles = calendar(y, team, c);
     const byDate = new Map(cycles.map(s => [s.date, s]));
     const counts = [0, 0, 0];
@@ -96,7 +99,7 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
         // necessary summer-total deviation, persist after each adjudication.
         // They are not inferred from provisional occupation (which may still
         // be completed), and they never turn into blocking errors.
-        const partial= !complete && !year2027Issues.length && awards.length
+        const partial= !options.skip2027Proof && !complete && !year2027Issues.length && awards.length
           ? evaluate2027Candidate(state,[],500) : null;
         if(final)year2027Issues.push(...final.issues.map(i=>i.message));
         else if(partial?.completion.status==='impossible')
