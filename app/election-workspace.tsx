@@ -355,7 +355,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {manage&&!state&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={onConfigureElection}>Configurar e iniciar elección</button>}
     {manage&&state?.status==='paused'&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={()=>act({action:'resume'},'Elección reanudada')}>Reanudar elección</button>}
     {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(manage&&open&&pendingGroups.length>0)||(superuser&&state?.status==='active')||(simulation&&manage&&state?.status==='active'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
-     {simulation&&manage&&<label className="election-fast-mode"><input type="checkbox" checked={!quickMode} onChange={event=>changeQuickMode(!event.target.checked)} disabled={busy}/>Requerir confirmación antes de adjudicar</label>}
+     {simulation&&manage&&<><label className="election-fast-mode"><input type="checkbox" checked={!quickMode} onChange={event=>changeQuickMode(!event.target.checked)} disabled={busy}/>Requerir confirmación antes de adjudicar</label><small className="muted">También se aplica a Deshacer y Rehacer.</small></>}
      {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
      {manage&&open&&pendingGroups.length>0&&<button type="button" className="secondary election-pending-ties-action" disabled={busy||previewReadOnly} onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');setTieDialogOpen(true);}}>Resolver empates pendientes <span className="election-pending-count">{pendingGroups.length}</span></button>}
      {manage&&state?.status==='active'&&<button type="button" className="secondary" onClick={()=>{setJointRound(turn?.round??1);setJointMembers([]);setJointOpen(true);}}>Gestionar turnos conjuntos…</button>}
@@ -443,8 +443,16 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {manage&&<section className="panel election-history-panel" aria-label="Historial de elección">
      <div className="election-history-head"><h2>Últimos turnos y adjudicaciones</h2>
       <div className="election-workflow-actions">
-       {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');}}>↶ Deshacer</button>}
-       {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>↷ Rehacer</button>}
+       {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{
+        if((!simulation||!quickMode)&&!await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))return;
+        if(data.undo)await legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho');
+        else await act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');
+       }}>↶ Deshacer</button>}
+       {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{
+        if((!simulation||!quickMode)&&!await confirm('¿Rehacer el cambio de elección?'))return;
+        if(data.redo)await legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho');
+        else await act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');
+       }}>↷ Rehacer</button>}
        {canOpenReconstruction&&!choosingReconstructionStart&&<details className="election-more-actions election-history-more"><summary aria-label="Más acciones del historial">Más ⋯</summary><div className="election-more-menu"><button type="button" className="secondary" onClick={()=>setChoosingReconstructionStart(true)}>Reconstruir desde un turno…</button></div></details>}
       </div>
      </div>
