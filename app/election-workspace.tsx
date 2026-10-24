@@ -198,10 +198,17 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  }
  if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(dates.includes(c.date)){editDates(togglePreferenceDate(dates,c.date,false));setPreferenceMessage('Ciclo retirado de tus preferencias. Sin guardar.');return;}/* Preferences can remain in the list even when currently unavailable. */editDates(togglePreferenceDate(dates,c.date,true));setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage(election.availabilityReasons?.[c.date]??'Este ciclo no es viable en el reparto actual.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
  return <>
+  {data.campaign.year===2027&&
+   <details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
+    <summary>Cómo se aplican los cupos de 2027</summary>
+    <p>En preverano hay dos ampliaciones a tres plazas en ciclos distintos y una ampliación a cuatro en un tercer ciclo. La cuarta no genera otro ciclo con una sola persona. Pueden terminar hasta tres ciclos individuales sin que ello suponga otro extracupo.</p>
+    <p>En postverano pueden encadenarse la ampliación a tres y la cuarta plaza. En verano todos los ciclos deben terminar con al menos dos personas; están permitidos como máximo dos ciclos con cuatro.</p>
+    <p>La flexibilidad de origen entre periodos está permitida provisionalmente por el responsable, con aviso cuando impida cumplir la interpretación territorial estricta de RR. HH. No es autorización definitiva de RR. HH. La referencia de dos ciclos estivales por persona es informativa.</p>
+   </details>}
   {data.campaign.year===2027&&(data.result.policyWarnings??[]).length>0&&
    <section className="panel" aria-label="Avisos de las normas de vacaciones 2027">
     <h3>Avisos de reparto 2027</h3>
-    <p>Estos avisos no bloquean la elección; indican diferencias respecto a los criterios informativos de RR. HH. y deben revisarse al cerrar el ejercicio.</p>
+    <p>Estos avisos no bloquean la elección. Distinguen la flexibilidad provisional entre periodos de la referencia estival informativa; deben revisarse expresamente al cerrar el ejercicio.</p>
     {(data.result.policyWarnings??[]).map((w:any,i:number)=>
      <p key={w.code+'-'+i} role="status" className="alert warning">
       <strong>{w.period===0?'Preverano':w.period===1?'Verano':w.period===2?'Postverano':'Distribución general'}:</strong> {w.message}
