@@ -273,10 +273,11 @@ export class ElectionService{
     state={...state,automaticPaused:false};
    }else if(action==='advance'){
     if(!state)throw new ApiError('No hay una elección configurada');
-    if(!preferredChoice(ctx,state,preferences))return {changed:false};
-    // Each advance commits EXACTLY ONE turn, with its own undo snapshot.
-    // Manual selections and preceding automated turns are already committed.
+    // advanceAutomatic checks stored preferences and validates its chosen
+    // cycles; do not perform an identical, expensive solver search beforehand.
+    // Each successful advance still commits EXACTLY ONE undoable turn.
     const next=advanceAutomatic(ctx,state,preferences,1);
+    if(!next.choices.length)return {changed:false};
     state=next.state;preferences=next.preferences;choices=next.choices;
    }else if(action==='link_account'){
     if(c.scope_key!=='live')throw new ApiError('Vincula las cuentas desde una campaña real');
