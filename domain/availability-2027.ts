@@ -1,5 +1,5 @@
 import {
- canComplete2027, immediate2027Issues, evaluate2027Candidate,
+ canComplete2027, evaluate2027Candidate,
  OCCUPANCY_POLICY_2027, type PolicyState, type PolicyAward,
  type RuleProblem, type Completion
 } from './policy-2027.ts';
