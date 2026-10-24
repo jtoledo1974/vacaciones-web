@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {Service} from '../server/service.ts';
 import {SQLiteRepo} from './sqlite-repo.ts';
-import {OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
+import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Final} from '../domain/policy-2027.ts';
+import {policyState2027} from '../domain/election-2027.ts';
 
 const owner={id:'chatgpt:owner',role:'superadmin' as const,teams:[]};
 
@@ -132,4 +133,49 @@ test('2027 guided reconstruction previews and replays a joint award through the 
  d=await service.view(cid);
  assert.equal(d.election.reconstruction.status,'completed');
  assert.deepEqual(d.awards.map((a:any)=>a.member_id+'|'+a.cycle_date).sort(),ids.map((id:string,i:number)=>id+'|'+dates[i]).sort());
+});
+
+test('2027 publication refuses unreviewed allowed warnings and retains the reviewed policy audit',async()=>{
+ const repo=new SQLiteRepo(),service=new Service(repo,owner);
+ await service.init();
+ await service.createCampaigns(2027,null,null);
+ const cid=(await service.list()).campaigns.find((c:any)=>c.year===2027&&c.team_id==='A').id;
+ let d=await service.view(cid);
+ const codes=Array.from({length:20},(_,i)=>'V'+String(i+1).padStart(2,'0'));
+ d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,
+  source:{format:'vacaciones-roster-v1',team:'A',year:2027,copySelections:false,
+   rows:codes.map(code=>({code,label:'Validación '+code,seniority:''}))}});
+ const selectedPre=d.result.cycles.filter((cycle:any)=>cycle.period===0).slice(0,3).map((cycle:any)=>cycle.date);
+ d=await service.mutate(cid,{action:'config',version:d.campaign.version,
+  config:{...d.config,specialQuotas:Object.fromEntries(selectedPre.map((date:string)=>[date,1]))}});
+ const policy=policyState2027(2027,'A',d.config,d.members,[]);
+ const completion=canComplete2027(policy,{maxChecks:1200});
+ assert.equal(completion.status,'possible',completion.reason);
+ const final=evaluate2027Final({...policy,awards:completion.witness!});
+ assert.ok(final.valid,JSON.stringify(final.issues));
+ assert.ok(final.warnings.some(w=>w.code==='PRE_SINGLE_3'));
+ await repo.batch(completion.witness!.map((award,i)=>({
+  sql:'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+  args:['fixture-award-'+i,cid,award.member_id,award.cycle_date]
+ })));
+ d=await service.view(cid);
+ assert.equal(d.result.issues.length,0);
+ assert.equal(d.result.policyWarnings.some((w:any)=>w.code==='PRE_SINGLE_3'),true);
+ d=await service.mutate(cid,{action:'calculate',version:d.campaign.version});
+ const runId=d.runs[0].id;
+ await assert.rejects(service.mutate(cid,{action:'publish',version:d.campaign.version,runId}),
+  /Confirma expresamente los avisos/);
+ assert.equal((await service.load(cid)).campaign.status,'open');
+ const expected=final.warnings.map(w=>w.code);
+ d=await service.mutate(cid,{action:'publish',version:d.campaign.version,runId,reviewedWarnings:expected});
+ assert.equal(d.campaign.status,'published');
+ const published=await service.publishedView(cid);
+ assert.equal(published?.awards.length,120);
+ assert.deepEqual(published?.result.policyWarnings?.map((w:any)=>w.code).sort(),expected.sort());
+ const audit=await repo.all('SELECT after_json FROM audit WHERE campaign_id=? AND action=? ORDER BY rowid DESC LIMIT 1',[cid,'publish']);
+ const review=JSON.parse(audit[0].after_json).review;
+ assert.equal(review.policyVersion,OCCUPANCY_POLICY_2027);
+ assert.equal(review.actor,owner.id);
+ assert.ok(typeof review.at==='string'&&review.at.length>10);
+ assert.deepEqual(review.warnings.map((w:any)=>w.code).sort(),expected.sort());
 });
