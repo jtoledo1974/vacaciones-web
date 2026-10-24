@@ -308,3 +308,34 @@ test('a sound two-person swap reuses a completed 2027 witness without any search
  const already={...partial,awards:[...partial.awards,choice]};
  assert.equal(transplant2027Witness(already,choice,witness),null,'Cannot award an already confirmed cycle');
 });
+
+test('witness reuse and full 2027 evaluator agree across all period boundaries of team A',()=>{
+ const config=defaultConfig(2027),calendarA=calendar(2027,'A',config);
+ const members=Array.from({length:20},(_,i)=>({id:'m'+i,code:'CTA'+i,seniority:''}));
+ const initial=policyState2027(2027,'A',config,members,[]);
+ const found=canComplete2027(initial,{maxChecks:1000});
+ assert.equal(found.status,'possible',found.reason);
+ const proof=found.witness!;
+ const member=members[0].id;
+ const targets=[...new Set([
+  ...calendarA.filter(c=>c.period===0).slice(0,2).map(c=>c.date),
+  ...calendarA.filter(c=>c.period===1).slice(0,2).map(c=>c.date),
+  ...calendarA.filter(c=>c.period===2).slice(0,2).map(c=>c.date),
+  ...proof.filter(a=>a.member_id===member).slice(0,2).map(a=>a.cycle_date)
+ ])];
+ let reused=0;
+ for(const cycle_date of targets){
+  const choice={member_id:member,cycle_date};
+  const ordinary=evaluate2027Candidate(initial,[choice],2000);
+  const accelerated=evaluate2027Candidate(initial,[choice],2000,proof);
+  assert.equal(accelerated.allowed,ordinary.allowed,cycle_date);
+  assert.equal(accelerated.completion.status,ordinary.completion.status,cycle_date);
+  assert.deepEqual(accelerated.issues.map(i=>i.code).sort(),ordinary.issues.map(i=>i.code).sort(),cycle_date);
+  assert.deepEqual(accelerated.warnings.map(w=>w.code).sort(),ordinary.warnings.map(w=>w.code).sort(),cycle_date);
+  if(accelerated.completion.checked===0){
+   reused++;
+   assert.equal(evaluate2027Final({...initial,awards:[choice,...accelerated.completion.witness!]}).valid,true);
+  }
+ }
+ assert.ok(reused>0,'At least the chosen baseline assignments should reuse proven completions');
+});
