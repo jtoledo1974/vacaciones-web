@@ -51,6 +51,17 @@ async function serve(request: Request) {
                 const rows=await repo.all("SELECT revision FROM app_state WHERE id='main'");
                 return reply({revision:rows[0]?.revision??0});
             }
+            if(path[0]==='election'&&path[1]&&path[2]==='availability')
+                return reply(await effectiveService.election().availability(path[1]));
+            if(path[0]==='election'&&path[1]&&path[2]==='impact'){
+                const raw=url.searchParams.get('choices'),version=Number(url.searchParams.get('version'));
+                if(!raw||raw.length>10000||!Number.isSafeInteger(version)||version<0)
+                    throw new ApiError('Indica las adjudicaciones y versión de campaña válidas',400);
+                let choices:unknown;
+                try{choices=JSON.parse(raw);}catch{throw new ApiError('Previsualización inválida',400);}
+                return reply(await effectiveService.election().previewImpact(path[1],
+                    choices as {member_id:string;cycle_date:string}[],version));
+            }
             if(path[0]==='election'&&path[1]&&path[2]==='options'){
                 const rawJoint=url.searchParams.get('joint');
                 let jointEntries:undefined|{member_id:string;dates:string[]}[];
