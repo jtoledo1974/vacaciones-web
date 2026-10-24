@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {AvailabilitySnapshot,AvailabilityImpact,AvailabilitySlot} from '../domain/availability-2027';
-import {cycleAvailability,describeImpact,slotExplanation} from '../app/cycle-availability-ui';
+import {cycleAvailability,describeImpact,slotExplanation} from '../app/cycle-availability-ui.ts';
 
 const cycle={date:'2027-07-01',occupied:0,max:4};
 
