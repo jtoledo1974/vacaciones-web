@@ -1,7 +1,7 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
 import {policyState2027} from './election-2027.ts';
-import {OCCUPANCY_POLICY_2027,evaluate2027Final,canComplete2027} from './policy-2027.ts';
+import {OCCUPANCY_POLICY_2027,evaluate2027Final,evaluate2027Candidate} from './policy-2027.ts';
 import {hr2027FourthExcluded} from './hr-2027.ts';
 export type Member = {
     id: string;
@@ -86,15 +86,22 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
             return {...s,occupied,requested:requests.filter(a=>a.cycle_date===s.date).length,
                 min:s.period===1?2:1,base:2,max,available:occupied<max};
         });
-        if(final) year2027Issues.push(...final.issues.map(i=>i.message));
-        else if(!year2027Issues.length && awards.length){
-            const future=canComplete2027(state,{maxChecks:250});
-            if(future.status==='impossible')year2027Issues.push('Las adjudicaciones actuales no permiten completar las vacaciones restantes');
-        }
+        // Warnings about an unavoidable third singleton in pre-summer, or a
+        // necessary summer-total deviation, persist after each adjudication.
+        // They are not inferred from provisional occupation (which may still
+        // be completed), and they never turn into blocking errors.
+        const partial= !complete && !year2027Issues.length && awards.length
+          ? evaluate2027Candidate(state,[],500) : null;
+        if(final)year2027Issues.push(...final.issues.map(i=>i.message));
+        else if(partial?.completion.status==='impossible')
+          year2027Issues.push('Las adjudicaciones actuales no permiten completar las vacaciones restantes');
+        const policyWarnings=final?.warnings??partial?.warnings??[];
+        const completionStatus=final?(final.valid?'possible':'impossible')
+          :partial?.completion.status??'not-checked';
         return {
             engineVersion:ENGINE_VERSION,occupancyPolicyVersion:OCCUPANCY_POLICY_2027,
             cycles:detailed,ordering,issues:[...new Set(year2027Issues)],
-            warnings:final?.warnings.map(w=>w.message)??[],policyWarnings:final?.warnings??[],
+            warnings:policyWarnings.map(w=>w.message),policyWarnings,completionStatus,
             totals:{members:members.length,requested:requests.length,awarded:awards.length,necessary:neededTotal,
                 base:baseTotal,conventionSummer,conventionWinter,usedSummer,counts}
         };
