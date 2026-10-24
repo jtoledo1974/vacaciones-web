@@ -345,6 +345,64 @@ const occupancyCount=(state:PolicyState,date:string):number=>
  state.awards.filter(a=>a.cycle_date===date).length;
 
 /**
+ * A first award cannot reduce any cycle's achievable FINAL occupancy when
+ * everybody has identical positive entitlements and no previous awards exist.
+ *
+ * Proof: every completed allocation has at least one occupant in every cycle
+ * (PRE/POST minimum 1, summer minimum 2). In any such allocation, rename the
+ * occupant of the selected cycle to the first chooser, and permute all other
+ * controller identities consistently. Equal entitlements make the new full
+ * allocation valid; its occupation histogram is unchanged. The reverse
+ * inclusion is immediate because an added award only restricts completions.
+ *
+ * Consequently the exact same final maxima AND their sound upper/lower bounds
+ * apply before and after the first award. Only the selected cycle's number of
+ * FUTURE available places drops by one. This also preserves indeterminate
+ * intervals without pretending they are exact.
+ *
+ * This is deliberately NOT used for heterogeneous HR entitlements, later
+ * choices, or unproved/invalid initial allocations.
+ */
+function firstAwardSymmetry(
+ before:PolicyState,after:PolicyState,
+ previous:AvailabilitySnapshot,options:AvailabilityOptions
+):AvailabilitySnapshot|null {
+ if(before.awards.length!==0||after.awards.length!==1||
+   !before.members.length||previous.status==='invalid')return null;
+ const entitlement=before.members[0].entitlement;
+ if(!Number.isInteger(entitlement)||entitlement<=0||
+   before.members.some(m=>m.entitlement!==entitlement))return null;
+ const award=after.awards[0];
+ if(!before.members.some(m=>m.id===award.member_id))return null;
+ const entry=previous.cycles[award.cycle_date];
+ if(!entry||entry.occupied!==0||entry.provenAdditional<1||
+    entry.slots[0]?.status!=='available')return null;
+ // A verified completion from the baseline proves the existence of all
+ // positive lower bounds. Otherwise we cannot apply the permutation proof.
+ if(before.cycles.some(c=>previous.cycles[c.date]?.occupied!==0||
+   previous.cycles[c.date]?.provenAdditional<1))return null;
+ const selected:CycleAvailability={
+   ...entry,occupied:1,
+   additional:entry.additional===null?null:entry.additional-1,
+   provenAdditional:entry.provenAdditional-1,
+   possibleAdditionalUpperBound:entry.possibleAdditionalUpperBound-1,
+   slots:entry.slots.map((slot,i)=>i===0
+     ?{position:1,status:'occupied' as const,memberId:award.member_id,reasons:[]}
+     :slot.status==='blocked'
+       ?{...slot,reasons:blockedReasons(after,award.cycle_date,slot.position,1)}
+       :slot)
+ };
+ const snapshot:AvailabilitySnapshot={
+  ...previous,
+  cycles:{...previous.cycles,[award.cycle_date]:selected},
+  checked:0
+ };
+ if(options.useCache!==false)
+  snapshotCache(keyFor(after,options.maxChecks??500),snapshot);
+ return snapshot;
+}
+
+/**
  * Compare proven availability before/after ONE atomic operation. A change
  * whose exact delta is unproved is reported with delta:null, not guessed.
  */
@@ -353,7 +411,8 @@ export function availabilityImpact(
 ):AvailabilityImpact {
  if(keyFor({...before,awards:[]},1)!==keyFor({...after,awards:[]},1))
   throw new Error('No es posible comparar campañas o políticas con distinta plantilla o calendario.');
- const left=availabilityByCycle(before,options),right=availabilityByCycle(after,options);
+ const left=availabilityByCycle(before,options);
+ const right=firstAwardSymmetry(before,after,left,options)??availabilityByCycle(after,options);
  const changes:AvailabilityChange[]=[];
  const oldFour=[0,0,0],newFour=[0,0,0];
  for(const c of before.cycles){
