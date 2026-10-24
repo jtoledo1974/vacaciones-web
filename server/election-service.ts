@@ -95,6 +95,16 @@ export class ElectionService{
   if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
   return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
  }
+ /** Cycle-wide existential availability, independent of whose turn it is. */
+ async availability(cid:string){
+  const d=await this.host.load(cid);
+  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)
+   throw new ApiError('Simulación reservada a administradores',403);
+  if(d.campaign.year!==2027)throw new ApiError('Disponibilidad global solo disponible con política 2027',400);
+  const ctx=context(d);
+  return {version:d.campaign.version,
+   ...availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))};
+ }
  /**
   * Non-mutating preflight for the complete atomic choice at the current turn.
   * Preview and confirmation derive their results from the same domain evaluator;
