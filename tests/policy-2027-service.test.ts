@@ -301,3 +301,39 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
  assert.ok(typeof review.at==='string'&&review.at.length>10);
  assert.deepEqual(review.warnings.map((w:any)=>w.code).sort(),expected.sort());
 });
+
+test('2027 automatic preference transient responses skip solver table but final/manual responses remain complete',async()=>{
+ const repo=new SQLiteRepo(),service=new Service(repo,owner);
+ await service.init();
+ await service.createCampaigns(2027,null,null);
+ const cid=(await service.list()).campaigns.find((c:any)=>c.year===2027&&c.team_id==='A').id;
+ let d=await service.view(cid);
+ const codes=Array.from({length:20},(_,i)=>'FAST'+String(i+1).padStart(2,'0'));
+ d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,
+  source:{format:'vacaciones-roster-v1',team:'A',year:2027,copySelections:false,
+   rows:codes.map(code=>({code,label:'Ficticio '+code,seniority:''}))}});
+ d=await service.mutate(cid,{action:'config',version:d.campaign.version,
+  config:{...d.config,previousScores:Object.fromEntries(codes.map((code,i)=>[code,i+1])),
+   previousScoresSource:'Orden ficticio para comprobar la optimización de 2027'}});
+ const first=d.members[0].id,date=d.result.cycles[0].date;
+ await service.election().mutate(cid,{action:'preferences',version:d.campaign.version,
+  memberId:first,dates:[date]});
+ d=await service.view(cid);
+ await service.election().mutate(cid,{action:'start',version:d.campaign.version,
+  rulesConfirmed:true,allowDeferral:true});
+ const intermediate=await service.view(cid,{skipAvailabilityForPendingAutomatic:true});
+ assert.equal(intermediate.election.pendingAutomatic,true);
+ assert.deepEqual(intermediate.election.available,[]);
+ assert.equal(intermediate.election.cycleAvailability,null);
+ assert.equal(intermediate.awards.length,0);
+ const ordinary=await service.view(cid);
+ assert.equal(ordinary.election.pendingAutomatic,true);
+ assert.ok(ordinary.election.cycleAvailability?.cycles[date]);
+ assert.ok(ordinary.election.available.includes(date));
+ await service.election().mutate(cid,{action:'advance',version:intermediate.campaign.version});
+ const final=await service.view(cid,{skipAvailabilityForPendingAutomatic:true});
+ assert.equal(final.election.pendingAutomatic,false);
+ assert.ok(final.election.cycleAvailability?.cycles[date]);
+ assert.ok(final.election.available.length>0);
+ assert.deepEqual(final.awards.filter((a:any)=>a.member_id===first).map((a:any)=>a.cycle_date),[date]);
+});
