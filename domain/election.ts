@@ -1,3 +1,4 @@
+import {winterExtraExceeded} from './winter-extras.ts';
 import {calculate,type Member,type Request,type Award} from './vacations.ts';
 import {relationQuotas} from './quotas.ts';
 import type {Config} from './calendar.ts';
@@ -200,10 +201,8 @@ export function createChoiceChecker(ctx:ElectionContext,baseline=calculate(ctx.y
   const issues:string[]=[];
   if(memberCounts.get(memberId)!+dates.length>config.cyclesPerPerson)issues.push(`${member.code}: supera los ciclos anuales`);
   if(extra[1]>conventionSummer+config.grace[1])issues.push('Se han agotado los extracupos de verano');
-  if((config.commonConvention||config.commonGrace)&&extra[0]+extra[2]>conventionWinter+config.grace[0]+config.grace[2])issues.push('Se han agotado los extracupos de no verano');
-  if(!config.commonConvention&&!config.commonGrace){
-   for(const p of [0,2])if(extra[p]>convention[p]+config.grace[p])issues.push('Se han agotado los extracupos del período');
-  }
+  if(winterExtraExceeded(config,conventionWinter,convention,extra))
+   issues.push(config.commonConvention||config.commonGrace?'Se han agotado los extracupos de no verano':'Se han agotado los extracupos del período');
   if(!changedRelation){
    // Existing cycles remain valid: inspect only the changed cells.
    for(const i of candidateIndices.sort((a,b)=>a-b)){
