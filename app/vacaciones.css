@@ -637,3 +637,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-auto-notice{font-size:11px;color:#365e50;padding:8px;background:#f1f7f3;border-radius:5px;margin:5px 0}
 @keyframes election-thinking-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.election-thinking-spinner{animation:none;border-top-color:#126c53}}
+
+/* Build stamp at the very bottom: diagnostic, not a navigation item. */
+.content > footer .footer-build{display:block;flex-basis:100%;text-align:right;margin-top:3px;font-size:10px;line-height:1.4;font-weight:400;color:#829288}
+.content > footer .footer-build time{font:inherit;color:inherit}

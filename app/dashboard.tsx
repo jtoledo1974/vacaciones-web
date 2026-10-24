@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { buildInfo } from './build-info';
 import {initialiseFirebase,subscribeFirebaseSession,firebaseBearerToken,firebaseUser,firebaseSignInWithGoogle,firebaseSignOut} from './firebase-client';
 import UserForm from './user-permissions';
 import LocalAdminLogin from './local-admin-login';
@@ -300,7 +301,7 @@ function Dashboard() {
             return; if (!await confirm('¿Restaurar todos los datos desde esta copia? Sustituirá las campañas y permisos actuales. Descarga una copia antes de continuar.'))
             return; await perform(async () => { const b = JSON.parse(await f.text()); const a = await api('admin'); await api('restore', { backup: b, revision: a.revision }); setData(await api('campaign/' + cid)); setAdmin(await api('admin')); }, 'Copia restaurada'); e.target.value = ''; }}/></label></div></section>}{superuser&&<section className="panel"><h2>Actividad reciente</h2><div className="table-wrap"><table><thead><tr><th>Operación</th><th>Equipo</th><th>Fecha</th></tr></thead><tbody>{admin?.audit.map((a: any) => <tr key={a.id}><td>{a.action}</td><td>{a.team_id ?? 'General'}</td><td>{new Date(a.created_at).toLocaleString('es-ES')}</td></tr>)}</tbody></table></div></section>}</details></> : <div className="panel empty"><ShieldCheck size={32}/><h2>Administración reservada</h2><p>Tu cuenta tiene permisos de {index.principal.role === 'team_admin' ? 'responsable de equipo' : 'consulta'}.</p></div>)}
         </>}
-    <footer>Vacaciones <span>·</span> Ocho equipos <span>·</span> Consulta pública <span className="footer-right">{busy ? 'Guardando…' : 'Datos persistentes · Campañas independientes'}</span></footer></div></main></div>;
+    <footer>Vacaciones <span>·</span> Ocho equipos <span>·</span> Consulta pública <span className="footer-right">{busy ? 'Guardando…' : 'Datos persistentes · Campañas independientes'}</span><small className="footer-build" aria-label="Versión del código en ejecución" title={buildInfo.commitDate ? 'Fecha del commit: '+buildInfo.commitDate : 'Fecha de compilación'}>Código {buildInfo.revision} · compilado <time dateTime={buildInfo.buildTimestamp}>{buildInfo.buildDate}</time></small></footer></div></main></div>;
 }
 
 

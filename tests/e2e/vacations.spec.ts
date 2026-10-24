@@ -19,7 +19,7 @@ test('activación visible desde Vacaciones, regreso automático y reanudación d
  await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Vacaciones del equipo',exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
- await page.locator('.election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:'Pausar elección',exact:true}).click();
  const resume=page.getByRole('button',{name:'Reanudar elección',exact:true});
  await expect(resume).toBeVisible();
@@ -136,7 +136,7 @@ async function activate(page:Page,ties=''){
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
 async function confirm(page:Page,button:string){
  const target=page.getByRole('button',{name:button,exact:true});
- if(button.startsWith('Aplazar')&&!await target.isVisible())await page.locator('.election-more-actions > summary').click();
+ if(button.startsWith('Aplazar')&&!await target.isVisible())await page.getByLabel('Más acciones',{exact:true}).click();
  // A covered/unclickable control should fail locally, not consume the entire 45 s test timeout.
  await target.click({timeout:10_000});
  if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
@@ -250,6 +250,21 @@ test('integración: dos aplazamientos permiten elegir tres ciclos desde el calen
  expect(result.requests.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
  if(!process.env.CI)await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
+});
+
+
+test('vista de controlador distingue Mis preferencias de la navegación administrativa',async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);
+ await page.getByLabel('Probar simulación como controlador').selectOption('QA_A');
+ await expect(page.getByText('Vista como controlador QA_A')).toBeVisible();
+ const tabs=page.getByRole('group',{name:'Vista de vacaciones'});
+ const mine=tabs.getByRole('button',{name:'Mis preferencias',exact:true});
+ await expect(mine).toBeVisible();
+ await expect(tabs.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
+ await mine.click();
+ await expect(mine).toHaveAttribute('aria-pressed','true');
+ await expect(page.locator('.preferences-panel')).toBeVisible();
 });
 
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
@@ -607,7 +622,7 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  await open(page,fixture.id);
  await activate(page);
  // Agree exceptionally during round 1, not as part of campaign preparation.
- await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
  const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
  await expect(joint).toBeVisible();
@@ -682,7 +697,7 @@ test('empate anticipado conserva el turno y deja formar grupo conjunto con casil
  await open(page,s.id);
  await activate(page,'QA_C');
  await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
- await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:/Resolver empates pendientes/}).click();
  const dialog=page.getByRole('dialog',{name:'Resolver empates pendientes'});
  await expect(dialog).toBeVisible();
@@ -698,7 +713,7 @@ test('empate anticipado conserva el turno y deja formar grupo conjunto con casil
  expect(resolved.election.state.tieResolutions[0].order).toEqual([s.data.members[2].id,s.data.members[1].id]);
  expect(resolved.election.turn.memberId).toBe(s.data.members[0].id);
  await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
- await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
  const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
  const checkbox=joint.getByRole('checkbox',{name:'QA_A'});
