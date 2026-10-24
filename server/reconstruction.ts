@@ -2,7 +2,6 @@ import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,
 import {calculate} from '../domain/vacations.ts';
 import {immediate2027Issues} from '../domain/policy-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {policyState2027} from '../domain/election-2027.ts';
 import {availabilityImpact} from '../domain/availability-2027.ts';
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';

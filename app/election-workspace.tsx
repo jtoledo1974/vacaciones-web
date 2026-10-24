@@ -6,6 +6,7 @@ import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
+import {cycleAvailability,slotExplanation,describeImpact} from './cycle-availability-ui';
 
 export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onResolveCycles,onSaveSource}:any){
  const scores=data.config?.previousScores??{},source=typeof data.config?.previousScoresSource==='string'?data.config.previousScoresSource:'';
@@ -108,9 +109,24 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const confirm=useConfirmation();
  const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
  const previewReadOnly=!!data.preview&&!data.preview.writable;
+ const simulation=data.campaign.scope_key!=='live';
+ const [quickMode,setQuickMode]=useState(false);
+ useEffect(()=>{
+  try{setQuickMode(simulation&&localStorage.getItem('vacaciones_quick_confirm_'+data.campaign.id)==='true');}
+  catch{setQuickMode(false);}
+ },[data.campaign.id,simulation]);
+ function changeQuickMode(enabled:boolean){
+  if(!simulation)return;
+  setQuickMode(enabled);
+  try{localStorage.setItem('vacaciones_quick_confirm_'+data.campaign.id,String(enabled));}catch{/* Opción válida solo en esta sesión. */}
+ }
   const preferenceMemberIds:string[]=election.preferenceMemberIds??[];
   const preferenceMembers=data.members.filter((m:any)=>preferenceMemberIds.includes(m.id));
  const [historyLimit,setHistoryLimit]=useState(40);
+ const choiceLock=useRef(false);
+ const [choiceSubmitting,setChoiceSubmitting]=useState(false);
+ const [choicePhase,setChoicePhase]=useState<'checking'|'saving'|null>(null);
+ const [slowChoice,setSlowChoice]=useState(false);
  const [jointOpen,setJointOpen]=useState(false),[jointMembers,setJointMembers]=useState<string[]>([]),[jointRound,setJointRound]=useState(0);
 
  const [tieDialogOpen,setTieDialogOpen]=useState(false);
@@ -121,6 +137,16 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const [choosingReconstructionStart,setChoosingReconstructionStart]=useState(false);
  const [archivedTarget,setArchivedTarget]=useState('');
  const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
+ const thinkingPhase=choicePhase??(loadingOptions?'options':null);
+ const thinking=thinkingPhase!==null;
+ useEffect(()=>{
+  if(!thinking){setSlowChoice(false);return;}
+  const timer=setTimeout(()=>setSlowChoice(true),550);
+  return ()=>clearTimeout(timer);
+ },[thinking]);
+ const thinkingMessage=thinkingPhase==='checking'?'Comprobando la viabilidad global del reparto…'
+  :thinkingPhase==='options'?'Calculando las combinaciones de ciclos permitidas…'
+  :'Registrando la adjudicación y avanzando al siguiente turno…';
  useEffect(()=>{setSelected([]);setJointSelected({});setJointTarget('');setDetail(null);setMessage('');},[turn?.memberId,turn?.round,turn?.needed,state?.status]);
  useEffect(()=>{if(!preferenceMemberIds.includes(memberId))setMemberId(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??'');},[memberId,mine,preferenceMemberIds.join('|')]);
  useEffect(()=>{setDetail((current:any)=>current?data.result.cycles.find((c:any)=>c.date===current.date)??null:null);},[data.campaign.version]);
@@ -199,13 +225,104 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   if(result?.election?.reconstruction?.active){setChoosingReconstructionStart(false);setArchivedTarget('');}
  }
  const roundOrder=state?orderForRound(state,Math.max(0,(turn?.round??1)-1)):data.members.map((m:any)=>m.id);
- function clickCycle(c:any){if(mode==='choose')setDetail(c);setMessage('');
- if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
-  const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
-  setJointSelected({...jointSelected,[target]:previous.includes(c.date)?previous.filter(d=>d!==c.date):previous.length>=max?[c.date]:[...previous,c.date]});return;
+ type SelectedChoice={member_id:string;cycle_date:string};
+ /**
+  * The sole path for both explicit and automatic selections.
+  * The synchronous ref prevents a second request while React updates state.
+  * The server still performs version/CAS validation before committing.
+  */
+ async function submitChoice(choices:SelectedChoice[]):Promise<void>{
+  if(choiceLock.current||busy||previewReadOnly||loadingOptions||!canChoose||!turn?.memberId)return;
+  if(turn.participants?.length>1){
+   if(turn.participants.some((id:string)=>choices.filter(choice=>choice.member_id===id).length!==turn.requiredByMember[id])||
+      choices.some(choice=>!turn.participants.includes(choice.member_id)))return;
+  }else if(choices.length!==turn.needed||choices.some(choice=>choice.member_id!==turn.memberId))return;
+  choiceLock.current=true;
+  setChoiceSubmitting(true);
+  setMessage('');
+  try{
+   const names=turn.participants?.length>1?turn.participants.map(codeFor).join(' + '):current?.code??'';
+   let impactLines:string[]=[];
+   let warningLines:string[]=[];
+   if(data.campaign.year===2027){
+    setChoicePhase('checking');
+    const query=new URLSearchParams({version:String(data.campaign.version),choices:JSON.stringify(choices)});
+    const preview=new URLSearchParams(location.search).get('verComo');
+    if(preview)query.set('verComo',preview);
+    const response=await fetch('/api/election/'+data.campaign.id+'/impact?'+query,{cache:'no-store'});
+    const report:any=await response.json();
+    if(!response.ok)throw new Error(report.error??'No se pudo previsualizar la elección');
+    if(report.version!==data.campaign.version||report.policyVersion!==election.occupancyPolicyVersion)
+     throw new Error('El reparto o las normas han cambiado. Actualiza antes de elegir.');
+    if(report.allowed===false){
+     setMessage((report.issues??[]).map((issue:any)=>issue.message).join('; ')||'La elección impediría completar el reparto.');
+     return;
+    }
+    impactLines=report.impact?describeImpact(report.impact):['El impacto no se pudo determinar exactamente; las cotas inciertas no se consideran bloqueos.'];
+    warningLines=(report.warnings??[]).map((issue:any)=>issue.message);
+   }
+   // In real campaigns, and by default in simulations, confirmation is mandatory.
+   // Fast simulation mode commits as soon as the complete choice is clicked.
+   if(!simulation||!quickMode){
+    setChoicePhase(null);
+    const impactText=impactLines.length
+     ?'\\n\\nConsecuencias sobre la disponibilidad:\\n'+impactLines.slice(0,14).join('\\n')+
+       (impactLines.length>14?'\\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
+     :'\\n\\nNo se han demostrado reducciones adicionales de disponibilidad.';
+    const warningText=warningLines.length?'\\n\\nAvisos normativos:\\n'+warningLines.join('\\n'):'';
+    const summary='¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')+impactText+warningText;
+    if(!await confirm(summary,undefined,{title:'Confirmar adjudicación e impacto',confirmLabel:'Adjudicar'}))return;
+   }
+   setChoicePhase('saving');
+   const result=turn.participants?.length>1
+    ?await act({action:'choose_joint',entries:turn.participants.map((id:string)=>({member_id:id,dates:choices.filter(choice=>choice.member_id===id).map(choice=>choice.cycle_date)}))},'Turno conjunto confirmado')
+    :await act({action:'choose',memberId:turn.memberId,dates:choices.map(choice=>choice.cycle_date)},'Elección confirmada');
+   if(!result?.campaign)setMessage('No se ha confirmado la adjudicación. Revisa el aviso de error antes de volver a intentarlo.');
+  }catch(error:any){
+   setMessage(error?.message??'No se pudo verificar la elección.');
+  }finally{
+   choiceLock.current=false;
+   setChoiceSubmitting(false);
+   setChoicePhase(null);
+  }
  }
- if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){if(dates.includes(c.date)){editDates(togglePreferenceDate(dates,c.date,false));setPreferenceMessage('Ciclo retirado de tus preferencias. Sin guardar.');return;}/* Preferences can remain in the list even when currently unavailable. */editDates(togglePreferenceDate(dates,c.date,true));setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');return;}if(canChoose){if(loadingOptions){setMessage("Comprobando qué segundo ciclo es compatible…");return;}if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){setMessage(election.availabilityReasons?.[c.date]??'Este ciclo no es viable en el reparto actual.');return;}if(selected.includes(c.date))setSelected(selected.filter(d=>d!==c.date));else setSelected(turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date]);}}
+ function clickCycle(c:any){
+  if(choiceSubmitting)return;
+  if(mode==='choose')setDetail(c);
+  setMessage('');
+  if(mode==='choose'&&canChoose&&turn?.participants?.length>1){
+   const target=jointTarget||turn.participants[0],previous=jointSelected[target]??[],max=turn.requiredByMember[target]??1;
+   const nextDates=previous.includes(c.date)?previous.filter(d=>d!==c.date):previous.length>=max?[c.date]:[...previous,c.date];
+   const next:Record<string,string[]>={...jointSelected,[target]:nextDates};
+   setJointSelected(next);
+   if(simulation&&quickMode&&!busy&&!previewReadOnly&&!loadingOptions&&
+     turn.participants.every((id:string)=>(next[id]??[]).length===turn.requiredByMember[id]))
+    void submitChoice(turn.participants.flatMap((id:string)=>(next[id]??[]).map((date:string)=>({member_id:id,cycle_date:date}))));
+   return;
+  }
+  if(mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)){
+   if(dates.includes(c.date)){editDates(togglePreferenceDate(dates,c.date,false));setPreferenceMessage('Ciclo retirado de tus preferencias. Sin guardar.');return;}
+   editDates(togglePreferenceDate(dates,c.date,true));setPreferenceMessage('Añadido a tus preferencias · posición '+(dates.length+1)+'. Sin guardar.');return;
+  }
+  if(!canChoose||previewReadOnly)return;
+  if(loadingOptions){setMessage('Comprobando qué segundo ciclo es compatible…');return;}
+  if(!(pairOptions??election.available).includes(c.date)&&!selected.includes(c.date)){
+   setMessage(election.availabilityReasons?.[c.date]??'Este ciclo no es viable en el reparto actual.');return;
+  }
+  const next=selected.includes(c.date)?selected.filter(d=>d!==c.date)
+   :turn.needed===1||selected.length>=turn.needed?[c.date]:[...selected,c.date];
+  setSelected(next);
+  if(simulation&&quickMode&&!busy&&next.length===turn.needed&&turn?.participants?.length===1)
+   void submitChoice(next.map(date=>({member_id:turn.memberId,cycle_date:date})));
+ }
  return <>
+  {thinking&&<div className="election-thinking-inline" role="status" aria-live="polite"><span className="election-thinking-spinner" aria-hidden="true"/>{thinkingMessage}</div>}
+  {thinking&&slowChoice&&<div className="election-thinking-backdrop"><section className="election-thinking-dialog" role="dialog" aria-modal="true" aria-labelledby="election-thinking-title">
+   <span className="election-thinking-spinner" aria-hidden="true"/>
+   <h2 id="election-thinking-title">El motor está comprobando el reparto</h2>
+   <p aria-live="polite">{thinkingMessage}</p>
+   <p className="muted">Algunas elecciones, especialmente al ocupar una cuarta plaza, necesitan verificar que todos los controladores puedan completar sus vacaciones. No se ha confirmado ninguna adjudicación hasta que termine la comprobación.</p>
+  </section></div>}
   {data.campaign.year===2027&&
    <details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
     <summary>Cómo se aplican los cupos de 2027</summary>
@@ -225,6 +342,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {frozen&&<div className="reconstruction-status" role="status"><span aria-hidden="true">Ⅱ</span><strong>Reconstrucción en curso</strong><span>Elección congelada · Preferencias bloqueadas · Automatismos detenidos</span></div>}
   {!frozen&&<section className="panel election-turn election-workflow-head" aria-label="Turno de elección">
    <div className="election-turn-status">
+    {simulation&&quickMode&&<span className="election-fast-indicator" role="status">Simulación · confirmación rápida</span>}
     <span className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'ELECCIÓN SIN INICIAR'}</span>
     <h2>{turn?.pendingTie?'Empate pendiente antes del siguiente turno':state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:'Consulta de ciclos'}</h2>
     {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed} ciclo(s) por elegir</span>}
@@ -236,7 +354,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     </div>}
     {manage&&!state&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={onConfigureElection}>Configurar e iniciar elección</button>}
     {manage&&state?.status==='paused'&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={()=>act({action:'resume'},'Elección reanudada')}>Reanudar elección</button>}
-    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(manage&&open&&pendingGroups.length>0)||(superuser&&state?.status==='active'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
+    {!frozen&&((mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer)||(manage&&state?.status==='active')||(manage&&open&&pendingGroups.length>0)||(superuser&&state?.status==='active')||(simulation&&manage&&state?.status==='active'))&&<details className="election-more-actions"><summary aria-label="Más acciones"><span className="election-more-label">Más acciones</span><span className="election-more-ellipsis" aria-hidden="true">⋯</span></summary><div className="election-more-menu">
+     {simulation&&manage&&<><label className="election-fast-mode"><input type="checkbox" checked={!quickMode} onChange={event=>changeQuickMode(!event.target.checked)} disabled={busy}/>Requerir confirmación antes de adjudicar</label><small className="muted">También se aplica a Deshacer y Rehacer.</small></>}
      {mode==='choose'&&canChoose&&state?.allowDeferral&&turn?.participants?.length===1&&turn.canDefer&&<button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={async()=>{if(await confirm(`¿Aplazar el turno de ${current.code}? No podrá elegir hasta la próxima ronda.`))act({action:'defer',memberId:current.id},'Turno aplazado');}}>{state.credits[current.id]===1?'Aplazar para elegir tres':'Aplazar para elegir dos'}</button>}
      {manage&&open&&pendingGroups.length>0&&<button type="button" className="secondary election-pending-ties-action" disabled={busy||previewReadOnly} onClick={event=>{event.currentTarget.closest('details')?.removeAttribute('open');setTieDialogOpen(true);}}>Resolver empates pendientes <span className="election-pending-count">{pendingGroups.length}</span></button>}
      {manage&&state?.status==='active'&&<button type="button" className="secondary" onClick={()=>{setJointRound(turn?.round??1);setJointMembers([]);setJointOpen(true);}}>Gestionar turnos conjuntos…</button>}
@@ -280,8 +399,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    <div className="election-calendar-wrap">
     <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} cycles={data.result.cycles}
      selected={mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
-     busy={busy||loadingOptions} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
-     awards={data.awards} members={data.members} order={roundOrder} points={election.points}/>
+     busy={busy||loadingOptions||choiceSubmitting} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
+     awards={data.awards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability}/>
    </div>
    <aside className="election-side">
     {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} cancel={cancelPreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?'La lista coincide con la versión guardada.':preferenceMessage}/>}
@@ -290,42 +409,35 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
      <h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2>
      <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {data.campaign.year===2027
-      ?'Hasta '+Math.max(0,detail.max-detail.occupied)+' plazas adicionales bajo el máximo local, sujetas a las reglas globales'
+      ?'Plazas ocupadas; consulta debajo la disponibilidad global demostrada'
       :Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
-     {data.campaign.year===2027&&mode==='choose'&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)&&
-      <p className="alert warning" role="status">{election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'}</p>}
+     {data.campaign.year===2027&&<>
+      <p><strong>Disponibilidad global:</strong> {cycleAvailability(detail,election.cycleAvailability,2027).description}</p>
+      {election.cycleAvailability?.cycles?.[detail.date]&&<details className="election-cycle-rules"><summary>Detalle de las cuatro plazas y motivos de bloqueo</summary>
+       <ul>{election.cycleAvailability.cycles[detail.date].slots.map((slot:any)=><li key={slot.position}><strong>{slot.position}ª plaza:</strong> {slotExplanation(slot)}</li>)}</ul>
+      </details>}
+     </>}
      {data.campaign.year===2027&&mode==='choose'&&canChoose&&election.availabilityPending?.includes(detail.date)&&
       <p className="alert warning" role="status">Posibilidad provisional: todavía no se ha demostrado la compatibilidad global de esta elección. Se comprobará íntegramente al confirmar; una selección no equivale a adjudicación.</p>}
      <div className="button-row">{data.awards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
-     {message&&<p role="status" className="alert warning">{message}</p>}
+     {(message||(data.campaign.year===2027&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)
+       ?election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'
+       :''))&&<p role="status" className="alert warning">{message||(election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.')}</p>}
      {mode==='choose'&&canChoose&&<>
+      {simulation&&quickMode&&<p className="election-auto-notice">La adjudicación se realiza automáticamente al completar todos los ciclos de este turno.</p>}
       {turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}
       <p className="election-selected-summary">Elige <strong>{turn?.participants?.length>1?data.members.find((m:any)=>m.id===(jointTarget||turn.participants[0]))?.code:current?.code}</strong></p>
       {turn.needed>1&&turn?.participants?.length===1&&<p className="election-multiple-summary">{selected.length}/{turn.needed} ciclos seleccionados: {selected.map(formatDate).join(' + ')||'ninguno'}</p>}
       {turn?.participants?.length>1&&<p className="election-multiple-summary">{turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | ')}</p>}
       <div className="button-row">
-       <button type="button" className="primary" disabled={busy||previewReadOnly||loadingOptions||(turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)} onClick={async()=>{
-        if(data.campaign.year===2027){
-         const query=new URLSearchParams();
-         const entries=turn?.participants?.length>1?turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]})):null;
-         if(entries)query.set('joint',JSON.stringify(entries));
-         else selected.forEach(date=>query.append('selected',date));
-         const preview=new URLSearchParams(location.search).get('verComo');
-         if(preview)query.set('verComo',preview);
-         try{
-          const response=await fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'});
-          const report:any=await response.json();
-          if(!response.ok)throw new Error(report.error??'No se pudo validar la selección');
-          if(report.version!==data.campaign.version)throw new Error('La campaña ha cambiado. Actualiza antes de confirmar.');
-          if(report.allowed===false){setMessage((report.issues??[]).map((issue:any)=>issue.message).join('; ')||'La elección impediría completar el reparto.');return;}
-          if(Array.isArray(report.warnings)&&report.warnings.length){
-           if(!await confirm('La elección está permitida, pero requiere revisar estos avisos de RRHH:\\n\\n'+report.warnings.map((w:any)=>w.message).join('\\n')+'\\n\\n¿Confirmar la adjudicación con estos avisos?'))return;
-          }
-         }catch(error:any){setMessage(error?.message??'Error al comprobar la viabilidad');return;}
-        }
-        if(turn?.participants?.length>1){const entries=turn.participants.map((id:string)=>({member_id:id,dates:jointSelected[id]??[]}));act({action:'choose_joint',entries},'Turno conjunto confirmado');}
-        else act({action:'choose',memberId:current.id,dates:selected},'Elección confirmada');
-       }}>Confirmar {turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo'}</button>
+       {(!simulation||!quickMode||!!message)&&<button type="button" className="primary"
+        disabled={busy||choiceSubmitting||previewReadOnly||loadingOptions||
+         (turn?.participants?.length>1?turn.participants.some((id:string)=>(jointSelected[id]??[]).length!==turn.requiredByMember[id]):selected.length!==turn.needed)}
+        onClick={()=>void submitChoice(turn?.participants?.length>1
+         ?turn.participants.flatMap((id:string)=>(jointSelected[id]??[]).map((date:string)=>({member_id:id,cycle_date:date})))
+         :selected.map(date=>({member_id:turn.memberId,cycle_date:date})))}>
+        {simulation&&quickMode?'Reintentar adjudicación':'Confirmar '+(turn?.participants?.length>1?'turno conjunto':turn.needed===3?'tres ciclos':turn.needed===2?'ambos ciclos':'ciclo')}
+       </button>}
        <button type="button" className="secondary" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>Cancelar selección</button>
       </div>
      </>}
@@ -333,8 +445,16 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {manage&&<section className="panel election-history-panel" aria-label="Historial de elección">
      <div className="election-history-head"><h2>Últimos turnos y adjudicaciones</h2>
       <div className="election-workflow-actions">
-       {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))data.undo?legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho'):act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');}}>↶ Deshacer</button>}
-       {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{if(await confirm('¿Rehacer el cambio de elección?'))data.redo?legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho'):act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');}}>↷ Rehacer</button>}
+       {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{
+        if((!simulation||!quickMode)&&!await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))return;
+        if(data.undo)await legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho');
+        else await act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');
+       }}>↶ Deshacer</button>}
+       {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{
+        if((!simulation||!quickMode)&&!await confirm('¿Rehacer el cambio de elección?'))return;
+        if(data.redo)await legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho');
+        else await act({action:'election_redo',historyId:election.redo},'Cambio de elección rehecho');
+       }}>↷ Rehacer</button>}
        {canOpenReconstruction&&!choosingReconstructionStart&&<details className="election-more-actions election-history-more"><summary aria-label="Más acciones del historial">Más ⋯</summary><div className="election-more-menu"><button type="button" className="secondary" onClick={()=>setChoosingReconstructionStart(true)}>Reconstruir desde un turno…</button></div></details>}
       </div>
      </div>
@@ -367,6 +487,11 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
          {event.kind==='legacy'&&<p className="election-log-note">Adjudicación importada o anterior al registro de turnos.</p>}
          {event.kind==='choice'&&event.memberIds.length>1&&<p className="election-log-note">Turno conjunto de {event.memberIds.length} controladores.</p>}
          {event.kind==='choice'&&event.deferredTurns>0&&<p className="election-log-note">Turno {event.deferredTurns===1?'doble':'triple'}: recupera {event.deferredTurns} aplazamiento(s) anterior(es).</p>}
+         {event.impact&&<details className="election-log-impact">
+          <summary>Impacto registrado · {event.impact.changes?.length??0} ciclos modificados · política {event.impact.policyVersion}</summary>
+          <ul>{describeImpact(event.impact).map((line:string,i:number)=><li key={i}>{line}</li>)}</ul>
+          {event.impact.status!=='exact'&&<p>El cálculo contiene cotas indeterminadas; no se ha supuesto disponibilidad cero.</p>}
+         </details>}
          {(event.ties??[]).map((tie:any)=>{
           const memberCode=code(tie.memberId),previous=data.config?.previousScores?.[memberCode];
           return <p className="election-log-note election-log-tie" key={tie.memberId}>Empate{previous!==undefined?' a '+previous+' puntos':''} · {memberCode}: {tie.position}.º de {tie.total} · Orden de esta ronda: {tie.order.map(code).join(' → ')}</p>;

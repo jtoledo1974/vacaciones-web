@@ -410,8 +410,8 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
     if(occupied>cap)
       result.push(problem(cycle.fourthExcluded&&occupied>=4?'FOURTH_EXCLUDED':'CYCLE_MAXIMUM',
         cycle.fourthExcluded&&occupied>=4
-          ?'RRHH excluye este ciclo de la cuarta plaza.'
-          :'Este ciclo supera su capacidad máxima autorizada por RRHH.',
+          ?'Este ciclo ya tiene tres adjudicaciones válidas. RR. HH. excluye la cuarta plaza, por lo que no se puede añadir otra persona.'
+          :`Este ciclo ya tiene sus ${cap} plazas autorizadas ocupadas. No se puede adjudicar una ${cap+1}.ª plaza; las ${cap} existentes son válidas.`,
         {period:cycle.period,cycle:cycle.date,actual:occupied,limit:cap}));
     if(occupied>=4)fours[cycle.period]++;
   }

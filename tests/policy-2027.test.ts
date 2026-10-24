@@ -151,6 +151,24 @@ test('fourth places elsewhere in summer use a common limit and have a precise ex
  assert.equal(immediate2027Issues(state,[{member_id:'m4',cycle_date:'c'}]).some(i=>i.code==='FOURTH_LIMIT'),true);
 });
 
+test('a fifth candidate does not invalidate the four already-authorised occupants',()=>{
+ const cycles=[{date:'2027-01-01',period:0 as const}];
+ const members=Array.from({length:5},(_,i)=>({id:'m'+i,entitlement:1}));
+ const awards=members.slice(0,4).map(m=>({member_id:m.id,cycle_date:'2027-01-01'}));
+ const rejected=immediate2027Issues({cycles,members,awards},[{member_id:'m4',cycle_date:'2027-01-01'}]);
+ const capacity=rejected.find(issue=>issue.code==='CYCLE_MAXIMUM');
+ assert.ok(capacity);
+ assert.match(capacity.message,/ya tiene sus 4 plazas autorizadas ocupadas/);
+ assert.match(capacity.message,/No se puede adjudicar una 5/);
+ assert.match(capacity.message,/las 4 existentes son válidas/);
+ assert.equal(awards.length,4,'the fifth candidate cannot alter existing awards');
+ const red=immediate2027Issues({
+  cycles:[{date:'2027-01-01',period:0,fourthExcluded:true}],
+  members,awards:awards.slice(0,3)
+ },[{member_id:'m3',cycle_date:'2027-01-01'}]);
+ assert.ok(red.some(issue=>issue.code==='FOURTH_EXCLUDED'&&/tres adjudicaciones válidas/.test(issue.message)));
+});
+
 test('candidate reports duplicate and entitlement limits with stable codes',()=>{
  const state:PolicyState={
    cycles:[{date:'p',period:0},{date:'s',period:1},{date:'o',period:2}],
