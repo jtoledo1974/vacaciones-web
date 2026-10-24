@@ -2,7 +2,7 @@ import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,
 import {calculate} from '../domain/vacations.ts';
 import {immediate2027Issues} from '../domain/policy-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {availabilityImpact,availabilityByCycle,type AvailabilitySnapshot} from '../domain/availability-2027.ts';
+import {availabilityImpact,availabilityByCycle,compactAvailability,type AvailabilitySnapshot,type CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
@@ -11,8 +11,8 @@ export {appliedAudit} from './audit-context.ts';
 
 type Snapshot={format?:string;state:ElectionState|null;preferences:Preference[];awards:any[];requests:any[]};
 type Historical={id:string;action:string;before:Snapshot;after:any;round:number;participants:string[];memberId:string|null};
-type Applied={before:Snapshot;usedId:string|null;kind:string;dates?:string[];entries?:any[];order?:string[];agreementIds?:string[];actor:string;at:string;beforeAvailability?:AvailabilitySnapshot};
-type Session={status:'active'|'review'|'completed';startedBy:string;startedAt:string;targetId:string;targetCursor:number;keepCount:number;origin:Snapshot;originalEvents:Historical[];originalAuditIds:string[];applied:Applied[];undone:Applied[];completedAt?:string;impact?:any[];originAvailability?:AvailabilitySnapshot};
+type Applied={before:Snapshot;usedId:string|null;kind:string;dates?:string[];entries?:any[];order?:string[];agreementIds?:string[];actor:string;at:string;beforeAvailability?:AvailabilitySnapshot|CompactAvailabilitySnapshot};
+type Session={status:'active'|'review'|'completed';startedBy:string;startedAt:string;targetId:string;targetCursor:number;keepCount:number;origin:Snapshot;originalEvents:Historical[];originalAuditIds:string[];applied:Applied[];undone:Applied[];completedAt?:string;impact?:any[];originAvailability?:AvailabilitySnapshot|CompactAvailabilitySnapshot};
 type Host={load:(cid:string)=>Promise<any>;commit:(statements:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const ctx=(d:any,awards=d.awards,requests=d.requests):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,awards,requests});
 const snap=(state:ElectionState|null,preferences:Preference[],d:any):Snapshot=>({state:structuredClone(state),preferences:structuredClone(preferences),awards:structuredClone(d.awards),requests:structuredClone(d.requests)});
@@ -168,7 +168,7 @@ export class ReconstructionService{
    const restoreTo:Snapshot={...previous,requests:origin.requests,preferences:working,state:{...previous.state!,automaticPaused:true}};
    const last=originalEvents.at(-1);
    const lastCursor=(last?.before.state?.cursor??0)+(last&&['choose','choose_joint','advance','defer','reconstruction_step'].includes(last.action)?1:0);
-   const originAvailability=c.year===2027?availabilityByCycle(policyState2027(c.year,c.team_id,d.config,d.members,d.awards)):undefined;
+   const originAvailability=c.year===2027?compactAvailability(availabilityByCycle(policyState2027(c.year,c.team_id,d.config,d.members,d.awards))):undefined;
    const s:Session={originAvailability,status:'active',startedBy:this.actor.id!,startedAt:new Date().toISOString(),targetId:target.id,targetCursor:Math.max(origin.state?.cursor??0,lastCursor),keepCount,origin,originalEvents,originalAuditIds,applied:[],undone:[]};
    const completed=restoreTo.state!.status==='complete'||restoreTo.state!.cursor>=s.targetCursor;
    if(completed)s.status='review';
@@ -258,12 +258,12 @@ export class ReconstructionService{
      policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
      policyState2027(c.year,c.team_id,d.config,d.members,[...d.awards,...choices])
    ):null;
-  if(impact&&s.applied.length)s.applied[s.applied.length-1].beforeAvailability=impact.before;
+  if(impact&&s.applied.length)s.applied[s.applied.length-1].beforeAvailability=compactAvailability(impact.before);
   const auditImpact=impact?{
    policyVersion:impact.policyVersion,status:impact.status,
    campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
    changes:impact.changes,events:impact.events,
-   availabilityBefore:impact.before,availabilityAfter:impact.after
+   availabilityBefore:compactAvailability(impact.before),availabilityAfter:compactAvailability(impact.after)
   }:null;
   ops.push(this.write(cid,s),this.host.audit('reconstruction_step',c,{format:'election-undo-v1',...before},{version:c.version+1,choices,kind,usedId,impact:auditImpact,...(kind==='resolve_tie'?{order}: {})}));
   await this.host.commit(ops);

@@ -2,7 +2,7 @@ import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences
 import {calculate} from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
 import {canComplete2027,evaluate2027Candidate,evaluate2027Final,partialAssessment2027,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
-import {availabilityByCycle,recordedAvailabilityByCycle2027,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact,type AvailabilitySnapshot} from '../domain/availability-2027.ts';
+import {availabilityByCycle,compactAvailability,recordedAvailabilityByCycle2027,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact,type AvailabilitySnapshot,type CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
@@ -150,7 +150,7 @@ export class ElectionService{
   const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
   return {version,...previewChoiceImpact(allocation,choices)};
  }
- async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|null;skipAvailabilityForPendingAutomatic?:boolean;auditContext?:AuditContext}={}){
+ async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|CompactAvailabilitySnapshot|null;skipAvailabilityForPendingAutomatic?:boolean;auditContext?:AuditContext}={}){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
@@ -375,7 +375,7 @@ export class ElectionService{
    policyVersion:impact.policyVersion, status:impact.status,
    campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
    changes:impact.changes,events:impact.events,
-   availabilityBefore:impact.before,availabilityAfter:impact.after
+   availabilityBefore:compactAvailability(impact.before),availabilityAfter:compactAvailability(impact.after)
   }:null;
   // Persist the policy warnings of the resulting allocation with the decision,
   // so the history keeps them after undo/redo or a later fast simulation.

@@ -2,7 +2,7 @@ import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {availabilityImpact} from '../domain/availability-2027.ts';
+import {availabilityImpact,compactAvailability} from '../domain/availability-2027.ts';
 import {historicalAvailability} from './availability-history.ts';
 import {AuditContext} from './audit-context.ts';
 import {evaluate2027Candidate,evaluate2027Final,canComplete2027,immediate2027Issues,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
@@ -448,7 +448,7 @@ export class Service {
             const impact=availabilityImpact(
                 policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
                 policyState2027(c.year,c.team_id,d.config,d.members,updated));
-            after={...after,availabilityHistory:{before:impact.before,after:impact.after}};
+            after={...after,availabilityHistory:{before:compactAvailability(impact.before),after:compactAvailability(impact.after)}};
         }
         ops.push(this.audit(action, c, before, after));
         await this.commit(ops);

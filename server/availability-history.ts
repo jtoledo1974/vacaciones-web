@@ -1,9 +1,9 @@
 import type {Repository} from './repository.ts';
-import type {AvailabilitySnapshot} from '../domain/availability-2027.ts';
+import type {AvailabilitySnapshot,CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
 
 export type HistoricalAvailability={
  restored:boolean;
- recordedAvailability?:AvailabilitySnapshot;
+ recordedAvailability?:AvailabilitySnapshot|CompactAvailabilitySnapshot;
 };
 
 /**

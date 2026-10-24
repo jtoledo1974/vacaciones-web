@@ -4,6 +4,7 @@ import {Service} from '../server/service.ts';
 import {SQLiteRepo} from './sqlite-repo.ts';
 import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Final} from '../domain/policy-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
+import {expandAvailability} from '../domain/availability-2027.ts';
 
 const owner={id:'chatgpt:owner',role:'superadmin' as const,teams:[]};
 
@@ -67,7 +68,13 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  // The timeline carries only the summary; the full snapshots stay in the audit.
  assert.equal(auditChoice.impact.availabilityBefore,undefined);
  const [auditRow]=await repo.all('SELECT after_json FROM audit WHERE id=?',[auditChoice.id]);
- const persisted=JSON.parse(auditRow.after_json).impact;
+ const stored=JSON.parse(auditRow.after_json).impact;
+ // The audit keeps the compact form; it expands to exactly the verified snapshots.
+ assert.equal(stored.availabilityBefore.format,'availability-c1');
+ const awardsAfter=chosen.awards,awardsBefore=awardsAfter.filter((a:any)=>!(a.member_id===user&&a.cycle_date===preferred[0]));
+ const persisted={...stored,
+  availabilityBefore:expandAvailability(stored.availabilityBefore,policyState2027(2027,'A',chosen.config,chosen.members,awardsBefore)),
+  availabilityAfter:expandAvailability(stored.availabilityAfter,policyState2027(2027,'A',chosen.config,chosen.members,awardsAfter))};
  assert.ok(Array.isArray(JSON.parse(auditRow.after_json).warnings),'the policy warnings are committed with the choice');
  assert.deepEqual(persisted.availabilityBefore.cycles,baselineAvailability.cycles,
   'persist the complete availability previously verified before the choice');

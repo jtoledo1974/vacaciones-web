@@ -94,6 +94,62 @@ function keyFor(state:PolicyState,maxChecks:number,exact=false):string {
  const awards=[...state.awards].map(a=>a.member_id+'|'+a.cycle_date).sort();
  return JSON.stringify([OCCUPANCY_POLICY_2027,maxChecks,exact,cycles,members,awards]);
 }
+/**
+ * Audit form of a snapshot. Every 2027 decision persists two of them, so the
+ * verbose form (occupant ids and the full text of each reason, repeated per
+ * place) would make full backups exceed the restore limit. Occupants are
+ * implied by the awards of the state being restored; each reason is stored
+ * once and referenced by index. `expandAvailability` restores the exact form.
+ */
+export type CompactAvailabilitySnapshot = {
+ format: 'availability-c1';
+ policyVersion: typeof OCCUPANCY_POLICY_2027;
+ status: AvailabilitySnapshot['status'];
+ checked: number;
+ stateKey?: string;
+ /** A reason referenced as n omits its own cycle and period; as "kn" it is stored whole. */
+ reasons: Partial<RuleProblem>[];
+ /** [cycle, period, occupied, localMaximum, status, additional, lower, upper, slots]
+  * with slots as "o"|"a"|"b"|"i" followed by reason indices. */
+ cycles: [string,0|1|2,number,number,CycleAvailability['status'],number|null,number,number,(string|number)[][]][];
+};
+const SLOT_CODES={occupied:'o',available:'a',blocked:'b',indeterminate:'i'} as const;
+const SLOT_STATUS={o:'occupied',a:'available',b:'blocked',i:'indeterminate'} as const;
+export function compactAvailability(snapshot:AvailabilitySnapshot):CompactAvailabilitySnapshot {
+ const reasons:CompactAvailabilitySnapshot['reasons']=[],index=new Map<string,number>();
+ const ref=(r:RuleProblem,c:CycleAvailability):number|string=>{
+  const own=r.cycle===c.cycle&&r.period===c.period;
+  const {period:_p,cycle:_c,...rest}=r,stored=own?rest:r,key=JSON.stringify(stored)+own;
+  if(!index.has(key)){index.set(key,reasons.length);reasons.push(stored);}
+  return own?index.get(key)!:'k'+index.get(key)!;
+ };
+ return {format:'availability-c1',policyVersion:snapshot.policyVersion,status:snapshot.status,checked:snapshot.checked,
+  ...(snapshot.stateKey?{stateKey:snapshot.stateKey}:{}),reasons,
+  cycles:Object.values(snapshot.cycles).map(c=>[c.cycle,c.period,c.occupied,c.localMaximum,c.status,c.additional,
+   c.provenAdditional,c.possibleAdditionalUpperBound,c.slots.map(s=>[SLOT_CODES[s.status],...s.reasons.map(r=>ref(r,c))])])};
+}
+export function isCompactAvailability(value:unknown):value is CompactAvailabilitySnapshot {
+ return !!value&&(value as CompactAvailabilitySnapshot).format==='availability-c1';
+}
+/** Inverse of `compactAvailability`; occupant ids come from the state's awards, in award order. */
+export function expandAvailability(compact:CompactAvailabilitySnapshot,state:PolicyState):AvailabilitySnapshot {
+ const people=new Map<string,string[]>();
+ for(const award of state.awards){if(!people.has(award.cycle_date))people.set(award.cycle_date,[]);people.get(award.cycle_date)!.push(award.member_id);}
+ const cycles:Record<string,CycleAvailability>={};
+ for(const [cycle,period,occupied,localMaximum,status,additional,lower,upper,slots] of compact.cycles){
+  const occupants=people.get(cycle)??[];
+  cycles[cycle]={cycle,period,occupied,localMaximum,status,additional,provenAdditional:lower,possibleAdditionalUpperBound:upper,
+   slots:slots.map(([code,...refs],i)=>{
+    const slotStatus=SLOT_STATUS[code as keyof typeof SLOT_STATUS];
+    return {position:i+1,status:slotStatus,...(slotStatus==='occupied'&&occupants[i]!==undefined?{memberId:occupants[i]}:{}),
+     reasons:refs.map(n=>typeof n==='string'?{...compact.reasons[Number(n.slice(1))]} as RuleProblem
+      :{...compact.reasons[n],period,cycle} as RuleProblem)};
+   })};
+ }
+ return {policyVersion:compact.policyVersion,status:compact.status,cycles,checked:compact.checked,
+  ...(compact.stateKey?{stateKey:compact.stateKey}:{})};
+}
+
 /** Stable 53-bit FNV-1a hash of the canonical proved state. */
 export function availabilityStateKey2027(state:PolicyState):string {
  const text=keyFor(state,0);
@@ -227,8 +283,9 @@ export function constructCycleWitness2027(
  * A prior indeterminate place remains indeterminate; evidence is not invented.
  */
 export function recordedAvailabilityByCycle2027(
- state:PolicyState,recorded:AvailabilitySnapshot|null|undefined
+ state:PolicyState,stored:AvailabilitySnapshot|CompactAvailabilitySnapshot|null|undefined
 ):AvailabilitySnapshot|null {
+ const recorded=isCompactAvailability(stored)?expandAvailability(stored,state):stored;
  // Identical occupancy with different rights or roster has different global
  // availability: without a matching fingerprint the record is not evidence.
  if(!recorded||recorded.policyVersion!==OCCUPANCY_POLICY_2027
