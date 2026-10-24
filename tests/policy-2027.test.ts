@@ -266,3 +266,20 @@ test('2027 election skips controllers with approved lower entitlement without ch
  assert.equal(turn.needed,1);
  assert.equal(turn.state.cursor,1);
 });
+
+test('a completed 2027 allocation is decided immediately without a bounded search',()=>{
+ const full=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
+ assert.equal(evaluate2027Final(full).valid,true);
+ const relaxed=canComplete2027(full,{maxChecks:0});
+ assert.equal(relaxed.status,'possible');
+ assert.equal(relaxed.checked,1);
+ assert.deepEqual(relaxed.witness,[]);
+ const strict=canComplete2027(full,{strictPre:true,maxChecks:0});
+ assert.equal(strict.status,'impossible');
+ assert.equal(strict.checked,1);
+ const summer=full.awards.filter(a=>a.cycle_date.startsWith('s')).length;
+ assert.equal(canComplete2027(full,{summerTotal:summer,maxChecks:0}).status,'possible');
+ assert.equal(canComplete2027(full,{summerTotal:summer+1,maxChecks:0}).status,'impossible');
+ const broken={...full,awards:full.awards.slice(0,-1)};
+ assert.notEqual(canComplete2027(broken,{maxChecks:0}).status,'possible');
+});
