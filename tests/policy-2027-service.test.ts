@@ -72,12 +72,17 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  assert.ok(undoId);
  await service.election().mutate(cid,{action:'election_undo',version:chosen.campaign.version,historyId:undoId});
  const undone=await service.view(cid);
+ assert.equal(undone.election.cycleAvailability.checked,0,
+  'undo derives locally from the verified historical snapshot without a global solver');
+ assert.equal(undone.election.cycleAvailability.policyVersion,OCCUPANCY_POLICY_2027);
  assert.equal(undone.awards.length,0);
  assert.equal(undone.election.turn.memberId,user);
  assert.deepEqual(undone.election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
  assert.ok(undone.election.redo);
  await service.election().mutate(cid,{action:'election_redo',version:undone.campaign.version,historyId:undone.election.redo});
  chosen=await service.view(cid);
+ assert.equal(chosen.election.cycleAvailability.checked,0,
+  'redo must not rerun global feasibility either');
  assert.equal(chosen.awards.length,1);
  assert.equal(chosen.awards[0].cycle_date,preferred[0]);
  assert.deepEqual(chosen.election.preferences.find((p:any)=>p.member_id===user)?.dates,preferred);
@@ -106,6 +111,31 @@ test('2027 administrative roster edits cannot strand existing awards; denial is 
  assert.equal(after.members.length,beforeMembers);
  assert.equal(after.awards.length,beforeAwards);
  assert.equal(after.awards[0].cycle_date,date);
+});
+
+test('2027 administrative undo and redo restore saved awards without any expensive global proof',async()=>{
+ const repo=new SQLiteRepo(),service=new Service(repo,owner);
+ await service.init();
+ await service.createCampaigns(2027,null,null);
+ const cid=(await service.list()).campaigns.find((c:any)=>c.year===2027&&c.team_id==='A').id;
+ let d=await service.view(cid);
+ const codes=Array.from({length:20},(_,i)=>'UNDO'+i);
+ d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,
+  source:{format:'vacaciones-roster-v1',year:2027,team:'A',copySelections:false,
+   rows:codes.map(code=>({code,label:'Controlador '+code,seniority:''}))}});
+ const date=d.result.cycles[0].date,memberId=d.members[0].id;
+ d=await service.mutate(cid,{action:'award',version:d.campaign.version,memberId,date});
+ assert.equal(d.awards.length,1);
+ assert.ok(d.undo?.id);
+ d=await service.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId:d.undo.id});
+ assert.equal(d.awards.length,0);
+ assert.equal(d.election.cycleAvailability.checked,0);
+ assert.equal(d.election.cycleAvailability.status,'indeterminate');
+ assert.ok(d.redo?.id);
+ d=await service.mutate(cid,{action:'redo_vacations',version:d.campaign.version,undoId:d.redo.id});
+ assert.equal(d.awards.length,1);
+ assert.equal(d.election.cycleAvailability.checked,0);
+ assert.equal(d.awards[0].cycle_date,date);
 });
 
 test('2027 guided reconstruction previews and replays a joint award through the same atomic evaluator',async()=>{
