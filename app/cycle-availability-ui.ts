@@ -24,6 +24,46 @@ export function slotExplanation(slot:AvailabilitySlot|undefined):string{
  return slot.reasons.map(r=>r.message).join('; ')||'Bloqueo global demostrado';
 }
 
+const PERIOD_NAMES=['preverano','verano','postverano'];
+const STATIC_LIMITS=new Set(['FOURTH_EXCLUDED','FOURTH_EXCLUDED_RED','CYCLE_MAXIMUM']);
+const shortDate=(date:string)=>new Date(date+'T12:00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
+
+/**
+ * What a decision changed beyond its own cycle, for people reviewing it.
+ * The chosen cycle losing a place, a person exhausting their own rights and
+ * unproved bounds are not consequences worth showing; period-wide events are
+ * highlighted and proven losses in other cycles are listed as details.
+ */
+export function summarizeImpact(impact:AvailabilityImpact):{highlights:string[];details:string[]}{
+ const highlights:string[]=[],covered=new Set<string>();
+ // Fixed per-cycle limits are always present; they are never what a decision caused.
+ const caused=(c:AvailabilityImpact['changes'][number])=>c.reasons.filter(r=>!STATIC_LIMITS.has(r.code));
+ const ownRightsOnly=new Set(impact.changes
+  .filter(c=>{const r=caused(c);return r.length>0&&r.every(x=>x.code==='INDIVIDUAL_RIGHTS_EXHAUSTED');}).map(c=>c.cycle));
+ for(const event of impact.events){
+  const period=PERIOD_NAMES[event.period??-1]??'periodo';
+  if(event.code==='FOURTH_PERIOD_LIMIT_REACHED'||event.code==='SUMMER_FOURTH_LIMIT_REACHED'){
+   highlights.push('Agota el cupo de cuartas plazas del '+period+
+    (event.actual!==undefined&&event.limit!==undefined?' ('+event.actual+'/'+event.limit+')':'')+
+    ': el resto de ciclos del periodo queda como máximo en 3.');
+   event.cycles.forEach(c=>covered.add(c));
+  }else if(event.code==='THIRD_POSITION_CLOSED'){
+   const closed=event.cycles.filter(c=>!ownRightsOnly.has(c));
+   if(closed.length)highlights.push('Cierra la tercera plaza en '+closed.length+' ciclo(s) del '+period+': '+closed.map(shortDate).join(', ')+'.');
+   event.cycles.forEach(c=>covered.add(c));
+  }else if(event.code==='EXTRA_THIRD_MARGIN_LOST')
+   highlights.push('Reduce el margen para ampliaciones extraordinarias a tercera plaza en '+period+'.');
+ }
+ const details:string[]=[];
+ for(const change of impact.changes){
+  const old=change.before.additional,now=change.after.additional;
+  if(change.kind!=='globalConstraint'||covered.has(change.cycle)||old===null||now===null||now>=old)continue;
+  if(ownRightsOnly.has(change.cycle))continue;
+  details.push(shortDate(change.cycle)+': '+old+' → '+now+' plaza(s) adicionales.');
+ }
+ return {highlights:[...new Set(highlights)],details};
+}
+
 /** Only describe proven losses: an interval is explicitly uncertain. */
 export function describeImpact(impact:AvailabilityImpact):string[]{
  const lines:string[]=[];

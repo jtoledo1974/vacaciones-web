@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {AvailabilitySnapshot,AvailabilityImpact,AvailabilitySlot} from '../domain/availability-2027';
-import {cycleAvailability,describeImpact,slotExplanation} from '../app/cycle-availability-ui.ts';
+import {cycleAvailability,describeImpact,slotExplanation,summarizeImpact} from '../app/cycle-availability-ui.ts';
 
 const cycle={date:'2027-07-01',occupied:0,max:4};
 
@@ -53,4 +53,25 @@ test('impact descriptions distinguish direct losses, global losses and fourth-pl
  assert.ok(lines.some(line=>line.includes('Adjudicación directa')&&line.includes('2027-07-01')));
  assert.ok(lines.some(line=>line.includes('Restricción global')&&line.includes('2027-08-01')));
  assert.ok(lines.some(line=>line.includes('terceras plazas siguen')));
+});
+
+test('el historial solo resume consecuencias sobre otros ciclos',()=>{
+ const change=(cycle:string,kind:'directOccupancy'|'globalConstraint',before:number,after:number,codes:string[])=>({
+  cycle,period:0 as const,kind,before:{occupied:2,additional:before,lower:before,upper:before},
+  after:{occupied:2,additional:after,lower:after,upper:after},delta:after-before,
+  reasons:codes.map(code=>({code,message:code}))});
+ const base={policyVersion:'lecs-2027-occupancy-v2',status:'exact',before:null,after:null} as any;
+ // Own cycle only: nothing to show.
+ assert.deepEqual(summarizeImpact({...base,changes:[change('2027-01-09','directOccupancy',1,0,['DIRECT_OCCUPANCY'])],events:[]}),{highlights:[],details:[]});
+ // Exhausted personal rights (with a fixed red-cycle limit) are not a consequence.
+ assert.deepEqual(summarizeImpact({...base,changes:[change('2027-12-27','globalConstraint',1,0,['INDIVIDUAL_RIGHTS_EXHAUSTED','FOURTH_EXCLUDED_RED'])],
+  events:[{code:'THIRD_POSITION_CLOSED',period:2,cycles:['2027-12-27']}]}),{highlights:[],details:[]});
+ // Period-wide fourth limit is highlighted and its cycles are not repeated.
+ const fourth=summarizeImpact({...base,changes:[change('2027-01-17','globalConstraint',2,1,['FOURTH_PERIOD_LIMIT_REACHED']),
+  change('2027-03-06','globalConstraint',1,0,['GLOBAL_COMPLETION_CONSTRAINT'])],
+  events:[{code:'FOURTH_PERIOD_LIMIT_REACHED',period:0,actual:1,limit:1,cycles:['2027-01-17']}]});
+ assert.equal(fourth.highlights.length,1);
+ assert.match(fourth.highlights[0],/cuartas plazas del preverano \(1\/1\)/);
+ assert.equal(fourth.details.length,1);
+ assert.match(fourth.details[0],/1 → 0/);
 });

@@ -622,6 +622,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-log-impact li{padding:3px 0 2px 3px;margin-left:16px;border:0;list-style:disc}
 .election-log-warning{display:block;margin:7px 0 0;padding:8px 10px;font-size:11px}
 .election-log-warning strong{margin-right:4px}
+.election-log-highlight{display:block;margin:7px 0 0;padding:8px 10px;font-size:11px;background:#e8f1f4;color:#2f5b6b;border:1px solid #cfe0e6}
 
 /* Multiline legal-impact preview inside the standard confirmation dialog. */
 .confirmation-dialog p{white-space:pre-line;max-height:min(48dvh,380px);overflow-y:auto;text-align:left}
