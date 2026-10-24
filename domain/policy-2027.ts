@@ -217,7 +217,7 @@ class Network {
 }
 
 /** Exact integer circulation for one choice of one-person and four-person cycles. */
-function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCycle?:{date:string;occupancy:number}):PolicyAward[]|null {
+function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCycle?:{date:string;occupancy:number},exactCounts?:ReadonlyMap<string,number>):PolicyAward[]|null {
   const M=state.members.length,C=state.cycles.length;
   const mapM=new Map(state.members.map((m,i)=>[m.id,i])),mapC=new Map(state.cycles.map((c,i)=>[c.date,i]));
   const occupied=new Array(C).fill(0) as number[], mine=range(M).map(()=>new Set<number>());
@@ -245,7 +245,8 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCy
     if(p<0||p>2||fixedSingle&&fixedFourth||item.fourthExcluded&&fixedFourth)return null;
     periodUsed[p]+=occupied[c];periodSize[p]++;
     const localMax=Math.min(item.maximum??4,item.fourthExcluded?3:4);
-    const lo=Math.max(fixedSingle?1:fixedFourth?4:2,item.date===minimumCycle?.date?minimumCycle.occupancy:0),hi=fixedSingle?1:fixedFourth?4:Math.min(3,localMax);
+    const exact=exactCounts?.get(item.date);
+    const lo=exact??Math.max(fixedSingle?1:fixedFourth?4:2,item.date===minimumCycle?.date?minimumCycle.occupancy:0),hi=exact??(fixedSingle?1:fixedFourth?4:Math.min(3,localMax));
     if(occupied[c]>hi||hi>localMax||!bounded(cycleBase+c,periodBase+p,Math.max(0,lo-occupied[c]),hi-occupied[c]))return null;
   }
   for(let p=0;p<3;p++){
@@ -457,6 +458,30 @@ export function immediate2027Issues(state:PolicyState,choices:PolicyAward[]):Rul
 }
 
 /**
+ * A valid completed allocation is a certificate of a feasible occupancy
+ * histogram. Reassign all remaining controllers with a single bounded
+ * circulation while preserving exactly that histogram and all fixed awards.
+ * This is stronger than a two-controller swap and avoids any exceptional
+ * cycle enumeration. The final assessment is an independent safety check.
+ *
+ * If the requested fixed awards cannot fit this particular histogram,
+ * return null: callers must use the ordinary exhaustive solver or another
+ * certificate rather than interpreting null as impossibility.
+ */
+export function reassign2027Witness(
+ state:PolicyState,knownWitness:PolicyAward[]
+):PolicyAward[]|null {
+ const completed={...state,awards:[...state.awards,...knownWitness]};
+ if(!evaluate2027Final(completed).valid)return null;
+ const histogram=new Map(state.cycles.map(c=>[
+  c.date,completed.awards.filter(a=>a.cycle_date===c.date).length
+ ]));
+ const assignments=match(state,{single:new Set(),fourth:new Set()},undefined,undefined,histogram);
+ if(assignments===null)return null;
+ return evaluate2027Final({...state,awards:[...state.awards,...assignments]}).valid?assignments:null;
+}
+
+/**
  * Reuse a previously proved final allocation for one candidate.
  *
  * A proposed person/cycle pair can be taken directly from a completion
@@ -487,6 +512,11 @@ export function transplant2027Witness(
     if(evaluate2027Final({...state,awards:[...state.awards,...remainder]}).valid)
       return remainder.filter((_,k)=>k!==i);
   }
+  // Try any augmenting flow that preserves the same validated final cycle
+  // counts. The preceding direct and two-person shortcuts cover cheap cases.
+  const rebuilt=reassign2027Witness({...state,awards:[...state.awards,choice]},
+    witness.filter(a=>!same(a,choice)));
+  if(rebuilt)return rebuilt;
   return null;
 }
 
