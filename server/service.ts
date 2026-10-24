@@ -89,7 +89,7 @@ export class Service {
     private async restoredFromHistory(cid:string,version:number):Promise<boolean>{
         const rows=await this.repo.all('SELECT action,after_json FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 1',[cid]);
         const latest=rows[0];
-        if(!latest||!['election_undo','election_redo','undo_vacations','redo_vacations','reconstruction_start','reconstruction_back','reconstruction_cancel'].includes(latest.action))return false;
+        if(!latest||!['election_undo','election_redo','undo_vacations','redo_vacations','reconstruction_back','reconstruction_cancel'].includes(latest.action))return false;
         try{return JSON.parse(latest.after_json)?.version===version;}catch{return false;}
     }
     async view(cid:string){

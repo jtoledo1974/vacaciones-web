@@ -1,5 +1,7 @@
 import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,entitlementFor,resolveTie,registerJointAgreement,cancelJointAgreement,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
+import {immediate2027Issues} from '../domain/policy-2027.ts';
+import {policyState2027} from '../domain/election-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
 import {availabilityImpact} from '../domain/availability-2027.ts';
 import {canWrite,type Principal} from './permissions.ts';
@@ -84,7 +86,7 @@ export class ReconstructionService{
    id:entry.id,action:entry.action,round:entry.round,memberIds:entry.participants,choices:entry.after.choices??[],cursor:entry.before.state?.cursor??0,archived:!currentIds.has(entry.id)
   })).reverse();
  }
- private pick(d:any,s:Session,state:ElectionState,awards:any[],requests:any[]){
+ private pick(d:any,s:Session,state:ElectionState,awards:any[],requests:any[],skipProof=false){
   // Replay round-scoped agreements at their original point in the cursor history.
   // The dry-run also drives the preview, so it matches what the next step commits.
   const used=new Set(s.applied.flatMap(step=>step.agreementIds??[]));
@@ -103,21 +105,27 @@ export class ReconstructionService{
   const original=s.originalEvents.find(e=>!['register_joint','cancel_joint'].includes(e.action)&&!s.applied.some(a=>a.usedId===e.id)&&e.round===turn.round&&
    (turn.pendingTie?e.action==='resolve_tie'&&e.participants.length===turn.pendingTie.length&&turn.pendingTie.every((id:string)=>e.participants.includes(id)):e.memberId===turn.memberId&&e.participants.length===turn.participants.length&&turn.participants.every((id:string)=>e.participants.includes(id))));
   const historicalPreferences=original?.before.preferences.filter(p=>turn.participants.includes(p.member_id))??[];
-  const first=turn.participants.length===1&&turn.memberId&&historicalPreferences.length?preferredChoice(ctx(d,awards,requests),{...turn.state,automaticPaused:false},historicalPreferences.map(p=>({...p,active:true}))):null;
+  const first=!skipProof&&turn.participants.length===1&&turn.memberId&&historicalPreferences.length?preferredChoice(ctx(d,awards,requests),{...turn.state,automaticPaused:false},historicalPreferences.map(p=>({...p,active:true}))):null;
   const originalChoices=(original?.after?.choices??[]) as {member_id:string;cycle_date:string}[];
   const originalEntries=turn.participants.map((id:string)=>({member_id:id,dates:originalChoices.filter(a=>a.member_id===id).map(a=>a.cycle_date)}));
   let canOriginal=false;
-  if(original&&(original.action==='defer'||original.action==='reconstruction_step'&&original.after.kind==='defer')){try{if(!turn.memberId)throw Error();defer(ctx(d,awards,requests),working,turn.memberId);canOriginal=true;}catch{canOriginal=false;}}
-  else if(original&&(original.action==='resolve_tie'||original.action==='reconstruction_step'&&original.after.kind==='resolve_tie'))canOriginal=!!turn.pendingTie&&Array.isArray(original.after?.resolution?.order??original.after?.order);
-  else if(original&&turn.participants.length>1){
+  if(!skipProof&&original&&(original.action==='defer'||original.action==='reconstruction_step'&&original.after.kind==='defer')){try{if(!turn.memberId)throw Error();defer(ctx(d,awards,requests),working,turn.memberId);canOriginal=true;}catch{canOriginal=false;}}
+  else if(!skipProof&&original&&(original.action==='resolve_tie'||original.action==='reconstruction_step'&&original.after.kind==='resolve_tie'))canOriginal=!!turn.pendingTie&&Array.isArray(original.after?.resolution?.order??original.after?.order);
+  else if(!skipProof&&original&&turn.participants.length>1){
    // The preview must use exactly the same atomic joint validation as replay.
    // Per-person checks against the old state can incorrectly approve a batch
    // that consumes a single shared 2027 quota more than once.
    try{chooseJoint(ctx(d,awards,requests),working,originalEntries);canOriginal=true;}catch{canOriginal=false;}
-  }else if(original&&turn.memberId){
+  }else if(!skipProof&&original&&turn.memberId){
    try{choose(ctx(d,awards,requests),working,turn.memberId,originalEntries[0]?.dates??[]);canOriginal=true;}catch{canOriginal=false;}
   }
-  const available=turn.participants.length===1&&turn.memberId?calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,requests,awards).cycles.filter(c=>!choiceIssues(ctx(d,awards,requests),turn.memberId!,[c.date]).length).map(c=>c.date):[];
+  const available=turn.participants.length===1&&turn.memberId
+   ?calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,requests,awards,{skip2027Proof:skipProof}).cycles.filter(c=>
+     skipProof&&d.campaign.year===2027
+      ?immediate2027Issues(policyState2027(d.campaign.year,d.campaign.team_id,d.config,d.members,awards),
+        [{member_id:turn.memberId!,cycle_date:c.date}]).length===0
+      :!choiceIssues(ctx(d,awards,requests),turn.memberId!,[c.date]).length
+    ).map(c=>c.date):[];
   return {turn,original,first,originalEntries,canOriginal,available,historicalPreferences,workingState:working,agreementIds};
  }
  private impact(d:any,s:Session,awards:any[],requests:any[]){
@@ -134,20 +142,20 @@ export class ReconstructionService{
   }
   return result;
  }
- async view(d:any,raw:{state:ElectionState|null;preferences:Preference[]}){
+ async view(d:any,raw:{state:ElectionState|null;preferences:Preference[]},skipProof=false){
   const s=await this.read(d.campaign.id);
   if(this.actor.preview||!canWrite(this.actor,d.campaign.team_id))return {active:!!s&&s.status!=='completed'};
   const candidates=await this.candidates(d);
   if(!s)return {active:false,candidates};
   const active=s.status!=='completed',state=raw.state;
-  const pick=active&&state?this.pick(d,s,state,d.awards,d.requests):null;
+  const pick=active&&state?this.pick(d,s,state,d.awards,d.requests,skipProof):null;
   return {active,status:s.status,candidates:s.status==='completed'?candidates:[],progress:s.applied.length,total:s.originalEvents.filter(e=>!['register_joint','cancel_joint'].includes(e.action)).length,startedAt:s.startedAt,startedBy:s.startedBy,targetId:s.targetId,
    targetCursor:s.targetCursor,canFinish:s.status==='review',canBack:s.applied.length>0,canForward:s.undone.length>0,
    original:s.origin.awards.map(a=>({memberId:a.member_id,date:a.cycle_date})),
    current:pick?{round:pick.turn.round,memberId:pick.turn.memberId,participants:pick.turn.participants,needed:pick.turn.needed,pendingTie:pick.turn.pendingTie??null,requiredByMember:pick.turn.requiredByMember,
     historicalPreference:pick.first,preferences:pick.historicalPreferences,originalChoice:pick.originalEntries,originalAction:pick.original?.action==='reconstruction_step'?(pick.original.after?.kind??'choose'):(pick.original?.action??null),originalTie:pick.original?.after?.resolution??null,originalPossible:pick.canOriginal,available:pick.available}:null,
    changes:s.applied.map(a=>({kind:a.kind,dates:a.dates,entries:a.entries,actor:a.actor,at:a.at})),
-   impact:s.status==='completed'?s.impact??[]:this.impact(d,s,d.awards,d.requests)};
+   impact:s.status==='completed'?s.impact??[]:skipProof?[]:this.impact(d,s,d.awards,d.requests)};
  }
  async mutate(d:any,raw:{state:ElectionState|null;preferences:Preference[]},body:any){
   const c=d.campaign,cid=c.id,action=body.action;
