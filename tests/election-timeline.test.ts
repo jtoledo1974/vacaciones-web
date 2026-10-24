@@ -173,3 +173,23 @@ test('timeline projects impact summaries without removing certified audit snapsh
  assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityBefore,impact.availabilityBefore);
  assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityAfter,impact.availabilityAfter);
 });
+
+test('historial: muestra cada aviso normativo solo en la adjudicación que lo introduce',()=>{
+ const ctx:ElectionContext={year:2026,team:'C',config:{...defaultConfig(2026),cyclesPerPerson:6},
+  members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[]};
+ const a=award('a','A','2026-01-01'),b=award('b','B','2026-01-09'),c=award('c','C','2026-01-17');
+ ctx.awards=[a,b,c];
+ const cross={code:'CROSS_PERIOD_FLEXIBILITY',message:'Aviso territorial'};
+ const summer={code:'SUMMER_REFERENCE',message:'Aviso estival',period:1};
+ const rows=[
+  row('start','start',{format:'election-undo-v1',state:null,awards:[]},{}),
+  row('draw','resolve_tie',{state:{...state(0),pendingTieGroups:[['A','B','C']]},awards:[]},{resolution}),
+  row('one','choose',snap(0,[]),{choices:[choice('A',a.cycle_date)],warnings:[cross]}),
+  row('two','choose',snap(1,[a]),{choices:[choice('B',b.cycle_date)],warnings:[cross]}),
+  row('three','choose',snap(2,[a,b]),{choices:[choice('C',c.cycle_date)],warnings:[cross,summer]}),
+ ];
+ const byId=new Map(buildElectionTimeline(rows,ctx,state(3)).map(e=>[e.id,e]));
+ assert.deepEqual(byId.get('one')?.warnings,[cross]);
+ assert.equal(byId.get('two')?.warnings,undefined);
+ assert.deepEqual(byId.get('three')?.warnings,[summer]);
+});

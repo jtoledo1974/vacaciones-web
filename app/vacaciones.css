@@ -620,6 +620,8 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-log-impact{margin:7px 0 0;padding:6px 8px;border-left:3px solid #879b9e;background:#f4f6f6}
 .election-log-impact summary{cursor:pointer;font-size:10px;font-weight:650}
 .election-log-impact li{padding:3px 0 2px 3px;margin-left:16px;border:0;list-style:disc}
+.election-log-warning{display:block;margin:7px 0 0;padding:8px 10px;font-size:11px}
+.election-log-warning strong{margin-right:4px}
 
 /* Multiline legal-impact preview inside the standard confirmation dialog. */
 .confirmation-dialog p{white-space:pre-line;max-height:min(48dvh,380px);overflow-y:auto;text-align:left}

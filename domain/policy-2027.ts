@@ -663,6 +663,22 @@ export function transplant2027Witness(
   return null;
 }
 
+const partialCache=new Map<string,CandidateAssessment>();
+/** Assessment of the current partial allocation, shared by the commit audit
+ * and the following view so one decision pays for its warnings only once. */
+export function partialAssessment2027(state:PolicyState,maxChecks=500):CandidateAssessment {
+  const key=JSON.stringify([OCCUPANCY_POLICY_2027,maxChecks,
+    [...state.cycles].sort((a,b)=>a.date.localeCompare(b.date)),
+    [...state.members].sort((a,b)=>a.id.localeCompare(b.id)),
+    state.awards.map(a=>a.member_id+'|'+a.cycle_date).sort()]);
+  const cached=partialCache.get(key);
+  if(cached)return cached;
+  const result=evaluate2027Candidate(state,[],maxChecks);
+  partialCache.set(key,result);
+  if(partialCache.size>16)partialCache.delete(partialCache.keys().next().value!);
+  return result;
+}
+
 /** Evaluate an atomic batch of choices on the same prior state. */
 export function evaluate2027Candidate(
   state:PolicyState,choices:PolicyAward[],maxChecks=2000,

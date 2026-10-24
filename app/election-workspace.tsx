@@ -262,8 +262,9 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     warningLines=(report.warnings??[]).map((issue:any)=>issue.message);
    }
    // In real campaigns, and by default in simulations, confirmation is mandatory.
-   // Fast simulation mode commits as soon as the complete choice is clicked.
-   if(!simulation||!quickMode){
+   // Fast simulation mode commits as soon as the complete choice is clicked,
+   // unless the preflight reports policy warnings: those always need review.
+   if(!simulation||!quickMode||warningLines.length>0){
     setChoicePhase(null);
     const impactText=impactLines.length
      ?'\\n\\nConsecuencias sobre la disponibilidad:\\n'+impactLines.slice(0,14).join('\\n')+
@@ -491,6 +492,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
          {event.kind==='legacy'&&<p className="election-log-note">Adjudicación importada o anterior al registro de turnos.</p>}
          {event.kind==='choice'&&event.memberIds.length>1&&<p className="election-log-note">Turno conjunto de {event.memberIds.length} controladores.</p>}
          {event.kind==='choice'&&event.deferredTurns>0&&<p className="election-log-note">Turno {event.deferredTurns===1?'doble':'triple'}: recupera {event.deferredTurns} aplazamiento(s) anterior(es).</p>}
+         {(event.warnings??[]).map((w:any,i:number)=><p key={w.code+'-'+i} role="status" className="alert warning election-log-warning">
+          <strong>Aviso normativo:</strong> {w.message}</p>)}
          {event.impact&&<details className="election-log-impact">
           <summary>Impacto registrado · {event.impact.changes?.length??0} ciclos modificados · política {event.impact.policyVersion}</summary>
           <ul>{describeImpact(event.impact).map((line:string,i:number)=><li key={i}>{line}</li>)}</ul>

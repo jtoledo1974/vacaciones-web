@@ -1,7 +1,7 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
 import {policyState2027,cyclesEntitlement2027} from './election-2027.ts';
-import {OCCUPANCY_POLICY_2027,evaluate2027Final,evaluate2027Candidate} from './policy-2027.ts';
+import {OCCUPANCY_POLICY_2027,evaluate2027Final,partialAssessment2027} from './policy-2027.ts';
 import {hr2027FourthExcluded} from './hr-2027.ts';
 export type Member = {
     id: string;
@@ -115,7 +115,7 @@ export function calculate(
         // They are not inferred from provisional occupation (which may still
         // be completed), and they never turn into blocking errors.
         const partial= !options.skip2027Proof && !complete && !year2027Issues.length && awards.length
-          ? evaluate2027Candidate(state,[],500) : null;
+          ? partialAssessment2027(state,500) : null;
         if(final)year2027Issues.push(...final.issues.map(i=>i.message));
         else if(partial?.completion.status==='impossible')
           year2027Issues.push('Las adjudicaciones actuales no permiten completar las vacaciones restantes');

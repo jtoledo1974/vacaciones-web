@@ -13,6 +13,7 @@ export type ElectionTimelineItem={
   campaignVersionBefore:number; campaignVersionAfter:number;
   changes:AvailabilityChange[];events:ImpactEvent[];
  };
+ warnings?:{code:string;message:string;period?:number}[];
 };
 
 function parsed(row:AuditRow,side:'before'|'after'):any{
@@ -47,6 +48,9 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
  const accounted=new Set<string>();
  const indices=new Map(rows.map((row,i)=>[row.id,i]));
  const events:{sequence:number;item:ElectionTimelineItem}[]=[];
+ // Warnings are stored as the full set after each decision; show only those
+ // that a decision introduced, not every later repetition of the same one.
+ let previousWarnings=new Set<string>();
  if(state){
   for(const row of active){
    if(!['choose','choose_joint','advance','defer','reconstruction_step','register_joint','cancel_joint'].includes(row.action))continue;
@@ -89,12 +93,18 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
     const order=orderForRound(previous,round-1).filter(id=>group.includes(id));
     ties.push({memberId,position:order.indexOf(memberId)+1,total:group.length,order});
    }
+   let introduced:{code:string;message:string;period?:number}[]=[];
+   if(Array.isArray(after?.warnings)){
+    introduced=after.warnings.filter((w:any)=>!previousWarnings.has(w.code));
+    previousWarnings=new Set(after.warnings.map((w:any)=>w.code));
+   }
    events.push({sequence:indices.get(row.id)??0,item:{
     id:row.id,kind:kind==='defer'?'defer':'choice',round,createdAt:row.created_at,
     memberIds,choices,deferredTurns:memberIds.length===1?(previous.credits?.[memberIds[0]]??0):0,ties,
     ...(after?.impact?{impact:{policyVersion:after.impact.policyVersion,status:after.impact.status,
      campaignVersionBefore:after.impact.campaignVersionBefore,campaignVersionAfter:after.impact.campaignVersionAfter,
-     changes:after.impact.changes,events:after.impact.events}}:{})
+     changes:after.impact.changes,events:after.impact.events}}:{}),
+    ...(introduced.length?{warnings:introduced}:{})
    }});
   }
   for(const row of draws){

@@ -1,7 +1,7 @@
 import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,entitlementFor,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {canComplete2027,evaluate2027Candidate,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
+import {canComplete2027,evaluate2027Candidate,evaluate2027Final,partialAssessment2027,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
 import {availabilityByCycle,recordedAvailabilityByCycle2027,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact,type AvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -375,7 +375,16 @@ export class ElectionService{
    changes:impact.changes,events:impact.events,
    availabilityBefore:impact.before,availabilityAfter:impact.after
   }:null;
-  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{impact:auditImpact,version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
+  // Persist the policy warnings of the resulting allocation with the decision,
+  // so the history keeps them after undo/redo or a later fast simulation.
+  let warnings:{code:string;message:string;period?:number}[]|undefined;
+  if(ctx.year===2027&&choices.length){
+   const next=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,[...ctx.awards,...choices]);
+   const complete=next.members.every(m=>next.awards.filter(a=>a.member_id===m.id).length===m.entitlement);
+   warnings=(complete?evaluate2027Final(next).warnings:partialAssessment2027(next,500).warnings)
+    .map(w=>({code:w.code,message:w.message,...(w.period!==undefined?{period:w.period}:{})}));
+  }
+  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{impact:auditImpact,...(warnings?{warnings}:{}),version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
   await this.host.commit(ops);return {changed:true};
  }
 }

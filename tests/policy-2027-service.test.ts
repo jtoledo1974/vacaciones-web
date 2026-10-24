@@ -68,6 +68,7 @@ test('existing 2027 campaign and simulation use the same policy without losing s
  assert.equal(auditChoice.impact.availabilityBefore,undefined);
  const [auditRow]=await repo.all('SELECT after_json FROM audit WHERE id=?',[auditChoice.id]);
  const persisted=JSON.parse(auditRow.after_json).impact;
+ assert.ok(Array.isArray(JSON.parse(auditRow.after_json).warnings),'the policy warnings are committed with the choice');
  assert.deepEqual(persisted.availabilityBefore.cycles,baselineAvailability.cycles,
   'persist the complete availability previously verified before the choice');
  assert.deepEqual(persisted.availabilityAfter.cycles,chosen.election.cycleAvailability.cycles,
