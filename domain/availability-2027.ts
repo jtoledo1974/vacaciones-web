@@ -185,6 +185,49 @@ export function constructCycleWitness2027(
  return move(witness,Math.min(3,target-current));
 }
 
+/**
+ * Rebuild only the presentation of a restored, previously committed snapshot.
+ * No global completion search is run. A local impossibility (e.g. red fourth,
+ * already consumed period-fourth quota or a full cycle) is exact; everything
+ * else is explicitly provisional until the NEXT actual choice is confirmed.
+ *
+ * This is for undo/redo/reconstruction restore ONLY, never admission control.
+ */
+export function restoredAvailabilityByCycle2027(state:PolicyState):AvailabilitySnapshot {
+ const occupancy=new Map(state.cycles.map(c=>[c.date,[] as string[]]));
+ for(const award of state.awards)occupancy.get(award.cycle_date)?.push(award.member_id);
+ const fourth=[0,0,0];
+ for(const cycle of state.cycles)
+  if((occupancy.get(cycle.date)?.length??0)===4)fourth[cycle.period]++;
+ const cycles:Record<string,CycleAvailability>={};
+ for(const [index,cycle] of state.cycles.entries()){
+  const people=occupancy.get(cycle.date)??[],occupied=people.length,localMaximum=capacity(state,index);
+  const fourthConsumed=fourth[cycle.period]>=periodLimit(cycle.period);
+  const upper=Math.max(0,Math.min(localMaximum,fourthConsumed?3:4)-occupied);
+  const slots:AvailabilitySlot[]=Array.from({length:4},(_,i)=>{
+   const position=i+1,memberId=people[i];
+   const status:AvailabilitySlot['status']=memberId!==undefined?'occupied':
+    position>occupied+upper?'blocked':'indeterminate';
+   const reasons:RuleProblem[]=status==='blocked'
+    ?blockedReasons(state,cycle.date,position,occupied):
+     status==='indeterminate'?[reason('NOT_RECHECKED_AFTER_RESTORE',
+      'Estado recuperado del historial; esta posibilidad se verificará al confirmar una nueva adjudicación.',
+      cycle.period,cycle.date)]:[];
+   return {position,status,...(memberId?{memberId}:{}),reasons};
+  });
+  cycles[cycle.date]={
+   cycle:cycle.date,period:cycle.period,occupied,localMaximum,
+   status:upper===0?'exact':'indeterminate',additional:upper===0?0:null,
+   provenAdditional:0,possibleAdditionalUpperBound:upper,slots
+  };
+ }
+ return {
+  policyVersion:OCCUPANCY_POLICY_2027,
+  status:Object.values(cycles).some(c=>c.status==='indeterminate')?'indeterminate':'exact',
+  cycles,checked:0
+ };
+}
+
 /** Evaluate all cycle capacities from a common verified completion witness. */
 export function availabilityByCycle(state:PolicyState,options:AvailabilityOptions={}):AvailabilitySnapshot {
  const maxChecks=options.maxChecks??500;
