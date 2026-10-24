@@ -275,11 +275,11 @@ const combinations = function* (values:number[],count:number,start=0,picked:numb
  * Search all period-specific exceptional placement combinations. When the
  * exploration limit is reached, do not claim impossibility.
  *
- * Strict-pre and fixed-summer checks are used to decide *warnings* on a
+ * Strict territorial and fixed-summer checks are used to decide *warnings* on a
  * pending choice, not to reject an otherwise permitted choice.
  */
 export function canComplete2027(state:PolicyState,opts:{
-  strictPre?:boolean; summerTotal?:number; maxChecks?:number
+  strictRegions?:boolean; summerTotal?:number; maxChecks?:number
 }={}):Completion {
   const maxChecks=opts.maxChecks??2000;
   const M=new Map(state.members.map(m=>[m.id,m])), C=new Map(state.cycles.map(c=>[c.date,c]));
@@ -296,7 +296,7 @@ export function canComplete2027(state:PolicyState,opts:{
   // This is also important for publication and review: a timeout must never
   // turn a valid finished allocation into an indeterminate one.
   if(state.members.every(m=>people.get(m.id)===m.entitlement)){
-    const final=evaluate2027Final(state,opts.strictPre);
+    const final=evaluate2027Final(state,opts.strictRegions);
     const summer=state.awards.filter(a=>C.get(a.cycle_date)?.period===1).length;
     return final.valid&&(opts.summerTotal===undefined||summer===opts.summerTotal)
       ?{status:'possible',checked:1,witness:[]}
@@ -318,7 +318,7 @@ export function canComplete2027(state:PolicyState,opts:{
       if(++checked>maxChecks){exhausted=true;return null;}
       const extra=match(state,scenario,opts.summerTotal);if(!extra)return null;
       const end:PolicyState={...state,awards:[...state.awards,...extra]};
-      const final=evaluate2027Final(end,opts.strictPre);
+      const final=evaluate2027Final(end,opts.strictRegions);
       if(!final.valid)return null;
       if(opts.summerTotal!==undefined){
         const summer=new Set(state.cycles.filter(c=>c.period===1).map(c=>c.date));
@@ -486,12 +486,20 @@ export function evaluate2027Candidate(
       ?[problem('COMPLETION_UNDETERMINED','No se ha demostrado que exista una completación válida; no se adjudica automáticamente.')]:[];
   const warnings:RuleProblem[]=[];
   if(completion.status==='possible'){
-    const strict=canComplete2027(next,{strictPre:true,maxChecks});
+    // A positively verified final completion is a constructive proof for
+    // either informative comparison; do not pay for another exact search.
+    const finalWitness={...next,awards:[...next.awards,...(completion.witness??[])]};
+    const strictAlreadyPossible=evaluate2027Final(finalWitness,true).valid;
+    const strict=strictAlreadyPossible?{status:'possible' as const}
+      :canComplete2027(next,{strictRegions:true,maxChecks});
     if(strict.status==='impossible')
       warnings.push(problem('CROSS_PERIOD_FLEXIBILITY',
         'Esta elección impide terminar con el origen de cada ampliación en su propio periodo (lectura estricta de RRHH). La flexibilidad entre periodos es provisional y requiere revisión administrativa.'));
     const summerReference=state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
-    const reference=canComplete2027(next,{summerTotal:summerReference,maxChecks});
+    const summerDates=new Set(state.cycles.filter(c=>c.period===1).map(c=>c.date));
+    const currentSummer=finalWitness.awards.filter(a=>summerDates.has(a.cycle_date)).length;
+    const reference=currentSummer===summerReference?{status:'possible' as const}
+      :canComplete2027(next,{summerTotal:summerReference,maxChecks});
     if(reference.status==='impossible')
       warnings.push(problem('SUMMER_REFERENCE','La terminación necesita un total estival distinto de la referencia informativa.',{period:1,limit:summerReference}));
     else if(reference.status==='indeterminate')
