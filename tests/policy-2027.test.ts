@@ -36,12 +36,39 @@ function completed(pre:number[],summer:number[],post:number[],memberCount=6):Pol
   return {cycles,members:counts.map((entitlement,i)=>({id:'m'+i,entitlement})),awards};
 }
 
-test('preverano relaxed rule allows three singles with explicit warning; strict rule rejects',()=>{
-  const state=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
-  const final=evaluate2027Final(state);
-  assert.equal(final.valid,true,JSON.stringify(final.issues));
-  assert.ok(final.warnings.some(w=>w.code==='PRE_SINGLE_3'));
-  assert.ok(evaluate2027Final(state,true).issues.some(x=>x.code==='PRE_SINGLE_LIMIT'));
+test('PRE has two independent extra thirds and a fourth at a different destination',()=>{
+ const valid=completed([1,1,2,3,3,4],[2,2,2],[2,2,2]);
+ assert.equal(evaluate2027Final(valid).valid,true,JSON.stringify(evaluate2027Final(valid).issues));
+ assert.equal(evaluate2027Final(valid,true).valid,true,'Territorial witness is local to PRE');
+ assert.equal(evaluate2027Final(valid).warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
+ const chained=completed([1,1,4],[2,2,2],[2,2,2]);
+ assert.ok(evaluate2027Final(chained).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'),
+   'PRE EC3 and EC4 cannot use the same fourth-place destination');
+});
+
+test('three PRE singles do not create a fictitious extra permission',()=>{
+ const impossible=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
+ assert.ok(evaluate2027Final(impossible).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'));
+ assert.equal(evaluate2027Final(impossible).warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
+ const flexible=completed([1,1,1,3,3,4],[2,2,2],[3,2,2]);
+ assert.equal(evaluate2027Final(flexible).valid,true,JSON.stringify(evaluate2027Final(flexible).issues));
+ assert.ok(evaluate2027Final(flexible).warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'));
+ assert.ok(evaluate2027Final(flexible,true).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'));
+ const fourSingles=completed([1,1,1,1,3,3,4],[2,2,2],[3,2,2]);
+ assert.ok(evaluate2027Final(fourSingles).issues.some(w=>w.code==='PRE_SINGLE_LIMIT'));
+});
+
+test('PRE fourth cannot use a donor that becomes a new single',()=>{
+ const noDouble=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
+ assert.ok(evaluate2027Final(noDouble).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'));
+ const withDouble=completed([1,1,2,3,3,4],[2,2,2],[2,2,2]);
+ assert.ok(evaluate2027Final(withDouble).valid);
+});
+
+test('POST third and fourth can chain on one destination',()=>{
+ const chained=completed([2,2,2],[2,2,2],[1,1,4]);
+ assert.equal(evaluate2027Final(chained).valid,true,JSON.stringify(evaluate2027Final(chained).issues));
+ assert.equal(evaluate2027Final(chained,true).valid,true);
 });
 
 test('postverano permits two singles with one fourth; EC3 and EC4 are independent',()=>{
@@ -80,7 +107,7 @@ test('same final allocation is independent of order of the requested dates',()=>
   const a=[{member_id:'m0',cycle_date:'p0'},{member_id:'m0',cycle_date:'s0'}];
   const b=[...a].reverse();
   assert.equal(evaluate2027Candidate(base,a).allowed,evaluate2027Candidate(base,b).allowed);
-  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v1');
+  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v2');
 });
 
 test('real 2027 calendars A–H have a six-cycle completion witness for the RRHH staffing',()=>{
@@ -192,45 +219,55 @@ test('small exact oracle: global feasibility agrees with independent exhaustive 
  assert.equal(checked,66);
 });
 
-test('preverano warning persists in an incomplete allocation only when the third single is unavoidable',()=>{
- const full=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
- const summerAward=full.awards.find(a=>a.cycle_date==='s0')!;
- const stillNeedsSummer={...full,awards:full.awards.filter(a=>a!==summerAward)};
- const inevitable=evaluate2027Candidate(stillNeedsSummer,[]);
- assert.equal(inevitable.completion.status,'possible');
- assert.ok(inevitable.warnings.some(w=>w.code==='PRE_SINGLE_3'));
+/**
+ * Move an already-awarded summer place into an otherwise ordinary off-summer
+ * third. Entitlements are unchanged; the source stays at summer minimum 2.
+ * Its target uses the provisional flexible donor rule, not a PRE/POST donor.
+ */
+function crossPeriodTeamA(){
+ const config=defaultConfig(2027);
+ const members=Array.from({length:20},(_,i)=>({id:'m'+i,code:'CTA'+i,seniority:''}));
+ const state=policyState2027(2027,'A',config,members,[]);
+ const completion=canComplete2027(state,{maxChecks:1000});
+ assert.equal(completion.status,'possible',completion.reason);
+ const awards=completion.witness!;
+ const occupied=(date:string)=>awards.filter(a=>a.cycle_date===date);
+ for(const target of state.cycles.filter(c=>c.period!==1&&occupied(c.date).length===2)){
+  for(const source of state.cycles.filter(c=>c.period===1&&occupied(c.date).length===3)){
+   const moving=occupied(source.date).find(a=>!occupied(target.date).some(b=>b.member_id===a.member_id));
+   if(!moving)continue;
+   const shifted=awards.map(a=>a===moving?{...a,cycle_date:target.date}:a);
+   const result=evaluate2027Final({...state,awards:shifted});
+   if(result.valid&&result.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'))
+    return {config,members,state,awards:shifted,source:source.date};
+  }
+ }
+ throw Error('Expected a verifiable cross-period move in team A');
+}
 
- // Free two awards so that a different completion can fill the formerly
- // single p1 and restore p0. Removing only p0 cannot avoid the third single:
- // the missing entitlement must be given back to p0.
- const preAward=full.awards.find(a=>a.cycle_date==='p0')!;
- const thirdAward=full.awards.find(a=>a.cycle_date==='p3')!;
- const canAvoidThird={...full,awards:full.awards.filter(a=>a!==preAward&&a!==thirdAward)};
- const avoidable=evaluate2027Candidate(canAvoidThird,[]);
- assert.equal(avoidable.completion.status,'possible');
- const stricter=canComplete2027(canAvoidThird,{strictPre:true});
- assert.equal(stricter.status,'possible','A fully valid completion respecting at most two pre-summer singles must exist');
- assert.ok(evaluate2027Final({...canAvoidThird,awards:[...canAvoidThird.awards,...stricter.witness!]},true).valid);
- assert.equal(avoidable.warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
- assert.equal(canAvoidThird.awards.filter(a=>a.cycle_date==='p0').length,0);
+test('the permitted cross-period transfer triggers a territorial warning, not an old PRE limit',()=>{
+ const {state,awards,source}=crossPeriodTeamA();
+ const final=evaluate2027Final({...state,awards});
+ assert.equal(final.valid,true);
+ assert.ok(final.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'));
+ assert.ok(final.warnings.some(w=>w.code==='SUMMER_REFERENCE') ||
+   final.warnings.every(w=>w.code!=='PRE_SINGLE_3'));
+ assert.ok(evaluate2027Final({...state,awards},true).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'));
+ const missing=awards.find(a=>a.cycle_date===source)!;
+ const partial={...state,awards:awards.filter(a=>a!==missing)};
+ const check=evaluate2027Candidate(partial,[]);
+ assert.equal(check.completion.status,'possible',check.completion.reason);
+ assert.ok(check.warnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'),JSON.stringify(check.warnings));
+ assert.ok(!check.warnings.some(w=>w.code.startsWith('PRE_SINGLE')));
 });
 
-test('warnings remain visible through calculate during a real-sized incomplete 2027 campaign',()=>{
- const team='A', config=defaultConfig(2027),dates=calendar(2027,team,config);
- const pre=dates.filter(c=>c.period===0).slice(0,3).map(c=>c.date);
- config.specialQuotas=Object.fromEntries(pre.map(d=>[d,1]));
- const members=Array.from({length:20},(_,i)=>({id:'m'+i,code:'CTA'+i,seniority:''}));
- const state=policyState2027(2027,team,config,members,[]);
- const complete=canComplete2027(state,{maxChecks:1000});
- assert.equal(complete.status,'possible',complete.reason);
- const full=complete.witness!.map((a,i)=>({...a,id:'a'+i}));
- assert.ok(evaluate2027Final({...state,awards:full}).warnings.some(w=>w.code==='PRE_SINGLE_3'));
- const summerDate=dates.find(c=>c.period===1)!.date;
- const remove=full.find(a=>a.cycle_date===summerDate)!;
- const partial=full.filter(a=>a!==remove);
- const view=calculate(2027,team,config,members,[],partial);
- assert.ok(view.policyWarnings.some(w=>w.code==='PRE_SINGLE_3'),JSON.stringify(view.policyWarnings));
- assert.ok(view.warnings.some(text=>/preverano/i.test(text)),'The partial warning text must remain visible');
+test('calculate keeps policy warnings visible to ordinary team members',()=>{
+ const {config,members,awards,source}=crossPeriodTeamA();
+ const removed=awards.find(a=>a.cycle_date===source)!;
+ const partial=awards.filter(a=>a!==removed).map((a,i)=>({...a,id:'a'+i}));
+ const view=calculate(2027,'A',config,members,[],partial);
+ assert.ok(view.policyWarnings.some(w=>w.code==='CROSS_PERIOD_FLEXIBILITY'),JSON.stringify(view.policyWarnings));
+ assert.ok(view.warnings.some(text=>/estricta|periodos/i.test(text)));
  assert.equal(view.issues.length,0,view.issues.join('; '));
 });
 
@@ -268,14 +305,14 @@ test('2027 election skips controllers with approved lower entitlement without ch
 });
 
 test('a completed 2027 allocation is decided immediately without a bounded search',()=>{
- const full=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
+ const full=completed([1,1,2,3,3,4],[2,2,2],[2,2,2]);
  assert.equal(evaluate2027Final(full).valid,true);
  const relaxed=canComplete2027(full,{maxChecks:0});
  assert.equal(relaxed.status,'possible');
  assert.equal(relaxed.checked,1);
  assert.deepEqual(relaxed.witness,[]);
  const strict=canComplete2027(full,{strictPre:true,maxChecks:0});
- assert.equal(strict.status,'impossible');
+ assert.equal(strict.status,'possible');
  assert.equal(strict.checked,1);
  const summer=full.awards.filter(a=>a.cycle_date.startsWith('s')).length;
  assert.equal(canComplete2027(full,{summerTotal:summer,maxChecks:0}).status,'possible');
