@@ -120,7 +120,13 @@ async function serve(request: Request) {
         if(path[0]==='simulations'&&path[1])return reply(b.action==='delete'?await service.deleteSimulation(path[1],b):await service.createSimulation(path[1],b));
         if(path[0]==='election'&&path[1]){
             const changed=await effectiveService.election().mutate(path[1],b);
-            const view=await effectiveService.view(path[1]);
+            // The dashboard immediately advances queued automatic turns; do not
+            // solve the full cycle table for their throwaway intermediate views.
+            const autoDrainEnabled=!['election_undo','election_redo','pause','link_account','resolve_tie']
+                .includes(b.action)&&!String(b.action).startsWith('reconstruction_');
+            const view=await effectiveService.view(path[1],{
+                skipAvailabilityForPendingAutomatic:autoDrainEnabled
+            });
             // The election is committed and its response prepared before any push work.
             if(changed?.changed && view.campaign.scope_key==='live'){
                 try{
