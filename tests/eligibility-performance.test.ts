@@ -99,7 +99,7 @@ test('unchanged relation capacity does not mask global quotas or explicit extra 
   assert.deepEqual(fast('X4',choices),reference(ctx,'X4',choices));
 });
 
-test('preverano 2027 B: 19 ciclos con tres plazas agotan los extracupos no estivales al incluir una cuarta plaza autorizada',()=>{
+test('preverano 2027 B: 19 terceros cupos gastan convenio; graciables separados conservan margen de otoño',()=>{
  const config=defaultConfig(2027);
  config.excludeLast=false;
  const dates=calendar(2027,'B',config);
@@ -128,6 +128,17 @@ test('preverano 2027 B: 19 ciclos con tres plazas agotan los extracupos no estiv
  assert.equal(result.totals.conventionSummer,8);
  assert.equal(result.cycles.filter(c=>c.period===0).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),20);
  assert.equal(result.cycles.filter(c=>c.period===1).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),5);
+ // The extra grace allocated to October cannot be spent on a second
+ // additional January seat when commonGrace is disabled.
+ const preConfig={...config,specialQuotas:{...config.specialQuotas,[dates[0].date]:4,[dates[2].date]:4}};
+ const preCtx={...ctx,config:preConfig};
+ assert.deepEqual(createChoiceChecker(preCtx)('P3',[dates[0].date]),[]);
+ const firstExtra:Award={id:'one-january-grace',member_id:'P3',cycle_date:dates[0].date};
+ const januaryGraceUsed={...preCtx,awards:[...awards,firstExtra]};
+ assert.deepEqual(calculate(2027,'B',preConfig,members,ctx.requests,januaryGraceUsed.awards).issues,[]);
+ const prematureSecond=createChoiceChecker(januaryGraceUsed)('P4',[dates[2].date]);
+ assert.ok(prematureSecond.some(issue=>issue.includes('extracupos de no verano')));
+ assert.deepEqual(prematureSecond,reference(januaryGraceUsed,'P4',[dates[2].date]));
  // Besides the 20 planned winter extra places, default config permits
  // 1+1 grace places. A third post-summer occupant may use those two places.
  const postDates=dates.filter(c=>c.period===2).map(c=>c.date);
