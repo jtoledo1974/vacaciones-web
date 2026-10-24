@@ -98,3 +98,49 @@ test('unchanged relation capacity does not mask global quotas or explicit extra 
  for(const choices of [[dates[0]],[dates[1]],[dates[1],dates[2]],[dates[0],dates[1]],[dates[2],dates[3]]])
   assert.deepEqual(fast('X4',choices),reference(ctx,'X4',choices));
 });
+
+test('preverano 2027 B: 19 ciclos con tres plazas agotan los extracupos no estivales al incluir una cuarta plaza autorizada',()=>{
+ const config=defaultConfig(2027);
+ config.excludeLast=false;
+ const dates=calendar(2027,'B',config);
+ assert.equal(dates.length,46);
+ assert.equal(dates[0].date,'2027-01-01');
+ assert.deepEqual([0,1,2].map(period=>dates.filter(c=>c.period===period).length),[19,16,11]);
+ // Three individual RRHH exceptions: one pre-summer and two in summer.
+ config.specialQuotas={[dates[1].date]:4,[dates[19].date]:4,[dates[20].date]:4};
+ // Pseudonymous transcription of 69 choices: 9 members have four cycles,
+ // the other 11 have three. No real controller names are stored in this test.
+ const assignments=[
+  [0,1,2],[3,4,5,2],[0,1,6],[7,8,9],[10,11,12],[13,14,15],
+  [16,17,18],[4,5,19],[3,1,2],[0,8,6],[7,11,9],[10,15,12],
+  [13,14,17],[16,19,18],[3,4,5],[0,1,2],[8,9,6],[7,11,12],
+  [13,10,15],[14,16,17,18],[3,4,5,19],[8,9,6]
+ ];
+ const members=Array.from({length:20},(_,i)=>({id:'P'+i,code:'P'+i,seniority:''}));
+ const awards:Award[]=assignments.flatMap((ids,index)=>ids.map((i,slot)=>({
+  id:'prior-'+index+'-'+slot,member_id:'P'+i,cycle_date:dates[index].date
+ })));
+ const ctx:ElectionContext={year:2027,team:'B',config,members,requests:[],awards};
+ assert.equal(awards.length,69);
+ const result=calculate(2027,'B',config,members,ctx.requests,awards);
+ assert.deepEqual(result.issues,[]);
+ assert.equal(result.totals.conventionWinter,20);
+ assert.equal(result.totals.conventionSummer,8);
+ assert.equal(result.cycles.filter(c=>c.period===0).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),20);
+ assert.equal(result.cycles.filter(c=>c.period===1).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),5);
+ const post=dates.find(c=>c.period===2)!.date;
+ const twoMore:Award[]=[
+  {id:'post-a',member_id:'P0',cycle_date:post},
+  {id:'post-b',member_id:'P1',cycle_date:post}
+ ];
+ const next={...ctx,awards:[...awards,...twoMore]};
+ const nextResult=calculate(2027,'B',config,members,ctx.requests,next.awards);
+ assert.deepEqual(nextResult.issues,[]);
+ // Post-summer still has 2 standard seats, but a third is illegal: the
+ // winter surplus is already spent before reaching the fourth round.
+ const issues=createChoiceChecker(next,nextResult)('P2',[post]);
+ assert.ok(issues.some(issue=>issue.includes('extracupos de no verano')));
+ assert.deepEqual(issues,reference(next,'P2',[post]));
+ // The summer sector retains three of its eight authorized extra seats.
+ assert.equal(8-result.cycles.filter(c=>c.period===1).reduce((n,c)=>n+Math.max(0,c.occupied-2),0),3);
+});
