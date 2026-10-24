@@ -1,6 +1,6 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
-import {policyState2027} from './election-2027.ts';
+import {policyState2027,cyclesEntitlement2027} from './election-2027.ts';
 import {OCCUPANCY_POLICY_2027,evaluate2027Final,evaluate2027Candidate} from './policy-2027.ts';
 import {hr2027FourthExcluded} from './hr-2027.ts';
 export type Member = {
@@ -24,7 +24,13 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
     const byDate = new Map(cycles.map(s => [s.date, s]));
     const counts = [0, 0, 0];
     cycles.forEach(s => counts[s.period]++);
-    const necessary = [members.length * (c.cyclesPerPerson - c.summerPerPerson), members.length * c.summerPerPerson];
+    const totalEntitlements=y===2027
+        ?members.reduce((total,m)=>total+cyclesEntitlement2027(c,m),0)
+        :members.length*c.cyclesPerPerson;
+    const summerPlanning=y===2027
+        ?members.reduce((total,m)=>total+Math.min(c.summerPerPerson,cyclesEntitlement2027(c,m)),0)
+        :members.length*c.summerPerPerson;
+    const necessary = [totalEntitlements - summerPlanning,summerPlanning];
     const conventionSummer = Math.max(0, necessary[1] - counts[1] * c.base[1]);
     const conventionWinter = Math.max(0, necessary[0] - counts[0] * c.base[0] - counts[2] * c.base[2]);
     const convention = [c.commonConvention ? conventionWinter : Math.min(conventionWinter, c.conventionJanuary), conventionSummer, c.commonConvention ? conventionWinter : Math.max(0, conventionWinter - c.conventionJanuary)];
@@ -43,7 +49,7 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
             warnings.push(`${m.code}: más ciclos de verano que el objetivo de planificación`);
     }
     const baseTotal = counts.reduce((n, count, i) => n + count * c.base[i], 0);
-    const neededTotal = members.length * c.cyclesPerPerson;
+    const neededTotal = totalEntitlements;
     const graceWinter = c.grace[0] + c.grace[2];
     if (summerExtra > conventionSummer + c.grace[1])
         issues.push('Se han agotado los extracupos de verano');
@@ -63,7 +69,7 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
             issues.push('Adjudicación fuera de campaña');
     if(y===2027){
         const state=policyState2027(y,team,c,members,awards);
-        const complete=members.every(m=>awards.filter(a=>a.member_id===m.id).length===c.cyclesPerPerson);
+        const complete=members.every(m=>awards.filter(a=>a.member_id===m.id).length===cyclesEntitlement2027(c,m));
         const final=complete?evaluate2027Final(state):null;
         const year2027Issues:string[]=[];
         // Partial states are not invalid merely because cycles lack their FINAL minimum.
@@ -77,7 +83,7 @@ export function calculate(y: number, team: string, c: Config, members: Member[],
             if(keys.has(key)) year2027Issues.push('Un controlador no puede repetir un ciclo');
             keys.add(key);
         }
-        for(const m of members)if(awards.filter(a=>a.member_id===m.id).length>c.cyclesPerPerson)
+        for(const m of members)if(awards.filter(a=>a.member_id===m.id).length>cyclesEntitlement2027(c,m))
             year2027Issues.push(m.code+': supera sus ciclos anuales');
         const detailed=cycles.map(s=>{
             const occupied=awards.filter(a=>a.cycle_date===s.date).length;
