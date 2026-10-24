@@ -133,17 +133,22 @@ test('2027 administrative undo and redo restore saved awards without any expensi
   source:{format:'vacaciones-roster-v1',year:2027,team:'A',copySelections:false,
    rows:codes.map(code=>({code,label:'Controlador '+code,seniority:''}))}});
  const date=d.result.cycles[0].date,memberId=d.members[0].id;
+ const beforeAvailability=d.election.cycleAvailability;
  d=await service.mutate(cid,{action:'award',version:d.campaign.version,memberId,date});
+ const afterAvailability=d.election.cycleAvailability;
  assert.equal(d.awards.length,1);
  assert.ok(d.undo?.id);
  d=await service.mutate(cid,{action:'undo_vacations',version:d.campaign.version,undoId:d.undo.id});
  assert.equal(d.awards.length,0);
  assert.equal(d.election.cycleAvailability.checked,0);
- assert.equal(d.election.cycleAvailability.status,'indeterminate');
+ assert.deepEqual(d.election.cycleAvailability.cycles,beforeAvailability.cycles,
+  'admin undo recovers the exact previously certified per-cycle values');
  assert.ok(d.redo?.id);
  d=await service.mutate(cid,{action:'redo_vacations',version:d.campaign.version,undoId:d.redo.id});
  assert.equal(d.awards.length,1);
  assert.equal(d.election.cycleAvailability.checked,0);
+ assert.deepEqual(d.election.cycleAvailability.cycles,afterAvailability.cycles,
+  'admin redo recovers the exact previously certified per-cycle values');
  assert.equal(d.awards[0].cycle_date,date);
 });
 
