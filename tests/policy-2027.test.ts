@@ -6,7 +6,7 @@ import {calculate} from '../domain/vacations.ts';
 import {policyState2027,cyclesEntitlement2027} from '../domain/election-2027.ts';
 import {currentTurn,type ElectionState} from '../domain/election.ts';
 import {HR_2027, hr2027Period, hr2027FourthExcluded} from '../domain/hr-2027.ts';
-import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,immediate2027Issues,type PolicyState} from '../domain/policy-2027.ts';
+import {OCCUPANCY_POLICY_2027,canComplete2027,evaluate2027Candidate,evaluate2027Final,immediate2027Issues,transplant2027Witness,type PolicyState} from '../domain/policy-2027.ts';
 
 test('2027 RRHH calendar: every team has exact cycle count and boundary',()=>{
   for(const team of 'ABCDEFGH'){
@@ -282,4 +282,29 @@ test('a completed 2027 allocation is decided immediately without a bounded searc
  assert.equal(canComplete2027(full,{summerTotal:summer+1,maxChecks:0}).status,'impossible');
  const broken={...full,awards:full.awards.slice(0,-1)};
  assert.notEqual(canComplete2027(broken,{maxChecks:0}).status,'possible');
+});
+
+test('a sound two-person swap reuses a completed 2027 witness without any search',()=>{
+ const full=completed([2,2,2],[2,2,2],[2,2,2]);
+ assert.equal(evaluate2027Final(full).valid,true);
+ const first={member_id:'m0',cycle_date:'p0'},second={member_id:'m2',cycle_date:'p1'};
+ const original=(a:{member_id:string;cycle_date:string})=>a.member_id===first.member_id&&a.cycle_date===first.cycle_date
+  ||a.member_id===second.member_id&&a.cycle_date===second.cycle_date;
+ const partial:PolicyState={...full,awards:full.awards.filter(a=>!original(a))};
+ const witness=full.awards.filter(original);
+ assert.equal(canComplete2027(partial).status,'possible');
+ const choice={member_id:'m0',cycle_date:'p1'};
+ const result=evaluate2027Candidate(partial,[choice],0,witness);
+ assert.equal(result.allowed,true);
+ assert.equal(result.completion.checked,0,'Reusing a verified swap must avoid running the solver');
+ assert.deepEqual(result.completion.witness,[{member_id:'m2',cycle_date:'p0'}]);
+ const final={...partial,awards:[...partial.awards,choice,...result.completion.witness!]};
+ assert.equal(evaluate2027Final(final).valid,true);
+ const direct=evaluate2027Candidate(partial,[first],0,witness);
+ assert.equal(direct.allowed,true);
+ assert.equal(direct.completion.checked,0);
+ const unsafe=[{member_id:'m1',cycle_date:'p1'}];
+ assert.equal(transplant2027Witness(partial,choice,unsafe),null,'Forged proofs must not be accepted');
+ const already={...partial,awards:[...partial.awards,choice]};
+ assert.equal(transplant2027Witness(already,choice,witness),null,'Cannot award an already confirmed cycle');
 });
