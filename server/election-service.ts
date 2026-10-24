@@ -178,7 +178,24 @@ export class ElectionService{
    }else{
    const baseline=canComplete2027(allocation,{maxChecks:2000});
    let remainingChecks=256;
+   // The empty campaign is invariant under controller permutations: each
+   // final cycle must have an occupant, so every CTA can choose every cycle.
+   // After one choice, relabel any other witness occupant to the next CTA;
+   // the sole existing assignment is untouched and the histogram identical.
+   const first=allocation.awards.length===1?allocation.awards[0]:null;
+   const sameRights=allocation.members.length>0&&
+    allocation.members[0].entitlement>0&&
+    allocation.members.every(m=>m.entitlement===allocation.members[0].entitlement);
+   const symmetric=baseline.status==='possible'&&sameRights&&
+    (allocation.awards.length===0||
+     !!first&&first.member_id!==focus&&!allocation.awards.some(a=>a.member_id===focus));
+   const proofDates=new Set((baseline.witness??[])
+    .filter(a=>!first||a.member_id!==first.member_id).map(a=>a.cycle_date));
    for(const cycle of result.cycles){
+    if(symmetric&&(!first||proofDates.has(cycle.date))){
+     available.push(cycle.date);
+     continue;
+    }
     const budget=Math.min(32,remainingChecks);
     const diagnostic=evaluate2027Candidate(allocation,
       [{member_id:focus,cycle_date:cycle.date}],budget,baseline.witness,false);

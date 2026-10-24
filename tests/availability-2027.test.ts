@@ -200,3 +200,68 @@ test('full PRE third occupancy still proves summer third places with one shared 
   'ordinary circulation proves a third summer occupant without exceptional search');
  assert.equal(snapshot.cycles.s0.slots[2].status,'available');
 });
+
+test('first award only consumes its own slot: symmetric controllers cannot close other cycles',()=>{
+ const cycles=[
+  ...Array.from({length:17},(_,i)=>({date:'p'+i,period:0 as const})),
+  ...Array.from({length:13},(_,i)=>({date:'s'+i,period:1 as const})),
+  ...Array.from({length:15},(_,i)=>({date:'o'+i,period:2 as const}))
+ ];
+ const members=Array.from({length:20},(_,i)=>({id:'m'+i,entitlement:6}));
+ const before:PolicyState={cycles,members,awards:[]};
+ const selected:PolicyAward={member_id:'m7',cycle_date:'s3'};
+ const after:PolicyState={...before,awards:[selected]};
+ const impact=availabilityImpact(before,after,{maxChecks:500,useCache:false});
+ assert.notEqual(impact.status,'invalid');
+ assert.equal(impact.after.checked,0,
+  'the complete after-snapshot must be derived without a second solver run');
+ assert.equal(impact.changes.length,1);
+ assert.equal(impact.changes[0].cycle,selected.cycle_date);
+ assert.equal(impact.changes[0].kind,'directOccupancy');
+ assert.deepEqual(impact.events,[]);
+ assert.equal(impact.after.cycles.s3.occupied,1);
+ assert.equal(impact.after.cycles.s3.slots[0].memberId,'m7');
+ for(const cycle of cycles.filter(c=>c.date!=='s3'))
+  assert.deepEqual(impact.after.cycles[cycle.date],impact.before.cycles[cycle.date],
+   'no other cycle can lose or gain final occupancy from the first choice');
+ const chosenBefore=impact.before.cycles.s3,chosenAfter=impact.after.cycles.s3;
+ assert.equal(chosenBefore.provenAdditional-chosenAfter.provenAdditional,1);
+ assert.equal(chosenBefore.possibleAdditionalUpperBound-chosenAfter.possibleAdditionalUpperBound,1);
+});
+
+test('first-choice proof is reused by subsequent reads and does not invent exactness',()=>{
+ const cycles=[
+  ...Array.from({length:4},(_,i)=>({date:'p'+i,period:0 as const})),
+  ...Array.from({length:3},(_,i)=>({date:'s'+i,period:1 as const})),
+  ...Array.from({length:3},(_,i)=>({date:'o'+i,period:2 as const}))
+ ];
+ const members=Array.from({length:5},(_,i)=>({id:'m'+i,entitlement:6}));
+ const before:PolicyState={cycles,members,awards:[]};
+ const after={...before,awards:[{member_id:'m3',cycle_date:'p1'}]};
+ const report=availabilityImpact(before,after,{maxChecks:500,useCache:true});
+ assert.equal(report.after.checked,0);
+ const cached=availabilityByCycle(after,{maxChecks:500});
+ assert.deepEqual(cached,report.after,'first-choice snapshot must be cached for the subsequent UI read');
+ const independent=availabilityByCycle(after,{maxChecks:10000,useCache:false});
+ assert.equal(independent.status,'exact');
+ for(const cycle of cycles){
+  const predicted=report.after.cycles[cycle.date],actual=independent.cycles[cycle.date];
+  assert.ok(predicted.provenAdditional<=actual.additional!);
+  assert.ok(predicted.possibleAdditionalUpperBound>=actual.additional!);
+ }
+});
+
+test('nonuniform entitlements do not invoke the controller-permutation shortcut',()=>{
+ const cycles=[
+  ...Array.from({length:4},(_,i)=>({date:'p'+i,period:0 as const})),
+  ...Array.from({length:3},(_,i)=>({date:'s'+i,period:1 as const})),
+  ...Array.from({length:3},(_,i)=>({date:'o'+i,period:2 as const}))
+ ];
+ const members=Array.from({length:5},(_,i)=>({id:'m'+i,entitlement:i===0?5:6}));
+ // A legitimate individual exception invalidates the relabeling proof.
+ const before:PolicyState={cycles,members,awards:[]};
+ const after={...before,awards:[{member_id:'m0',cycle_date:'p0'}]};
+ const impact=availabilityImpact(before,after,{maxChecks:100,useCache:false});
+ const fresh=availabilityByCycle(after,{maxChecks:100,useCache:false});
+ assert.deepEqual(impact.after,fresh);
+});
