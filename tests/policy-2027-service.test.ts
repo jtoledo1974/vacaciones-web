@@ -151,6 +151,7 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
  const initial=completion.witness!;
  const count=(list:typeof initial,date:string)=>list.filter(a=>a.cycle_date===date);
  const candidates=[initial];
+ let shifted:typeof initial|null=null;
  if(!policy.cycles.some(c=>c.period===1&&count(initial,c.date).length===3)){
   for(const post of policy.cycles.filter(c=>c.period===2&&count(initial,c.date).length===3)){
    for(const summer of policy.cycles.filter(c=>c.period===1&&count(initial,c.date).length===2)){
