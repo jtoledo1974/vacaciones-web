@@ -1,4 +1,4 @@
-import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,createChoiceChecker,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
@@ -50,15 +50,18 @@ export class ElectionService{
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
-  if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
-  return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
+  const baseline=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
+  const check=createChoiceChecker(ctx,baseline);
+  if(selected.length>=turn.needed||check(turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
+  return {version:d.campaign.version,available:baseline.cycles.filter(cycle=>!check(turn.memberId!,[...selected,cycle.date]).length).map(cycle=>cycle.date)};
  }
  async view(d:any){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
   const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
-  const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
+  const check=focus?createChoiceChecker(ctx,result):null;
+  const available=check&&focus?result.cycles.filter(c=>!check(focus,[c.date]).length).map(c=>c.date):[];
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid):null;
   const reconstruction=await this.reconstruction().view(d,raw);
