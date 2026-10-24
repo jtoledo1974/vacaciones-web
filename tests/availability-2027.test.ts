@@ -257,10 +257,8 @@ test('nonuniform entitlements do not invoke the controller-permutation shortcut'
   ...Array.from({length:3},(_,i)=>({date:'s'+i,period:1 as const})),
   ...Array.from({length:3},(_,i)=>({date:'o'+i,period:2 as const}))
  ];
- const members=Array.from({length:5},(_,i)=>({id:'m'+i,entitlement:i===0?5:i===1?7:6}));
- // This test concerns the guard, not an authorized individual 2027 rights
- // configuration; the equivalent sum of rights deliberately conceals the
- // asymmetric assignment constraints from a capacity-only shortcut.
+ const members=Array.from({length:5},(_,i)=>({id:'m'+i,entitlement:i===0?5:6}));
+ // A legitimate individual exception invalidates the relabeling proof.
  const before:PolicyState={cycles,members,awards:[]};
  const after={...before,awards:[{member_id:'m0',cycle_date:'p0'}]};
  const impact=availabilityImpact(before,after,{maxChecks:100,useCache:false});
