@@ -85,7 +85,7 @@ export class ElectionService{
    const reasons:Record<string,unknown>={},warnings:Record<string,unknown>={},available:string[]=[];
    for(const date of resultDates(ctx)){
     const candidate=evaluate2027Candidate(partialState,
-      [{member_id:turn.memberId!,cycle_date:date}],2000,chosen.completion.witness);
+      [{member_id:turn.memberId!,cycle_date:date}],2000,chosen.completion.witness,false);
     if(candidate.allowed){available.push(date);if(candidate.warnings.length)warnings[date]=candidate.warnings;}
     else reasons[date]=candidate.issues;
    }
@@ -139,6 +139,9 @@ export class ElectionService{
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
   const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
+  // Per-cell availability never enumerates optional strict-territorial or
+  // informative summer-warning alternatives. Only the actual selected batch
+  // needs their exhaustive review at preflight and commit.
   // A single source of truth per snapshot. Previous code evaluated rejected
   // 2027 choices twice and reconstructed the full HR calendar for every date.
   const availabilityReasons:Record<string,string>={};
@@ -149,7 +152,7 @@ export class ElectionService{
    const baseline=canComplete2027(allocation,{maxChecks:2000});
    for(const cycle of result.cycles){
     const diagnostic=evaluate2027Candidate(allocation,
-      [{member_id:focus,cycle_date:cycle.date}],2000,baseline.witness);
+      [{member_id:focus,cycle_date:cycle.date}],2000,baseline.witness,false);
     if(diagnostic.allowed){
      available.push(cycle.date);
      if(diagnostic.warnings.length)availabilityWarnings[cycle.date]=diagnostic.warnings;
