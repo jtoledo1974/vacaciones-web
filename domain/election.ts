@@ -265,7 +265,7 @@ export function defer(ctx:ElectionContext,input:ElectionState,memberId:string){
  turn.state.credits[memberId]=credits+1;turn.state.cursor++;
  return currentTurn(ctx,turn.state).state;
 }
-export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferences:Preference[]){
+export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferences:Preference[],checkChoices?:ReturnType<typeof createChoiceChecker>){
  if(state.automaticPaused)return null;
  const turn=currentTurn(ctx,state);
  if(turn.participants.length!==1||!turn.memberId)return null;
@@ -275,7 +275,7 @@ export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferen
  const needed=turn.needed;
  // Reuse one snapshot for all preference candidates instead of recalculating
  // the calendar and every award on each backtracking branch.
- const check=createChoiceChecker(ctx);
+ const check=checkChoices??createChoiceChecker(ctx);
  // Explicit bounded backtracking avoids accepting a pair/triple that breaks joint quota accounting.
  let budget=3000;
  const search=(at:number,selected:string[]):string[]|null=>{
