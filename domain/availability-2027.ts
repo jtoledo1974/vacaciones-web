@@ -270,6 +270,11 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
  for(const award of baseline.witness??[])witnessCounts.set(award.cycle_date,(witnessCounts.get(award.cycle_date)??0)+1);
  const four=[0,0,0];
  for(const c of state.cycles)if((fixed.get(c.date)?.length??0)===4)four[c.period]++;
+ const assignedByMember=new Map<string,number>();
+ for(const award of state.awards)
+  assignedByMember.set(award.member_id,(assignedByMember.get(award.member_id)??0)+1);
+ const outstandingRights=state.members.reduce((sum,member)=>
+  sum+Math.max(0,member.entitlement-(assignedByMember.get(member.id)??0)),0);
  let checked=baseline.checked;
  const cycles:Record<string,CycleAvailability>={};
  for(let index=0;index<state.cycles.length;index++){
@@ -285,7 +290,7 @@ export function availabilityByCycle(state:PolicyState,options:AvailabilityOption
     if(position===4&&four[c.period]>=periodLimit(c.period)&&occupied<4){
      upper=Math.min(upper,k-1);continue;
     }
-    if(k>state.members.reduce((sum,m)=>sum+Math.max(0,m.entitlement-state.awards.filter(a=>a.member_id===m.id).length),0)){
+    if(k>outstandingRights){
      upper=Math.min(upper,k-1);continue;
     }
     // A concrete valid final allocation is a proof, with zero
