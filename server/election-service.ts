@@ -1,7 +1,8 @@
 import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,entitlementFor,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {canComplete2027,evaluate2027Candidate,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
+import {canComplete2027,evaluate2027Candidate,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
+import {availabilityByCycle,availabilityImpact,previewChoiceImpact} from '../domain/availability-2027.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
@@ -94,6 +95,35 @@ export class ElectionService{
   if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
   return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
  }
+ /**
+  * Non-mutating preflight for the complete atomic choice at the current turn.
+  * Preview and confirmation derive their results from the same domain evaluator;
+  * the client must supply the campaign version for optimistic concurrency.
+  */
+ async previewImpact(cid:string,choices:PolicyAward[],version:number){
+  const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
+  if(d.campaign.year!==2027)throw new ApiError('El informe de impacto está disponible para la política 2027',400);
+  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
+  if(d.campaign.version!==version)throw new ApiError('La campaña cambió. Recarga antes de confirmar.',409);
+  if(d.campaign.status!=='open'||!raw.state)throw new ApiError('La elección no está activa',409);
+  const reconstruction=await this.reconstruction().read(cid);
+  if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('La elección está congelada durante la reconstrucción',409);
+  const contextState=context(d),turn=currentTurn(contextState,raw.state);
+  const manage=canWrite(this.actor,d.campaign.team_id);
+  if(!Array.isArray(choices)||choices.length===0||choices.length>6||
+   choices.some(a=>typeof a?.member_id!=='string'||typeof a?.cycle_date!=='string')||
+   new Set(choices.map(a=>a.member_id+'|'+a.cycle_date)).size!==choices.length)
+   throw new ApiError('Combinación de adjudicaciones no válida',400);
+  if(turn.participants.length>1){
+   if(!manage||turn.participants.some(id=>choices.filter(a=>a.member_id===id).length!==turn.requiredByMember[id])||
+    choices.some(a=>!turn.participants.includes(a.member_id)))
+    throw new ApiError('El turno conjunto debe previsualizarse como una sola operación y con todos sus participantes',403);
+  }else if(!turn.memberId||(!manage&&turn.memberId!==mine)||
+   choices.length!==turn.needed||choices.some(a=>a.member_id!==turn.memberId))
+   throw new ApiError('La previsualización no corresponde al turno completo',403);
+  const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
+  return {version,policyVersion:OCCUPANCY_POLICY_2027,...previewChoiceImpact(allocation,choices)};
+ }
  async view(d:any){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
@@ -128,8 +158,9 @@ export class ElectionService{
    timeline=buildElectionTimeline(rows as any,ctx,raw.state);
   }
 
+  const cycleAvailability=ctx.year===2027?availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards)):null;
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityReasons,availabilityWarnings,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
@@ -265,7 +296,20 @@ export class ElectionService{
    used.add(slot);newRequests.push([crypto.randomUUID(),cid,a.member_id,slot,a.cycle_date,1]);
   }
   ops.push(...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
-  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
+  // Snapshot the causal impact BEFORE committing the atomic batch. Undo/redo
+  // retain the original immutable report in audit but the timeline replays only
+  // currently effective decisions. An indeterminate solver proof stays explicit.
+  const impact=ctx.year===2027&&choices.length
+   ?availabilityImpact(
+      policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),
+      policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,[...ctx.awards,...choices])
+    ):null;
+  const auditImpact=impact?{
+   policyVersion:impact.policyVersion, status:impact.status,
+   campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
+   changes:impact.changes,events:impact.events
+  }:null;
+  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{impact:auditImpact,version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
   await this.host.commit(ops);return {changed:true};
  }
 }
