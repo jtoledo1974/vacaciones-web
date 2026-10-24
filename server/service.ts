@@ -99,6 +99,8 @@ export class Service {
         try{metadata=JSON.parse(latest.after_json);}catch{return {restored:false};}
         if(metadata?.version!==version)return {restored:false};
         const restored={restored:true};
+        if((latest.action==='reconstruction_back'||latest.action==='reconstruction_cancel')&&metadata.recordedAvailability)
+          return {restored:true,recordedAvailability:metadata.recordedAvailability};
         const undo=latest.action==='election_undo'||latest.action==='undo_vacations';
         const redo=latest.action==='election_redo'||latest.action==='redo_vacations';
         if(!undo&&!redo)return restored;
