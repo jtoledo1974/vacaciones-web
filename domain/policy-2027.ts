@@ -384,6 +384,20 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
     if(state.awards.filter(a=>dates.has(a.cycle_date)).length>3*dates.size)
       return {status:'impossible',checked:0,reason:'La ocupación fija supera la capacidad ordinaria del periodo'};
   }
+  // Every single is offset by an extra inside its period, so each period
+  // finishes with between 2 and 3 places per cycle. With the HR summer total
+  // this bounds what preverano and postverano can still absorb.
+  {
+    const lo=[0,0,0],hi=[0,0,0];
+    for(const p of [0,1,2]){
+      const dates=new Set(state.cycles.filter(c=>c.period===p).map(c=>c.date));
+      lo[p]=Math.max(2*dates.size,state.awards.filter(a=>dates.has(a.cycle_date)).length);hi[p]=3*dates.size;
+    }
+    const total=state.members.reduce((s,m)=>s+m.entitlement,0),summer=opts.summerTotal;
+    const fits=summer===undefined?total>=lo[0]+lo[1]+lo[2]&&total<=hi[0]+hi[1]+hi[2]
+      :summer>=lo[1]&&summer<=hi[1]&&total-summer>=lo[0]+lo[2]&&total-summer<=hi[0]+hi[2];
+    if(!fits)return {status:'impossible',checked:0,reason:'Preverano y postverano no pueden repartir las vacaciones que les corresponden'};
+  }
   // A fully allocated campaign needs no combinatorial scenario search.
   // This is also important for publication and review: a timeout must never
   // turn a valid finished allocation into an indeterminate one.
@@ -436,6 +450,28 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
   if(forcedFour.some((x,p)=>x.length>maxFour[p])||forcedSingle.some((x,p)=>x.length>maxSingle[p]))return {status:'impossible',checked:0,reason:'Límite de cuartas o plazas individuales excedido'};
   // Deterministic preference: no optional concentration until it is necessary.
   let checked=0,exhausted=false;
+  // Period totals already implied by the decided periods: a cheap cut that
+  // keeps the budget for scenarios that can still meet the summer total.
+  const periodTotal=slots.map(s=>s.length);
+  const totalRight=state.members.reduce((n,m)=>n+m.entitlement,0);
+  const totalsFit=(decided:number,scenario:Scenario):boolean=>{
+    const lo=[0,0,0],hi=[0,0,0];
+    for(let q=0;q<3;q++){
+      if(q>decided){
+        const fixed=slots[q].reduce((n,i)=>n+counts.get(state.cycles[i].date)!,0);
+        lo[q]=Math.max(2*periodTotal[q],fixed);hi[q]=3*periodTotal[q];continue;
+      }
+      for(const i of slots[q]){
+        const c=state.cycles[i],n=counts.get(c.date)!,cap=Math.min(c.maximum??4,c.fourthExcluded?3:4);
+        if(scenario.single.has(i)){lo[q]+=1;hi[q]+=1;}
+        else if(scenario.fourth.has(i)){lo[q]+=4;hi[q]+=4;}
+        else{lo[q]+=Math.max(2,n);hi[q]+=Math.min(3,cap);}
+      }
+    }
+    const summer=opts.summerTotal;
+    return summer===undefined?totalRight>=lo[0]+lo[1]+lo[2]&&totalRight<=hi[0]+hi[1]+hi[2]
+      :summer>=lo[1]&&summer<=hi[1]&&totalRight-summer>=lo[0]+lo[2]&&totalRight-summer<=hi[0]+hi[2];
+  };
   const choose=(p:number,scenario:Scenario):PolicyAward[]|null=>{
     if(exhausted)return null;
     if(p===3){
@@ -461,6 +497,7 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
         // PRE and POST can use their EC3 and EC4 together.
         for(const singles of combinations(candidates,n)){
           const next:Scenario={single:new Set([...scenario.single,...forcedSingle[p],...singles]),fourth:new Set([...scenario.fourth,...fourth])};
+          if(!totalsFit(p,next))continue;
           const result=choose(p+1,next);if(result)return result;
           if(exhausted)return null;
         }

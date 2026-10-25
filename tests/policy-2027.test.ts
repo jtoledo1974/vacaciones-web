@@ -434,3 +434,15 @@ test('policyState2027 carries the HR summer total: two per CTA',()=>{
  const state=policyState2027(2027,'A',defaultConfig(2027),members,[]);
  assert.equal(state.summerTotal,6);
 });
+
+test('team C, 20 CTA: preverano may end at 56 but not 57, decided without exhausting the search',()=>{
+ const members=Array.from({length:20},(_,i)=>({id:'m'+i,code:'C'+i}) as any);
+ const pre=policyState2027(2027,'C',defaultConfig(2027),members,[]).cycles.filter(c=>c.period===0).map(c=>c.date);
+ const awards:{member_id:string;cycle_date:string}[]=[];let k=0;
+ pre.forEach((date,i)=>{for(let n=0;n<(i===0?4:i===pre.length-1?0:3);n++)awards.push({member_id:'m'+(k++%20),cycle_date:date});});
+ const last=pre.at(-1)!,state=policyState2027(2027,'C',defaultConfig(2027),members,awards);
+ const one=evaluate2027Candidate(state,[{member_id:'m'+(k%20),cycle_date:last}],2000,undefined,false,{exact:true});
+ assert.equal(one.allowed,true,JSON.stringify(one.completion));
+ const two=evaluate2027Candidate(state,[{member_id:'m'+(k%20),cycle_date:last},{member_id:'m'+((k+1)%20),cycle_date:last}],2000,undefined,false,{exact:true});
+ assert.equal(two.completion.status,'impossible');
+});

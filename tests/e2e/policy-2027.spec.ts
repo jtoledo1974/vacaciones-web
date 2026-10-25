@@ -102,10 +102,11 @@ test('2027: agotar la cuarta de preverano se destaca en el historial y explica e
  expect(await rejected.text()).toContain('El preverano ya tiene su ciclo con cuatro');
 });
 
-test('2027: el origen territorial es obligatorio y no puede aceptarse como aviso',async({page,request})=>{
+test('2027: los periodos son estancos y el verano fija lo que corresponde al resto del año',async({page,request})=>{
  const {id,data}=await setup2027(request,page);
  const pre=preCycles(data),last=pre[pre.length-1];
- const target=new Map(pre.map((date:string,i:number)=>[date,i===0?4:i===pre.length-1?2:3]));
+ // 20 CTA in C: 80 outside summer; postverano needs 24, so preverano ends at 56 at most.
+ const target=new Map(pre.map((date:string,i:number)=>[date,i===0?4:i===pre.length-1?1:3]));
  let d=data;
  for(let step=0;step<120;step++){
   const member=d.election.turn.memberId;
@@ -121,7 +122,7 @@ test('2027: el origen territorial es obligatorio y no puede aceptarse como aviso
  }});
  expect(rejected.ok()).toBeFalsy();
  expect((await read(request,id)).awards.length).toBe(before);
- expect((await read(request,id)).awards.filter((a:any)=>a.cycle_date===last).length).toBe(2);
+ expect((await read(request,id)).awards.filter((a:any)=>a.cycle_date===last).length).toBe(1);
  await open(page,id);
  await page.locator('button[data-cycle-date="'+last+'"]').first().click();
  await expect(page.getByRole('dialog',{name:'Confirmar adjudicación'})).toHaveCount(0);
