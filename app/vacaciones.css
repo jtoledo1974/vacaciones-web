@@ -863,3 +863,11 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 @media (prefers-reduced-motion:reduce){.content>.alert.success,.content>.alert.error{animation:none}}
 /* With a cycle card open at the bottom, a sticky month row at the top would leave no room for the calendar. */
 .has-active-detail .vac2-month-jump{position:static}
+/* #65 bloqueos visibles y «Deshacer» al alcance de la mano. */
+.election-blocker{align-items:center;flex-wrap:wrap;font-size:14px}
+.election-blocker .secondary{min-height:44px;font-size:14px;flex:none}
+.undo-snackbar{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:210;display:flex;align-items:center;gap:16px;width:min(480px,calc(100% - 24px));padding:8px 8px 8px 16px;border-radius:10px;background:#1d3331;color:#fff;font-size:14px;box-shadow:0 10px 30px #0f2a2240;pointer-events:none}
+.undo-snackbar span{flex:1}
+.undo-snackbar button{pointer-events:auto;min-height:44px;padding:0 16px;border:0;border-radius:8px;background:transparent;color:#9fe3c8;font-size:14px;font-weight:800;letter-spacing:.3px;text-transform:uppercase}
+.undo-snackbar button:hover{background:#ffffff1a}
+@media(min-width:851px){.undo-snackbar{left:calc(50% + 117px)}}

@@ -133,6 +133,20 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const [jointOpen,setJointOpen]=useState(false),[jointMembers,setJointMembers]=useState<string[]>([]),[jointRound,setJointRound]=useState(0);
 
  const [tieDialogOpen,setTieDialogOpen]=useState(false);
+ // Offer «Deshacer» right where the manager is, for a few seconds after each new undoable change
+ // (not on first load): on a phone the history's button sits below the whole calendar.
+ const undoKey=String(election.undo??data.undo?.id??'');
+ // Only changes never seen on this screen: after an undo the previous, already seen step is not offered again.
+ const seenUndo=useRef<Set<string>|null>(null);
+ const [undoOffer,setUndoOffer]=useState<string|null>(null);
+ useEffect(()=>{
+  if(seenUndo.current===null){seenUndo.current=new Set(undoKey?[undoKey]:[]);return;}
+  if(!undoKey){setUndoOffer(null);return;}
+  if(!seenUndo.current.has(undoKey)&&manage)setUndoOffer(undoKey);
+  else setUndoOffer(null);
+  seenUndo.current.add(undoKey);
+ },[undoKey,manage]);
+ useEffect(()=>{if(!undoOffer)return;const timer=setTimeout(()=>setUndoOffer(null),10000);return ()=>clearTimeout(timer);},[undoOffer]);
  const pendingGroups:string[][]=state?.pendingTieGroups??[];
  useEffect(()=>{if(frozen||!manage||!open||!pendingGroups.length)setTieDialogOpen(false);},[frozen,manage,open,pendingGroups.length]);
 
@@ -332,6 +346,13 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  </details>;
  const me=!manage?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,state,turn}):null;
  const canChooseHere=canChoose;
+ const canUndo=!!(election.undo||data.undo)&&open;
+ async function undoLast(){
+  setUndoOffer(null);
+  if((!simulation||!quickMode)&&!await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))return;
+  if(data.undo)await legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho');
+  else await act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');
+ }
  // Outside one's turn the cycle card offers to edit one's own list instead of a dead end.
  const ownPreferences=!manage&&!!mine&&canPreferences&&preferenceMemberIds.includes(mine)&&memberId===mine;
  const plainAvailability=(cycle:any)=>{
@@ -393,6 +414,14 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     </div></details>}
    </div>
   </section>}
+  {manage&&open&&!frozen&&state?.status==='active'&&pendingGroups.length>0&&!turn?.pendingTie&&<div className="alert warning election-blocker" role="status">
+   <span><strong>{pendingGroups.length===1?'1 empate pendiente de sorteo.':pendingGroups.length+' empates pendientes de sorteo.'}</strong> La elección se detendrá al llegar {pendingGroups.length===1?'a él':'al primero'} si no se sortea antes.</span>
+   <button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={()=>setTieDialogOpen(true)}>Sortear ahora</button>
+  </div>}
+  {undoOffer&&canUndo&&!frozen&&<div className="undo-snackbar" role="status">
+   <span>Cambio registrado.</span>
+   <button type="button" disabled={busy} onClick={()=>void undoLast()}>Deshacer</button>
+  </div>}
   {tieDialogOpen&&manage&&open&&!frozen&&pendingGroups.length>0&&<PendingTieDialog data={data} busy={busy} act={act} onClose={()=>setTieDialogOpen(false)}/>}
   {jointOpen&&!frozen&&manage&&state?.status==='active'&&<section className="panel" aria-label="Gestionar turnos conjuntos">
     <div className="section-head"><h2>Turnos conjuntos (excepcional)</h2><button type="button" className="secondary" onClick={()=>setJointOpen(false)}>Cerrar</button></div>
@@ -494,11 +523,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {(manage||(election.timeline??[]).length>0)&&<section className="panel election-history-panel" aria-label="Historial de elección">
      <div className="election-history-head"><h2>{manage?'Últimos turnos y adjudicaciones':'Historial de la elección'}</h2>
       <div className="election-workflow-actions">
-       {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{
-        if((!simulation||!quickMode)&&!await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))return;
-        if(data.undo)await legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho');
-        else await act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');
-       }}>↶ Deshacer</button>}
+       {!frozen&&canUndo&&<button type="button" className="secondary" disabled={busy} onClick={undoLast}>↶ Deshacer</button>}
        {!frozen&&(election.redo||data.redo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{
         if((!simulation||!quickMode)&&!await confirm('¿Rehacer el cambio de elección?'))return;
         if(data.redo)await legacy({action:'redo_vacations',undoId:data.redo.id},'Cambio rehecho');
