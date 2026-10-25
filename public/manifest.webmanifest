@@ -1,0 +1,16 @@
+{
+  "name": "Vacaciones LECS",
+  "short_name": "Vacaciones",
+  "description": "Consulta y elección de vacaciones de LECS",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f7f9f7",
+  "theme_color": "#142a2c",
+  "icons": [
+    {"src": "/vacaciones-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/vacaciones-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/vacaciones-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}

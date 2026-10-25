@@ -4,28 +4,35 @@ import type {Repository} from './repository.ts';
 import {requireSuper,type Principal} from './permissions.ts';
 import {deliverPush,publicPushKey,type PushConfig} from './web-push.ts';
 import {ApiError} from './errors.ts';
-export function ownerKey(actor:Principal):string{
+/** Keep Push ownership aligned with the account key used by the controller link.
+ * Older linked ChatGPT accounts can use UID instead of a verified email key.
+ * Refuse ambiguous links, as the election service already does. */
+export async function ownerKey(repo:Repository,actor:Principal):Promise<string>{
  if(!actor.id)throw new ApiError('Inicia sesión',401);
- return actor.emailKey??actor.id;
+ if(!actor.emailKey)return actor.id;
+ const rows=await repo.all('SELECT principal_key FROM controller_accounts WHERE principal_key IN (?,?)',[actor.id,actor.emailKey]);
+ if(rows.length>1)throw new ApiError('Esta cuenta está vinculada a más de un controlador. Solicita al administrador que corrija la vinculación',409);
+ return rows[0]?.principal_key??actor.emailKey;
 }
 export async function notificationSettings(repo:Repository,actor:Principal,config:PushConfig){
- const key=ownerKey(actor);
+ const key=await ownerKey(repo,actor);
  return {canTest:actor.role==='superadmin',publicKey:publicPushKey(config),subscriptions:(await repo.all('SELECT endpoint,created_at FROM push_subscriptions WHERE owner_key=?',[key])).map(s=>({endpoint:s.endpoint,createdAt:s.created_at})),notifications:await repo.all('SELECT n.id,n.campaign_id,n.round,n.created_at,c.team_id,c.year FROM turn_notifications n JOIN campaigns c ON c.id=n.campaign_id WHERE n.owner_key=? ORDER BY n.created_at DESC LIMIT 25',[key])};
 }
 function validateString(v:unknown,max:number):v is string{return typeof v==='string'&&v.length>0&&v.length<=max;}
 export async function updateSubscription(repo:Repository,actor:Principal,body:any,config:PushConfig){
- const key=ownerKey(actor);
+ const key=await ownerKey(repo,actor);
+ const aliases=[...new Set([key,actor.id,actor.emailKey].filter((v):v is string=>!!v))];
  if(body.action==='subscribe'){
   if(!publicPushKey(config))throw new ApiError('Notificaciones push no configuradas',503);
   const s=body.subscription;
   if(!s||!validateString(s.endpoint,2048)||!s.endpoint.startsWith('https://')||!validateString(s.keys?.p256dh,150)||!validateString(s.keys?.auth,100))throw new ApiError('Suscripción incorrecta');
   // Never transfer another account's endpoint silently.
   const existing=await repo.all('SELECT owner_key FROM push_subscriptions WHERE endpoint=?',[s.endpoint]);
-  if(existing.length&&existing[0].owner_key!==key)throw new ApiError('Este dispositivo está vinculado a otra cuenta. Elimina primero su suscripción',409);
-  await repo.batch([{sql:'INSERT INTO push_subscriptions(endpoint,owner_key,p256dh,auth,created_at) VALUES(?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET p256dh=excluded.p256dh,auth=excluded.auth',args:[s.endpoint,key,s.keys.p256dh,s.keys.auth,new Date().toISOString()]}]);
+  if(existing.length&&!aliases.includes(existing[0].owner_key))throw new ApiError('Este dispositivo está vinculado a otra cuenta. Elimina primero su suscripción',409);
+  await repo.batch([{sql:'INSERT INTO push_subscriptions(endpoint,owner_key,p256dh,auth,created_at) VALUES(?,?,?,?,?) ON CONFLICT(endpoint) DO UPDATE SET owner_key=excluded.owner_key,p256dh=excluded.p256dh,auth=excluded.auth',args:[s.endpoint,key,s.keys.p256dh,s.keys.auth,new Date().toISOString()]}]);
  }else if(body.action==='unsubscribe'){
   if(!validateString(body.endpoint,2048))throw new ApiError('Suscripción incorrecta');
-  await repo.batch([{sql:'DELETE FROM push_subscriptions WHERE endpoint=? AND owner_key=?',args:[body.endpoint,key]}]);
+  await repo.batch([{sql:'DELETE FROM push_subscriptions WHERE endpoint=? AND owner_key IN ('+aliases.map(()=>'?').join(',')+')',args:[body.endpoint,...aliases]}]);
  }else throw new ApiError('Acción desconocida');
  return {ok:true};
 }
@@ -42,7 +49,7 @@ export async function sendTestPush(
  requireSuper(actor);
  if(!publicPushKey(config))throw new ApiError('Notificaciones Push no configuradas',503);
  if(!validateString(endpoint,2048)||!endpoint.startsWith('https://'))throw new ApiError('Selecciona un dispositivo registrado',400);
- const subscription=(await repo.all('SELECT endpoint,p256dh,auth FROM push_subscriptions WHERE owner_key=? AND endpoint=?',[ownerKey(actor),endpoint]))[0];
+ const subscription=(await repo.all('SELECT endpoint,p256dh,auth FROM push_subscriptions WHERE owner_key=? AND endpoint=?',[await ownerKey(repo,actor),endpoint]))[0];
  if(!subscription)throw new ApiError('Este dispositivo no está registrado en tu sesión',403);
  let response:Response;
  try{

@@ -42,26 +42,22 @@ test('PRE has two independent extra thirds and a fourth at a different destinati
  assert.equal(evaluate2027Final(valid).valid,true,'Territorial witness is local to PRE');
  assert.equal(evaluate2027Final(valid).warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
  const chained=completed([1,1,4],[2,2,2],[2,2,2]);
- assert.ok(evaluate2027Final(chained).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'),
-   'PRE EC3 and EC4 cannot use the same fourth-place destination');
+ assert.equal(evaluate2027Final(chained).valid,true,'PRE EC3 and EC4 can chain on one destination');
 });
 
-test('three PRE singles do not create a fictitious extra permission',()=>{
- const impossible=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
- assert.ok(evaluate2027Final(impossible).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'));
- assert.equal(evaluate2027Final(impossible).warnings.some(w=>w.code==='PRE_SINGLE_3'),false);
- const flexible=completed([1,1,1,3,3,4],[2,2,2],[3,2,2]);
- assert.equal(evaluate2027Final(flexible).valid,false,'POST cannot fund PRE extras');
- assert.ok(evaluate2027Final(flexible).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'));
+test('three PRE singles: two EC3 and the EC4, never a fourth single',()=>{
+ const three=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
+ assert.equal(evaluate2027Final(three).valid,true,JSON.stringify(evaluate2027Final(three).issues));
+ const noFourth=completed([1,1,1,3,3,3],[2,2,2],[2,2,2]);
+ assert.ok(evaluate2027Final(noFourth).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'),
+   'without the EC4 a third single would need a third EC3');
  const fourSingles=completed([1,1,1,1,3,3,4],[2,2,2],[3,2,2]);
  assert.ok(evaluate2027Final(fourSingles).issues.some(w=>w.code==='PRE_SINGLE_LIMIT'));
 });
 
-test('PRE fourth cannot use a donor that becomes a new single',()=>{
- const noDouble=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
- assert.ok(evaluate2027Final(noDouble).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'));
- const withDouble=completed([1,1,2,3,3,4],[2,2,2],[2,2,2]);
- assert.ok(evaluate2027Final(withDouble).valid);
+test('PRE fourth may use a donor that becomes a single',()=>{
+ assert.ok(evaluate2027Final(completed([1,1,1,3,3,4],[2,2,2],[2,2,2])).valid);
+ assert.ok(evaluate2027Final(completed([1,1,2,3,3,4],[2,2,2],[2,2,2])).valid);
 });
 
 test('POST third and fourth can chain on one destination',()=>{
@@ -106,7 +102,7 @@ test('same final allocation is independent of order of the requested dates',()=>
   const a=[{member_id:'m0',cycle_date:'p0'},{member_id:'m0',cycle_date:'s0'}];
   const b=[...a].reverse();
   assert.equal(evaluate2027Candidate(base,a).allowed,evaluate2027Candidate(base,b).allowed);
-  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v3');
+  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v4');
 });
 
 test('real 2027 calendars A–H have a six-cycle completion witness for the RRHH staffing',()=>{

@@ -5,7 +5,7 @@
  * A witness contains all additional person/cycle assignments. A failed
  * bounded search is INDETERMINATE, never silently treated as impossible.
  */
-export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v3' as const;
+export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v4' as const;
 export type Period2027 = 0 | 1 | 2;
 export type PolicyCycle = { date: string; period: Period2027; fourthExcluded?: boolean; maximum?: number };
 export type PolicyMember = { id: string; entitlement: number };
@@ -60,21 +60,22 @@ function has2027Accounting(state:PolicyState,counts:number[],permits?:Permits202
  }
  return accountingForTally(tally,permits);
 }
+function ec3Ec4Valid(t:PeriodTally,thirds:number):boolean {
+ for(let third=0;third<=Math.min(thirds,t.three);third++){
+  for(let chain=0;chain<=t.four;chain++){
+   if(third+chain>thirds)continue;
+   const fourthFromOne=t.one-third-chain;
+   if(fourthFromOne>=0&&fourthFromOne<=t.four&&t.two>=t.four-fourthFromOne)return true;
+  }
+ }
+ return false;
+}
 function accountingForTally(tally:PeriodTally[],permits?:Permits2027):boolean {
  const [pre,summer,post]=tally;
  if(pre.four>1||post.four>1||summer.four>2||pre.one>3||post.one>2||summer.one>2)return false;
- // PRE EC3 destinations are separate from EC4; EC4 cannot create a single.
- if(pre.one>Math.min(permits?.preThird??2,pre.three)||pre.two<pre.four)return false;
- // POST EC3 may chain with EC4. Every resulting single needs a local source.
- let postValid=false;
- for(let third=0;third<=Math.min(permits?.postThird??1,post.three);third++){
-  for(let chain=0;chain<=post.four;chain++){
-   if(third+chain>(permits?.postThird??1))continue;
-   const fourthFromOne=post.one-third-chain;
-   if(fourthFromOne>=0&&fourthFromOne<=post.four&&post.two>=post.four-fourthFromOne)postValid=true;
-  }
- }
- if(!postValid)return false;
+ // PRE and POST: EC3 may chain with EC4, and EC4 may also leave a single.
+ // Every resulting single needs a local source.
+ if(!ec3Ec4Valid(pre,permits?.preThird??2)||!ec3Ec4Valid(post,permits?.postThird??1))return false;
  // SUMMER: two shared permits. A fourth uses EC4; an optional EC3 can
  // target a third or chain onto that fourth. Sources stay inside summer.
  for(let third=0;third<=Math.min(2,summer.three);third++){
@@ -453,7 +454,7 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
       const candidates=possibleSingle[p].filter(i=>!fourth.includes(i));
       for(let n=0;n<=Math.min(sMax-forcedSingle[p].length,candidates.length);n++){
         if(p===0&&n+forcedSingle[p].length>maxSingle[p])continue;
-        // POST can use its EC3 and EC4 together; PRE EC4 is separate.
+        // PRE and POST can use their EC3 and EC4 together.
         for(const singles of combinations(candidates,n)){
           const next:Scenario={single:new Set([...scenario.single,...forcedSingle[p],...singles]),fourth:new Set([...scenario.fourth,...fourth])};
           const result=choose(p+1,next);if(result)return result;

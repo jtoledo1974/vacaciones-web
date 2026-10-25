@@ -929,5 +929,42 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .activation-steps span{grid-column:2;color:#40574c;font-size:13px;overflow-wrap:anywhere}
 #activation-panel .team-checkboxes label{font-size:14px}
 
+/* Notification settings: own full-width, mobile-first layout consistent with controller cards. */
+.notifications-page{margin-left:0;min-height:100vh;padding:24px 16px 48px}
+.notifications-wrap{max-width:640px;margin:0 auto}
+.notifications-back{display:inline-flex;align-items:center;min-height:44px;font-size:14px;color:#23634f;font-weight:650;margin-bottom:16px}
+.notifications-header{margin-bottom:20px}
+.notifications-header h1{font-size:clamp(23px,5vw,30px);line-height:1.25;letter-spacing:-.6px}
+.notifications-header p{font-size:15px;color:#40574c;line-height:1.6;margin:10px 0 0}
+.notifications-page .notifications-card{padding:20px;margin-bottom:14px}
+.notifications-card h2{font-size:17px;line-height:1.4}
+.notifications-card>p{font-size:14px;color:#40574c;line-height:1.6}
+.notifications-state{display:flex;align-items:flex-start;gap:12px}
+.notifications-state-icon{display:flex;align-items:center;justify-content:center;flex:none;width:42px;height:42px;border-radius:12px;background:#e8efeb;color:#275d4b}
+.notifications-state.is-active .notifications-state-icon{background:#dcefe7;color:#145442}
+.notifications-state.is-blocked .notifications-state-icon,.notifications-state.is-error .notifications-state-icon{background:#fff0e2;color:#82431c}
+.notifications-state h2{margin:0;font-size:17px;line-height:1.4}
+.notifications-state p{margin:6px 0 0;font-size:14px;line-height:1.55;color:#40574c}
+.notifications-page .notifications-action{min-height:46px;font-size:14px;font-weight:700;white-space:normal;margin-top:16px;width:100%;padding:12px 14px}
+.notifications-page .notifications-refresh{min-height:44px;margin:10px 0 0;padding:8px 4px;border:0;background:transparent;color:#235b4a;display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:650}
+.notifications-hint{font-size:13px!important;color:#52685b!important;margin:10px 0 0}
+.notifications-instructions{margin-top:16px;padding:12px 14px;background:#f4f8f4;border-radius:9px;font-size:14px;line-height:1.55}
+.notifications-instructions h3{font-size:14px;margin:0 0 8px}
+.notifications-instructions ol{margin:0;padding-left:23px}
+.notifications-instructions li{margin:6px 0}
+.notifications-instructions p{margin:8px 0 0}
+.notifications-feedback{margin:10px 0 0;padding:12px 14px;border-radius:8px;font-size:14px;line-height:1.5}
+.notifications-feedback.is-error{background:#fff0e9;border:1px solid #edc4aa;color:#7a3518}
+.notifications-feedback.is-success{background:#eaf4ee;border:1px solid #b5d5c4;color:#164f3c}
+.notifications-history{list-style:none;padding:0;margin:12px 0 0}
+.notifications-history li{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border-top:1px solid var(--line);padding:12px 0;font-size:13px}
+.notifications-history a,.notifications-help a{color:#23634f;text-decoration:underline;text-underline-offset:3px;font-weight:650}
+.notifications-history a{display:inline-flex;align-items:center;min-height:44px}
+.notifications-help{font-size:13px;color:#40574c;line-height:1.55}
+.notifications-help summary{display:flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;font-weight:650;color:#235b4a;font-size:14px}
+.notifications-help dl{display:grid;grid-template-columns:1fr auto;gap:8px 16px;margin-top:14px}
+.notifications-help dd{margin:0;font-weight:650}
+@media(max-width:390px){.notifications-page{padding:16px 12px 36px}.notifications-page .notifications-card{padding:16px}.notifications-state{gap:10px}}
+
 /* #66: turn forecast when lists ahead resolve instantly. */
 .my-election-soon{margin:10px 0 0;padding:10px 12px;border-radius:8px;background:#fff6dc;border:1px solid #ecd28c;color:#5c4510;font-size:14px;line-height:1.5}
