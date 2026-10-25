@@ -123,3 +123,73 @@ test('la reconstrucción guiada sustituye turnos históricos sin mostrar decisio
  assert.equal(events.find(e=>e.id==='rebuild')?.choices[0].cycle_date,replacement.cycle_date);
  assert.ok(!events.some(e=>e.id==='second'));
 });
+
+test('impacto auditado: el timeline conserva solo decisiones vigentes tras undo y redo',()=>{
+ const ctx:ElectionContext={year:2027,team:'A',config:defaultConfig(2027),
+  members:['A','B'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[]};
+ const a=award('a','A','2027-01-08'),b=award('b','B','2027-01-16');
+ const start=row('start','start',snap(0,[]),{});
+ const first=row('first','choose',snap(0,[]),{
+  choices:[choice('A',a.cycle_date)],impact:{
+   policyVersion:'lecs-2027-occupancy-v2',status:'exact',
+   campaignVersionBefore:10,campaignVersionAfter:11,
+   changes:[{cycle:'2027-02-01',delta:-1}],events:[{code:'FOURTH_PERIOD_LIMIT_REACHED',period:1,cycles:['2027-02-01']}]
+  }
+ });
+ const second=row('second','choose',snap(1,[a]),{
+  choices:[choice('B',b.cycle_date)],impact:{
+   policyVersion:'lecs-2027-occupancy-v2',status:'indeterminate',
+   campaignVersionBefore:11,campaignVersionAfter:12,
+   changes:[{cycle:'2027-03-01',delta:null}],events:[]
+  }
+ });
+ ctx.awards=[a,b];
+ const active=buildElectionTimeline([start,first,second],ctx,state(2));
+ assert.equal(active.find(e=>e.id==='first')?.impact?.changes[0].delta,-1);
+ assert.equal(active.find(e=>e.id==='second')?.impact?.status,'indeterminate');
+ ctx.awards=[a];
+ const undone=buildElectionTimeline([... [start,first,second],row('undo','election_undo',null,{})],ctx,state(1));
+ assert.deepEqual(undone.filter(e=>e.kind==='choice').map(e=>e.id),['first']);
+ assert.equal(undone[0].impact?.campaignVersionBefore,10);
+ ctx.awards=[a,b];
+ const redone=buildElectionTimeline([start,first,second,row('undo','election_undo',null,{}),
+  row('redo','election_redo',null,{})],ctx,state(2));
+ assert.equal(redone.find(e=>e.id==='second')?.impact?.changes[0].delta,null);
+});
+
+test('timeline projects impact summaries without removing certified audit snapshots',()=>{
+ const a=award('a','A','2027-01-08');
+ const ctx:ElectionContext={year:2027,team:'A',config:defaultConfig(2027),
+  members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[a]};
+ const impact={policyVersion:'lecs-2027-occupancy-v2',status:'exact',
+  campaignVersionBefore:2,campaignVersionAfter:3,changes:[],events:[],
+  availabilityBefore:{privateSnapshot:'before'},availabilityAfter:{privateSnapshot:'after'}};
+ const decision=row('choice','choose',snap(0,[]),{choices:[choice('A',a.cycle_date)],impact});
+ const persisted=decision.after_json;
+ const event=buildElectionTimeline([decision],ctx,state(1))[0];
+ assert.deepEqual(event.impact,{policyVersion:impact.policyVersion,status:impact.status,
+  campaignVersionBefore:2,campaignVersionAfter:3,changes:[],events:[]});
+ assert.equal(decision.after_json,persisted);
+ assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityBefore,impact.availabilityBefore);
+ assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityAfter,impact.availabilityAfter);
+});
+
+test('historial: muestra cada aviso normativo solo en la adjudicación que lo introduce',()=>{
+ const ctx:ElectionContext={year:2026,team:'C',config:{...defaultConfig(2026),cyclesPerPerson:6},
+  members:['A','B','C'].map(id=>({id,code:id,seniority:''})),requests:[],awards:[]};
+ const a=award('a','A','2026-01-01'),b=award('b','B','2026-01-09'),c=award('c','C','2026-01-17');
+ ctx.awards=[a,b,c];
+ const cross={code:'CROSS_PERIOD_FLEXIBILITY',message:'Aviso territorial'};
+ const summer={code:'SUMMER_REFERENCE',message:'Aviso estival',period:1};
+ const rows=[
+  row('start','start',{format:'election-undo-v1',state:null,awards:[]},{}),
+  row('draw','resolve_tie',{state:{...state(0),pendingTieGroups:[['A','B','C']]},awards:[]},{resolution}),
+  row('one','choose',snap(0,[]),{choices:[choice('A',a.cycle_date)],warnings:[cross]}),
+  row('two','choose',snap(1,[a]),{choices:[choice('B',b.cycle_date)],warnings:[cross]}),
+  row('three','choose',snap(2,[a,b]),{choices:[choice('C',c.cycle_date)],warnings:[cross,summer]}),
+ ];
+ const byId=new Map(buildElectionTimeline(rows,ctx,state(3)).map(e=>[e.id,e]));
+ assert.deepEqual(byId.get('one')?.warnings,[cross]);
+ assert.equal(byId.get('two')?.warnings,undefined);
+ assert.deepEqual(byId.get('three')?.warnings,[summer]);
+});

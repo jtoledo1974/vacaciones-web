@@ -588,3 +588,59 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-score-source-editor textarea{width:100%;min-width:0;max-width:100%;font-size:13px;font-weight:400}
 .election-score-source-editor .button-row{margin-top:12px}
 @media(max-width:580px){.election-score-source-editor{padding:13px}}
+
+/* Disponibilidad GLOBAL 2027: contraste inequívoco 4 → 0; no confundir timeout con bloqueo. */
+.vac2-year-2027 .vac2-free-4{--vac2-status:#16844b;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-free-3{--vac2-status:#80c65a;--vac2-foreground:#162a1c}
+.vac2-year-2027 .vac2-free-2{--vac2-status:#f1d65d;--vac2-foreground:#302600}
+.vac2-year-2027 .vac2-free-1{--vac2-status:#e88d43;--vac2-foreground:#2b1b0c}
+.vac2-year-2027 .vac2-free-0{--vac2-status:#662033;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-unknown{--vac2-status:#6c7480;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-key.vac2-free-4{background:#16844b}
+.vac2-year-2027 .vac2-key.vac2-free-3{background:#80c65a}
+.vac2-year-2027 .vac2-key.vac2-free-2{background:#f1d65d}
+.vac2-year-2027 .vac2-key.vac2-free-1{background:#e88d43}
+.vac2-year-2027 .vac2-key.vac2-free-0{background:#662033}
+.vac2-year-2027 .vac2-key.vac2-unknown{background:repeating-linear-gradient(135deg,#69727f 0 4px,#c4c9ce 4px 8px)}
+.vac2-year-2027 .vac2-cycle{border-left-width:5px;background:var(--vac2-status);color:var(--vac2-foreground)}
+.vac2-year-2027 .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
+.vac2-year-2027 .vac2-cycle-sub,.vac2-year-2027 .vac2-names{color:inherit;opacity:.9}
+.vac2-year-2027 .vac2-day{background:var(--vac2-status);color:var(--vac2-foreground);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px}
+.vac2-year-2027 .vac2-day-count{display:block;font-size:9px;font-weight:900;line-height:1}
+.vac2-year-2027 .vac2-cycle.vac2-selected,.vac2-year-2027 .vac2-day.vac2-selected{outline:3px solid #1836a6;outline-offset:1px}
+.vac3-2027 .vac3-table td.vac3-slot{background:#fff;color:#1e2f26}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-occupied{background:#e4ece8;color:#26372d}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled{background:#292e33;color:#fff}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled .vac3-slot-code{color:#fff}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown{background:repeating-linear-gradient(135deg,#f0f1f2 0 6px,#d8dddf 6px 12px);color:#303741}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown .vac3-slot-code{color:#303741}
+.vac3-2027 .vac3-table .vac3-selected td.vac3-slot{border-top:2px solid #237a4f;border-bottom:2px solid #237a4f}
+.election-fast-mode{display:flex;align-items:center;gap:8px;padding:7px;border-radius:6px;background:#fff8e7;color:#4b360d;font-size:11px}
+.election-fast-indicator{font-size:10px;font-weight:750;border:1px solid #c58527;background:#fff5d7;border-radius:5px;padding:5px 8px}
+.election-log-impact{margin:7px 0 0;padding:6px 8px;border-left:3px solid #879b9e;background:#f4f6f6}
+.election-log-impact summary{cursor:pointer;font-size:10px;font-weight:650}
+.election-log-impact li{padding:3px 0 2px 3px;margin-left:16px;border:0;list-style:disc}
+.election-log-warning{display:block;margin:7px 0 0;padding:8px 10px;font-size:11px}
+.election-log-warning strong{margin-right:4px}
+.election-log-highlight{display:block;margin:7px 0 0;padding:8px 10px;font-size:11px;background:#e8f1f4;color:#2f5b6b;border:1px solid #cfe0e6}
+
+/* Multiline legal-impact preview inside the standard confirmation dialog. */
+.confirmation-dialog p{white-space:pre-line;max-height:min(48dvh,380px);overflow-y:auto;text-align:left}
+
+/* Feedback while policy solver or allocation persistence is in progress. */
+.election-thinking-inline{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#edf5f4;border:1px solid #b6d4c9;border-radius:8px;font-size:12px;color:#245e4d;margin:9px 0}
+.election-thinking-spinner{display:inline-block;flex:0 0 auto;width:23px;height:23px;border:3px solid #a7ccc0;border-top-color:#126c53;border-radius:50%;animation:election-thinking-spin .75s linear infinite}
+.election-thinking-inline .election-thinking-spinner{width:15px;height:15px;border-width:2px}
+.election-thinking-backdrop{position:fixed;inset:0;z-index:120;display:flex;align-items:center;justify-content:center;background:#091c19a6;padding:20px}
+.election-thinking-dialog{width:min(440px,100%);padding:28px 24px;border-radius:14px;background:#fff;box-shadow:0 16px 58px #0004;text-align:center}
+.election-thinking-dialog .election-thinking-spinner{width:40px;height:40px;margin-bottom:16px}
+.election-thinking-dialog h2{font-size:19px;line-height:1.25;margin:0 0 10px}
+.election-thinking-dialog p{font-size:13px;line-height:1.5;margin:8px 0}
+.election-thinking-dialog .muted{font-size:11px;color:#62766e}
+.election-auto-notice{font-size:11px;color:#365e50;padding:8px;background:#f1f7f3;border-radius:5px;margin:5px 0}
+@keyframes election-thinking-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.election-thinking-spinner{animation:none;border-top-color:#126c53}}
+
+/* Build stamp at the very bottom: diagnostic, not a navigation item. */
+.content > footer .footer-build{display:block;flex-basis:100%;text-align:right;margin-top:3px;font-size:10px;line-height:1.4;font-weight:400;color:#829288}
+.content > footer .footer-build time{font:inherit;color:inherit}

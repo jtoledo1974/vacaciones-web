@@ -31,7 +31,7 @@ test('el usuario autenticado sin vinculación recibe un aviso y elige explícita
   await mockVisitor(page,request,false);
   await expect(page.getByRole('heading',{name:/Tu cuenta no está vinculada a un controlador/})).toBeVisible();
   await expect(page.getByRole('region',{name:/Tu cuenta no está vinculada a un controlador/}).getByText('visitor@example.test')).toBeVisible();
-  await expect(page.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Mis preferencias',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Continuar en consulta pública'}).click();
   await expect(page.getByRole('region',{name:'Calendario de ciclos'})).toBeVisible();
   await expect(page.getByText(/Estás consultando la campaña públicamente/)).toBeVisible();
@@ -42,7 +42,8 @@ test('el usuario autenticado sin vinculación recibe un aviso y elige explícita
 test('el controlador vinculado accede a preferencias sin aviso de acceso',async({page,request})=>{
   await mockVisitor(page,request,true);
   await expect(page.getByRole('heading',{name:/Tu cuenta no está vinculada a un controlador/})).toHaveCount(0);
-  await expect(page.getByRole('button',{name:'Preferencias',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Mis preferencias',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
   await expect(page.locator('.campaign-strip')).toContainText('Controlador · preferencias propias');
 });
 

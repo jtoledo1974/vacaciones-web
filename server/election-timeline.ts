@@ -1,21 +1,27 @@
 import {currentTurn,orderForRound,type ElectionContext,type ElectionState} from '../domain/election.ts';
-import {appliedAudit} from './reconstruction.ts';
+import {appliedAudit,auditBefore,auditAfter,type AuditRow} from './audit-context.ts';
+import type {AvailabilityChange, ImpactEvent} from '../domain/availability-2027.ts';
 
-type AuditRow={id:string;action:string;before_json:string|null;after_json:string|null;created_at:string};
 type LoggedChoice={member_id:string;cycle_date:string};
 export type ElectionTimelineItem={
  id:string;kind:'choice'|'defer'|'tie'|'legacy'|'joint';round:number|null;createdAt:string;
  memberIds:string[];choices:LoggedChoice[];deferredTurns:number;
  ties:{memberId:string;position:number;total:number;order:string[]}[];
  method?:'random'|'external';order?:string[];anticipated?:boolean;jointAction?:'register_joint'|'cancel_joint';
+ impact?: {
+  policyVersion:string; status:'exact'|'indeterminate'|'invalid';
+  campaignVersionBefore:number; campaignVersionAfter:number;
+  changes:AvailabilityChange[];events:ImpactEvent[];
+ };
+ warnings?:{code:string;message:string;period?:number}[];
 };
 
-function parse(value:string|null):any{
- try{return value?JSON.parse(value):null;}catch{return null;}
+function parsed(row:AuditRow,side:'before'|'after'):any{
+ try{return side==='before'?auditBefore(row):auditAfter(row);}catch{return null;}
 }
 
 function roundAt(row:AuditRow,ctx:ElectionContext):number|null{
- const before=parse(row.before_json),state=before?.state as ElectionState|null;
+ const before=parsed(row,'before'),state=before?.state as ElectionState|null;
  if(!state?.order?.length)return null;
  try{
   return currentTurn({...ctx,awards:before.awards??ctx.awards,requests:before.requests??ctx.requests},state).round;
@@ -29,11 +35,11 @@ function roundAt(row:AuditRow,ctx:ElectionContext):number|null{
  * turn-level actions instead of inferring turns from individual awards.
  * Each action retains its original ordering even when it selected 2–3 cycles.
  */
-export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:ElectionState|null):ElectionTimelineItem[]{
+export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:ElectionState|null,history=appliedAudit(rows)):ElectionTimelineItem[]{
  // Reuse the canonical audit replay so guided reconstruction, undo, redo,
  // cancelled reconstructions and new branches share exactly one definition
  // of which historical choices remain effective.
- const done=appliedAudit(rows).done as AuditRow[];
+ const done=history.done as AuditRow[];
  const draws=rows.filter(row=>row.action==='resolve_tie');
  const lastStart=done.findLastIndex(row=>row.action==='start');
  // Simulations inherit a paused order without a local `start` audit entry.
@@ -42,10 +48,13 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
  const accounted=new Set<string>();
  const indices=new Map(rows.map((row,i)=>[row.id,i]));
  const events:{sequence:number;item:ElectionTimelineItem}[]=[];
+ // Warnings are stored as the full set after each decision; show only those
+ // that a decision introduced, not every later repetition of the same one.
+ let previousWarnings=new Set<string>();
  if(state){
   for(const row of active){
    if(!['choose','choose_joint','advance','defer','reconstruction_step','register_joint','cancel_joint'].includes(row.action))continue;
-   const before=parse(row.before_json),after=parse(row.after_json);
+   const before=parsed(row,'before'),after=parsed(row,'after');
    const previous=before?.state as ElectionState|undefined;
    if(!previous)continue;
    if(row.action==='register_joint'||row.action==='cancel_joint'){
@@ -84,13 +93,22 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
     const order=orderForRound(previous,round-1).filter(id=>group.includes(id));
     ties.push({memberId,position:order.indexOf(memberId)+1,total:group.length,order});
    }
+   let introduced:{code:string;message:string;period?:number}[]=[];
+   if(Array.isArray(after?.warnings)){
+    introduced=after.warnings.filter((w:any)=>!previousWarnings.has(w.code));
+    previousWarnings=new Set(after.warnings.map((w:any)=>w.code));
+   }
    events.push({sequence:indices.get(row.id)??0,item:{
     id:row.id,kind:kind==='defer'?'defer':'choice',round,createdAt:row.created_at,
-    memberIds,choices,deferredTurns:memberIds.length===1?(previous.credits?.[memberIds[0]]??0):0,ties
+    memberIds,choices,deferredTurns:memberIds.length===1?(previous.credits?.[memberIds[0]]??0):0,ties,
+    ...(after?.impact?{impact:{policyVersion:after.impact.policyVersion,status:after.impact.status,
+     campaignVersionBefore:after.impact.campaignVersionBefore,campaignVersionAfter:after.impact.campaignVersionAfter,
+     changes:after.impact.changes,events:after.impact.events}}:{}),
+    ...(introduced.length?{warnings:introduced}:{})
    }});
   }
   for(const row of draws){
-   const resolution=parse(row.after_json)?.resolution;
+   const resolution=parsed(row,'after')?.resolution;
    if(!resolution||!Array.isArray(resolution.order)||!state.tieResolutions?.some(r=>
     r.at===resolution.at&&r.method===resolution.method&&r.order.join('|')===resolution.order.join('|')))continue;
    events.push({sequence:indices.get(row.id)??0,item:{

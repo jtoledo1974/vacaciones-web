@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { buildInfo } from './build-info';
 import {initialiseFirebase,subscribeFirebaseSession,firebaseBearerToken,firebaseUser,firebaseSignInWithGoogle,firebaseSignOut} from './firebase-client';
 import UserForm from './user-permissions';
 import LocalAdminLogin from './local-admin-login';
@@ -7,6 +8,7 @@ import { HeaderSession, SidebarSession } from './session-identity';
 import CampaignAccessNotice from './campaign-access-notice';
 import { requiresAccountLinkNotice } from './campaign-access-state';
 import { resolveLandingCampaign } from './landing-campaign';
+import {runElectionCommand} from './election-command';
 import RosterEditor from './roster-editor';
 import ElectionWorkspace,{ActivationPanel} from './election-workspace';
 import SimulationTools from './simulation-tools';
@@ -47,7 +49,6 @@ function Dashboard() {
     const canNavigate=async()=>!preferenceGuard.current||await preferenceGuard.current();
     const isBusy=useRef(false);
     const lastRevision=useRef<number|null>(null);
-    const syncPending=useRef(false);
     useEffect(()=>{currentCid.current=cid;},[cid]);
     useEffect(()=>{isBusy.current=busy;},[busy]);
     useEffect(()=>{setPublicConsultation(false);},[cid,identity]);
@@ -144,11 +145,14 @@ function Dashboard() {
       void synchronise();
       return ()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',foreground);window.removeEventListener('focus',focused);};
     },[]);
-    async function perform(fn: () => Promise<any>, message: string) { setBusy(true); setError(''); setNotice(''); try {
+    async function perform(fn: () => Promise<any>, message: string, options:{refreshIndex?:boolean}={}) { isBusy.current=true;setBusy(true); setError(''); setNotice(''); try {
         const result = await fn();
-        if (result?.campaign)
+        if (result?.campaign&&(options.refreshIndex!==false||currentCid.current===result.campaign.id))
             setData(result);
-        await loadIndex();
+        // Election responses already contain the committed campaign metadata.
+        // Do not delay their success (or negate it on failure) with another read.
+        if(options.refreshIndex!==false)await loadIndex();
+        else if(result?.campaign)setIndex((previous:any)=>previous?{...previous,campaigns:previous.campaigns.map((c:any)=>c.id===result.campaign.id?{...c,...result.campaign}:c)}:previous);
         lastRevision.current=null;
         setSyncState('ready');
         setNotice(message);
@@ -158,13 +162,17 @@ function Dashboard() {
         setError(e.message);
     }
     finally {
+        isBusy.current=false;
         setBusy(false);
     } }
     const mutateElection=(body:any,msg:string)=>perform(async()=>{
-        let next=await api('election/'+cid,{...body,version:data.campaign.version});
-        for(let step=0;step<100&&next.election.pendingAutomatic&&!['election_undo','election_redo','pause','link_account','resolve_tie'].includes(body.action)&&!String(body.action).startsWith('reconstruction_');step++)next=await api('election/'+cid,{action:'advance',version:next.campaign.version});
-        return next;
-    },msg);
+        const outcome=await runElectionCommand(
+            command=>api('election/'+cid,command),body,data.campaign.version,
+            next=>{if(currentCid.current===next.campaign.id)setData(next);}
+        );
+        if(outcome.continuationError)setError('La operación se ha guardado, pero no se han completado los automatismos. Puedes continuar los pendientes sin repetir la elección.');
+        return outcome.result;
+    },msg,{refreshIndex:false});
     const mutate = (body: any, msg: string) => perform(() => api('campaign/' + cid, { ...body, version: data.campaign.version }), msg);
     // Persist roster changes first, then apply only modified account links. Every
     // account operation uses the revision returned by the previous request.
@@ -293,7 +301,7 @@ function Dashboard() {
             return; if (!await confirm('¿Restaurar todos los datos desde esta copia? Sustituirá las campañas y permisos actuales. Descarga una copia antes de continuar.'))
             return; await perform(async () => { const b = JSON.parse(await f.text()); const a = await api('admin'); await api('restore', { backup: b, revision: a.revision }); setData(await api('campaign/' + cid)); setAdmin(await api('admin')); }, 'Copia restaurada'); e.target.value = ''; }}/></label></div></section>}{superuser&&<section className="panel"><h2>Actividad reciente</h2><div className="table-wrap"><table><thead><tr><th>Operación</th><th>Equipo</th><th>Fecha</th></tr></thead><tbody>{admin?.audit.map((a: any) => <tr key={a.id}><td>{a.action}</td><td>{a.team_id ?? 'General'}</td><td>{new Date(a.created_at).toLocaleString('es-ES')}</td></tr>)}</tbody></table></div></section>}</details></> : <div className="panel empty"><ShieldCheck size={32}/><h2>Administración reservada</h2><p>Tu cuenta tiene permisos de {index.principal.role === 'team_admin' ? 'responsable de equipo' : 'consulta'}.</p></div>)}
         </>}
-    <footer>Vacaciones <span>·</span> Ocho equipos <span>·</span> Consulta pública <span className="footer-right">{busy ? 'Guardando…' : 'Datos persistentes · Campañas independientes'}</span></footer></div></main></div>;
+    <footer>Vacaciones <span>·</span> Ocho equipos <span>·</span> Consulta pública <span className="footer-right">{busy ? 'Guardando…' : 'Datos persistentes · Campañas independientes'}</span><small className="footer-build" aria-label="Versión del código en ejecución" title={buildInfo.commitDate ? 'Fecha del commit: '+buildInfo.commitDate : 'Fecha de compilación'}>Código {buildInfo.revision} · compilado <time dateTime={buildInfo.buildTimestamp}>{buildInfo.buildDate}</time></small></footer></div></main></div>;
 }
 
 

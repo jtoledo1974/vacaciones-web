@@ -1,10 +1,15 @@
-import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,entitlementFor,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
+import {policyState2027} from '../domain/election-2027.ts';
+import {canComplete2027,evaluate2027Candidate,evaluate2027Final,partialAssessment2027,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
+import {availabilityByCycle,compactAvailability,recordedAvailabilityByCycle2027,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact,type AvailabilitySnapshot,type CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
 import {buildElectionTimeline} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
+import {historicalAvailability} from './availability-history.ts';
+import {AuditContext} from './audit-context.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
@@ -36,13 +41,14 @@ export class ElectionService{
   const restricted=new Set(linked.map((row:any)=>row.id));
   return d.members.filter((m:any)=>m.id===mine||!restricted.has(m.id)).map((m:any)=>m.id);
  }
- async history(cid:string){
+ async history(cid:string,audit?:AuditContext){
+  if(audit)return audit.replay();
   // Replay the append-only audit to recover independent undo and redo stacks.
   // A new decision after an undo creates a new branch and clears only the redo stack.
   const rows=await this.repo.all('SELECT id,action,before_json,after_json FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
   return appliedAudit(rows);
  }
- async options(cid:string,selected:string[]){
+ async options(cid:string,selected:string[],jointEntries?:{member_id:string;dates:string[]}[]){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
   const reconstruction=await this.reconstruction().read(cid);
   if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('Las elecciones están congeladas durante la reconstrucción',409);
@@ -50,28 +56,177 @@ export class ElectionService{
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
   const ctx=context(d),turn=currentTurn(ctx,raw.state);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
+  if(jointEntries!==undefined){
+   if(ctx.year!==2027||!canWrite(this.actor,d.campaign.team_id)||turn.participants.length<2)
+    throw new ApiError('Este turno conjunto no admite previsualización',403);
+   if(!Array.isArray(jointEntries)||jointEntries.length!==turn.participants.length||
+     new Set(jointEntries.map(e=>e.member_id)).size!==jointEntries.length||
+     jointEntries.some(e=>!turn.participants.includes(e.member_id)||!Array.isArray(e.dates)||e.dates.length!==turn.requiredByMember[e.member_id]||e.dates.some(x=>typeof x!=='string')))
+      throw new ApiError('Turno conjunto incompleto');
+   const choices=jointEntries.flatMap(e=>e.dates.map(cycle_date=>({member_id:e.member_id,cycle_date})));
+   const check=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),choices);
+   return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,allowed:check.allowed,
+     available:[],issues:check.issues,warnings:check.warnings};
+  }
+
+  if(!Array.isArray(selected)||selected.length>turn.needed||new Set(selected).size!==selected.length||selected.some(x=>typeof x!=='string'))
+   throw new ApiError('Selección inicial no válida');
+  if(ctx.year===2027){
+   const policyState=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+   const inspect=(dates:string[])=>evaluate2027Candidate(policyState,dates.map(cycle_date=>({member_id:turn.memberId!,cycle_date})));
+   const chosen=inspect(selected);
+   if(selected.length===turn.needed){
+    return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,allowed:chosen.allowed,
+      available:[],reasons:{},warnings:chosen.warnings};
+   }
+   if(!chosen.allowed)throw new ApiError(chosen.issues.map(i=>i.message).join('; '));
+   // All candidates extend exactly this same already-valid selection.
+   // The current completion witness can often be reused or repaired by an
+   // atomic exchange rather than solving the full campaign for every date.
+   const partialState={...policyState,awards:[...policyState.awards,
+     ...selected.map(cycle_date=>({member_id:turn.memberId!,cycle_date}))]};
+   const reasons:Record<string,unknown>={},warnings:Record<string,unknown>={},available:string[]=[],pending:string[]=[];
+   let remainingChecks=256;
+   for(const date of resultDates(ctx)){
+    const budget=Math.min(32,remainingChecks);
+    const candidate=evaluate2027Candidate(partialState,
+      [{member_id:turn.memberId!,cycle_date:date}],budget,chosen.completion.witness,false);
+    remainingChecks=Math.max(0,remainingChecks-candidate.completion.checked);
+    if(candidate.allowed)available.push(date);
+    else if(candidate.completion.status==='indeterminate'){
+     // A slow proof is not a veto. Allow a provisional selection and validate
+     // the entire atomic choice on confirmation with the full budget.
+     available.push(date);pending.push(date);
+    }else reasons[date]=candidate.issues;
+   }
+   return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,
+      allowed:true,available,pending,reasons,warnings};
+  }
   if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
   return {version:d.campaign.version,available:resultDates(ctx).filter(date=>!choiceIssues(ctx,turn.memberId!,[...selected,date]).length)};
  }
- async view(d:any){
+ /** Cycle-wide existential availability, independent of whose turn it is. */
+ async availability(cid:string){
+  const d=await this.host.load(cid);
+  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)
+   throw new ApiError('Simulación reservada a administradores',403);
+  if(d.campaign.year!==2027)throw new ApiError('Disponibilidad global solo disponible con política 2027',400);
+  const ctx=context(d);
+  const state=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+  const history=await historicalAvailability(this.repo,cid,d.campaign.version);
+  const availability=history.restored
+   ?recordedAvailabilityByCycle2027(state,history.recordedAvailability)??restoredAvailabilityByCycle2027(state)
+   :availabilityByCycle(state);
+  return {version:d.campaign.version,...availability};
+ }
+ /**
+  * Non-mutating preflight for the complete atomic choice at the current turn.
+  * Preview and confirmation derive their results from the same domain evaluator;
+  * the client must supply the campaign version for optimistic concurrency.
+  */
+ async previewImpact(cid:string,choices:PolicyAward[],version:number){
+  const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
+  if(d.campaign.year!==2027)throw new ApiError('El informe de impacto está disponible para la política 2027',400);
+  if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
+  if(d.campaign.version!==version)throw new ApiError('La campaña cambió. Recarga antes de confirmar.',409);
+  if(d.campaign.status!=='open'||!raw.state)throw new ApiError('La elección no está activa',409);
+  const reconstruction=await this.reconstruction().read(cid);
+  if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('La elección está congelada durante la reconstrucción',409);
+  const contextState=context(d),turn=currentTurn(contextState,raw.state);
+  const manage=canWrite(this.actor,d.campaign.team_id);
+  // No fixed maximum: the checks below require exactly what the turn needs
+  // (a joint turn of three, each recovering two deferrals, is nine awards).
+  if(!Array.isArray(choices)||choices.length===0||
+   choices.some(a=>typeof a?.member_id!=='string'||typeof a?.cycle_date!=='string')||
+   new Set(choices.map(a=>a.member_id+'|'+a.cycle_date)).size!==choices.length)
+   throw new ApiError('Combinación de adjudicaciones no válida',400);
+  if(turn.participants.length>1){
+   if(!manage||turn.participants.some(id=>choices.filter(a=>a.member_id===id).length!==turn.requiredByMember[id])||
+    choices.some(a=>!turn.participants.includes(a.member_id)))
+    throw new ApiError('El turno conjunto debe previsualizarse como una sola operación y con todos sus participantes',403);
+  }else if(!turn.memberId||(!manage&&turn.memberId!==mine)||
+   choices.length!==turn.needed||choices.some(a=>a.member_id!==turn.memberId))
+   throw new ApiError('La previsualización no corresponde al turno completo',403);
+  const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
+  return {version,...previewChoiceImpact(allocation,choices)};
+ }
+ async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|CompactAvailabilitySnapshot|null;skipAvailabilityForPendingAutomatic?:boolean;auditContext?:AuditContext}={}){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
-  const result=calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards);
-  const available=focus?result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date):[];
+  const result=options.result??calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards,{skip2027Proof:options.restored});
+  const reconstruction=await this.reconstruction().view(d,raw,options.restored===true,options.auditContext);
+  // Determine whether the next automatic turn can be resolved by its stored
+  // preferences BEFORE starting the table-wide global availability searches.
+  // The intermediate POST response is not rendered: the client immediately
+  // sends the next advance request. Normal GET and final POST stay complete.
+  const pendingAutomatic=!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences));
+  const skipFullAvailability=!!options.skipAvailabilityForPendingAutomatic&&pendingAutomatic;
+  // Per-cell availability never enumerates optional strict-territorial or
+  // informative summer-warning alternatives. Only the actual selected batch
+  // needs their exhaustive review at preflight and commit.
+  // A single source of truth per snapshot. Previous code evaluated rejected
+  // 2027 choices twice and reconstructed the full HR calendar for every date.
+  const availabilityReasons:Record<string,string>={};
+  const availabilityWarnings:Record<string,unknown>={};
+  const availabilityPending:string[]=[];
+  let available:string[]=[];
+  if(focus&&ctx.year===2027&&!skipFullAvailability){
+   const allocation=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+   if(options.restored){
+    for(const cycle of result.cycles){
+     const issues=immediate2027Issues(allocation,[{member_id:focus,cycle_date:cycle.date}]);
+     if(issues.length)availabilityReasons[cycle.date]=issues.map(i=>i.message).join('; ');
+     else {available.push(cycle.date);availabilityPending.push(cycle.date);}
+    }
+   }else{
+   const baseline=canComplete2027(allocation,{maxChecks:2000});
+   let remainingChecks=256;
+   // The empty campaign is invariant under controller permutations: each
+   // final cycle must have an occupant, so every CTA can choose every cycle.
+   // After one choice, relabel any other witness occupant to the next CTA;
+   // the sole existing assignment is untouched and the histogram identical.
+   const first=allocation.awards.length===1?allocation.awards[0]:null;
+   const sameRights=allocation.members.length>0&&
+    allocation.members[0].entitlement>0&&
+    allocation.members.every(m=>m.entitlement===allocation.members[0].entitlement);
+   const symmetric=baseline.status==='possible'&&sameRights&&
+    (allocation.awards.length===0||
+     !!first&&first.member_id!==focus&&!allocation.awards.some(a=>a.member_id===focus));
+   const proofDates=new Set((baseline.witness??[])
+    .filter(a=>!first||a.member_id!==first.member_id).map(a=>a.cycle_date));
+   for(const cycle of result.cycles){
+    if(symmetric&&(!first||proofDates.has(cycle.date))){
+     available.push(cycle.date);
+     continue;
+    }
+    const budget=Math.min(32,remainingChecks);
+    const diagnostic=evaluate2027Candidate(allocation,
+      [{member_id:focus,cycle_date:cycle.date}],budget,baseline.witness,false);
+    remainingChecks=Math.max(0,remainingChecks-diagnostic.completion.checked);
+    if(diagnostic.allowed)available.push(cycle.date);
+    else if(diagnostic.completion.status==='indeterminate'){
+     available.push(cycle.date);availabilityPending.push(cycle.date);
+     availabilityWarnings[cycle.date]=[{code:'COMPLETION_UNDETERMINED',
+      message:'Disponibilidad provisional: se comprobará con el solver completo al confirmar.'}];
+    }else availabilityReasons[cycle.date]=diagnostic.issues.map(i=>i.message).join('; ')||'No disponible en el contexto actual';
+   }
+   }
+  }else if(focus&&!skipFullAvailability)
+   available=result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date);
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
-  const history=manage?await this.history(cid):null;
-  const reconstruction=await this.reconstruction().view(d,raw);
+  const history=manage?await this.history(cid,options.auditContext):null;
   // Replay persisted actions rather than inferring turns from individual awards.
   // Return all events; the UI reveals older entries incrementally.
   let timeline:ReturnType<typeof buildElectionTimeline>=[];
   if(manage){
-   const rows=await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
-   timeline=buildElectionTimeline(rows as any,ctx,raw.state);
+   const rows=await (options.auditContext?.rows()??this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]));
+   timeline=buildElectionTimeline(rows as any,ctx,raw.state,history!);
   }
 
+  const cycleAvailability=ctx.year===2027&&!skipFullAvailability?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=ctx.config.cyclesPerPerson)}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic:!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences)),timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
@@ -110,7 +265,11 @@ export class ElectionService{
     const groups=new Map<number,string[]>();
     for(const id of order){const m=d.members.find((candidate:any)=>candidate.id===id),score=scores[m.code];groups.set(score,[...(groups.get(score)??[]),id]);}
     const tieGroups=[...groups.values()].filter(group=>group.length>1);
-    state={status:'active',order,cursor:0,credits:{},source:source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:[],jointAgreements:[]};validateElectionState(state,d.members);
+    if(ctx.year===2027){
+    const feasibility=canComplete2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards));
+    if(feasibility.status!=='possible')throw new ApiError('La campaña no tiene completación validada conforme a RRHH 2027: '+(feasibility.reason??feasibility.status));
+   }
+   state={status:'active',order,cursor:0,credits:{},source:source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:[],jointAgreements:[]};validateElectionState(state,d.members);
    }else if(action==='resolve_tie'){
     if(!manage)throw new ApiError('Solo el responsable puede registrar el sorteo',403);
     if(!state)throw new ApiError('No hay una elección configurada');
@@ -141,10 +300,11 @@ export class ElectionService{
     state={...state,automaticPaused:false};
    }else if(action==='advance'){
     if(!state)throw new ApiError('No hay una elección configurada');
-    if(!preferredChoice(ctx,state,preferences))return {changed:false};
-    // Each advance commits EXACTLY ONE turn, with its own undo snapshot.
-    // Manual selections and preceding automated turns are already committed.
+    // advanceAutomatic checks stored preferences and validates its chosen
+    // cycles; do not perform an identical, expensive solver search beforehand.
+    // Each successful advance still commits EXACTLY ONE undoable turn.
     const next=advanceAutomatic(ctx,state,preferences,1);
+    if(!next.choices.length)return {changed:false};
     state=next.state;preferences=next.preferences;choices=next.choices;
    }else if(action==='link_account'){
     if(c.scope_key!=='live')throw new ApiError('Vincula las cuentas desde una campaña real');
@@ -203,7 +363,30 @@ export class ElectionService{
    used.add(slot);newRequests.push([crypto.randomUUID(),cid,a.member_id,slot,a.cycle_date,1]);
   }
   ops.push(...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
-  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
+  // Snapshot the causal impact BEFORE committing the atomic batch. Undo/redo
+  // retain the original immutable report in audit but the timeline replays only
+  // currently effective decisions. An indeterminate solver proof stays explicit.
+  const impact=ctx.year===2027&&choices.length
+   ?availabilityImpact(
+      policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),
+      policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,[...ctx.awards,...choices])
+    ):null;
+  const auditImpact=impact?{
+   policyVersion:impact.policyVersion, status:impact.status,
+   campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
+   changes:impact.changes,events:impact.events,
+   availabilityBefore:compactAvailability(impact.before),availabilityAfter:compactAvailability(impact.after)
+  }:null;
+  // Persist the policy warnings of the resulting allocation with the decision,
+  // so the history keeps them after undo/redo or a later fast simulation.
+  let warnings:{code:string;message:string;period?:number}[]|undefined;
+  if(ctx.year===2027&&choices.length){
+   const next=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,[...ctx.awards,...choices]);
+   const complete=next.members.every(m=>next.awards.filter(a=>a.member_id===m.id).length===m.entitlement);
+   warnings=(complete?evaluate2027Final(next).warnings:partialAssessment2027(next,500).warnings)
+    .map(w=>({code:w.code,message:w.message,...(w.period!==undefined?{period:w.period}:{})}));
+  }
+  ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{impact:auditImpact,...(warnings?{warnings}:{}),version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
   await this.host.commit(ops);return {changed:true};
  }
 }

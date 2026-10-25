@@ -51,7 +51,26 @@ async function serve(request: Request) {
                 const rows=await repo.all("SELECT revision FROM app_state WHERE id='main'");
                 return reply({revision:rows[0]?.revision??0});
             }
-            if(path[0]==='election'&&path[1]&&path[2]==='options')return reply(await effectiveService.election().options(path[1],url.searchParams.getAll('selected')));
+            if(path[0]==='election'&&path[1]&&path[2]==='availability')
+                return reply(await effectiveService.election().availability(path[1]));
+            if(path[0]==='election'&&path[1]&&path[2]==='impact'){
+                const raw=url.searchParams.get('choices'),version=Number(url.searchParams.get('version'));
+                if(!raw||raw.length>10000||!Number.isSafeInteger(version)||version<0)
+                    throw new ApiError('Indica las adjudicaciones y versión de campaña válidas',400);
+                let choices:unknown;
+                try{choices=JSON.parse(raw);}catch{throw new ApiError('Previsualización inválida',400);}
+                return reply(await effectiveService.election().previewImpact(path[1],
+                    choices as {member_id:string;cycle_date:string}[],version));
+            }
+            if(path[0]==='election'&&path[1]&&path[2]==='options'){
+                const rawJoint=url.searchParams.get('joint');
+                let jointEntries:undefined|{member_id:string;dates:string[]}[];
+                if(rawJoint!==null){
+                    if(rawJoint.length>15000)throw new ApiError('Consulta demasiado grande',413);
+                    try{jointEntries=JSON.parse(rawJoint);}catch{throw new ApiError('Selección conjunta inválida');}
+                }
+                return reply(await effectiveService.election().options(path[1],url.searchParams.getAll('selected'),jointEntries));
+            }
             if(path[0]==='help'){
                 const documents=documentation(actor.role);
                 if(!path[1])return reply(documents);
@@ -101,7 +120,13 @@ async function serve(request: Request) {
         if(path[0]==='simulations'&&path[1])return reply(b.action==='delete'?await service.deleteSimulation(path[1],b):await service.createSimulation(path[1],b));
         if(path[0]==='election'&&path[1]){
             const changed=await effectiveService.election().mutate(path[1],b);
-            const view=await effectiveService.view(path[1]);
+            // The dashboard immediately advances queued automatic turns; do not
+            // solve the full cycle table for their throwaway intermediate views.
+            const autoDrainEnabled=!['election_undo','election_redo','pause','link_account','resolve_tie']
+                .includes(b.action)&&!String(b.action).startsWith('reconstruction_');
+            const view=await effectiveService.view(path[1],{
+                skipAvailabilityForPendingAutomatic:autoDrainEnabled
+            });
             // The election is committed and its response prepared before any push work.
             if(changed?.changed && view.campaign.scope_key==='live'){
                 try{

@@ -19,7 +19,7 @@ test('activación visible desde Vacaciones, regreso automático y reanudación d
  await activation.getByRole('button',{name:'Activar elección',exact:true}).click();
  await expect(page.getByRole('heading',{name:'Vacaciones del equipo',exact:true})).toBeVisible();
  await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
- await page.locator('.election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:'Pausar elección',exact:true}).click();
  const resume=page.getByRole('button',{name:'Reanudar elección',exact:true});
  await expect(resume).toBeVisible();
@@ -136,12 +136,98 @@ async function activate(page:Page,ties=''){
 async function cycle(page:Page,date:string){await page.locator('.vac2-cycle[data-cycle-date="'+date+'"]').click();}
 async function confirm(page:Page,button:string){
  const target=page.getByRole('button',{name:button,exact:true});
- if(button.startsWith('Aplazar')&&!await target.isVisible())await page.locator('.election-more-actions > summary').click();
- await target.click();
+ if(button.startsWith('Aplazar')&&!await target.isVisible())await page.getByLabel('Más acciones',{exact:true}).click();
+ // A covered/unclickable control should fail locally, not consume the entire 45 s test timeout.
+ await target.click({timeout:10_000});
  if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'});
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button',{name:'Adjudicar',exact:true}).click();
  }else await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
 }
+
+test('confirmación rápida es opcional y local únicamente en simulaciones',{tag:'@both'},async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);
+ await activate(page);
+ const menu=page.locator('.election-turn-controls > .election-more-actions');
+ await menu.locator('summary').click();
+ const checkbox=menu.getByRole('checkbox',{name:'Requerir confirmación antes de adjudicar'});
+ await expect(checkbox).toBeChecked();
+ await checkbox.uncheck();
+ await expect(page.getByText('Simulación · confirmación rápida')).toBeVisible();
+ await page.reload();
+ await expect(page.getByText('Simulación · confirmación rápida')).toBeVisible();
+ await cycle(page,scenario.data.result.cycles[0].date);
+ await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'↶ Deshacer'}).click();
+ await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'QA_A elige ahora',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'↷ Rehacer'}).click();
+ await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toHaveCount(0);
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+});
+
+test('una elección confirmada no espera el índice ni pierde su éxito si falla su actualización',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page);await open(page,s.id);await activate(page);
+ await page.route('**/api/index',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Metadatos temporalmente no disponibles'})}));
+ await cycle(page,s.data.result.cycles[0].date);await confirm(page,'Confirmar ciclo');
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ await expect(page.getByRole('status').filter({hasText:'Elección confirmada'})).toBeVisible();
+ await expect(page.getByText(/No se ha confirmado la adjudicación/)).toHaveCount(0);
+ await expect(page.locator('.vac2-cycle').first()).toBeEnabled();
+ expect((await read(request,s.id)).awards).toHaveLength(1);
+});
+
+test('los pasos automáticos confirmados se muestran antes de terminar y se conservan si falla continuar',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date);
+ for(const person of [1,2])await election(request,s.id,{action:'preferences',memberId:s.data.members[person].id,dates:[dates[person]],persistent:false});
+ await open(page,s.id);await activate(page);
+ let advances=0,release!:()=>void;
+ const held=new Promise<void>(resolve=>{release=resolve;});
+ await page.route('**/api/election/**',async route=>{
+  const body=route.request().method()==='POST'?route.request().postDataJSON():null;
+  if(body?.action==='advance'&&++advances===2){
+   await held;
+   await route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Continuación temporalmente no disponible'})});
+  }else await route.continue();
+ });
+ try{
+  await cycle(page,dates[0]);await confirm(page,'Confirmar ciclo');
+  await expect.poll(()=>advances).toBe(2);
+  await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
+  await expect(page.locator('.vac2-cycle').first()).toBeDisabled();
+ }finally{release();}
+ await expect(page.getByText('La operación se ha guardado, pero no se han completado los automatismos. Puedes continuar los pendientes sin repetir la elección.')).toBeVisible();
+ await expect(page.getByRole('button',{name:'Continuar automatismos',exact:true})).toBeEnabled();
+ await expect(page.getByText(/No se ha confirmado la adjudicación/)).toHaveCount(0);
+ const saved=await read(request,s.id);
+ expect(saved.awards).toHaveLength(2);
+ expect(saved.election.turn.memberId).toBe(s.data.members[2].id);
+});
+
+test('el modal de progreso solo aparece si tarda la adjudicación automática',{tag:'@both'},async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);
+ await activate(page);
+ const menu=page.locator('.election-turn-controls > .election-more-actions');
+ await menu.locator('summary').click();
+ await menu.getByRole('checkbox',{name:'Requerir confirmación antes de adjudicar'}).uncheck();
+ await page.route('**/api/election/**',async route=>{
+  if(route.request().method()==='POST'&&JSON.parse(route.request().postData()??'{}').action==='choose')
+   await new Promise(resolve=>setTimeout(resolve,2000));
+  await route.continue();
+ });
+ await cycle(page,scenario.data.result.cycles[0].date);
+ await expect(page.getByRole('status').filter({hasText:'Registrando la adjudicación'})).toBeVisible();
+ const dialog=page.getByRole('dialog',{name:'El motor está comprobando el reparto'});
+ await expect(dialog).toBeVisible();
+ await expect(dialog).toContainText('Registrando la adjudicación');
+ await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
+ await expect(dialog).toHaveCount(0);
+});
 
 test('integración: dos aplazamientos permiten elegir tres ciclos desde el calendario',async({page,request},info)=>{
  const s=await setup(request,page);await open(page,s.id);await activate(page);
@@ -164,6 +250,21 @@ test('integración: dos aplazamientos permiten elegir tres ciclos desde el calen
  expect(result.requests.filter((a:any)=>a.member_id===s.data.members[0].id)).toHaveLength(3);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
  if(!process.env.CI)await page.screenshot({path:info.outputPath('eleccion-integrada.png'),fullPage:true});
+});
+
+
+test('vista de controlador distingue Mis preferencias de la navegación administrativa',async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);
+ await page.getByLabel('Probar simulación como controlador').selectOption('QA_A');
+ await expect(page.getByText('Vista como controlador QA_A')).toBeVisible();
+ const tabs=page.getByRole('group',{name:'Vista de vacaciones'});
+ const mine=tabs.getByRole('button',{name:'Mis preferencias',exact:true});
+ await expect(mine).toBeVisible();
+ await expect(tabs.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
+ await mine.click();
+ await expect(mine).toHaveAttribute('aria-pressed','true');
+ await expect(page.locator('.preferences-panel')).toBeVisible();
 });
 
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
@@ -244,6 +345,8 @@ test('calendario público, permisos y aislamiento',async({page,request,browser})
 test('aplazar, elegir dos en calendario y deshacer/rehacer',{tag:'@both'},async({page,request})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);await confirm(page,'Aplazar para elegir dos');
+  // An open action menu would cover the Redo control on desktop.
+  await expect(page.locator('.election-turn-controls > .election-more-actions')).not.toHaveAttribute('open','');
   await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
   for(let i=1;i<4;i++){
     await cycle(page,dates[i-1]);await confirm(page,'Confirmar ciclo');
@@ -519,7 +622,7 @@ test('Criterios 1.1: dos CTA eligen juntos al llegar el último, en una sola tra
  await open(page,fixture.id);
  await activate(page);
  // Agree exceptionally during round 1, not as part of campaign preparation.
- await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
  const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
  await expect(joint).toBeVisible();
@@ -594,7 +697,7 @@ test('empate anticipado conserva el turno y deja formar grupo conjunto con casil
  await open(page,s.id);
  await activate(page,'QA_C');
  await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
- await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:/Resolver empates pendientes/}).click();
  const dialog=page.getByRole('dialog',{name:'Resolver empates pendientes'});
  await expect(dialog).toBeVisible();
@@ -610,7 +713,7 @@ test('empate anticipado conserva el turno y deja formar grupo conjunto con casil
  expect(resolved.election.state.tieResolutions[0].order).toEqual([s.data.members[2].id,s.data.members[1].id]);
  expect(resolved.election.turn.memberId).toBe(s.data.members[0].id);
  await expect(page.getByRole('heading',{name:'QA_A elige ahora'})).toBeVisible();
- await page.locator('.election-turn .election-more-actions > summary').click();
+ await page.getByLabel('Más acciones',{exact:true}).click();
  await page.getByRole('button',{name:'Gestionar turnos conjuntos…'}).click();
  const joint=page.getByRole('region',{name:'Gestionar turnos conjuntos'});
  const checkbox=joint.getByRole('checkbox',{name:'QA_A'});
