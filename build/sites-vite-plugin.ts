@@ -9,6 +9,18 @@ const localUserId = "local_seedy";
 const localEmail = "seedy@sites.test";
 const localFullName = "Seedy";
 const localCookieName = "__sites_local_auth";
+// Local development only: sign in as another fictitious @sites.test user with
+// /signin-with-chatgpt?como=persona@sites.test, to review the app as a team
+// manager or a linked controller. Never reaches the deployed Site.
+const localIdentityPattern = /^[a-z0-9._%+-]+@sites.test$/i;
+function localIdentity(cookie: string): { id: string; email: string; name: string } | null {
+  if (cookie === "1") return { id: localUserId, email: localEmail, name: localFullName };
+  let email = "";
+  try { email = decodeURIComponent(cookie); } catch { return null; }
+  if (!localIdentityPattern.test(email)) return null;
+  const name = email.split("@")[0];
+  return { id: "local_" + name.toLowerCase(), email: email.toLowerCase(), name };
+}
 const localHosts = new Set(["localhost", "127.0.0.1", "::1"]);
 const localAddresses = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const authPaths = new Set([
@@ -105,13 +117,14 @@ export function sites({ mockAuth = true } = {}): Plugin {
         const signIn = url.pathname === "/signin-with-chatgpt";
         const signOut = url.pathname === "/signout-with-chatgpt";
         if (!signIn && !signOut) {
-          if (signInCookies.length === 1 && signInCookies[0] === "1") {
-            setHeader(request, "oai-authenticated-user-id", localUserId);
-            setHeader(request, "oai-authenticated-user-email", localEmail);
+          const identity = signInCookies.length === 1 ? localIdentity(signInCookies[0]) : null;
+          if (identity) {
+            setHeader(request, "oai-authenticated-user-id", identity.id);
+            setHeader(request, "oai-authenticated-user-email", identity.email);
             setHeader(
               request,
               "oai-authenticated-user-full-name",
-              localFullName,
+              encodeURIComponent(identity.name),
             );
             setHeader(
               request,
@@ -163,7 +176,7 @@ export function sites({ mockAuth = true } = {}): Plugin {
         );
         response.setHeader(
           "Set-Cookie",
-          `${localCookieName}=${signIn ? "1" : ""}; Path=/; ${
+          `${localCookieName}=${signIn ? signInValue(url) : ""}; Path=/; ${
             signOut ? "Max-Age=0; " : ""
           }HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`,
         );
@@ -188,6 +201,11 @@ export function sites({ mockAuth = true } = {}): Plugin {
       }
     },
   };
+}
+
+function signInValue(url: URL): string {
+  const como = url.searchParams.get("como") ?? "";
+  return localIdentityPattern.test(como) ? encodeURIComponent(como.toLowerCase()) : "1";
 }
 
 function removeHeader(request: IncomingMessage, name: string): void {
