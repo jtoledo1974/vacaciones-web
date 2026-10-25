@@ -366,7 +366,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const autoPick=lastAuto?{id:lastAuto.id,round:lastAuto.round,dates:lastAuto.choices.filter((c:any)=>c.member_id===mine).map((c:any)=>({date:c.cycle_date,end:data.result.cycles.find((x:any)=>x.date===c.cycle_date)?.end??c.cycle_date}))}:null;
  const showCalendar=()=>document.querySelector('.vac2-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
  return <>
-  {me&&!frozen&&<MyElectionCard me={me} autoPick={autoPick}
+  {me&&!frozen&&!(manage&&me.phase!=='my-turn')&&<MyElectionCard me={me} autoPick={autoPick}
    onChoose={async()=>{if(mode!=='choose'&&!await leavePreferences())return;setMode('choose');showCalendar();}}
    onList={()=>{if(!canPreferences)return;if(mine&&preferenceMemberIds.includes(mine))setMemberId(mine);setMode('preferences');setDetail(null);onPreferenceEdit?.();showCalendar();}}/>}
   {thinking&&<div className="election-thinking-inline" role="status" aria-live="polite"><span className="election-thinking-spinner" aria-hidden="true"/>{thinkingMessage}</div>}
@@ -414,6 +414,9 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     </div></details>}
    </div>
   </section>}
+  {me&&!frozen&&manage&&me.phase!=='my-turn'&&<MyElectionCard compact me={me} autoPick={autoPick}
+   onChoose={async()=>{if(mode!=='choose'&&!await leavePreferences())return;setMode('choose');showCalendar();}}
+   onList={()=>{if(!canPreferences)return;if(mine&&preferenceMemberIds.includes(mine))setMemberId(mine);setMode('preferences');setDetail(null);onPreferenceEdit?.();showCalendar();}}/>}
   {manage&&open&&!frozen&&state?.status==='active'&&pendingGroups.length>0&&!turn?.pendingTie&&<div className="alert warning election-blocker" role="status">
    <span><strong>{pendingGroups.length===1?'1 empate pendiente de sorteo.':pendingGroups.length+' empates pendientes de sorteo.'}</strong> La elección se detendrá al llegar {pendingGroups.length===1?'a él':'al primero'} si no se sortea antes.</span>
    <button type="button" className="secondary" disabled={busy||previewReadOnly} onClick={()=>setTieDialogOpen(true)}>Sortear ahora</button>

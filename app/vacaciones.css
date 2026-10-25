@@ -885,3 +885,8 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 @media(max-width:580px){.selectors{flex-wrap:wrap}}
 .campaign-strip>span:first-child{flex-wrap:wrap;row-gap:6px;min-width:0}.campaign-strip .tag{white-space:normal}
 .preference-usage{padding:4px 10px 6px}.preference-usage .preference-consent{min-height:40px;font-size:13px}.preference-usage small{font-size:12px;line-height:1.35}.preference-editor-footer{gap:6px}
+/* #65 tarjeta personal plegada para quien lleva la mesa. */
+.my-election-compact{padding:0 16px}
+.my-election-compact>summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-height:52px;padding:8px 0;font-size:14px;color:#1d3331;cursor:pointer}
+.my-election-compact>summary .my-election-kicker{margin:0;font-size:12px}
+.my-election-compact[open]{padding-bottom:16px}

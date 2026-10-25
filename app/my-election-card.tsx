@@ -14,8 +14,11 @@ const listText:Record<MyElection['list']['state'],string>={
 
 export type AutoPick={id:string;round:number;dates:{date:string;end:string}[]};
 
-/** The controller's own situation, first on the page: turn, cycles and list. */
-export default function MyElectionCard({me,autoPick,onChoose,onList}:{me:MyElection;autoPick?:AutoPick|null;onChoose:()=>void;onList:()=>void}){
+const listShort:Record<MyElection['list']['state'],string>={none:'sin preferencias','active-next':'preferencias para tu próximo turno','active-all':'preferencias para todos tus turnos',used:'preferencias ya usadas',paused:'elección automática detenida'};
+
+/** The controller's own situation, first on the page: turn, cycles and list.
+ * compact: a one-line summary that unfolds, for managers running the table while it is not their turn. */
+export default function MyElectionCard({me,autoPick,onChoose,onList,compact=false}:{me:MyElection;autoPick?:AutoPick|null;onChoose:()=>void;onList:()=>void;compact?:boolean}){
  // An automatic pick stays visible until dismissed on this device: it may have happened while away.
  const [dismissed,setDismissed]=useState(true);
  useEffect(()=>{
@@ -37,7 +40,7 @@ export default function MyElectionCard({me,autoPick,onChoose,onList}:{me:MyElect
   :me.phase==='waiting'&&me.turnsAhead!==null?'Estimación: los turnos conjuntos y aplazamientos pueden cambiarla.'
   :'';
  const lost=me.list.entries.filter(e=>!e.mine&&e.free===0).length;
- return <section className={'panel my-election'+(turn?' is-my-turn':'')} aria-label="Mi elección">
+ const body=<>
   <div className="my-election-head">
    <div><span className="my-election-kicker">MI ELECCIÓN{me.round?` · RONDA ${me.round}`:''}</span>
     <h2>{headline}</h2>{sub&&<p>{sub}</p>}</div>
@@ -58,5 +61,10 @@ export default function MyElectionCard({me,autoPick,onChoose,onList}:{me:MyElect
    <button type="button" className="secondary" onClick={onList}>{me.list.state==='none'?'Preparar mis preferencias':me.list.state==='used'?'Reactivar mis preferencias':'Revisar mis preferencias'}</button>
   </div>
   <a className="my-election-notify" href="/notificaciones"><Bell size={16} aria-hidden="true"/>Avísame cuando me toque</a>
- </section>;
+ </>;
+ if(compact)return <details className="panel my-election my-election-compact" aria-label="Mi elección" open={!!autoPick&&!dismissed}>
+  <summary><span className="my-election-kicker">Tu elección</span><span>{headline} · {me.cycles.length}/{me.entitlement} · {listShort[me.list.state]}</span></summary>
+  {body}
+ </details>;
+ return <section className={'panel my-election'+(turn?' is-my-turn':'')} aria-label="Mi elección">{body}</section>;
 }
