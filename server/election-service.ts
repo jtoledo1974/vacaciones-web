@@ -212,7 +212,14 @@ export class ElectionService{
    }
   }else if(focus&&!skipFullAvailability)
    available=result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date);
-  const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
+  // This is the progress of awarded cycles, not historical points from requests.
+  // Requests are still used by calculate() to establish next year's election order.
+  const cycleScores=new Map(result.cycles.map(c=>[c.date,c.score]));
+  const points=d.members.map((m:any)=>{
+   const awarded=d.awards.filter((a:any)=>a.member_id===m.id);
+   return {member_id:m.id,cycles:awarded.length,
+    points:awarded.reduce((sum:number,a:any)=>sum+(cycleScores.get(a.cycle_date)??0),0)};
+  });
   const history=manage?await this.history(cid,options.auditContext):null;
   // Replay persisted actions, then expose only an allowlisted compact projection
   // to public viewers. Managers retain the complete existing timeline.

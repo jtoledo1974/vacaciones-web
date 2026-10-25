@@ -290,6 +290,37 @@ test('Criterios 1.1 p.2: la elección guarda seis solicitudes de origen, que sob
  assert.equal(next.awards[0].cycle_date,dates[1]);
  assert.equal(next.requests[0].cycle_date,dates[0]);
 });
+test('el resumen de ciclos y puntos contabiliza solo adjudicaciones, aunque existan solicitudes distintas',async()=>{
+ const {s,cid,d}=await setup(),[a,b,c]=d.members;
+ const [aAwarded,aExtra,bRequested,bAwarded,bSecond,cRequested]=d.result.cycles.slice(0,6).map((cycle:any)=>cycle.date);
+ const score=(date:string)=>d.result.cycles.find((cycle:any)=>cycle.date===date).score;
+ let current=d;
+ const change=async(body:Record<string,unknown>)=>{
+  current=await s.mutate(cid,{...body,version:current.campaign.version});
+ };
+ // Dos solicitudes, una adjudicación: el resumen no debe sumar la solicitud extra.
+ await change({action:'request',memberId:a.id,slot:1,date:aAwarded});
+ await change({action:'request',memberId:a.id,slot:2,date:aExtra});
+ await change({action:'award',memberId:a.id,date:aAwarded});
+ // La adjudicación permutada también debe puntuar según el ciclo adjudicado.
+ await change({action:'request',memberId:b.id,slot:1,date:bRequested});
+ await change({action:'award',memberId:b.id,date:bAwarded});
+ // Varias adjudicaciones de una misma persona se suman.
+ await change({action:'award',memberId:b.id,date:bSecond});
+ // Sin adjudicación no hay puntos en el resumen, aunque haya solicitudes.
+ await change({action:'request',memberId:c.id,slot:1,date:cRequested});
+ const summary=(memberId:string)=>current.election.points.find((p:any)=>p.member_id===memberId);
+ assert.deepEqual(summary(a.id),{member_id:a.id,cycles:1,points:score(aAwarded)});
+ assert.deepEqual(summary(b.id),{member_id:b.id,cycles:2,points:score(bAwarded)+score(bSecond)});
+ assert.deepEqual(summary(c.id),{member_id:c.id,cycles:0,points:0});
+ // El baremo histórico conserva las solicitudes originales y su puntuación.
+ assert.deepEqual(current.requests.filter((r:any)=>r.member_id===a.id).map((r:any)=>r.cycle_date).sort(),[aAwarded,aExtra].sort());
+ const historicalA=current.result.ordering.find((m:any)=>m.id===a.id).score;
+ // Mismo índice que calculate() en domain/vacations.ts: weights[(slot+4)%6].
+ const weight=(slot:number)=>d.config.weights[(slot+4)%6];
+ assert.equal(historicalA,score(aAwarded)*weight(1)+score(aExtra)*weight(2));
+});
+
 test('Criterios 1.1 p.2: turno conjunto: servidor confirma todas las selecciones y solicitudes o ninguna',async()=>{
  const {s,cid,d}=await setup(),[a,b,c]=d.members,dates=d.result.cycles.map((c:any)=>c.date);
  await act(s,cid,start(d));
