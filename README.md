@@ -119,3 +119,7 @@ propia cuenta**. El endpoint comprueba rol y titularidad de la suscripción ante
 no toca campañas, elecciones, preferencias ni cola de avisos. La prueba no reproduce
 el cambio real de turno ni envía alertas automáticas en simulaciones. Requiere claves
 VAPID y un navegador compatible con Web Push.
+
+## Normas definitivas de 2027
+
+La política vigente es `lecs-2027-occupancy-v3`, según la guía v1.1 y la aclaración de periodos estancos. Ver [reglas y compatibilidad](docs/policy-2027-definitive-guide.md). Sustituye la interpretación provisional del 24 de octubre.

@@ -9,10 +9,10 @@ import {
 } from '../domain/policy-2027.ts';
 
 function completedState():PolicyState {
- const counts=[2,2,2,4,4,3,2,2,2];
+ const counts=[2,2,2,4,4,3,2,2,2,2,2];
  const cycles=counts.map((_,i)=>({
-  date:i<3?'pre'+i:i<6?'summer'+(i-3):'post'+(i-6),
-  period:(i<3?0:i<6?1:2) as 0|1|2
+  date:i<3?'pre'+i:i<8?'summer'+(i-3):'post'+(i-8),
+  period:(i<3?0:i<8?1:2) as 0|1|2
  }));
  const memberCounts=new Array(6).fill(0) as number[];
  const awards:PolicyAward[]=[];
@@ -102,7 +102,7 @@ test('a failed atomic preview does not mutate state or fabricate an impact',()=>
  assert.equal(preview.allowed,false);
  assert.equal(preview.impact,null);
  assert.equal(preview.issues[0]?.code,'DUPLICATE_AWARD');
- assert.equal(base.awards.length,23);
+ assert.equal(base.awards.length,27);
 });
 
 test('the constrained solver proves an existential target without naming all chosen controllers',()=>{
@@ -284,7 +284,7 @@ test('a block caused only by preverano extra-third permits is attributed by rela
  }
  const full:PolicyState={cycles,members:memberCounts.map((entitlement,i)=>({id:'m'+i,entitlement})),awards};
  assert.equal(evaluate2027Final(full).valid,false);
- assert.equal(evaluate2027Final(full,false,{preThird:3}).valid,true);
+ assert.equal(evaluate2027Final(full,{preThird:3}).valid,true);
  // Withdraw one occupant of a PRE three: returning there needs a third PRE EC3.
  const target=cycles[3].date,removed=awards.findIndex(a=>a.cycle_date===target);
  const partial={...full,awards:awards.filter((_,i)=>i!==removed)};

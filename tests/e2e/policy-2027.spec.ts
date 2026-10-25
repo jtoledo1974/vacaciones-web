@@ -102,7 +102,7 @@ test('2027: agotar la cuarta de preverano se destaca en el historial y explica e
  expect(await rejected.text()).toContain('El preverano ya tiene su ciclo con cuatro');
 });
 
-test('2027: la confirmación rápida se detiene ante un aviso normativo y lo muestra primero',async({page,request})=>{
+test('2027: el origen territorial es obligatorio y no puede aceptarse como aviso',async({page,request})=>{
  const {id,data}=await setup2027(request,page);
  const pre=preCycles(data),last=pre[pre.length-1];
  const target=new Map(pre.map((date:string,i:number)=>[date,i===0?4:i===pre.length-1?2:3]));
@@ -115,15 +115,14 @@ test('2027: la confirmación rápida se detiene ante un aviso normativo y lo mue
   d=await election(request,id,{action:'choose',memberId:member,dates:[date]});
  }
  expect(pre.every((x:string)=>d.awards.filter((a:any)=>a.cycle_date===x).length===target.get(x))).toBe(true);
- await open(page,id);
- const menu=page.locator('.election-turn-controls > .election-more-actions');
- await menu.locator('summary').click();
- await menu.getByRole('checkbox',{name:'Requerir confirmación antes de adjudicar'}).uncheck();
- await page.locator('button[data-cycle-date="'+last+'"]').first().click();
- const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación'});
- await expect(dialog).toBeVisible();
- await expect(dialog.locator('strong')).toContainText('Avisos normativos:');
- await expect(dialog.locator('strong')).toContainText('Lectura estricta de RR. HH.');
- await dialog.getByRole('button',{name:'Cancelar',exact:true}).click();
+ const before=d.awards.length;
+ const rejected=await request.post('/api/election/'+id,{headers:{Origin:origin},data:{
+  action:'choose',version:d.campaign.version,memberId:d.election.turn.memberId,dates:[last]
+ }});
+ expect(rejected.ok()).toBeFalsy();
+ expect((await read(request,id)).awards.length).toBe(before);
  expect((await read(request,id)).awards.filter((a:any)=>a.cycle_date===last).length).toBe(2);
+ await open(page,id);
+ await page.locator('button[data-cycle-date="'+last+'"]').first().click();
+ await expect(page.getByRole('dialog',{name:'Confirmar adjudicación'})).toHaveCount(0);
 });

@@ -1,3 +1,5 @@
+> Documento histórico de la política v2, sustituido por [la guía definitiva y política v3](policy-2027-definitive-guide.md). No utilizar como norma vigente.
+
 # Política LECS 2027 · corrección del 24 de octubre de 2026
 
 **Fuente prevalente:** [acuerdo normativo y aclaraciones en PR #58](https://github.com/jtoledo1974/vacaciones-web/pull/58#issuecomment-6383119950). Este documento no sustituye el acta de RRHH y no representa autorización definitiva de las interpretaciones pendientes. Sustituye las afirmaciones incompatibles del issue #57 y de la descripción previa del PR.

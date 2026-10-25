@@ -108,10 +108,9 @@ export function calculate(
             const max=Math.min(c.specialQuotas?.[s.date]??4,hr2027FourthExcluded(team,s.date)?3:4);
             if(occupied>max) year2027Issues.push(s.date+': supera el cupo máximo autorizado por RRHH');
             return {...s,occupied,requested:requests.filter(a=>a.cycle_date===s.date).length,
-                min:s.period===1?2:1,base:2,max,available:occupied<max};
+                min:1,base:2,max,available:occupied<max};
         });
-        // Warnings that every completion would trigger (strict territorial
-        // reading, summer-total deviation) persist after each adjudication.
+        // Warnings that every completion would trigger (summer-total deviation) persist after each adjudication.
         // They are not inferred from provisional occupation (which may still
         // be completed), and they never turn into blocking errors.
         const partial= !options.skip2027Proof && !complete && !year2027Issues.length && awards.length
