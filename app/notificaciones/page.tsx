@@ -4,6 +4,7 @@ import {useCallback,useEffect,useState} from 'react';
 import {Bell,BellOff,CheckCircle2,HelpCircle,RefreshCw,ShieldAlert,Smartphone} from 'lucide-react';
 import {firebaseBearerToken} from '../firebase-client';
 import {isAppleMobile,notificationView} from './notification-view';
+import {activeRegistration} from './service-worker';
 
 type NotificationSettings={
  canTest:boolean;
@@ -88,9 +89,7 @@ export default function NotificationPreferences(){
     setDevice(d=>({...d,permission}));
     if(permission!=='granted')throw Error('No se han autorizado los avisos. Comprueba los permisos del navegador.');
    }
-   const registration=await navigator.serviceWorker.register('/push-probe-sw.js',{scope:'/notificaciones/'});
-   // The registration is scoped to /notificaciones, so do not await
-   // navigator.serviceWorker.ready on any other URL.
+   const registration=await activeRegistration(await navigator.serviceWorker.register('/push-probe-sw.js',{scope:'/notificaciones/'}));
    let subscription=await registration.pushManager.getSubscription();
    if(enabled){
     if(subscription){
@@ -148,7 +147,7 @@ export default function NotificationPreferences(){
      <h3>Cómo activarlos en iPhone o iPad</h3>
      <ol><li>Abre esta web en Safari y toca <strong>Compartir</strong>.</li>
       <li>Selecciona <strong>Añadir a pantalla de inicio</strong>.</li>
-      <li>Abre <strong>Vacaciones LECS</strong> desde el icono creado y pulsa <strong>Activar avisos</strong>.</li></ol>
+      <li>Abre <strong>Vacaciones LECS</strong> desde el icono creado, toca <strong>Avísame cuando me toque</strong> y pulsa <strong>Activar avisos</strong>.</li></ol>
      <p>Necesitas iOS o iPadOS 16.4 o posterior. Desde una pestaña normal del navegador no se pueden activar.</p>
     </div>}
     {view.kind==='blocked'&&<div className="notifications-instructions">
