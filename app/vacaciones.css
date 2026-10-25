@@ -644,3 +644,25 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 /* Build stamp at the very bottom: diagnostic, not a navigation item. */
 .content > footer .footer-build{display:block;flex-basis:100%;text-align:right;margin-top:3px;font-size:10px;line-height:1.4;font-weight:400;color:#829288}
 .content > footer .footer-build time{font:inherit;color:inherit}
+/* Mi elección (#64): la situación propia del controlador, primero en la página. */
+.my-election{padding:18px 20px;border-color:#cfe0d8}
+.my-election-head{display:flex;justify-content:space-between;align-items:center;gap:14px}
+.my-election-kicker{display:block;font-size:12px;font-weight:650;letter-spacing:1.2px;color:#3f6b57;margin-bottom:6px}
+.my-election h2{font-size:22px;color:#1d3331}
+.my-election-head p{margin:4px 0 0;font-size:13px;color:#4f625b}
+.my-election.is-my-turn{background:#317a69;border-color:#317a69;color:#fff}
+.my-election.is-my-turn h2,.my-election.is-my-turn .my-election-kicker,.my-election.is-my-turn .my-election-head p,.my-election.is-my-turn strong,.my-election.is-my-turn .my-election-quiet,.my-election.is-my-turn .my-election-notify{color:#fff}
+.my-election.is-my-turn .my-election-cta{background:#fff;color:#1f5a4b}
+.my-election.is-my-turn .my-election-chips span{background:#ffffff26;color:#fff}
+.my-election-cta{min-height:44px;font-size:14px;padding:11px 20px}
+.my-election-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid #e4eae7;margin-top:14px;padding-top:12px;font-size:13px;color:#2d4441}
+.my-election.is-my-turn .my-election-row{border-top-color:#ffffff40}
+.my-election-row strong{font-size:13px}
+.my-election-row .secondary{min-height:44px;font-size:13px}
+.my-election-chips{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+.my-election-chips span{background:#e7f1ec;color:#1f5a4b;border-radius:6px;padding:6px 9px;font-size:13px;font-weight:550}
+.my-election-quiet{display:block;font-size:12px;color:#55675f;margin-top:3px}
+.my-election-list.is-used strong,.my-election-list.is-none strong{color:#8a4b1f}
+.my-election-notify{display:inline-flex;align-items:center;gap:8px;margin-top:12px;min-height:44px;font-size:13px;font-weight:550;color:#1f5a4b;text-decoration:underline;text-underline-offset:3px}
+@media (max-width:580px){.my-election-head{flex-direction:column;align-items:stretch}.my-election-cta{width:100%}.my-election-row .secondary{width:100%}}
+.my-election.is-my-turn .my-election-list strong{color:#fff}

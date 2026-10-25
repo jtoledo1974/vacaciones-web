@@ -7,6 +7,8 @@ import {numberTimelineCycles} from '../domain/timeline-numbering';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 import {cycleAvailability,slotExplanation,summarizeImpact} from './cycle-availability-ui';
+import MyElectionCard from './my-election-card';
+import {myElection} from './my-election-state';
 
 export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onResolveCycles,onSaveSource}:any){
  const scores=data.config?.previousScores??{},source=typeof data.config?.previousScoresSource==='string'?data.config.previousScoresSource:'';
@@ -320,7 +322,12 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   if(simulation&&quickMode&&!busy&&next.length===turn.needed&&turn?.participants?.length===1)
    void submitChoice(next.map(date=>({member_id:turn.memberId,cycle_date:date})));
  }
+ const me=!manage?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,state,turn}):null;
+ const showCalendar=()=>document.querySelector('.vac2-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
  return <>
+  {me&&!frozen&&<MyElectionCard me={me}
+   onChoose={async()=>{if(mode!=='choose'&&!await leavePreferences())return;setMode('choose');showCalendar();}}
+   onList={()=>{if(!canPreferences)return;setMode('preferences');setDetail(null);onPreferenceEdit?.();showCalendar();}}/>}
   {thinking&&<div className="election-thinking-inline" role="status" aria-live="polite"><span className="election-thinking-spinner" aria-hidden="true"/>{thinkingMessage}</div>}
   {thinking&&slowChoice&&<div className="election-thinking-backdrop"><section className="election-thinking-dialog" role="dialog" aria-modal="true" aria-labelledby="election-thinking-title">
    <span className="election-thinking-spinner" aria-hidden="true"/>
