@@ -40,7 +40,7 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
  const styles={'--vac3-font-size':fontSize+'px'} as CSSProperties;
  return <div className={"vac3"+(year===2027?" vac3-2027":"")} style={styles}>
   <div className="vac3-tools">
-   <span><strong>{cycles.length}</strong> ciclos · 8 días por ciclo</span>
+   <span><strong>{cycles.length}</strong> ciclos · 8 días por ciclo · 1º eligió antes</span>
    <span className="vac3-size-actions">
     <button type="button" onClick={()=>setFontSize(x=>Math.max(12,x-1))} disabled={fontSize<=12} aria-label="Reducir letra de la tabla">A−</button>
     <button type="button" onClick={()=>setFontSize(x=>Math.min(16,x+1))} disabled={fontSize>=16} aria-label="Ampliar letra de la tabla">A+</button>
@@ -48,7 +48,7 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
   </div>
   <div className="vac3-scroll" role="region" tabIndex={0} aria-label="Tabla de ciclos de vacaciones; desplaza para consultar todas las filas y columnas">
    <table className="vac3-table">
-    <caption className="vac3-sr">Baremo, inicio de cada ciclo y controladores ocupantes por cupo</caption>
+    <caption className="vac3-sr">Baremo, inicio de cada ciclo y controladores en orden de elección (primera plaza: primera elección)</caption>
     <thead><tr>
      <th scope="col" className="vac3-points">Pts</th>
      <th scope="col" className="vac3-date">Ciclo</th>

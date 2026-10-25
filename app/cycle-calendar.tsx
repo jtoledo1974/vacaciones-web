@@ -147,7 +147,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   </>}
   {view==='members'&&renderMembers()}
   <p className="vac2-footnote">{year===2027
-   ?'Las plazas libres tienen en cuenta las normas del reparto: si una persona coge un ciclo, puede reducir las de otros. «?» significa que aún se está calculando; no es un bloqueo. Pulsa un ciclo para ver el detalle.'
+   ?'Las plazas libres tienen en cuenta las normas del reparto: si una persona coge un ciclo, puede reducir las de otros. «?» significa que aún se está calculando; no es un bloqueo. Los nombres aparecen por orden de elección. Pulsa un ciclo para ver el detalle.'
    :'Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar.'}</p>
  </section>;
 }

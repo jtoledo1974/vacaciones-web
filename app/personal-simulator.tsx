@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
+import {orderAwardsBySelection} from '../domain/award-display-order';
 import {firebaseBearerToken} from './firebase-client';
 
 const PERIODS=['Preverano','Verano','Postverano'];
@@ -66,7 +67,10 @@ export default function PersonalSimulator({data,onExit}:{data:any;onExit:()=>voi
   <h2>Simulador personal</h2><p>El simulador está disponible mientras la elección está en curso.</p>
   <button type="button" className="secondary" onClick={onExit}>Volver al calendario</button></section>;
 
- const simAwards=sim.awards as {member_id:string;cycle_date:string;simulated:boolean}[];
+ const allAwards=sim.awards as {member_id:string;cycle_date:string;simulated:boolean}[];
+ // Preserve actual choice order for the real awards; append private simulated choices in step order.
+ const simAwards=[...orderAwardsBySelection(allAwards.filter(a=>!a.simulated),data.election?.timeline),
+  ...allAwards.filter(a=>a.simulated)];
  const cycles=data.result.cycles.map((c:any)=>({...c,occupied:simAwards.filter(a=>a.cycle_date===c.date).length}));
  const steps=sim.steps as {entries:{member_id:string;dates:string[]}[]}[];
  const stepLabel=(i:number)=>'Turno simulado '+(i+1)+': '+steps[i].entries.map(e=>code(e.member_id)+' · '+e.dates.map(formatDate).join(' + ')).join(' | ');
