@@ -72,3 +72,16 @@ El secreto debe ser **idéntico** en ambos entornos y nunca debe enviarse desde 
 8. Probar el endpoint externo y los secretos en el alojamiento real.
 
 **Estado:** PR en borrador; no fusionado ni desplegado. La cuenta Cloudflare personal aún debe configurarse. El código de Cron está preparado, pero no existe ninguna tarea externa activa hasta desplegar el Worker.
+
+## Experiencia de activación (PR de UX, octubre de 2026)
+
+La página `/notificaciones` distingue **permiso del navegador** y **suscripción Push de este dispositivo**. Solo muestra «Avisos activos» cuando el permiso está concedido y el endpoint local coincide con una suscripción registrada de la cuenta actual. Si falla la consulta del servidor, muestra «No podemos comprobar tus avisos»; nunca da por hecho que están desactivados. La prueba de Push sigue estando restringida a superadministradores y dispositivos propios.
+
+- **Android (Chrome u otro navegador compatible), Windows y macOS:** entrar con la cuenta asociada, abrir «Avísame cuando me toque» o `/notificaciones`, pulsar «Activar avisos», aceptar el permiso, y comprobar que el estado cambia a activo. Si se denegó, habilitarlo en los ajustes del sitio/dispositivo y «Volver a comprobar».
+- **iPhone o iPad con iOS/iPadOS 16.4+:** no se puede usar Push desde una pestaña normal del navegador. Añadir la web a la pantalla de inicio desde Compartir, abrir **Vacaciones LECS** desde el icono instalado (manifest con `display: standalone` y `start_url: /notificaciones`) y activar allí las notificaciones. La instalación es específica de cada dispositivo.
+- **Otros navegadores y versiones:** se detecta si faltan Service Worker, Notifications API, PushManager o HTTPS, sin presentar un botón de activación que no funcionaría. La web no puede activar permisos ni ignorar restricciones del SO.
+- **Estado técnico:** se muestra solo en «Ayuda y diagnóstico». El histórico indica avisos generados, no confirmaciones de lectura ni de aparición en el móvil.
+
+El manifiesto está en `public/manifest.webmanifest`, se anuncia desde `app/layout.tsx` y los iconos de instalación son PNG 192/512. El Service Worker existente `/push-probe-sw.js` mantiene su alcance `/notificaciones/`; no intercepta el tráfico de elecciones.
+
+**Límites importantes:** ningún cambio de frontend configura VAPID, las migraciones de D1 o el Worker externo. La activación y el envío deben verificarse en producción con un Android real, un iPhone instalado y un navegador de escritorio. La aceptación de un aviso por el proveedor Push no prueba su visualización por el sistema operativo. La mejora de UX no añade todavía mensajes Push para elecciones automáticas (véase issue #66).
