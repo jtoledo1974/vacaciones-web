@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {notificationView, type NotificationViewInput} from '../app/notificaciones/notification-view.ts';
+import {notificationView, isAppleMobile, type NotificationViewInput} from '../app/notificaciones/notification-view.ts';
 
 const base:NotificationViewInput={
  loading:false,
@@ -47,4 +47,23 @@ test('si ya está activado, se puede desactivar aunque falte VAPID',()=>{
  const state=notificationView({...base,permission:'granted',enabled:true,hasPublicKey:false});
  assert.equal(state.kind,'active');
  assert.equal(state.action,'Desactivar avisos');
+});
+
+test('iPhone sin instalar informa de pasos y nunca intenta pedir permiso',()=>{
+ const state=notificationView({...base,supported:false,appleMobile:true,standalone:false});
+ assert.equal(state.kind,'install');
+ assert.equal(state.action,null);
+});
+
+test('una app instalada en iOS puede activar avisos como otro navegador',()=>{
+ const state=notificationView({...base,supported:true,appleMobile:true,standalone:true});
+ assert.equal(state.kind,'inactive');
+ assert.equal(state.action,'Activar avisos');
+});
+
+test('detección de iOS incluye iPad con user agent de escritorio',()=>{
+ assert.equal(isAppleMobile('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)',5),true);
+ assert.equal(isAppleMobile('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)',5),true);
+ assert.equal(isAppleMobile('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15)',0),false);
+ assert.equal(isAppleMobile('Mozilla/5.0 (Linux; Android 14)',5),false);
 });
