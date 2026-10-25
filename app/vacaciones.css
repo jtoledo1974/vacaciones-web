@@ -805,3 +805,15 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac3-key{display:inline-block;width:14px;height:14px;border:1px solid #9aa9a3;border-radius:3px;vertical-align:-2px}
 .vac3-key-free{background:#fff}.vac3-key-occupied{background:#e4ece8}
 .vac3-table .vac3-summer .vac3-points{box-shadow:inset 6px 0 #e0a526}.vac3-table .vac3-selected .vac3-points{box-shadow:inset 3px 0 #b0136b}.vac3-table .vac3-summer.vac3-selected .vac3-points{box-shadow:inset 6px 0 #e0a526,inset 9px 0 #b0136b}.vac3-table .vac3-selected td:last-child{box-shadow:inset -3px 0 #b0136b}
+/* #64 modo preferencias reconocible y salto a mes en el Mapa. */
+.preference-mode-banner{display:grid;gap:3px;margin:0 0 12px;padding:12px 14px;border-radius:10px;background:#fbeaf3;border:1px solid #e6a9cb;border-left:6px solid #b0136b;color:#4a0c2e;font-size:13px;line-height:1.45}
+.preference-mode-banner strong{font-size:15px}
+.is-preparing-preferences .vac2-panel{border-color:#e6a9cb;box-shadow:0 0 0 2px #f6d3e6}
+.vac2-month-jump{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;margin-bottom:4px;position:sticky;top:0;z-index:4;background:#fff;scrollbar-width:thin}
+.vac2-month-jump button{flex:none;min-width:44px;min-height:44px;padding:0 12px;border:1px solid #c9d6d0;border-radius:999px;background:#fff;color:#1f5a4b;font-size:13px;font-weight:650}
+.vac2-month{scroll-margin-top:64px}
+@media(min-width:901px){.vac2-month-jump{display:none}}
+.vac2-month-jump{flex-direction:row}
+.vac2-year-2027 .vac2-key.vac2-free-4{background:#0b4f40}.vac2-year-2027 .vac2-key.vac2-free-3{background:#1f7a60}.vac2-year-2027 .vac2-key.vac2-free-2{background:#9fd3bd}.vac2-year-2027 .vac2-key.vac2-free-1{background:#dcefe6}
+.vac2-year-2027 .vac2-key.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px)}
+.vac2-year-2027 .vac2-key.vac2-unknown{background:#fff;border:2px dashed #6c7480}

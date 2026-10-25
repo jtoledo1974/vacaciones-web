@@ -77,7 +77,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
  }
  function renderMonth(m:number,detail:boolean){
   const monthCycles=byMonth[m];
-  return <section key={m} className="vac2-month" aria-label={months[m]}>
+  return <section key={m} className="vac2-month" aria-label={months[m]} id={detail?undefined:'vac2-map-month-'+m}>
    <h3>{months[m]}</h3>
    {detail?<>
     <div className="vac2-weekdays">{'LMXJVSD'.split('').map((d,i)=><span key={i}>{d}</span>)}</div>
@@ -117,7 +117,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
  }
  return <section className={"panel vac2-panel"+(year===2027?" vac2-year-2027":"")} aria-label="Calendario de ciclos">
   <div className="vac2-heading">
-   <div><h2>Disponibilidad y baremo</h2><p className="muted">{preferenceMode?'Pulsa un ciclo para añadirlo y vuelve a pulsarlo para quitarlo. El orden de selección determina la prioridad; revisa y guarda tu lista.':'Selecciona cualquier ciclo para ver detalles y ocupantes.'}</p></div>
+   <div><h2>Disponibilidad y baremo</h2>{!preferenceMode&&<p className="muted">Selecciona cualquier ciclo para ver detalles y ocupantes.</p>}</div>
    <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
     <button type="button" className={view==='table'?'active':''} aria-pressed={view==='table'} onClick={()=>changeView('table')}>Tabla</button>
     <button type="button" className={view==='map'?'active':''} aria-pressed={view==='map'} onClick={()=>changeView('map')}>Mapa</button>
@@ -135,6 +135,8 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    <span><i className="vac2-selection-key"/>{preferenceMode?'Tus preferencias':'Tu selección'}</span>
   </div>
   {view==='table'&&<CycleTable year={year} cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect} availability={availability}/>}
+  {view==='map'&&<nav className="vac2-month-jump" aria-label="Ir al mes">{months.map((name,m)=>byMonth[m].length>0&&<button type="button" key={m}
+   onClick={()=>document.getElementById('vac2-map-month-'+m)?.scrollIntoView({behavior:'smooth',block:'start'})}>{name.slice(0,3)}</button>)}</nav>}
   {view==='map'&&<div className="vac2-month-grid vac2-map">{months.map((_,m)=>renderMonth(m,false))}</div>}
   {view==='calendar'&&<>
    <div className="vac2-month-nav"><button type="button" disabled={activeMonth===0} onClick={()=>setActiveMonth(m=>m-1)}>← Anterior</button><b>{months[activeMonth]}</b><button type="button" disabled={activeMonth===11} onClick={()=>setActiveMonth(m=>m+1)}>Siguiente →</button></div>

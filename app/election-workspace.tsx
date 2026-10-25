@@ -373,7 +373,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed} ciclo(s) por elegir</span>}
    </div>
    <div className="election-turn-controls">
-    {canPreferences&&<div className="election-view-switch" role="group" aria-label="Vista de vacaciones">
+    {canPreferences&&<div className="election-view-switch" role="group" aria-label="Modo de vacaciones">
      <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode!=='choose')await cancelPreferences();}}>Calendario</button>
      <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>{manage?'Preferencias':'Mis preferencias'}</button>
     </div>}
@@ -423,6 +423,10 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open||previewReadOnly} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
 {mode==='choose'&&<div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0} ciclos · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>}
   {canPreferences&&mode==='preferences'&&manage&&<label className="preference-member">Introducir preferencias para<select aria-label="Preferencias de controlador" value={memberId} disabled={busy} onChange={async e=>{const next=e.target.value;if(await leavePreferences()){setMemberId(next);setPreferenceMessage('');onPreferenceEdit?.();}}}>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>}
+  {mode==='preferences'&&canPreferences&&<div className="preference-mode-banner" role="status">
+   <strong>{manage?'Preparando preferencias de '+(data.members.find((m:any)=>m.id===memberId)?.code??''):'Preparando tus preferencias'}</strong>
+   <span>Pulsa un ciclo para añadirlo; vuelve a pulsarlo para quitarlo. El orden en que los pulses es tu prioridad.</span>
+  </div>}
   <div className={"election-layout"+(detail&&!frozen?" has-active-detail":"")+(mode==='preferences'&&canPreferences?" is-preparing-preferences":"")+(frozen&&manage&&open?" is-reconstructing":"")}>
    {manage&&open&&frozen&&<ReconstructionPanel data={data} busy={busy} act={act}/>}
    <div className="election-calendar-wrap">

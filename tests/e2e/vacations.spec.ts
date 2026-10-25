@@ -38,7 +38,7 @@ test('activación visible desde Vacaciones, regreso automático y reanudación d
  const scenario=await setup(request,page);
  expect(scenario.data.election.state).toBeNull();
  await open(page,scenario.id);
- const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
+ const switcher=page.getByRole('group',{name:'Modo de vacaciones'});
  await expect(switcher.getByRole('button',{name:'Calendario',exact:true})).toBeVisible();
  const configure=page.getByRole('button',{name:'Configurar e iniciar elección',exact:true});
  await expect(configure).toBeVisible();
@@ -290,7 +290,7 @@ test('vista de controlador distingue Mis preferencias de la navegación administ
  await open(page,scenario.id);
  await page.getByLabel('Probar simulación como controlador').selectOption('QA_A');
  await expect(page.getByText('Vista como controlador QA_A')).toBeVisible();
- const tabs=page.getByRole('group',{name:'Vista de vacaciones'});
+ const tabs=page.getByRole('group',{name:'Modo de vacaciones'});
  const mine=tabs.getByRole('button',{name:'Mis preferencias',exact:true});
  await expect(mine).toBeVisible();
  await expect(tabs.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
@@ -301,7 +301,7 @@ test('vista de controlador distingue Mis preferencias de la navegación administ
 
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
  const s=await setup(request,page);await open(page,s.id);
- const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
+ const switcher=page.getByRole('group',{name:'Modo de vacaciones'});
  const calendar=switcher.getByRole('button',{name:'Calendario',exact:true});
  const preferences=switcher.getByRole('button',{name:'Preferencias',exact:true});
  await expect(calendar).toHaveAttribute('aria-pressed','true');
@@ -400,14 +400,14 @@ test('aplazar, elegir dos en calendario y deshacer/rehacer',{tag:'@both'},async(
 
 test('preferencias delegadas y elección automática al llegar el turno',async({page,request})=>{
   const s=await setup(request,page),date=s.data.result.cycles[0].date;
-  await open(page,s.id);await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
+  await open(page,s.id);await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
   await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(s.data.members[1].id);
   await cycle(page,date);await expect(page.getByLabel('Asignar automáticamente desde esta lista cuando llegue mi turno')).toHaveCount(0);
   if(!await page.locator('.preference-sheet').isVisible()&&await page.getByRole('button',{name:'Revisar y guardar',exact:true}).isVisible())await page.getByRole('button',{name:'Revisar y guardar',exact:true}).click();
   await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
   await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'}).first()).toBeVisible();
   if(await page.getByRole('button',{name:'Cerrar revisión de preferencias',exact:true}).isVisible())await page.getByRole('button',{name:'Cerrar revisión de preferencias',exact:true}).click();
-  await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();await activate(page);
+  await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();await activate(page);
   await cycle(page,date);await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
   const d=await read(request,s.id);expect(d.awards).toHaveLength(2);expect(d.awards.some((a:any)=>a.member_id===s.data.members[1].id)).toBeTruthy();
@@ -443,7 +443,7 @@ test('undo en navegador deshace solo el último turno automático y permite corr
 test('guardar preferencias durante el turno avisa antes de adjudicar automáticamente',async({page,request})=>{
  const s=await setup(request,page),member=s.data.members[0],date=s.data.result.cycles[0].date;
  await open(page,s.id);await activate(page);
- await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
+ await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
  await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(member.id);
  await cycle(page,date);
  if(!await page.locator('.preference-sheet').isVisible()&&await page.getByRole('button',{name:'Revisar y guardar',exact:true}).isVisible())await page.getByRole('button',{name:'Revisar y guardar',exact:true}).click();
