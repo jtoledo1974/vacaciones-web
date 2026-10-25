@@ -763,3 +763,4 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .preference-date small{margin-top:2px;font-size:12px}
 .preference-row-actions{margin-top:0!important;flex:none}
 .preference-row-actions button{min-width:44px;padding:8px}
+.cycle-preference-action{margin-top:12px}.cycle-preference-action button{width:100%;min-height:44px;font-size:14px}

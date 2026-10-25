@@ -329,6 +329,16 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <p>La flexibilidad de origen entre periodos está permitida provisionalmente por el responsable, con aviso cuando impida cumplir la interpretación territorial estricta de RR. HH. No es autorización definitiva de RR. HH. La referencia de dos ciclos estivales por persona es informativa.</p>
  </details>;
  const me=!manage?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,state,turn}):null;
+ const canChooseHere=canChoose;
+ // Outside one's turn the cycle card offers to edit one's own list instead of a dead end.
+ const ownPreferences=!manage&&!!mine&&canPreferences&&preferenceMemberIds.includes(mine)&&memberId===mine;
+ const plainAvailability=(cycle:any)=>{
+  const label=cycleAvailability(cycle,election.cycleAvailability,data.campaign.year).label;
+  if(label==='?')return 'plazas libres por confirmar';
+  if(label==='—')return 'pendiente de revisión';
+  const n=Number(label);
+  return n===0?'sin plazas libres':n===1?'1 plaza libre':n+' plazas libres';
+ };
  const lastAuto=me?(election.timeline??[]).find((e:any)=>e.automatic&&e.memberIds.includes(mine)):null;
  const autoPick=lastAuto?{id:lastAuto.id,round:lastAuto.round,dates:lastAuto.choices.filter((c:any)=>c.member_id===mine).map((c:any)=>({date:c.cycle_date,end:data.result.cycles.find((x:any)=>x.date===c.cycle_date)?.end??c.cycle_date}))}:null;
  const showCalendar=()=>document.querySelector('.vac2-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
@@ -426,15 +436,26 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {mode==='choose'&&detail&&<section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
      <h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2>
-     <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas · {data.campaign.year===2027
-      ?'Plazas ocupadas; consulta debajo la disponibilidad global demostrada'
-      :Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
+     <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas{data.campaign.year===2027
+      ?(manage?'':' · '+plainAvailability(detail))
+      :' · '+Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
      {data.campaign.year===2027&&<>
-      <p><strong>Disponibilidad global:</strong> {cycleAvailability(detail,election.cycleAvailability,2027).description}</p>
-      {election.cycleAvailability?.cycles?.[detail.date]&&<details className="election-cycle-rules"><summary>Detalle de las cuatro plazas y motivos de bloqueo</summary>
+      {manage&&<p><strong>Disponibilidad global:</strong> {cycleAvailability(detail,election.cycleAvailability,2027).description}</p>}
+      {election.cycleAvailability?.cycles?.[detail.date]&&<details className="election-cycle-rules"><summary>{manage?'Detalle de las cuatro plazas y motivos de bloqueo':'Por qué hay estas plazas'}</summary>
+       {!manage&&<p>{cycleAvailability(detail,election.cycleAvailability,2027).description}.</p>}
        <ul>{election.cycleAvailability.cycles[detail.date].slots.map((slot:any)=><li key={slot.position}><strong>{slot.position}ª plaza:</strong> {slotExplanation(slot)}</li>)}</ul>
       </details>}
      </>}
+     {mode==='choose'&&!canChooseHere&&ownPreferences&&<div className="cycle-preference-action">
+      {data.awards.some((a:any)=>a.member_id===mine&&a.cycle_date===detail.date)
+       ?<p className="muted">Este ciclo ya es tuyo.</p>
+       :<button type="button" className={dates.includes(detail.date)?'secondary':'primary'} disabled={busy} onClick={()=>{
+         const adding=!dates.includes(detail.date);
+         editDates(togglePreferenceDate(dates,detail.date,adding));
+         setPreferenceMessage(adding?'Añadido a tus preferencias · posición '+(dates.length+1)+'. Revisa y guarda.':'Quitado de tus preferencias. Revisa y guarda.');
+         setDetail(null);setMode('preferences');
+        }}>{dates.includes(detail.date)?'Quitar de mis preferencias (posición '+(dates.indexOf(detail.date)+1)+')':'Añadir a mis preferencias (posición '+(dates.length+1)+')'}</button>}
+     </div>}
      {/* Not a problem: after undo/redo availability is shown without rerunning the solver. In fast mode the award is verified at once. */}
      {data.campaign.year===2027&&mode==='choose'&&canChoose&&election.availabilityPending?.includes(detail.date)&&
       !choiceSubmitting&&!(simulation&&quickMode)&&
@@ -446,7 +467,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      {mode==='choose'&&canChoose&&<>
       {simulation&&quickMode&&<p className="election-auto-notice">La adjudicación se realiza automáticamente al completar todos los ciclos de este turno.</p>}
       {turn?.participants?.length>1&&<div className="joint-picker"><p>Turno conjunto: selecciona el controlador y sus ciclos.</p>{turn.participants.map((id:string)=><button key={id} className={(jointTarget||turn.participants[0])===id?'primary':'secondary'} onClick={()=>setJointTarget(id)}>{data.members.find((m:any)=>m.id===id)?.code}: {(jointSelected[id]??[]).length}/{turn.requiredByMember[id]}</button>)}</div>}
-      <p className="election-selected-summary">Elige <strong>{turn?.participants?.length>1?data.members.find((m:any)=>m.id===(jointTarget||turn.participants[0]))?.code:current?.code}</strong></p>
+      {!manage&&turn?.memberId===mine&&turn?.participants?.length===1?<p className="election-selected-summary">Eliges <strong>tú</strong></p>:<p className="election-selected-summary">Elige <strong>{turn?.participants?.length>1?data.members.find((m:any)=>m.id===(jointTarget||turn.participants[0]))?.code:current?.code}</strong></p>}
       {turn.needed>1&&turn?.participants?.length===1&&<p className="election-multiple-summary">{selected.length}/{turn.needed} ciclos seleccionados: {selected.map(formatDate).join(' + ')||'ninguno'}</p>}
       {turn?.participants?.length>1&&<p className="election-multiple-summary">{turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code+': '+((jointSelected[id]??[]).map(formatDate).join(' + ')||'pendiente')).join(' | ')}</p>}
       <div className="button-row">
