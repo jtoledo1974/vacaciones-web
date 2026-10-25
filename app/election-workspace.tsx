@@ -35,8 +35,17 @@ export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onRes
   if(result?.campaign)setSourceOpen(false);
  };
  return <details id="activation-panel" className="panel"><summary>Activar elección</summary>
-  <p>El orden se calcula a partir de las puntuaciones anteriores. Antes de activar, comprueba los datos y confirma las reglas; los empates se sortearán cuando llegue su turno.</p>
-  <p><strong>Puntuaciones:</strong> {hasMembers?data.members.length-missing.length:0}/{data.members.length} · <strong>Grupos empatados:</strong> {hasScores?ties.length:'Pendiente'} · <strong>Procedencia:</strong> {source||'Sin documentar'}</p>
+  <p>El orden se calcula a partir de las puntuaciones anteriores. Completa estos pasos y activa la elección.</p>
+  {/* A checklist instead of a sentence (#65): each step says whether it is done. */}
+  <ol className="activation-steps" aria-label="Pasos para activar la elección">
+   <li className={hasMembers?'done':'todo'}><strong>Plantilla</strong><span>{hasMembers?data.members.length+' controladores':'Sin controladores'}</span></li>
+   <li className={hasScores?'done':'todo'}><strong>Puntuaciones del año anterior</strong><span>{hasMembers?data.members.length-missing.length:0} de {data.members.length}</span></li>
+   <li className={sourceValid?'done':'todo'}><strong>Procedencia de las puntuaciones</strong><span>{sourceValid?source:'Pendiente'}</span></li>
+   <li className={cyclesValid?'done':'todo'}><strong>Ciclos por persona</strong><span>{data.config?.cyclesPerPerson??'—'}</span></li>
+   <li className={open&&!frozen?'done':'todo'}><strong>Campaña abierta</strong><span>{!open?'Cerrada':frozen?'Reconstrucción en curso':'Sí'}</span></li>
+   <li className={confirmed?'done':'todo'}><strong>Reglas confirmadas</strong><span>{confirmed?'Sí':'Marca la casilla de abajo'}</span></li>
+   <li className="info"><strong>Empates</strong><span>{hasScores?(ties.length?ties.length+' grupos; se sortean antes de su turno':'Ninguno'):'Se calculan con las puntuaciones'}</span></li>
+  </ol>
   {!hasMembers&&<div role="alert" className="alert warning"><p>La plantilla está vacía. Añade al menos un controlador para iniciar la elección.</p><button type="button" className="secondary" onClick={()=>onResolveScores([])}>Ir a Plantilla del equipo</button></div>}
   {hasMembers&&missing.length>0&&<div role="alert" className="alert warning"><p>Falta la puntuación anterior de {missing.length} controlador(es): {missing.slice(0,8).map((m:any)=>m.code).join(', ')}{missing.length>8?` y ${missing.length-8} más`:''}.</p><button type="button" className="secondary" onClick={()=>onResolveScores(missing.map((m:any)=>m.code))}>Completar puntuaciones en la plantilla</button></div>}
   {!sourceValid&&<div role="alert" className="alert warning"><p>Falta documentar de dónde proceden las puntuaciones del ejercicio anterior. Se registra una sola descripción para todo el equipo, no una por controlador.</p><button type="button" className="secondary" disabled={busy} onClick={()=>sourceOpen?setSourceOpen(false):editSource()}>{sourceOpen?'Cerrar formulario':'Documentar procedencia'}</button></div>}
