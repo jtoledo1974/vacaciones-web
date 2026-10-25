@@ -233,7 +233,8 @@ function Dashboard() {
       panel.scrollIntoView({behavior:'smooth',block:'start'});
       setJumpToActivation(false);
     },[jumpToActivation,nav,canManage,cid,data?.campaign.version]);
-    return <div className={'app'+(data&&!canManage&&nav==='eleccion'?' controller-ux':'')}>
+    const simulationName=data&&data.campaign.scope_key!=='live'?data.campaign.simulation_name:'';
+    return <div className={'app'+(data&&!canManage&&nav==='eleccion'?' controller-ux':'')+(simulationName?' is-simulation':'')}>
       <aside className={'sidebar ' + (menu ? 'shown' : '')}>
         <a className="brand" href="/"><span className="brand-mark">V<span>·</span></span><div>Vacaciones<small>OCHO EQUIPOS</small></div></a>
         <button className="close-mobile" onClick={() => setMenu(false)} aria-label="Cerrar menú"><X /></button>
@@ -248,7 +249,7 @@ function Dashboard() {
         </div>
       </aside>
       {menu && <button type="button" className="sidebar-backdrop" aria-label="Cerrar menú" onClick={()=>setMenu(false)}/>}
-      <main><header className="topbar">
+      <main>{simulationName&&<div className="simulation-band" role="note"><strong>Simulación · {simulationName}</strong><span>Los cambios no afectan a la campaña real</span></div>}<header className="topbar">
         <button className="menu-mobile" onClick={() => setMenu(true)} aria-label="Abrir menú"><Menu /></button>
         <span>Equipos <ChevronRight size={13}/> <b>{nav==='eleccion'?'Vacaciones':nav==='administracion'?'Administración':'Ayuda'}</b></span>
         <HeaderSession {...sessionDetails} onOpenMenu={()=>{setMenu(true);document.getElementById('session-account')?.scrollIntoView({block:'start',behavior:'smooth'});}}/>
@@ -271,7 +272,7 @@ function Dashboard() {
         }}><option value="">Selecciona un equipo</option>{(index?.teams??'ABCDEFGH'.split('').map(id=>({id,name:'Equipo '+id}))).map((t:any)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label>
         {canManage&&data&&<label>Escenario<select aria-label="Escenario" value={cid} onChange={async e=>{const next=e.target.value;if(await canNavigate())setCid(next);}}>{index?.campaigns.filter((c:any)=>c.team_id===team&&c.year===year).map((c:any)=><option key={c.id} value={c.id}>{c.scope_key==="live"?"Campaña real":`Simulación: ${c.simulation_name}`}</option>)}</select></label>}
         {canManage&&data&&<button type="button" className="secondary scenario-create" onClick={async()=>{await go('administracion');setTimeout(()=>document.getElementById('simulations-panel')?.scrollIntoView({behavior:'smooth',block:'center'}),50);}}><Plus size={15}/>Nueva simulación</button>}
-        {canManage&&data?.campaign.scope_key!=='live'&&data&&<details className="scenario-actions"><summary aria-label="Opciones de simulación" title="Opciones de simulación">···</summary><div className="scenario-menu"><button type="button" disabled={busy} onClick={async e=>{
+        {canManage&&data?.campaign.scope_key!=='live'&&data&&<details className="scenario-actions"><summary aria-label="Opciones de simulación" title="Opciones de simulación">Opciones</summary><div className="scenario-menu"><button type="button" disabled={busy} onClick={async e=>{
             e.currentTarget.closest('details')?.removeAttribute('open');
             if(!await canNavigate())return;
             if(!await confirm(`¿Eliminar definitivamente la simulación «${data.campaign.simulation_name}»? Se borrarán sus elecciones, preferencias e historial. La campaña real no cambiará.`))return;

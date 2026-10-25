@@ -871,3 +871,8 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .undo-snackbar button{pointer-events:auto;min-height:44px;padding:0 16px;border:0;border-radius:8px;background:transparent;color:#9fe3c8;font-size:14px;font-weight:800;letter-spacing:.3px;text-transform:uppercase}
 .undo-snackbar button:hover{background:#ffffff1a}
 @media(min-width:851px){.undo-snackbar{left:calc(50% + 117px)}}
+/* #65 una simulación no se confunde con la campaña real. */
+.simulation-band{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;justify-content:center;padding:8px 16px;background:#5b2a86;color:#fff;font-size:13px;text-align:center}
+.simulation-band strong{letter-spacing:.4px;text-transform:uppercase}
+.app.is-simulation main{box-shadow:inset 6px 0 0 #5b2a86}
+.scenario-actions>summary{width:auto!important;padding:0 14px;font-size:13px;font-weight:650}
