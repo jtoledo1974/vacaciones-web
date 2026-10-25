@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {buildElectionTimeline} from '../server/election-timeline.ts';
+import {buildElectionTimeline,publicElectionTimeline} from '../server/election-timeline.ts';
 import {orderForRound,type ElectionContext,type ElectionState} from '../domain/election.ts';
 import {defaultConfig} from '../domain/defaults.ts';
 import {numberTimelineCycles} from '../domain/timeline-numbering.ts';
@@ -192,4 +192,31 @@ test('historial: muestra cada aviso normativo solo en la adjudicación que lo in
  assert.deepEqual(byId.get('one')?.warnings,[cross]);
  assert.equal(byId.get('two')?.warnings,undefined);
  assert.deepEqual(byId.get('three')?.warnings,[summer]);
+});
+
+
+test('el historial público solo incluye campos permitidos y marca avances automáticos',()=>{
+ const privateEvent={
+  id:'auto',kind:'choice',round:2,createdAt:'2026-10-25T00:00:00Z',
+  memberIds:['A'],choices:[{member_id:'A',cycle_date:'2027-07-12'}],
+  deferredTurns:1,ties:[{memberId:'A',position:1,total:2,order:['A','B']}],
+  impact:{secret:'private'},warnings:[{code:'INTERNAL',message:'private'}],
+  snapshot:{preferences:['private']},
+ } as any;
+ const publicEvents=publicElectionTimeline([privateEvent,
+  {...privateEvent,id:'manual',kind:'choice'},
+  {...privateEvent,id:'draw',kind:'tie',method:'random',order:['A','B']}],
+  [{id:'auto',action:'advance'},{id:'manual',action:'choose'},{id:'draw',action:'resolve_tie'}] as any);
+ assert.deepEqual(publicEvents[0],{
+  id:'auto',kind:'choice',round:2,memberIds:['A'],
+  choices:[{member_id:'A',cycle_date:'2027-07-12'}],
+  deferredTurns:1,automatic:true
+ });
+ assert.equal(publicEvents[1].automatic,undefined);
+ assert.equal(publicEvents[2].method,'random');
+ assert.deepEqual(publicEvents[2].order,['A','B']);
+ assert.equal(publicEvents[2].automatic,undefined);
+ const text=JSON.stringify(publicEvents);
+ for(const forbidden of ['createdAt','impact','warnings','snapshot','ties','private','secret'])
+  assert.equal(text.includes(forbidden),false,'Se filtró '+forbidden);
 });
