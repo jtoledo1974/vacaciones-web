@@ -1,4 +1,5 @@
-import {choiceIssues,currentTurn,entitlementFor,type ElectionContext} from '../domain/election.ts';
+import {choiceIssues,currentTurn,entitlementFor,type ElectionContext,type ElectionState} from '../domain/election.ts';
+import {turnsUntil} from '../app/my-election-state.ts';
 import type {Repository} from './repository.ts';
 import {requireSuper,type Principal} from './permissions.ts';
 import {deliverPush,publicPushKey,type PushConfig} from './web-push.ts';
@@ -113,6 +114,7 @@ const AUTO_WINDOW_MS=6*3600_000;
 const shortDate=(iso:string)=>new Date(iso+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short',timeZone:'UTC'}).replace('.','');
 
 export function notificationText(row:{id:string;round:number}){
+ if(row.id.startsWith(SOON_PREFIX))return {title:'Vacaciones · Tu turno se acerca',body:'Ronda '+row.round+'. Te toca pronto y no tienes preferencias activas. Prepáralas por si no estás cuando llegue tu turno.'};
  if(row.id.startsWith(LOW_PREFIX)){
   const left=Number(row.id.split(':').at(-1));
   return {title:'Vacaciones · Tu lista se queda sin opciones',body:left===0
@@ -154,11 +156,37 @@ const LOW_PREFIX='low:';
 const LOW_LIST_THRESHOLD=2;
 // Recompute viability only shortly after a decision; it is the expensive part.
 const LOW_WINDOW_MS=10*60_000;
-const isTurnEvent=(id:string)=>!id.startsWith(AUTO_PREFIX)&&!id.startsWith(LOW_PREFIX);
+// soon:<campaign>:<member>:<round>, at most one notice per round.
+const SOON_PREFIX='soon:';
+const SOON_TURNS=3;
+const isTurnEvent=(id:string)=>![AUTO_PREFIX,LOW_PREFIX,SOON_PREFIX].some(prefix=>id.startsWith(prefix));
+
+type InactiveListInput={
+ campaignId:string;members:{id:string;person_id:string}[];state:ElectionState;awards:{member_id:string}[];entitlement:number;
+ round:number;turnMemberIds:string[];preferences:{member_id:string;active?:boolean}[];now:number;
+};
+/** Warn linked controllers whose turn is near while they have no active list. */
+export async function enqueueInactiveListAlerts(repo:Repository,input:InactiveListInput){
+ let enqueued=0;
+ for(const member of input.members){
+  if(input.turnMemberIds.includes(member.id))continue;
+  if(input.awards.filter(a=>a.member_id===member.id).length>=input.entitlement)continue;
+  if(input.preferences.some(p=>p.member_id===member.id&&p.active!==false))continue;
+  const ahead=turnsUntil(input.state,input.awards,input.entitlement,member.id);
+  if(ahead===null||ahead>SOON_TURNS)continue;
+  const account=(await repo.all('SELECT principal_key FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
+  if(!account)continue;
+  await repo.batch([{sql:'INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at) VALUES(?,?,?,?,?,?)',args:[[SOON_PREFIX+input.campaignId,member.id,input.round].join(':'),account.principal_key,input.campaignId,member.id,input.round,new Date(input.now).toISOString()]}]);
+  enqueued++;
+ }
+ return enqueued;
+}
 
 type LowListInput={
  campaignId:string;members:{id:string;person_id:string}[];preferences:{member_id:string;dates:string[];active?:boolean}[];
- turnMemberIds:string[];needs:(memberId:string)=>boolean;viable:(memberId:string,date:string)=>boolean;now:number;
+ turnMemberIds:string[];needs:(memberId:string)=>boolean;viable:(memberId:string,date:string)=>boolean;
+ /** People still to choose before this member, or null if they never come up. */
+ ahead:(memberId:string)=>number|null;now:number;
 };
 /** Warn controllers whose active list has few viable options left. Only the
  * owner is told, and only a count: nobody learns what others chose. */
@@ -173,8 +201,12 @@ export async function enqueueLowListAlerts(repo:Repository,input:LowListInput){
   if(!member)continue;
   const account=(await repo.all('SELECT principal_key FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
   if(!account)continue;
+  const ahead=input.ahead(pref.member_id);
+  if(ahead===null)continue;
   const left=pref.dates.filter(date=>input.viable(pref.member_id,date)).length;
-  if(left>LOW_LIST_THRESHOLD)continue;
+  // Each person ahead takes at least one cycle, so with more viable options
+  // than people ahead some option will still be there. With none, warn anyway.
+  if(left>LOW_LIST_THRESHOLD||left>0&&left>ahead)continue;
   await repo.batch([{sql:'INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at) VALUES(?,?,?,?,?,?)',args:[[LOW_PREFIX+input.campaignId,pref.member_id,left].join(':'),account.principal_key,input.campaignId,pref.member_id,0,new Date(input.now).toISOString()]}]);
   enqueued++;
  }
@@ -183,7 +215,7 @@ export async function enqueueLowListAlerts(repo:Repository,input:LowListInput){
 
 /** Bind the low-list check to the election rules: an option is viable when
  * the member could choose it now on its own. */
-export function lowListInput(ctx:ElectionContext,turn:{participants?:string[];memberId?:string|null},rows:{member_id:string;dates_json:string;active:number}[],campaignId:string,now:number):LowListInput{
+export function lowListInput(ctx:ElectionContext,state:ElectionState,turn:{participants?:string[];memberId?:string|null},rows:{member_id:string;dates_json:string;active:number}[],campaignId:string,now:number):LowListInput{
  return {
   campaignId,now,
   // Campaign rows carry person_id beyond the domain Member type.
@@ -191,6 +223,7 @@ export function lowListInput(ctx:ElectionContext,turn:{participants?:string[];me
   preferences:rows.map(r=>({member_id:r.member_id,dates:JSON.parse(r.dates_json),active:!!r.active})),
   turnMemberIds:turn.participants?.length?turn.participants:turn.memberId?[turn.memberId]:[],
   needs:id=>ctx.awards.filter(a=>a.member_id===id).length<entitlementFor(ctx,id),
+  ahead:id=>turnsUntil(state,ctx.awards,entitlementFor(ctx,id),id),
   viable:(id,date)=>!ctx.awards.some(a=>a.cycle_date===date&&a.member_id===id)&&!choiceIssues(ctx,id,[date]).length,
  };
 }
@@ -223,7 +256,10 @@ export async function dispatchNotifications(repo:Repository,config:PushConfig,ca
    const ctx={year:campaign.year,team:campaign.team_id,config:JSON.parse(campaign.config_json),members,awards:parts[1].results,requests:parts[2].results};
    const turn=currentTurn(ctx,state);
    // Isolated: a viability failure must not stop «Es tu turno».
-   try{enqueued+=await enqueueLowListAlerts(repo,lowListInput(ctx,turn,await repo.all('SELECT member_id,dates_json,active FROM preferences WHERE campaign_id=?',[campaign.id]),campaign.id,now));}catch{errors++;}
+   try{enqueued+=await enqueueInactiveListAlerts(repo,{campaignId:campaign.id,members:ctx.members as unknown as {id:string;person_id:string}[],state,awards:ctx.awards,
+    entitlement:ctx.config.cyclesPerPerson??6,round:turn.round,turnMemberIds:turn.participants?.length?turn.participants:turn.memberId?[turn.memberId]:[],
+    preferences:(await repo.all('SELECT member_id,active FROM preferences WHERE campaign_id=?',[campaign.id])).map((p:any)=>({member_id:p.member_id,active:!!p.active})),now});}catch{errors++;}
+   try{enqueued+=await enqueueLowListAlerts(repo,lowListInput(ctx,state,turn,await repo.all('SELECT member_id,dates_json,active FROM preferences WHERE campaign_id=?',[campaign.id]),campaign.id,now));}catch{errors++;}
    if(turn.pendingTie||!turn.memberId)continue;
    const participants:string[]=turn.participants?.length?turn.participants:[turn.memberId];
    for(const memberId of participants){

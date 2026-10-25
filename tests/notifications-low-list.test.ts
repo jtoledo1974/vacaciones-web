@@ -23,7 +23,7 @@ async function fixture({linked=true,active=true,decisionAt=recent}={}){
 
 // JUAN took 12 jul and 19 jul: only two of FRAN's four options remain.
 const viable=(_member:string,date:string)=>!['2027-07-12','2027-07-19'].includes(date);
-const input=(preferences:any[])=>({campaignId:'c1',members:[fran,juan],awards:[],preferences,turnMemberIds:['m-juan'],needs:(_id:string)=>true,viable,now});
+const input=(preferences:any[])=>({campaignId:'c1',members:[fran,juan],awards:[],preferences,turnMemberIds:['m-juan'],needs:(_id:string)=>true,viable,ahead:(_id:string)=>3 as number|null,now});
 
 test('avisa cuando a tu lista solo le quedan dos opciones viables, una vez por recuento',async()=>{
  const {repo,preferences}=await fixture();
@@ -68,9 +68,25 @@ test('la viabilidad usa las reglas de la elección: un ciclo lleno o ya tuyo no 
  const dates=calendar(2026,'C',config).map(c=>c.date);
  const ctx={year:2026,team:'C',config,members:['A','B','C'].map(id=>({id,code:id,seniority:'',person_id:'p-'+id})),requests:[],
   awards:[{id:'x',member_id:'A',cycle_date:dates[0]},{id:'y',member_id:'C',cycle_date:dates[0]},{id:'z',member_id:'B',cycle_date:dates[2]}]};
- const built=lowListInput(ctx as any,{participants:['A'],memberId:'A'},[{member_id:'B',dates_json:JSON.stringify([dates[0],dates[1],dates[2]]),active:1}],'c1',now);
+ const built=lowListInput(ctx as any,{status:'active',order:['A','B','C'],cursor:0,credits:{}} as any,{participants:['A'],memberId:'A'},[{member_id:'B',dates_json:JSON.stringify([dates[0],dates[1],dates[2]]),active:1}],'c1',now);
  assert.deepEqual(built.turnMemberIds,['A']);
  assert.deepEqual(built.preferences[0].dates.filter(d=>built.viable('B',d)),[dates[1]]);
  assert.equal(built.needs('B'),true);
  assert.equal(built.needs('A'),true);
+ assert.equal(built.ahead('B'),1);
+});
+
+test('solo avisa si quienes eligen antes podrían agotar tus opciones',async()=>{
+ // Two viable options and a single person ahead: at least one will remain.
+ const {repo,preferences}=await fixture();
+ await enqueueLowListAlerts(repo,{...input(preferences),ahead:()=>1});
+ assert.deepEqual(await repo.all('SELECT id FROM turn_notifications'),[]);
+ await enqueueLowListAlerts(repo,{...input(preferences),ahead:()=>2});
+ assert.equal((await repo.all('SELECT id FROM turn_notifications')).length,1);
+});
+
+test('sin ninguna opción viable avisa aunque nadie vaya delante',async()=>{
+ const {repo,preferences}=await fixture();
+ await enqueueLowListAlerts(repo,{...input(preferences),viable:()=>false,ahead:()=>0});
+ assert.deepEqual((await repo.all('SELECT id FROM turn_notifications')).map(r=>r.id),['low:c1:m-fran:0']);
 });

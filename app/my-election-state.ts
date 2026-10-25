@@ -38,8 +38,6 @@ export function myElection(input:MyElectionInput):MyElection|null{
  const me=input.myMemberId;
  if(!me)return null;
  const byDate=new Map(input.cycles.map(c=>[c.date,c]));
- const counts=new Map<string,number>();
- for(const a of input.awards)counts.set(a.member_id,(counts.get(a.member_id)??0)+1);
  const cycles=input.awards.filter(a=>a.member_id===me).map(a=>byDate.get(a.cycle_date)).filter((c):c is Cycle=>!!c)
   .sort((a,b)=>a.date.localeCompare(b.date)).map(({date,end,score})=>({date,end,score}));
  const entitlement=input.cyclesPerPerson;
@@ -65,12 +63,20 @@ export function myElection(input:MyElectionInput):MyElection|null{
  if(turn?.memberId&&(turn.participants??[turn.memberId]).includes(me))
   return {...base,phase:'my-turn',needed:turn.needed??1,turnsAhead:0};
 
+ return {...base,phase:'waiting',turnsAhead:turnsUntil(state,input.awards,entitlement,me)};
+}
+
+/** People with cycles still to choose before `me`, from the current cursor.
+ * null when `me` never comes up. Shared with the server's Push alerts. */
+export function turnsUntil(state:ElectionState,awards:{member_id:string}[],entitlement:number,me:string):number|null{
+ const counts=new Map<string,number>();
+ for(const a of awards)counts.set(a.member_id,(counts.get(a.member_id)??0)+1);
  const n=state.order.length;
  let ahead=0;
  for(let cursor=state.cursor;cursor<state.cursor+n*(entitlement+1);cursor++){
   const id=orderForRound(state,Math.floor(cursor/n))[cursor%n];
-  if(id===me)return {...base,phase:'waiting',turnsAhead:ahead};
+  if(id===me)return ahead;
   if((counts.get(id)??0)<entitlement)ahead++;
  }
- return {...base,phase:'waiting'};
+ return null;
 }
