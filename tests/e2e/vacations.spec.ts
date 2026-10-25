@@ -72,7 +72,8 @@ test('la activación señala puntuaciones concretas y documenta procedencia en u
  await activation.getByRole('button',{name:'Completar puntuaciones en la plantilla'}).click();
  await expect(page.getByLabel('Puntuación anterior de QA_D')).toBeFocused();
  await page.getByLabel('Puntuación anterior de QA_D').fill('40');
- await page.getByRole('button',{name:'Guardar cambios'}).click();
+  await page.getByLabel('Puntuación anterior de QA_D').press('Tab');
+  await expect(page.locator('#roster-panel').getByRole('status').filter({hasText:'Todos los cambios guardados'})).toBeVisible();
  await expect(activation).not.toContainText('Falta la puntuación');
  await activation.getByRole('button',{name:'Documentar procedencia'}).click();
  const sourceForm=activation.getByRole('group',{name:'Documentar origen de las puntuaciones'});

@@ -29,7 +29,7 @@ export default function CampaignAccessNotice({
     <p>{hasOtherAccess
       ? 'Tu cuenta puede tener acceso a otro equipo o ejercicio. Selecciona la campaña correspondiente o consulta con su responsable.'
       : 'Pide al responsable del equipo que compruebe el correo de tu cuenta de ChatGPT en la plantilla.'}
-      {' '}El responsable debe pulsar «Guardar cambios» para que la vinculación sea efectiva.</p>
+      {' '}La vinculación se guarda automáticamente al terminar de editar; comprueba «Todos los cambios guardados» en la plantilla.</p>
     <div className="button-row">
       {provider==='chatgpt'&&<a className="secondary" href="/signout-with-chatgpt?return_to=/" target="_top">Cerrar sesión / cambiar de cuenta</a>}
       {provider==='firebase'&&<button type="button" className="secondary" onClick={()=>void onFirebaseSignOut()}>Cerrar sesión / cambiar de cuenta</button>}

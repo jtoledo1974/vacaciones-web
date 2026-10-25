@@ -1,13 +1,13 @@
 'use client';
 
-import {useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import {Ellipsis} from 'lucide-react';
 import {
   DropdownMenu,DropdownMenuContent,DropdownMenuItem,DropdownMenuSub,
   DropdownMenuSubContent,DropdownMenuSubTrigger,DropdownMenuTrigger,DropdownMenuPortal,
 } from '../components/ui/dropdown-menu';
 import {useConfirmation} from './confirmation';
-import {withoutBlankNewRosterRows} from './roster-rows';
+import {reconcileRosterRows,withoutBlankNewRosterRows} from './roster-rows';
 
 type Provider = ''|'chatgpt'|'firebase';
 type Row = {
@@ -48,11 +48,27 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
   const [rows,setRows]=useState<Row[]>(()=>initialRows(data));
   const [pasted,setPasted]=useState('');
   const [pastedScores,setPastedScores]=useState('');
-  const [scoreSource,setScoreSource]=useState(data.config?.previousScoresSource??'');
+  const [scoreSource,setScoreSource]=useState<string>(data.config?.previousScoresSource??'');
   const [error,setError]=useState('');
+  const [saveStatus,setSaveStatus]=useState<'idle'|'saving'|'saved'|'error'>('idle');
+  const [retryTick,setRetryTick]=useState(0);
+  const savingRef=useRef(false);
+  const attemptedRef=useRef('');
+  const submittedRef=useRef<{rows:Row[];source:string}|null>(null);
+  const serverRef=useRef({version:data.campaign.version,rows:initialRows(data),source:data.config?.previousScoresSource??''});
+  // Campaign revisions refresh the canonical data. Rebase newer local keystrokes
+  // on each response, rather than destroying and remounting this editor.
+  useEffect(()=>{
+    if(serverRef.current.version===data.campaign.version)return;
+    const previous=serverRef.current,received=initialRows(data),source=data.config?.previousScoresSource??'';
+    setRows(current=>reconcileRosterRows(previous.rows,received,current,submittedRef.current?.rows??null));
+    setScoreSource(current=>current===(submittedRef.current?.source??previous.source)?source:current);
+    serverRef.current={version:data.campaign.version,rows:received,source};
+    submittedRef.current=null;
+  },[data.campaign.version]);
+
   const original=initialRows(data);
   const savedRows=withoutBlankNewRosterRows(rows);
-  const hasBlankNewRows=savedRows.length!==rows.length;
   const byId=new Map(original.map(row=>[row.memberId,row]));
   const rosterDirty=savedRows.length!==original.length||savedRows.some((r,i)=>{
     const m=original[i];
@@ -63,11 +79,13 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     return accountKey(r)!==accountKey(previous??{provider:'',subject:''});
   }).map(({memberId,code,provider,subject,accountVersion})=>({memberId,code,provider,subject,accountVersion})):[];
   const scoresDirty=savedRows.length!==original.length||savedRows.some((r,i)=>r.previousScore!==original[i]?.previousScore||r.code!==original[i]?.code)||scoreSource!==(data.config?.previousScoresSource??'');
-  const dirty=hasBlankNewRows||rosterDirty||scoresDirty||changedAccounts.length>0;
+  const dirty=rosterDirty||scoresDirty||changedAccounts.length>0;
+  const fingerprint=JSON.stringify({rows:savedRows,scoreSource});
   const targetTeams=(teams??[]).filter((t:any)=>t.team_id!==data.campaign.team_id&&t.status==='open'&&t.year===data.campaign.year);
-  const locked=busy||readOnly;
+  const locked=readOnly;
 
   function change(i:number,k:keyof Row,v:string) {
+    setError('');setSaveStatus('idle');
     setRows(current=>current.map((r,n)=>n===i?{...r,[k]:v}:r));
   }
   function paste() {
@@ -100,28 +118,55 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     setRows(current=>current.map(row=>updated.has(row.code.trim().toUpperCase())?{...row,previousScore:updated.get(row.code.trim().toUpperCase())!}:row));
     setPastedScores('');setError('');
   }
-  function saveChanges() {
-    setError('');
-    // Discard only completely blank, unsaved rows; persisted members always remain.
-    if(hasBlankNewRows)setRows(savedRows);
-    if(!rosterDirty&&!scoresDirty&&!changedAccounts.length)return;
+  async function persistChanges() {
+    if(savingRef.current||busy||readOnly||!dirty||attemptedRef.current===fingerprint)return;
+    attemptedRef.current=fingerprint;
+    const codes=new Set<string>();
     for(const r of savedRows){
-      if(r.subject.trim()&&!r.provider){setError('Selecciona un sistema de autenticación para '+r.code);return;}
+      const code=r.code.trim().toUpperCase();
+      if(!/^[\p{L}\p{N} _.-]{1,24}$/u.test(code)){setError('Identificador no válido: revisa las filas incompletas.');setSaveStatus('error');return;}
+      if(codes.has(code)){setError('Identificador repetido: '+code);setSaveStatus('error');return;}
+      codes.add(code);
+      if(r.subject.trim()&&!r.provider){setError('Selecciona un sistema de autenticación para '+r.code);setSaveStatus('error');return;}
       if(r.subject.trim()&&r.provider==='chatgpt'&&(!/^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(r.subject.trim())||r.subject.trim().length>250)){
-        setError('Introduce un correo electrónico válido para '+r.code+'.');return;
+        setError('Introduce un correo electrónico válido para '+r.code+'.');setSaveStatus('error');return;
       }
       if(r.subject.trim()&&r.provider==='firebase'&&(/[\s\r\n:]/.test(r.subject.trim())||r.subject.trim().length>250)){
-        setError('El UID de Firebase de '+r.code+' no es válido.');return;
+        setError('El UID de Firebase de '+r.code+' no es válido.');setSaveStatus('error');return;
       }
     }
     const previousScores:Record<string,number>={};
     for(const row of savedRows){
       if(!row.previousScore.trim())continue;
       const score=Number(row.previousScore.trim().replace(',','.'));
-      if(!Number.isFinite(score)||score<0||score>10000){setError('Puntuación anterior no válida para '+row.code);return;}
+      if(!Number.isFinite(score)||score<0||score>10000){setError('Puntuación anterior no válida para '+row.code);setSaveStatus('error');return;}
       previousScores[row.code.trim().toUpperCase()]=score;
     }
-    void save(savedRows.map(({memberId,code,label,seniority})=>({memberId,code,label,seniority})),changedAccounts,rosterDirty,scoresDirty,previousScores,scoreSource.trim());
+    savingRef.current=true;
+    submittedRef.current={rows:savedRows.map(row=>({...row})),source:scoreSource};
+    setSaveStatus('saving');setError('');
+    try {
+      await save(savedRows.map(({memberId,code,label,seniority})=>({memberId,code,label,seniority})),changedAccounts,rosterDirty,scoresDirty,previousScores,scoreSource.trim());
+      setSaveStatus('saved');
+    } catch(err:any) {
+      setError(err instanceof Error?err.message:'No se han podido guardar los cambios.');
+      setSaveStatus('error');
+    } finally {
+      savingRef.current=false;
+      setRetryTick(current=>current+1);
+    }
+  }
+  // Serialised saves, 800 ms after typing stops; the newest draft is queued
+  // automatically if edits arrive while the previous request is in flight.
+  const persistRef=useRef(persistChanges);
+  persistRef.current=persistChanges;
+  useEffect(()=>{
+    if(readOnly||busy||savingRef.current||!dirty||attemptedRef.current===fingerprint)return;
+    const timer=setTimeout(()=>void persistRef.current(),800);
+    return ()=>clearTimeout(timer);
+  },[fingerprint,dirty,readOnly,busy,data.campaign.version,retryTick]);
+  function flushOnBlur() {
+    if(dirty&&!savingRef.current)void persistRef.current();
   }
   async function removeMember(r:Row) {
     if(await confirm('¿Dar de baja a '+r.code+' del equipo '+data.campaign.team_id+', ejercicio '+data.campaign.year+'? Los demás ejercicios se conservan.')){
@@ -137,13 +182,13 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
   return <section id="roster-panel" className="panel roster-panel">
     <div className="section-head roster-heading">
       <div><h2>Plantilla del equipo {data.campaign.team_id}</h2>
-        <p>{data.campaign.year} · Un registro por controlador. Los cambios de plantilla se aplican solo a este ejercicio. Las filas nuevas vacías se descartan al guardar.</p>
+        <p>{data.campaign.year} · Un registro por controlador. Los cambios de plantilla se aplican solo a este ejercicio. Las modificaciones se guardan automáticamente. Las filas nuevas vacías no se guardan.</p>
       </div>
       <span className="tag">{savedRows.length} controladores</span>
     </div>
     {error&&<div className="alert error" role="alert">{error}</div>}
-    {changedAccounts.length>0&&<div className="alert warning" role="status"><strong>{changedAccounts.length} {changedAccounts.length===1?'acceso pendiente':'accesos pendientes'} de guardar.</strong> Los correos modificados aún no permiten entrar como controlador. Pulsa «Guardar cambios (incluye accesos)» y comprueba la confirmación antes de compartir el enlace.</div>}
-    <div className="table-wrap roster-table-wrap"><table className="roster-table">
+    {changedAccounts.length>0&&<div className="alert warning" role="status">{changedAccounts.length} {changedAccounts.length===1?'acceso pendiente':'accesos pendientes'} de sincronizar. La vinculación será efectiva cuando aparezca «Todos los cambios guardados».</div>}
+    <div className="table-wrap roster-table-wrap" onBlur={flushOnBlur}><table className="roster-table">
       <thead><tr><th>Nick</th><th>Nombre</th><th>Puntos {data.campaign.year-1}</th>
         {live&&manageAccounts&&<><th>Correo de acceso / UID</th><th>Autenticación</th></>}
         <th><span className="sr-only">Acciones</span></th></tr></thead>
@@ -152,14 +197,14 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
         <td data-label="Nombre"><input className="roster-name" aria-label={'Nombre fila '+(i+1)} value={r.label} maxLength={120} disabled={locked} onChange={e=>change(i,'label',e.target.value)}/></td>
         <td data-label={'Puntos '+(data.campaign.year-1)}><input className="roster-date" aria-label={'Puntuación anterior de '+r.code} type="number" min="0" max="10000" step="any" value={r.previousScore} placeholder="Pendiente" disabled={locked} onChange={e=>change(i,'previousScore',e.target.value)}/></td>
         {live&&manageAccounts&&<>
-          <td data-label="Correo de acceso" className="roster-access"><input className="roster-subject" aria-label={'Correo de acceso o UID de '+r.code} value={r.subject} maxLength={250} placeholder={r.legacyKey?'Vínculo anterior activo':r.provider==='firebase'?'UID Firebase':'correo@ejemplo.es'} disabled={locked} autoComplete="off" onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,subject:e.target.value,legacyKey:undefined,provider:e.target.value&&!row.provider?'chatgpt':row.provider}:row))}/></td>
-          <td data-label="Autenticación"><select className="roster-provider" aria-label={'Autenticación de '+r.code} value={r.provider} disabled={locked} onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,provider:e.target.value as Provider,subject:e.target.value?row.subject:'',legacyKey:e.target.value==='chatgpt'?row.legacyKey:undefined}:row))}>
+          <td data-label="Correo de acceso" className="roster-access"><input className="roster-subject" aria-label={'Correo de acceso o UID de '+r.code} value={r.subject} maxLength={250} placeholder={r.legacyKey?'Vínculo anterior activo':r.provider==='firebase'?'UID Firebase':'correo@ejemplo.es'} disabled={locked} autoComplete="off" onChange={e=>{setError('');setSaveStatus('idle');setRows(current=>current.map((row,n)=>n===i?{...row,subject:e.target.value,legacyKey:undefined,provider:e.target.value&&!row.provider?'chatgpt':row.provider}:row));}}/></td>
+          <td data-label="Autenticación"><select className="roster-provider" aria-label={'Autenticación de '+r.code} value={r.provider} disabled={locked} onChange={e=>{setError('');setSaveStatus('idle');setRows(current=>current.map((row,n)=>n===i?{...row,provider:e.target.value as Provider,subject:e.target.value?row.subject:'',legacyKey:e.target.value==='chatgpt'?row.legacyKey:undefined}:row));}}>
             <option value="">Sin vincular</option><option value="chatgpt">ChatGPT Sites</option><option value="firebase">Firebase</option>
           </select></td>
         </>}
         <td className="roster-menu-cell">
           {!readOnly&&<DropdownMenu>
-            <DropdownMenuTrigger asChild><button type="button" className="roster-more" disabled={busy||(dirty&&!!r.memberId)} aria-label={'Acciones de '+r.code} title={dirty?'Guarda los cambios antes de dar de baja o trasladar':'Acciones del controlador'}><Ellipsis size={17}/></button></DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild><button type="button" className="roster-more" disabled={busy||(dirty&&!!r.memberId)} aria-label={'Acciones de '+r.code} title={dirty?'Se están guardando modificaciones; espera antes de dar de baja o trasladar':'Acciones del controlador'}><Ellipsis size={17}/></button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="roster-dropdown-menu">
               {r.memberId?<><DropdownMenuItem onSelect={()=>void removeMember(r)} className="roster-danger">Dar de baja de este ejercicio</DropdownMenuItem>
                 <DropdownMenuSub><DropdownMenuSubTrigger disabled={!live||!targetTeams.length}>Cambiar de turno / trasladar</DropdownMenuSubTrigger>
@@ -171,10 +216,9 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
         </td>
       </tr>)}</tbody></table></div>
     {!readOnly&&<>
-      <label>Origen de las puntuaciones de {data.campaign.year-1} (puede completarse al activar)<input type="text" maxLength={500} value={scoreSource} onChange={e=>setScoreSource(e.target.value)} placeholder="Responsable, fecha y procedencia" disabled={locked}/></label>
+      <label>Origen de las puntuaciones de {data.campaign.year-1} (puede completarse al activar)<input type="text" maxLength={500} value={scoreSource} onBlur={flushOnBlur} onChange={e=>{setScoreSource(e.target.value);setError('');setSaveStatus('idle');}} placeholder="Responsable, fecha y procedencia" disabled={locked}/></label>
       <p className="muted">{savedRows.filter(r=>r.previousScore.trim()).length}/{savedRows.length} puntuaciones registradas. No se puede activar la elección mientras falte alguna.</p>
       <div className="button-row roster-toolbar">
-        <button className="primary" disabled={busy||!dirty} onClick={saveChanges}>Guardar cambios{changedAccounts.length>0?' (incluye accesos)':''}</button>
         <button className="secondary" disabled={busy} onClick={()=>setRows(current=>[...current,emptyRow()])}>Añadir fila</button>
         <label className="secondary file-label">Importar plantilla del Excel<input type="file" accept=".json" disabled={busy||dirty} onChange={async e=>{
           const input=e.currentTarget,f=input.files?.[0];if(!f)return;
@@ -186,7 +230,8 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
             await importRoster(source);setError('');
           }catch(err:any){setError(err.message);}finally{input.value='';}
         }}/></label>
-        {dirty&&<span className="roster-unsaved">Cambios pendientes de guardar</span>}
+        <span className="roster-unsaved" role="status" aria-live="polite">{saveStatus==='error'&&dirty?'Guardado fallido':busy&&dirty||saveStatus==='saving'?'Guardando…':dirty?'Guardado automático pendiente':'Todos los cambios guardados'}</span>
+        {saveStatus==='error'&&dirty&&<button type="button" className="secondary" onClick={()=>{attemptedRef.current='';setRetryTick(n=>n+1);}}>Reintentar guardado</button>}
       </div>
       <details className="roster-import"><summary>Pegar controladores desde Excel</summary>
         <p className="muted">Copia las columnas nick, nombre y, opcionalmente, puntos del año anterior. Los accesos ya vinculados se conservan para los nicks existentes. Esta opción sustituye las filas visibles.</p>
