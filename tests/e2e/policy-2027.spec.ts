@@ -94,7 +94,20 @@ test('2027: agotar la cuarta de preverano se destaca en el historial y explica e
  expect(d.election.cycleAvailability.cycles[second].slots[3].reasons[0].code).toBe('FOURTH_PERIOD_LIMIT');
  await open(page,id);
  await expect(page.locator('.election-log-highlight')).toContainText('Agota el cupo de cuartas plazas del preverano');
+ // The map and detail must agree with the blocked fourth in the table.
+ await page.getByRole('button',{name:'Mapa',exact:true}).click();
+ const mapCycle=(date:string)=>page.locator('.vac2-cycle[data-cycle-date="'+date+'"]');
+ await expect(mapCycle(first)).toContainText('4/4 ocupadas');
+ await expect(mapCycle(second)).toContainText('3/3 ocupadas');
+ const empty=preCycles(d).find((date:string)=>{
+  const a=d.election.cycleAvailability.cycles[date];
+  return a.occupied===0&&a.status==='exact'&&a.additional===3;
+ });
+ expect(empty,'an empty cycle retains three viable places').toBeTruthy();
+ await expect(mapCycle(empty!)).toContainText('0/3 ocupadas');
+ await expect(mapCycle(empty!)).not.toContainText('0/4 ocupadas');
  await page.locator('button[data-cycle-date="'+second+'"]').first().click();
+ await expect(page.getByRole('region',{name:'Detalle del ciclo seleccionado'})).toContainText('3/3 plazas ocupadas');
  await expect(page.getByText('4ª plaza:',{exact:false}).locator('..')).toContainText('Alcanzado el límite de un ciclo con cuarta plaza en este periodo');
  // The server rejects the fourth with the concrete cause, not a generic error.
  const rejected=await request.post('/api/election/'+id,{headers:{Origin:origin},data:{action:'choose',version:d.campaign.version,memberId:d.election.turn.memberId,dates:[second]}});

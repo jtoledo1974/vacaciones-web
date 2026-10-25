@@ -2,7 +2,7 @@
 import {useEffect,useMemo,useState} from 'react';
 import CycleTable from './cycle-table';
 import type {AvailabilitySnapshot} from '../domain/availability-2027';
-import {cycleAvailability} from './cycle-availability-ui';
+import {cycleAvailability,cycleOccupancyLabel} from './cycle-availability-ui';
 
 export const formatDate=(date:string)=>new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
 const months=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -72,7 +72,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    title={cycleTitle(c,year,availability)}
    className={'vac2-cycle '+status.className+(blocked.has(c.date)?' vac2-not-for-me':'')+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(highlighted.includes(c.date)?' vac2-person':'')}>
     <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{blocked.has(c.date)?'No disponible para ti':year===2027?(status.label==='?'?'? por confirmar':status.label==='1'?'1 libre':status.label+' libres'):extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
-    <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{c.occupied}/{c.max} ocupadas{extraAvailable(c)?' · ampliable':''}</span></span>
+    <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{cycleOccupancyLabel(c,availability,year)} ocupadas{year!==2027&&extraAvailable(c)?' · ampliable':''}</span></span>
     {preferenceMode&&selected.includes(c.date)&&<span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date)+1}</span>}
     {people.length>0&&<span className="vac2-names" title={people.join(', ')}>{people.join(' · ')}</span>}
    </button>;

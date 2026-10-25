@@ -7,7 +7,7 @@ import {numberTimelineCycles} from '../domain/timeline-numbering';
 import {orderAwardsBySelection} from '../domain/award-display-order';
 import PreferencesEditor,{type PreferenceUsageValue} from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
-import {cycleAvailability,slotExplanation,summarizeImpact} from './cycle-availability-ui';
+import {cycleAvailability,cycleOccupancyLabel,slotExplanation,summarizeImpact} from './cycle-availability-ui';
 import MyElectionCard from './my-election-card';
 import PersonalSimulator from './personal-simulator';
 import Glossary from './glossary';
@@ -512,7 +512,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {mode==='choose'&&detail&&<section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
      <h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2>
-     <p><strong>{detail.score} puntos</strong> · {detail.occupied}/{detail.max} plazas ocupadas{data.campaign.year===2027
+     <p><strong>{detail.score} puntos</strong> · {cycleOccupancyLabel(detail,election.cycleAvailability,data.campaign.year)} plazas ocupadas{data.campaign.year===2027
       ?(manage?'':' · '+plainAvailability(detail))
       :' · '+Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
      {data.campaign.year===2027&&<>

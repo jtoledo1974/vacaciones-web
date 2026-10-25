@@ -1,5 +1,16 @@
 import type {AvailabilitySnapshot,CycleAvailability,AvailabilitySlot,AvailabilityImpact} from '../domain/availability-2027';
 
+/** Occupied / viable final capacity; uncertain capacity stays explicit. */
+export function cycleOccupancyLabel(cycle:{date:string;occupied:number;max:number},snapshot:AvailabilitySnapshot|null|undefined,year:number):string{
+ if(year!==2027)return cycle.occupied+'/'+cycle.max;
+ const data=snapshot?.cycles?.[cycle.date];
+ if(!data||data.status==='invalid')return cycle.occupied+'/?';
+ if(data.status==='exact'&&data.additional!==null)
+  return cycle.occupied+'/'+(cycle.occupied+data.additional);
+ const lower=cycle.occupied+data.provenAdditional,upper=cycle.occupied+data.possibleAdditionalUpperBound;
+ return cycle.occupied+'/'+(lower===upper?String(lower):lower+'–'+upper);
+}
+
 /** The backend, not the visual maximum, determines legal global capacity. */
 export function cycleAvailability(cycle:{date:string;occupied:number;max:number},snapshot:AvailabilitySnapshot|null|undefined,year:number){
  const live=year===2027;

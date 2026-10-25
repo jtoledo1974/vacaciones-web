@@ -1,7 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {AvailabilitySnapshot,AvailabilityImpact,AvailabilitySlot} from '../domain/availability-2027';
-import {cycleAvailability,describeImpact,slotExplanation,summarizeImpact} from '../app/cycle-availability-ui.ts';
+import {cycleAvailability,cycleOccupancyLabel,describeImpact,slotExplanation,summarizeImpact} from '../app/cycle-availability-ui.ts';
+
+test('occupancy denominator reflects viable capacity rather than theoretical fourth place',()=>{
+ for(const [occupied,additional,expected] of [[0,3,'0/3'],[2,1,'2/3'],[3,0,'3/3'],[4,0,'4/4']] as const){
+  const data=snapshot('exact',additional,additional,additional);
+  data.cycles[cycle.date].occupied=occupied;
+  assert.equal(cycleOccupancyLabel({...cycle,occupied},data,2027),expected);
+ }
+ assert.equal(cycleOccupancyLabel(cycle,null,2027),'0/?');
+ assert.equal(cycleOccupancyLabel(cycle,snapshot('indeterminate',null,1,3),2027),'0/1–3');
+ assert.equal(cycleOccupancyLabel(cycle,snapshot('invalid',null,0,0),2027),'0/?');
+ assert.equal(cycleOccupancyLabel(cycle,null,2026),'0/4');
+});
 
 const cycle={date:'2027-07-01',occupied:0,max:4};
 
