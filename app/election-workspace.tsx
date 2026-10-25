@@ -5,13 +5,14 @@ import {useConfirmation} from './confirmation';
 import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
 import {orderAwardsBySelection} from '../domain/award-display-order';
-import PreferencesEditor from './preferences-editor';
+import PreferencesEditor,{type PreferenceUsageValue} from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 import {cycleAvailability,slotExplanation,summarizeImpact} from './cycle-availability-ui';
 import MyElectionCard from './my-election-card';
 import PersonalSimulator from './personal-simulator';
 import Glossary from './glossary';
 import {myElection} from './my-election-state';
+import RoundQueuePanel from './round-queue-panel';
 
 export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onResolveCycles,onSaveSource}:any){
  const scores=data.config?.previousScores??{},source=typeof data.config?.previousScoresSource==='string'?data.config.previousScoresSource:'';
@@ -180,15 +181,18 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  useEffect(()=>{if(!preferenceMemberIds.includes(memberId))setMemberId(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??'');},[memberId,mine,preferenceMemberIds.join('|')]);
  useEffect(()=>{setDetail((current:any)=>current?data.result.cycles.find((c:any)=>c.date===current.date)??null:null);},[data.campaign.version]);
  const existing=election.preferences.find((p:any)=>p.member_id===memberId);
- const serverPreferences=JSON.stringify({dates:existing?.dates??[],persistent:existing?.persistent??false});
+ const serverPreferences=JSON.stringify({dates:existing?.dates??[],persistent:existing?.persistent??false,usage:{mode:existing?.mode??'immediate',waitMinutes:existing?.waitMinutes??0},labels:existing?.labels??{}});
  const [persistent,setPersistent]=useState(false),[preferenceMessage,setPreferenceMessage]=useState('');
+ const [usage,setUsage]=useState<PreferenceUsageValue>({mode:'immediate',waitMinutes:0}),[labels,setLabels]=useState<Record<string,string>>({});
  const lastSavedPreferences=useRef({memberId:'',value:serverPreferences});
- const draftValue=JSON.stringify({dates,persistent});
+ // Names of cycles that left the list do not count as a change.
+ const keptLabels=Object.fromEntries(dates.filter((d:string)=>labels[d]?.trim()).map((d:string)=>[d,labels[d].trim()]));
+ const draftValue=JSON.stringify({dates,persistent,usage,labels:keptLabels});
  const dirty=draftValue!==serverPreferences;
  useEffect(()=>{
   const previous=lastSavedPreferences.current;
   if(previous.memberId!==memberId||draftValue===previous.value){
-   const incoming=JSON.parse(serverPreferences);setDates(incoming.dates);setPersistent(incoming.persistent);
+   const incoming=JSON.parse(serverPreferences);setDates(incoming.dates);setPersistent(incoming.persistent);setUsage(incoming.usage);setLabels(incoming.labels);
   }
   lastSavedPreferences.current={memberId,value:serverPreferences};
  },[memberId,serverPreferences]);
@@ -202,7 +206,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   if(busy)return false;
   if(!dirty)return true;
   if(!await confirm('Has modificado tu lista de preferencias, pero aún no la has guardado. Si descartas los cambios, recuperarás la última lista guardada. Si no tenías ninguna, la lista quedará vacía.',undefined,{title:'¿Descartar los cambios?',cancelLabel:'Seguir editando',confirmLabel:'Descartar cambios'}))return false;
-  const saved=JSON.parse(serverPreferences);setDates(saved.dates);setPersistent(saved.persistent);setPreferenceMessage('');
+  const saved=JSON.parse(serverPreferences);setDates(saved.dates);setPersistent(saved.persistent);setUsage(saved.usage);setLabels(saved.labels);setPreferenceMessage('');
   return true;
  }
  async function cancelPreferences(){
@@ -212,14 +216,16 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  useEffect(()=>{if(navigationGuard)navigationGuard.current=leavePreferences;return ()=>{if(navigationGuard)navigationGuard.current=null;};});
  function editDates(next:string[]){setDates(next);setPreferenceMessage('Lista modificada. Cambios sin guardar.');onPreferenceEdit?.();}
  function editPersistence(next:boolean){setPersistent(next);setPreferenceMessage('Uso de la lista modificado. Cambios sin guardar.');onPreferenceEdit?.();}
+ function editLabels(next:Record<string,string>){setLabels(next);setPreferenceMessage('Nombres modificados. Cambios sin guardar.');onPreferenceEdit?.();}
+ function editUsage(next:PreferenceUsageValue){setUsage(next);setPreferenceMessage('Uso de la lista modificado. Cambios sin guardar.');onPreferenceEdit?.();}
  async function savePreferences(){
    if(previewReadOnly)return;
-  if(state?.status==='active'&&!state.automaticPaused&&turn?.memberId===memberId&&turn.participants?.length===1&&dates.length>0){
+  if(state?.status==='active'&&!state.automaticPaused&&turn?.memberId===memberId&&turn.participants?.length===1&&dates.length>0&&usage.mode==='immediate'){
    const quantity=turn.needed===1?'un ciclo':turn.needed+' ciclos';
    const code=data.members.find((m:any)=>m.id===memberId)?.code;
    if(!await confirm('Es el turno de '+code+'. Al guardar estas preferencias, el sistema intentará adjudicar inmediatamente '+quantity+' según el orden de la lista y los cupos disponibles. Si hay opciones válidas suficientes, la adjudicación se registrará automáticamente y se avanzará al siguiente turno, sin otra confirmación. ¿Guardar y continuar?'))return;
   }
-  const result=await act({action:'preferences',memberId,dates,persistent},'Preferencias guardadas');
+  const result=await act({action:'preferences',memberId,dates,persistent,mode:usage.mode,waitMinutes:usage.waitMinutes,labels:keptLabels},'Preferencias guardadas');
   setPreferenceMessage(result?.campaign?'Preferencias guardadas. Tu lista está confirmada.':'No se ha confirmado el guardado. Revisa el error y vuelve a intentarlo.');
  }
  useEffect(()=>{
@@ -379,9 +385,19 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  };
  const lastAuto=me?(election.timeline??[]).find((e:any)=>e.automatic&&e.memberIds.includes(mine)):null;
  const autoPick=lastAuto?{id:lastAuto.id,round:lastAuto.round,dates:lastAuto.choices.filter((c:any)=>c.member_id===mine).map((c:any)=>({date:c.cycle_date,end:data.result.cycles.find((x:any)=>x.date===c.cycle_date)?.end??c.cycle_date}))}:null;
+ // A cycle picked from one's list opens in the calendar, ready to confirm, as if tapped there.
+ const [pendingPick,setPendingPick]=useState<string|null>(null);
+ async function pickFromList(date:string){if(mode!=='choose'){if(!await leavePreferences())return;setMode('choose');}setPendingPick(date);}
+ useEffect(()=>{
+  if(!pendingPick||mode!=='choose')return;
+  const cycle=data.result.cycles.find((c:any)=>c.date===pendingPick);setPendingPick(null);
+  if(!cycle)return;clickCycle(cycle);
+  setTimeout(()=>document.querySelector('.vac2-choice-card')?.scrollIntoView({behavior:'smooth',block:'start'}),50);
+ },[pendingPick,mode]);
  const showCalendar=()=>document.querySelector('.vac2-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
  return <>
-  {me&&!frozen&&!(manage&&me.phase!=='my-turn')&&<MyElectionCard me={me} autoPick={autoPick}
+  {me&&!frozen&&!(manage&&me.phase!=='my-turn')&&<MyElectionCard me={me} autoPick={autoPick} plan={election.listPlan?.memberId===mine?election.listPlan:null} cycles={data.result.cycles}
+   available={me.phase==='my-turn'&&canChoose&&!previewReadOnly?election.available:undefined} onPick={pickFromList}
    onChoose={async()=>{if(mode!=='choose'&&!await leavePreferences())return;setMode('choose');showCalendar();}}
    onSimulate={canSimulate?async()=>{if(mode==='preferences'&&!await leavePreferences())return;setMode('simulate');setDetail(null);showCalendar();}:undefined}
    onList={()=>{if(!canPreferences)return;if(mine&&preferenceMemberIds.includes(mine))setMemberId(mine);setMode('preferences');setDetail(null);onPreferenceEdit?.();showCalendar();}}/>}
@@ -472,6 +488,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {!frozen&&turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
   {manage&&!frozen&&state?.status==='active'&&state.automaticPaused&&<div className="alert warning" role="status">Los automatismos están detenidos por una operación administrativa. Puedes corregir el turno manualmente; no se adjudicará de nuevo por sorpresa. <button type="button" className="secondary" disabled={busy||!open} onClick={async()=>{if(await confirm('¿Reanudar los automatismos? Las preferencias vigentes podrían adjudicar inmediatamente los siguientes turnos.'))act({action:'resume_automatic'},'Automatismos reanudados');}}>Reanudar automatismos</button></div>}
   {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open||previewReadOnly} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
+  {manage&&open&&!frozen&&state&&state.status!=='complete'&&<RoundQueuePanel data={data}/>}
 {mode==='choose'&&<div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{(n=>n===1?'1 ciclo':n+' ciclos')(election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0)} · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>}
   {canPreferences&&mode==='preferences'&&manage&&<label className="preference-member">Introducir preferencias para<select aria-label="Preferencias de controlador" value={memberId} disabled={busy} onChange={async e=>{const next=e.target.value;if(await leavePreferences()){setMemberId(next);setPreferenceMessage('');onPreferenceEdit?.();}}}>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>}
   {mode==='preferences'&&canPreferences&&<div className="preference-mode-banner" role="status">
@@ -490,7 +507,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       ?data.result.cycles.map((c:any)=>c.date).filter((d:string)=>!(pairOptions??election.available).includes(d)&&!selected.includes(d)):undefined}/>
    </div>
    <aside className="election-side">
-    {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} cancel={cancelPreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?'La lista coincide con la versión guardada.':preferenceMessage}/>}
+    {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} usage={usage} setUsage={editUsage} labels={labels} setLabels={editLabels} dirty={dirty} busy={busy} save={savePreferences} cancel={cancelPreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?'La lista coincide con la versión guardada.':preferenceMessage}/>}
 
     {mode==='choose'&&detail&&<section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>

@@ -2,7 +2,7 @@ import {notificationSettings,updateSubscription,dispatchNotifications,sendTestPu
 import { env, waitUntil } from 'cloudflare:workers';
 import { federatedAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
-import { Service, principal, ApiError } from '../../../server/service';
+import { Service, principal, ApiError, advanceExpiredTurns } from '../../../server/service';
 import { resolveControllerPreview } from '../../../server/controller-preview';
 import {documentation} from '../../../server/documentation';
 import {localAdminEnabled,localAdminLogin,localAdminLogout} from '../../../server/local-admin';
@@ -22,7 +22,9 @@ async function serve(request: Request) {
         if(path[0]==='notifications'&&path[1]==='dispatch'&&request.method==='POST'){
             const secret=bindings.NOTIFICATIONS_DISPATCH_SECRET;
             if(!secret||request.headers.get('Authorization')!== 'Bearer '+secret)return reply({error:'No autorizado'},403);
-            return reply(await dispatchNotifications(repo,bindings));
+            // Lists whose wait ran out choose first, so their notices go out in this same run.
+            const expired=await advanceExpiredTurns(repo).catch(()=>({applied:0,errors:1}));
+            return reply({...await dispatchNotifications(repo,bindings),expired});
         }
         const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '',bindings,repo).authenticate(request);
         const actor = await principal(repo,user,bindings.SUPERADMIN_EMAILS ?? '');

@@ -34,6 +34,12 @@ En **Preparar preferencias**, el administrador puede seleccionar a cualquier con
 
 El trabajo automático se guarda en lotes acotados. La web continúa esos lotes mientras está abierta; si se interrumpe, **Continuar automatismos** permite reanudarlos. Si cierras la web en mitad de una cadena de lotes, otra sesión puede reanudarla. No hay un planificador en segundo plano.
 
+## Quién falta en la ronda
+
+El panel **Quién falta en esta ronda** muestra, en orden, a quienes aún tienen que elegir en la ronda y cómo actuará la lista de cada uno: *Automático*, *Espera 2 h*, *Elige a mano · lista como nota* o *Elige a mano · sin lista*. No muestra los ciclos de cada lista. Debajo, **Si reanudas ahora** simula lo que se adjudicaría al instante (con los ciclos) y dónde se pararía la ronda. Con la elección en pausa el panel se abre solo: sirve para llevar la elección en paralelo por el método tradicional sabiendo qué se asignaría al reanudar. Al reanudar, quien tenga un plazo empieza a contarlo desde ese momento.
+
+Cuando vence el plazo de una lista y nadie tiene la web abierta, el aviso programado de cada minuto aplica la preferencia; en el historial aparece como automática y en la auditoría con el actor `sistema:plazo`.
+
 ## Simular varias veces
 
 Administración → **Herramientas avanzadas** → **Simulaciones privadas** crea escenarios con nombre del mismo equipo y año. Copian plantilla y parámetros, empiezan sin vacaciones y copian el orden en pausa si existe. Opcionalmente copian preferencias.

@@ -16,7 +16,7 @@ export const audit = sqliteTable('audit', { id: text('id').primaryKey(), actor: 
 export const assertions = sqliteTable('transaction_assertions', { id: text('id').primaryKey() });
 export const state = sqliteTable('app_state', { id: text('id').primaryKey(), revision: integer('revision').notNull().default(0) });
 export const electionStates=sqliteTable('election_states',{campaignId:text('campaign_id').primaryKey().references(()=>campaigns.id),json:text('json').notNull()});
-export const preferences=sqliteTable('preferences',{memberId:text('member_id').primaryKey().references(()=>members.id),campaignId:text('campaign_id').notNull().references(()=>campaigns.id),datesJson:text('dates_json').notNull(),automatic:integer('automatic').notNull().default(0),persistent:integer('persistent').notNull().default(0),active:integer('active').notNull().default(1)});
+export const preferences=sqliteTable('preferences',{memberId:text('member_id').primaryKey().references(()=>members.id),campaignId:text('campaign_id').notNull().references(()=>campaigns.id),datesJson:text('dates_json').notNull(),automatic:integer('automatic').notNull().default(0),persistent:integer('persistent').notNull().default(0),active:integer('active').notNull().default(1),mode:text('mode').notNull().default('immediate'),waitMinutes:integer('wait_minutes').notNull().default(0),labelsJson:text('labels_json').notNull().default('{}')});
 export const controllerAccounts=sqliteTable('controller_accounts',{personId:text('person_id').primaryKey().references(()=>people.id),principalKey:text('principal_key').notNull(),version:integer('version').notNull().default(1)},t=>[uniqueIndex('controller_account_identity').on(t.principalKey)]);
 
 

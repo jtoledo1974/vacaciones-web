@@ -18,8 +18,58 @@ export type ElectionState={
  jointGroups?:string[][];
  // Round-scoped administrative agreements; cancelled records remain in the audit.
  jointAgreements?:{round:number;members:string[];actor:string;at:string;cancelledBy?:string;cancelledAt?:string}[];
+ // When the turn at this (normalized) cursor opened for choosing: a 'wait' list counts from here.
+ turnSince?:{cursor:number;at:string};
 };
-export type Preference={member_id:string;dates:string[];automatic:boolean;persistent?:boolean;active?:boolean};
+// immediate: applied as soon as the turn arrives. wait: applied waitMinutes after it
+// arrives unless its owner chooses first. manual: a note only, never applied.
+export type PreferenceMode='immediate'|'wait'|'manual';
+export const PREFERENCE_MODES:PreferenceMode[]=['immediate','wait','manual'];
+export const MAX_WAIT_MINUTES=24*60;
+export type Preference={member_id:string;dates:string[];automatic:boolean;persistent?:boolean;active?:boolean;mode?:PreferenceMode;waitMinutes?:number;labels?:Record<string,string>};
+export const PREFERENCE_COLUMNS=['member_id','campaign_id','dates_json','automatic','persistent','active','mode','wait_minutes','labels_json'];
+export function preferenceRow(p:Preference,campaignId:string):unknown[]{
+ return [p.member_id,campaignId,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0,p.mode??'immediate',p.waitMinutes??0,JSON.stringify(p.labels??{})];
+}
+export function preferenceFromRow(row:any):Preference{
+ return {member_id:row.member_id,dates:JSON.parse(row.dates_json),automatic:!!row.automatic,persistent:!!row.persistent,active:!!row.active,
+  mode:PREFERENCE_MODES.includes(row.mode)?row.mode:'immediate',waitMinutes:Number(row.wait_minutes)||0,labels:parseLabels(row.labels_json)};
+}
+export const MAX_LABEL_LENGTH=40;
+function parseLabels(json:unknown):Record<string,string>{
+ try{const value=JSON.parse(String(json??'{}'));return value&&typeof value==='object'&&!Array.isArray(value)?value:{};}catch{return {};}
+}
+/** Keep only short, non-empty names of cycles that are in the list; null when malformed. */
+export function cleanLabels(labels:unknown,dates:string[]):Record<string,string>|null{
+ if(labels===undefined)return {};
+ if(!labels||typeof labels!=='object'||Array.isArray(labels))return null;
+ const out:Record<string,string>={};
+ for(const [date,raw] of Object.entries(labels)){
+  if(typeof raw!=='string')return null;
+  const label=raw.trim();
+  if(label.length>MAX_LABEL_LENGTH)return null;
+  if(label&&dates.includes(date))out[date]=label;
+ }
+ return out;
+}
+/** A list that can still act on its owner's next turn. */
+export const activeList=(p:Preference|undefined):p is Preference=>!!p&&p.active!==false&&p.dates.length>0;
+/**
+ * The instant (ms) from which the list may choose at the turn opened at `cursor`.
+ * null: never on its own (no list, manual mode, or a wait whose start is unknown yet).
+ */
+export function automaticAt(p:Preference|undefined,state:ElectionState,cursor:number):number|null{
+ if(!activeList(p)||p.mode==='manual')return null;
+ if(p.mode!=='wait')return 0;
+ if(state.turnSince?.cursor!==cursor)return null;
+ return Date.parse(state.turnSince.at)+(p.waitMinutes??0)*60_000;
+}
+/** Restart the turn clock when a new turn opens, or when choosing resumes (`restart`). */
+export function stampTurn(state:ElectionState|null,cursor:number,at:string,restart=false):ElectionState|null{
+ if(!state||state.status!=='active')return state;
+ if(!restart&&state.turnSince?.cursor===cursor)return state;
+ return {...state,turnSince:{cursor,at}};
+}
 // A one-turn list is consumed by a confirmed choice, not by a deferral.
 export function visiblePreferenceDates(dates:string[],cycles:{date:string;occupied:number;max:number;available?:boolean}[]):string[]{
  const byDate=new Map(cycles.map(c=>[c.date,c]));
@@ -76,6 +126,7 @@ export function validateElectionState(state:ElectionState,members:Member[]){
    agreement.members.forEach(id=>used.add(id));perRound.set(agreement.round,used);
   }
  }
+ if(state.turnSince!==undefined&&(!state.turnSince||!Number.isInteger(state.turnSince.cursor)||typeof state.turnSince.at!=='string'||Number.isNaN(Date.parse(state.turnSince.at))))throw new Error('Inicio de turno no válido');
  if(state.pendingTieGroups!==undefined&&(!Array.isArray(state.pendingTieGroups)||state.pendingTieGroups.some(group=>!Array.isArray(group)||!(state.tieGroups??[]).some(tie=>tie.length===group.length&&tie.every((id,i)=>id===group[i])))))throw new Error('Empates pendientes no válidos');
  if(state.tieResolutions!==undefined&&(!Array.isArray(state.tieResolutions)||state.tieResolutions.some(r=>!r||!['random','external'].includes(r.method)||typeof r.at!=='string'||typeof r.actor!=='string'||!Array.isArray(r.order)||r.order.length<2||new Set(r.order).size!==r.order.length||r.order.some(id=>!state.order.includes(id))||(r.anticipated!==undefined&&typeof r.anticipated!=='boolean'))))throw new Error('Actas de sorteo no válidas');
 }
@@ -229,13 +280,20 @@ export function defer(ctx:ElectionContext,input:ElectionState,memberId:string){
  turn.state.credits[memberId]=credits+1;turn.state.cursor++;
  return currentTurn(ctx,turn.state).state;
 }
-export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferences:Preference[]){
+/** Whether the list of whoever holds the turn may choose for them now (`now` in ms). */
+export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferences:Preference[],now=Date.now()){
  if(state.automaticPaused)return null;
  const turn=currentTurn(ctx,state);
  if(turn.participants.length!==1||!turn.memberId)return null;
  // A saved preference list is an advance instruction to choose; legacy automatic=false is ignored.
  const pref=preferences.find(p=>p.member_id===turn.memberId&&p.active!==false);
- if(!pref)return null;
+ const at=automaticAt(pref,turn.state,turn.state.cursor);
+ if(at===null||at>now)return null;
+ return listChoice(ctx,turn,pref!);
+}
+/** The first combination of the list valid for this turn, whatever the list's mode. */
+export function listChoice(ctx:ElectionContext,turn:{memberId:string|null;needed:number},pref:Preference):string[]|null{
+ if(!turn.memberId)return null;
  const needed=turn.needed;
  // Explicit bounded backtracking avoids accepting a pair/triple that breaks joint quota accounting.
  let budget=3000;
@@ -251,15 +309,53 @@ export function preferredChoice(ctx:ElectionContext,state:ElectionState,preferen
  };
  return search(0,[]);
 }
-export function advanceAutomatic(ctx:ElectionContext,input:ElectionState,preferences:Preference[],maxTurns=12){
+export function advanceAutomatic(ctx:ElectionContext,input:ElectionState,preferences:Preference[],maxTurns=12,now=Date.now()){
  let state=currentTurn(ctx,input).state;const choices:Choice[]=[];
  let remainingPreferences=preferences;
  for(let step=0;step<maxTurns;step++){
   const context={...ctx,awards:[...ctx.awards,...choices.map((c,i)=>({...c,id:'automatic-'+i}))]},turn=currentTurn(context,state);
-  state=turn.state;const dates=preferredChoice(context,state,remainingPreferences);if(!dates||!turn.memberId)break;
+  state=turn.state;const dates=preferredChoice(context,state,remainingPreferences,now);if(!dates||!turn.memberId)break;
   const next=choose(context,state,turn.memberId,dates);choices.push(...next.choices);state=next.state;
   remainingPreferences=consumePreferences(remainingPreferences,[turn.memberId]);
  }
  const finalContext={...ctx,awards:[...ctx.awards,...choices.map((c,i)=>({...c,id:'automatic-'+i}))]};
- return {state,choices,preferences:remainingPreferences,pendingAutomatic:!!preferredChoice(finalContext,state,remainingPreferences)};
+ return {state,choices,preferences:remainingPreferences,pendingAutomatic:!!preferredChoice(finalContext,state,remainingPreferences,now)};
+}
+export type QueueEntry={memberId:string;mode:PreferenceMode|'none';waitMinutes:number;current:boolean};
+/** Who still has to choose in the current round, from the turn on, and how each list will act.
+ * Managers see this; it never says which cycles a list contains. */
+export function roundQueue(ctx:ElectionContext,state:ElectionState,preferences:Preference[]):QueueEntry[]{
+ const n=state.order.length,start=state.cursor%n,round=Math.floor(state.cursor/n);
+ return orderForRound(state,round).slice(start).filter(id=>count(ctx,id)<entitlementFor(ctx,id)).map((id,i)=>{
+  const p=preferences.find(x=>x.member_id===id);
+  return {memberId:id,mode:activeList(p)?p.mode??'immediate':'none',waitMinutes:activeList(p)&&p.mode==='wait'?p.waitMinutes??0:0,current:i===0};
+ });
+}
+export type ChainStop={memberId:string|null;reason:'wait'|'manual'|'no-option'|'joint'|'tie'|'complete'|'limit';waitMinutes?:number};
+/**
+ * What resuming the election would do right now: the turns that lists resolve at
+ * once (with their cycles), and where it stops. A 'wait' list stops it, because
+ * resuming restarts its clock.
+ */
+export function automaticChain(ctx:ElectionContext,input:ElectionState,preferences:Preference[],maxTurns=8):{applied:{memberId:string;dates:string[]}[];stop:ChainStop}{
+ let state:ElectionState={...structuredClone(input),status:'active',automaticPaused:false};
+ let awards=ctx.awards,remaining=preferences;
+ const applied:{memberId:string;dates:string[]}[]=[];
+ for(let step=0;step<maxTurns;step++){
+  const context={...ctx,awards},turn=currentTurn(context,state);
+  if(turn.state.status==='complete')return {applied,stop:{memberId:null,reason:'complete'}};
+  if(turn.pendingTie)return {applied,stop:{memberId:null,reason:'tie'}};
+  if(!turn.memberId)return {applied,stop:{memberId:null,reason:'complete'}};
+  if(turn.participants.length!==1)return {applied,stop:{memberId:turn.memberId,reason:'joint'}};
+  const pref=remaining.find(p=>p.member_id===turn.memberId&&p.active!==false);
+  if(!activeList(pref)||pref.mode==='manual')return {applied,stop:{memberId:turn.memberId,reason:'manual'}};
+  if(pref.mode==='wait')return {applied,stop:{memberId:turn.memberId,reason:'wait',waitMinutes:pref.waitMinutes??0}};
+  const dates=listChoice(context,turn,pref);
+  if(!dates)return {applied,stop:{memberId:turn.memberId,reason:'no-option'}};
+  const next=choose(context,turn.state,turn.memberId,dates);
+  applied.push({memberId:turn.memberId,dates});
+  awards=[...awards,...next.choices.map((c,i)=>({...c,id:'chain-'+step+'-'+i}))];
+  state=next.state;remaining=consumePreferences(remaining,[turn.memberId]);
+ }
+ return {applied,stop:{memberId:null,reason:'limit'}};
 }

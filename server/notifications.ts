@@ -94,7 +94,8 @@ export async function flushTurnNotifications(repo:Repository,config:PushConfig,c
    if(claim[1].results[0]?.lease_token!==token||claim[1].results[0]?.status!=='sending')continue;
    budget.remaining--;
    try{
-    const response=await sender(config,sub,{...notificationText(row),url:targetUrl,tag:row.id});
+    const deadline=isTurnEvent(row.id)?await waitDeadline(repo,campaignId,row.member_id).catch(()=>null):null;
+    const response=await sender(config,sub,{...notificationText(row,{deadline}),url:targetUrl,tag:row.id});
     if(response.status===404||response.status===410){
      await repo.batch([
       {sql:'DELETE FROM push_subscriptions WHERE endpoint=? AND owner_key=?',args:[sub.endpoint,row.owner_key]},
@@ -120,15 +121,29 @@ const AUTO_PREFIX='auto:';
 const AUTO_WINDOW_MS=6*3600_000;
 const shortDate=(iso:string)=>new Date(iso+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short',timeZone:'UTC'}).replace('.','');
 
-export function notificationText(row:{id:string;round:number}){
- if(row.id.startsWith(SOON_PREFIX))return {title:'Vacaciones · Tu turno se acerca',body:'Ronda '+row.round+'. Te toca pronto y no tienes preferencias activas. Prepáralas por si no estás cuando llegue tu turno.'};
+/** When a turn holder's waiting list will choose for them (ISO), or null. */
+export async function waitDeadline(repo:Repository,campaignId:string,memberId:string):Promise<string|null>{
+ const [state,pref]=await Promise.all([
+  repo.all('SELECT json FROM election_states WHERE campaign_id=?',[campaignId]),
+  repo.all("SELECT mode,wait_minutes,active,dates_json FROM preferences WHERE campaign_id=? AND member_id=? AND mode='wait'",[campaignId,memberId]),
+ ]);
+ const since=state[0]?JSON.parse(state[0].json).turnSince:null,p=pref[0];
+ if(!since||!p||!p.active||p.dates_json==='[]')return null;
+ return new Date(Date.parse(since.at)+Number(p.wait_minutes)*60_000).toISOString();
+}
+const clock=(iso:string)=>new Date(iso).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/Madrid'});
+
+export function notificationText(row:{id:string;round:number},extra:{deadline?:string|null}={}){
+ if(row.id.startsWith(SOON_PREFIX))return {title:'Vacaciones · Tu turno se acerca',body:'Ronda '+row.round+'. Te toca pronto y no tienes preferencias que se apliquen solas. Prepáralas por si no estás cuando llegue tu turno.'};
  if(row.id.startsWith(LOW_PREFIX)){
   const left=Number(row.id.split(':').at(-1));
   return {title:'Vacaciones · Tu lista se queda sin opciones',body:left===0
    ?'Ninguna de tus preferencias está disponible. Añade otras antes de tu turno.'
    :(left===1?'Solo queda 1 opción disponible':'Solo quedan '+left+' opciones disponibles')+' en tus preferencias. Añade alguna más antes de tu turno.'};
  }
- if(!row.id.startsWith(AUTO_PREFIX))return {title:'Vacaciones · Es tu turno',body:'Ronda '+row.round+'. Ya puedes elegir tus vacaciones.'};
+ if(!row.id.startsWith(AUTO_PREFIX))return {title:'Vacaciones · Es tu turno',body:extra.deadline
+  ?'Ronda '+row.round+'. Tienes hasta las '+clock(extra.deadline)+' para elegir; si no, se aplicarán tus preferencias.'
+  :'Ronda '+row.round+'. Ya puedes elegir tus vacaciones.'};
  const date=row.id.split(':').at(-1)!;
  return {title:'Vacaciones · Tu lista ha elegido por ti',body:'Ciclo del '+shortDate(date)+', ronda '+row.round+'. Ábrelo para revisar tus preferencias.'};
 }
@@ -265,8 +280,9 @@ export async function dispatchNotifications(repo:Repository,config:PushConfig,ca
    // Isolated: a viability failure must not stop «Es tu turno».
    try{enqueued+=await enqueueInactiveListAlerts(repo,{campaignId:campaign.id,members:ctx.members as unknown as {id:string;person_id:string}[],state,awards:ctx.awards,
     entitlement:ctx.config.cyclesPerPerson??6,round:turn.round,turnMemberIds:turn.participants?.length?turn.participants:turn.memberId?[turn.memberId]:[],
-    preferences:(await repo.all('SELECT member_id,active FROM preferences WHERE campaign_id=?',[campaign.id])).map((p:any)=>({member_id:p.member_id,active:!!p.active})),now});}catch{errors++;}
-   try{enqueued+=await enqueueLowListAlerts(repo,lowListInput(ctx,state,turn,await repo.all('SELECT member_id,dates_json,active FROM preferences WHERE campaign_id=?',[campaign.id]),campaign.id,now));}catch{errors++;}
+    // A list kept only as a note does not choose: warn its owner like someone without one.
+    preferences:(await repo.all("SELECT member_id,active FROM preferences WHERE campaign_id=? AND mode<>'manual'",[campaign.id])).map((p:any)=>({member_id:p.member_id,active:!!p.active})),now});}catch{errors++;}
+   try{enqueued+=await enqueueLowListAlerts(repo,lowListInput(ctx,state,turn,await repo.all("SELECT member_id,dates_json,active FROM preferences WHERE campaign_id=? AND mode<>'manual'",[campaign.id]),campaign.id,now));}catch{errors++;}
    if(turn.pendingTie||!turn.memberId)continue;
    const participants:string[]=turn.participants?.length?turn.participants:[turn.memberId];
    for(const memberId of participants){

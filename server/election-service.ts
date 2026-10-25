@@ -1,4 +1,4 @@
-import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,entitlementFor,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,type ElectionState,type Preference,type ElectionContext} from '../domain/election.ts';
+import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,entitlementFor,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,PREFERENCE_COLUMNS,PREFERENCE_MODES,MAX_WAIT_MINUTES,preferenceRow,preferenceFromRow,cleanLabels,MAX_LABEL_LENGTH,stampTurn,automaticAt,automaticChain,listChoice,activeList,roundQueue,type ElectionState,type Preference,type PreferenceMode,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {policyState2027} from '../domain/election-2027.ts';
 import {canComplete2027,evaluate2027Candidate,evaluate2027Final,partialAssessment2027,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
@@ -23,7 +23,7 @@ export class ElectionService{
  reconstruction(){return new ReconstructionService(this.repo,this.actor,this.host);}
  async read(cid:string){
   const result=await this.repo.batch([{sql:'SELECT json FROM election_states WHERE campaign_id=?',args:[cid]},{sql:'SELECT * FROM preferences WHERE campaign_id=?',args:[cid]}]);
-  return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(p=>({member_id:p.member_id,dates:JSON.parse(p.dates_json),automatic:!!p.automatic,persistent:!!p.persistent,active:!!p.active})) as Preference[]};
+  return {state:result[0].results[0]?JSON.parse(result[0].results[0].json) as ElectionState:null,preferences:result[1].results.map(preferenceFromRow)};
  }
  async memberForAccount(d:any){
   if(this.actor.preview)return this.actor.preview.campaignId===d.campaign.id&&d.members.some((m:any)=>m.id===this.actor.preview!.memberId)?this.actor.preview.memberId:null;
@@ -161,7 +161,7 @@ export class ElectionService{
   // preferences BEFORE starting the table-wide global availability searches.
   // The intermediate POST response is not rendered: the client immediately
   // sends the next advance request. Normal GET and final POST stay complete.
-  const pendingAutomatic=!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences));
+  const pendingAutomatic=!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences,Date.now()));
   const skipFullAvailability=!!options.skipAvailabilityForPendingAutomatic&&pendingAutomatic;
   // A single source of truth per snapshot. Previous code evaluated rejected
   // 2027 choices twice and reconstructed the full HR calendar for every date.
@@ -234,10 +234,52 @@ export class ElectionService{
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
   // Only a count, for the controller's own forecast; never whose lists are active.
   const ahead=mine&&raw.state?.status==='active'&&!raw.state.automaticPaused&&!turn?.pendingTie?peopleAhead(raw.state,ctx.awards,ctx.config.cyclesPerPerson,mine):null;
-  const automaticAhead=ahead?ahead.filter(id=>raw.preferences.some(p=>p.member_id===id&&p.active!==false&&p.dates.length)).length:null;
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,automaticAhead,timeline,reconstruction};
+  // A list that waits, or is only a note, does not shorten anybody's wait.
+  const automaticAhead=ahead?ahead.filter(id=>raw.preferences.some(p=>p.member_id===id&&activeList(p)&&(p.mode??'immediate')==='immediate')).length:null;
+  const listPlan=!skipFullAvailability?this.listPlan(ctx,raw,turn,manage,mine):null;
+  const queue=manage&&raw.state&&raw.state.status!=='complete'?roundQueue(ctx,raw.state,raw.preferences):null;
+  let chain:ReturnType<typeof automaticChain>|null=null;
+  if(manage&&queue&&!skipFullAvailability&&!reconstruction.active&&!turn?.pendingTie){try{chain=automaticChain(ctx,raw.state!,raw.preferences,6);}catch{chain=null;}}
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,automaticAhead,listPlan,queue,chain,timeline,reconstruction};
  }
- async mutate(cid:string,body:any){
+ /**
+  * Scheduled: apply the lists whose wait has run out, nobody having the page open.
+  * Also starts the clock of a turn opened before it existed (or by a reconstruction),
+  * without a new campaign version: it is bookkeeping, not a decision.
+  */
+ async expire(cid:string,now=Date.now(),maxTurns=12){
+  let applied=0;
+  for(let step=0;step<maxTurns;step++){
+   const d=await this.host.load(cid),raw=await this.read(cid);
+   if(d.campaign.status!=='open'||raw.state?.status!=='active'||raw.state.automaticPaused)break;
+   const reconstruction=await this.reconstruction().read(cid);
+   if(reconstruction&&reconstruction.status!=='completed')break;
+   const ctx=context(d),turn=currentTurn(ctx,raw.state);
+   if(!turn.memberId)break;
+   const stamped=stampTurn(raw.state,turn.state.cursor,new Date(now).toISOString());
+   if(stamped!==raw.state){
+    // The revision bump makes open pages fetch the new deadline.
+    await this.repo.batch([{sql:'UPDATE election_states SET json=? WHERE campaign_id=? AND json=?',args:[JSON.stringify(stamped),cid,JSON.stringify(raw.state)]},{sql:"UPDATE app_state SET revision=revision+1 WHERE id='main'"}]);
+    break;
+   }
+   if(!preferredChoice(ctx,turn.state,raw.preferences,now))break;
+   const result=await this.mutate(cid,{action:'advance',version:d.campaign.version},now);
+   if(!result?.changed)break;
+   applied++;
+  }
+  return applied;
+ }
+ /** What the list of whoever holds the turn will do, for them and for managers only. */
+ private listPlan(ctx:ElectionContext,raw:{state:ElectionState|null;preferences:Preference[]},turn:any,manage:boolean,mine:string|null){
+  if(raw.state?.status!=='active'||!turn?.memberId||turn.participants.length!==1||(!manage&&turn.memberId!==mine))return null;
+  const pref=raw.preferences.find(p=>p.member_id===turn.memberId&&p.active!==false);
+  if(!activeList(pref)||pref.mode==='manual')return null;
+  const at=automaticAt(pref,turn.state,turn.state.cursor);
+  let dates:string[]|null=null;try{dates=listChoice(ctx,turn,pref);}catch{dates=null;}
+  return {memberId:turn.memberId as string,mode:pref.mode??'immediate',waitMinutes:pref.waitMinutes??0,
+   deadline:at&&at>0?new Date(at).toISOString():null,paused:!!raw.state.automaticPaused,dates};
+ }
+ async mutate(cid:string,body:any,now=Date.now()){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);
   if(this.actor.preview&&!this.actor.preview.writable)throw new ApiError('La vista previa de la campaña real no permite guardar',403);
   const d=await this.host.load(cid),c=d.campaign,manage=canWrite(this.actor,c.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d);
@@ -259,9 +301,15 @@ export class ElectionService{
     if(!(await this.preferenceMemberIds(d,mine)).includes(body.memberId))throw new ApiError('Las preferencias de un controlador con cuenta vinculada solo pueden modificarlas su titular o un superadministrador',403);
     const dates=body.dates,validDates=new Set(resultDates(ctx));
     if(!Array.isArray(dates)||dates.length>100||dates.some(date=>typeof date!=='string'||!validDates.has(date))||new Set(dates).size!==dates.length||(body.persistent!==undefined&&typeof body.persistent!=='boolean'))throw new ApiError('Lista de preferencias no válida: usa ciclos del calendario, sin duplicados');
+    // Older clients send no mode: their lists keep applying at once.
+    const mode:PreferenceMode=body.mode??'immediate',waitMinutes=mode==='wait'?body.waitMinutes:0;
+    if(!PREFERENCE_MODES.includes(mode)||!Number.isInteger(waitMinutes)||waitMinutes<0||waitMinutes>MAX_WAIT_MINUTES||(mode==='wait'&&waitMinutes<1))throw new ApiError('Indica un plazo de espera entre 1 minuto y 24 horas');
     const persistent=body.persistent===true,active=dates.length>0;
-    preferences=[...preferences.filter(p=>p.member_id!==body.memberId),{member_id:body.memberId,dates,automatic:true,persistent,active}];
-    ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic,persistent=excluded.persistent,active=excluded.active',args:[body.memberId,cid,JSON.stringify(dates),1,persistent?1:0,active?1:0]});
+    const labels=cleanLabels(body.labels,dates);
+    if(!labels)throw new ApiError('Los nombres de los ciclos deben tener como mucho '+MAX_LABEL_LENGTH+' caracteres');
+    const saved:Preference={member_id:body.memberId,dates,automatic:true,persistent,active,mode,waitMinutes,labels};
+    preferences=[...preferences.filter(p=>p.member_id!==body.memberId),saved];
+    ops.push({sql:`INSERT INTO preferences(${PREFERENCE_COLUMNS.join(',')}) VALUES(${PREFERENCE_COLUMNS.map(()=>'?').join(',')}) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic,persistent=excluded.persistent,active=excluded.active,mode=excluded.mode,wait_minutes=excluded.wait_minutes,labels_json=excluded.labels_json`,args:preferenceRow(saved,cid)});
    }else if(action==='start'){
     if(!manage)throw new ApiError('Solo el responsable puede activar esta elección',403);
     if(d.config.cyclesPerPerson<1||d.config.cyclesPerPerson>6)throw new ApiError('La elección admite entre uno y seis ciclos por persona');
@@ -312,7 +360,7 @@ export class ElectionService{
     // advanceAutomatic checks stored preferences and validates its chosen
     // cycles; do not perform an identical, expensive solver search beforehand.
     // Each successful advance still commits EXACTLY ONE undoable turn.
-    const next=advanceAutomatic(ctx,state,preferences,1);
+    const next=advanceAutomatic(ctx,state,preferences,1,now);
     if(!next.choices.length)return {changed:false};
     state=next.state;preferences=next.preferences;choices=next.choices;
    }else if(action==='link_account'){
@@ -341,7 +389,7 @@ export class ElectionService{
      const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]);
      const privateList=(items:Preference[],id:string)=>{
       const p=items.find(item=>item.member_id===id);
-      return p?JSON.stringify({dates:p.dates,automatic:p.automatic!==false,persistent:p.persistent===true}):null;
+      return p?JSON.stringify({dates:p.dates,automatic:p.automatic!==false,persistent:p.persistent===true,mode:p.mode??'immediate',waitMinutes:p.waitMinutes??0,labels:p.labels??{}}):null;
      };
      if(linked.some((m:any)=>m.id!==mine&&privateList(prior.preferences??[],m.id)!==privateList(preferences,m.id)))
       throw new ApiError('Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas',403);
@@ -350,7 +398,7 @@ export class ElectionService{
     // Undo must leave the recovered turn editable, never automatically re-award it.
     // Redo restores the prior snapshot exactly (including the old pause state).
     if(action==='election_undo'&&state)state={...state,automaticPaused:true};
-    ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],(prior.requests??d.requests).map((a:any)=>[a.id,cid,a.member_id,a.slot,a.cycle_date,a.version])),...insertRows('preferences',['member_id','campaign_id','dates_json','automatic','persistent','active'],preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0])));
+    ops.push({sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],prior.awards.map((a:any)=>[a.id,cid,a.member_id,a.cycle_date,a.version])),...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],(prior.requests??d.requests).map((a:any)=>[a.id,cid,a.member_id,a.slot,a.cycle_date,a.version])),...insertRows('preferences',PREFERENCE_COLUMNS,preferences.map(p=>preferenceRow(p,cid))));
    }else throw new ApiError('Operación de elección no válida');
   }catch(e:any){if(e.status)throw e;throw new ApiError(e.message);}
   // Save preference consumption atomically with awards, requests and cursor.
@@ -358,6 +406,8 @@ export class ElectionService{
    const prior=raw.preferences.find(previous=>previous.member_id===p.member_id);
    if(prior&&prior.active!==p.active)ops.push({sql:'UPDATE preferences SET active=? WHERE member_id=? AND campaign_id=?',args:[p.active!==false?1:0,p.member_id,cid]});
   }
+  // Undo and redo restore their snapshot exactly; undo also pauses automatic choices, and resuming restarts the clock.
+  if(!['election_undo','election_redo'].includes(action))state=stampTurnAfter(ctx,state,choices,new Date(now).toISOString(),['start','resume','resume_automatic'].includes(action));
   ops.push(electionStateStatement(cid,state));
   ops.push(...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],choices.map(a=>[crypto.randomUUID(),cid,a.member_id,a.cycle_date,1])));
   // Criterios 1.1 p.2: the original selection persists even if an award is
@@ -398,6 +448,13 @@ export class ElectionService{
   ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{impact:auditImpact,...(warnings?{warnings}:{}),version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));
   await this.host.commit(ops);return {changed:true};
  }
+}
+/** Start the clock of the turn that `state` leaves open (see ElectionState.turnSince). */
+export function stampTurnAfter(ctx:ElectionContext,state:ElectionState|null,choices:{member_id:string;cycle_date:string}[],at:string,restart=false):ElectionState|null{
+ if(!state||state.status!=='active')return state;
+ let cursor=state.cursor;
+ try{cursor=currentTurn({...ctx,awards:[...ctx.awards,...choices.map((c,i)=>({...c,id:'stamp-'+i}))]},state).state.cursor;}catch{/* An undo restores other awards; its cursor is already normalized. */}
+ return stampTurn(state,cursor,at,restart);
 }
 function resultDates(ctx:ElectionContext){return calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards).cycles.map(c=>c.date);}
 

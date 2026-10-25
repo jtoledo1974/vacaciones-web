@@ -605,7 +605,7 @@ export class Service {
             for (const row of tables[n]) {
                 if (Object.keys(row).some(k => !cols.includes(k)))
                     throw new ApiError('Columna desconocida');
-                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:k==='scope_key'?'live':k==='simulation_name'?'':n==='preferences'&&k==='persistent'?0:n==='preferences'&&k==='active'?1:null)) });
+                ops.push({ sql: `INSERT INTO ${n}(${cols.join(',')}) VALUES(${cols.map(() => '?').join(',')})`, args: cols.map(k => row[k] ?? (k==='label'?'':k==='position'?0:k==='data_kind'?'demo':n==='people'&&k==='active'?1:k==='scope_key'?'live':k==='simulation_name'?'':n==='preferences'&&k==='persistent'?0:n==='preferences'&&k==='active'?1:n==='preferences'&&k==='mode'?'immediate':n==='preferences'&&k==='wait_minutes'?0:n==='preferences'&&k==='labels_json'?'{}':null)) });
             }
         }
         ops.push(this.audit('restore', null, { revision: expectedRevision }, { sha256: b.sha256 }));
@@ -627,3 +627,14 @@ async function digest(s: string) { return Array.from(new Uint8Array(await crypto
 
 
 
+
+/** The scheduler's identity when it applies a list whose wait ran out. Never a signed-in user. */
+export const WAIT_EXPIRY_ACTOR:Principal={id:'sistema:plazo',role:'superadmin',teams:[]};
+/** Called by the minute dispatcher: each failure is isolated so one campaign cannot block the rest. */
+export async function advanceExpiredTurns(repo:Repository,now=Date.now()){
+    const rows=await repo.all("SELECT c.id FROM campaigns c JOIN election_states e ON e.campaign_id=c.id WHERE c.scope_key='live' AND c.status='open' AND json_extract(e.json,'$.status')='active' LIMIT 100");
+    const election=new Service(repo,WAIT_EXPIRY_ACTOR).election();
+    let applied=0,errors=0;
+    for(const row of rows){try{applied+=await election.expire(row.id,now);}catch{errors++;}}
+    return {applied,errors};
+}

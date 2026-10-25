@@ -1,4 +1,4 @@
-import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,entitlementFor,resolveTie,registerJointAgreement,cancelJointAgreement,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
+import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,entitlementFor,resolveTie,registerJointAgreement,cancelJointAgreement,PREFERENCE_COLUMNS,preferenceRow,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
 import {immediate2027Issues} from '../domain/policy-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
@@ -29,11 +29,11 @@ function restore(cid:string,s:Snapshot):Statement[]{
   {sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},
   ...inserts('awards',['id','campaign_id','member_id','cycle_date','version'],s.awards.map(a=>[a.id,cid,a.member_id,a.cycle_date,a.version])),
   ...inserts('requests',['id','campaign_id','member_id','slot','cycle_date','version'],s.requests.map(r=>[r.id,cid,r.member_id,r.slot,r.cycle_date,r.version])),
-  ...inserts('preferences',['member_id','campaign_id','dates_json','automatic','persistent','active'],s.preferences.map(p=>[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0])),
+  ...inserts('preferences',PREFERENCE_COLUMNS,s.preferences.map(p=>preferenceRow(p,cid))),
   statement(cid,s.state)
  ];
 }
-function sameList(a:Preference,b:Preference){return JSON.stringify([a.dates,a.persistent===true])===JSON.stringify([b.dates,b.persistent===true]);}
+function sameList(a:Preference,b:Preference){return JSON.stringify([a.dates,a.persistent===true,a.mode??'immediate',a.waitMinutes??0,a.labels??{}])===JSON.stringify([b.dates,b.persistent===true,b.mode??'immediate',b.waitMinutes??0,b.labels??{}]);}
 const isDecision=(action:string)=>['choose','choose_joint','defer','advance','resolve_tie','reconstruction_step','register_joint','cancel_joint'].includes(action);
 function historical(d:any,row:any):Historical|null{
  if(!isDecision(row.action)||!row.before_json)return null;
@@ -77,7 +77,7 @@ export class ReconstructionService{
   const original=s.originalEvents.find(e=>!['register_joint','cancel_joint'].includes(e.action)&&!s.applied.some(a=>a.usedId===e.id)&&e.round===turn.round&&
    (turn.pendingTie?e.action==='resolve_tie'&&e.participants.length===turn.pendingTie.length&&turn.pendingTie.every((id:string)=>e.participants.includes(id)):e.memberId===turn.memberId&&e.participants.length===turn.participants.length&&turn.participants.every((id:string)=>e.participants.includes(id))));
   const historicalPreferences=original?.before.preferences.filter(p=>turn.participants.includes(p.member_id))??[];
-  const first=!skipProof&&turn.participants.length===1&&turn.memberId&&historicalPreferences.length?preferredChoice(ctx(d,awards,requests),{...turn.state,automaticPaused:false},historicalPreferences.map(p=>({...p,active:true}))):null;
+  const first=!skipProof&&turn.participants.length===1&&turn.memberId&&historicalPreferences.length?preferredChoice(ctx(d,awards,requests),{...turn.state,automaticPaused:false},historicalPreferences.map(p=>({...p,active:true,mode:p.mode==='wait'?'immediate':p.mode}))):null;
   const originalChoices=(original?.after?.choices??[]) as {member_id:string;cycle_date:string}[];
   const originalEntries=turn.participants.map((id:string)=>({member_id:id,dates:originalChoices.filter(a=>a.member_id===id).map(a=>a.cycle_date)}));
   let canOriginal=false;

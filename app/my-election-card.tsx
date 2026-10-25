@@ -2,23 +2,71 @@
 import {useEffect,useState} from 'react';
 import {Bell} from 'lucide-react';
 import {formatDate} from './cycle-calendar';
-import {aheadNote,type MyElection} from './my-election-state';
+import {aheadNote,formatDeadline,formatWait,remainingText,type MyElection} from './my-election-state';
 
-const listText:Record<MyElection['list']['state'],string>={
- none:'No tienes preferencias guardadas: en tu turno tendrás que elegir tú.',
- 'active-next':'En tu próximo turno se elegirá automáticamente de tus preferencias.',
- 'active-all':'En todos tus turnos se elegirá automáticamente de tus preferencias.',
- used:'Tus preferencias ya se usaron: en tu próximo turno no se elegirá de ellas.',
- paused:'Preferencias guardadas, pero la elección automática está detenida.',
-};
-
+/** How the controller's saved list will act, in one sentence. */
+export function listSentence(list:MyElection['list'],turn=false):string{
+ if(list.state==='none')return 'No tienes preferencias guardadas: en tu turno tendrás que elegir tú.';
+ if(list.state==='used')return 'Tus preferencias ya se usaron: en tu próximo turno no se elegirá de ellas.';
+ if(list.state==='manual')return 'Tu lista es solo una nota: en tu turno elegirás tú.';
+ if(list.state==='paused')return 'Preferencias guardadas, pero la elección automática está detenida.';
+ if(turn&&list.mode==='wait')return 'Si no eliges a tiempo, se elegirá de tus preferencias.';
+ const turns=list.state==='active-all'?'En cada turno':'En tu próximo turno';
+ if(list.mode==='wait')return `${turns} tendrás ${formatWait(list.waitMinutes)} para elegir; si no lo haces, se elegirá de tus preferencias.`;
+ return list.state==='active-all'?'En todos tus turnos se elegirá automáticamente de tus preferencias.':'En tu próximo turno se elegirá automáticamente de tus preferencias.';
+}
 export type AutoPick={id:string;round:number;dates:{date:string;end:string}[]};
+/** The server's account of what the turn holder's list will do (election.listPlan). */
+export type ListPlan={memberId:string;mode:'immediate'|'wait';waitMinutes:number;deadline:string|null;paused:boolean;dates:string[]|null};
 
-const listShort:Record<MyElection['list']['state'],string>={none:'sin preferencias','active-next':'preferencias para tu próximo turno','active-all':'preferencias para todos tus turnos',used:'preferencias ya usadas',paused:'elección automática detenida'};
+const listShort:Record<MyElection['list']['state'],string>={none:'sin preferencias','active-next':'preferencias para tu próximo turno','active-all':'preferencias para todos tus turnos',used:'preferencias ya usadas',paused:'elección automática detenida',manual:'lista solo como nota'};
+
+const ordinal=(n:number)=>n+'ª';
+/** «(tu 2ª preferencia; la 1ª no está disponible)», so nobody wonders why it is not the first. */
+function positionsNote(dates:string[],entries:MyElection['list']['entries']):string{
+ const positions=dates.map(d=>entries.find(e=>e.date===d)?.position).filter((p):p is number=>!!p).sort((a,b)=>a-b);
+ if(!positions.length)return '';
+ if(positions.every((p,i)=>p===i+1))return positions.length===1?' (tu 1ª preferencia)':' (tus primeras preferencias)';
+ if(positions.length===1)return ` (tu ${ordinal(positions[0])} preferencia; ${positions[0]===2?'la 1ª no está disponible':'las anteriores no están disponibles'})`;
+ return ` (tus preferencias ${positions.map(ordinal).join(', ')}; las demás no están disponibles)`;
+}
+
+/** «Si no haces nada…»: what the waiting list will take and when, recalculated as cycles fill. */
+function WaitingPlan({plan,list,cycles}:{plan:ListPlan;list:MyElection['list'];cycles:{date:string;end:string}[]}){
+ const [now,setNow]=useState(()=>Date.now());
+ useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),30_000);return ()=>clearInterval(timer);},[]);
+ if(plan.paused)return <p className="my-election-plan">La elección automática está detenida: tus preferencias no se aplicarán solas. Elige tú.</p>;
+ if(!plan.dates)return <p className="my-election-plan is-empty"><strong>Ninguna de tus preferencias sigue libre.</strong> Tienes que elegir tú; la ronda espera.</p>;
+ const what=plan.dates.map(d=>{const c=cycles.find(x=>x.date===d),label=list.entries.find(e=>e.date===d)?.label;return (label?label+' · ':'')+formatDate(d)+' – '+formatDate(c?.end??d);}).join(' + ');
+ if(!plan.deadline)return <p className="my-election-plan">Tienes {formatWait(plan.waitMinutes)} para elegir. Si no lo haces, se te adjudicará <strong>{what}</strong>{positionsNote(plan.dates,list.entries)}.</p>;
+ const left=remainingText(plan.deadline,now);
+ return <div className="my-election-plan" role="status">
+  <p>Si no haces nada, a las <strong>{formatDeadline(plan.deadline,now)}</strong> se te adjudicará <strong>{what}</strong>{positionsNote(plan.dates,list.entries)}.</p>
+  <span className="my-election-countdown">{left??'Plazo cumplido: aplicando tus preferencias…'}</span>
+ </div>;
+}
+
+/** On one's turn: every listed cycle, by name, with whether it can be chosen right now
+ * (the same check as the calendar), so a list kept as a note is usable at a glance. */
+function ListNow({entries,available,onPick}:{entries:MyElection['list']['entries'];available:string[];onPick?:(date:string)=>void}){
+ const can=entries.filter(e=>!e.mine&&available.includes(e.date)).length;
+ return <div className="my-election-now">
+  <strong>Tu lista ahora · {can===0?'ninguna disponible':can===1?'1 disponible':can+' disponibles'} de {entries.length}</strong>
+  <ol>{entries.map(e=>{
+   const state=e.mine?'mine':available.includes(e.date)?'ok':'gone';
+   return <li key={e.date} className={'is-'+state}>
+    <span className="my-election-now-mark" aria-hidden="true">{state==='ok'?'✓':state==='mine'?'●':'✕'}</span>
+    <span className="my-election-now-text">{e.label&&<span className="preference-name">{e.label}</span>}{formatDate(e.date)} – {formatDate(e.end)}
+     <small>{state==='ok'?'Disponible':state==='mine'?'Ya es tuyo':'Ya no disponible'}</small></span>
+    {state==='ok'&&onPick&&<button type="button" className="secondary" onClick={()=>onPick(e.date)} aria-label={'Elegir '+(e.label||formatDate(e.date))}>Elegir</button>}
+   </li>;
+  })}</ol>
+ </div>;
+}
 
 /** The controller's own situation, first on the page: turn, cycles and list.
  * compact: a one-line summary that unfolds, for managers running the table while it is not their turn. */
-export default function MyElectionCard({me,autoPick,onChoose,onList,onSimulate,compact=false}:{me:MyElection;autoPick?:AutoPick|null;onChoose:()=>void;onList:()=>void;onSimulate?:()=>void;compact?:boolean}){
+export default function MyElectionCard({me,autoPick,plan,cycles=[],available,onPick,onChoose,onList,onSimulate,compact=false}:{me:MyElection;autoPick?:AutoPick|null;plan?:ListPlan|null;cycles?:{date:string;end:string}[];available?:string[];onPick?:(date:string)=>void;onChoose:()=>void;onList:()=>void;onSimulate?:()=>void;compact?:boolean}){
  // An automatic pick stays visible until dismissed on this device: it may have happened while away.
  const [dismissed,setDismissed]=useState(true);
  useEffect(()=>{
@@ -48,6 +96,8 @@ export default function MyElectionCard({me,autoPick,onChoose,onList,onSimulate,c
    {turn&&<button type="button" className="primary my-election-cta" onClick={onChoose}>Elegir ahora</button>}
   </div>
   {note&&<p className="my-election-soon">{note}</p>}
+  {turn&&plan?.mode==='wait'&&<WaitingPlan plan={plan} list={me.list} cycles={cycles}/>}
+  {turn&&available&&me.list.entries.length>0&&<ListNow entries={me.list.entries} available={available} onPick={onPick}/>}
   {autoPick&&!dismissed&&<div className="my-election-auto" role="status">
    <span><strong>Se ha elegido por ti de tus preferencias:</strong> {autoPick.dates.map(d=>formatDate(d.date)+' – '+formatDate(d.end)).join(' + ')} · ronda {autoPick.round}.</span>
    <button type="button" className="secondary" onClick={dismiss}>Entendido</button>
@@ -58,7 +108,7 @@ export default function MyElectionCard({me,autoPick,onChoose,onList,onSimulate,c
     :<span className="my-election-quiet">Todavía ninguna.</span>}
   </div>
   <div className={'my-election-row my-election-list is-'+me.list.state}>
-   <div><strong>{listText[me.list.state]}</strong>
+   <div><strong>{listSentence(me.list,turn)}</strong>
     {me.list.entries.length>0&&<span className="my-election-quiet">{me.list.entries.length===1?'1 opción':me.list.entries.length+' opciones'}{lost?` · ${lost} sin plazas`:''}{me.list.firstViable?` · primera disponible: ${formatDate(me.list.firstViable)}`:''}</span>}</div>
    <button type="button" className="secondary" onClick={onList}>{me.list.state==='none'?'Preparar mis preferencias':me.list.state==='used'?'Reactivar mis preferencias':'Revisar mis preferencias'}</button>
   </div>

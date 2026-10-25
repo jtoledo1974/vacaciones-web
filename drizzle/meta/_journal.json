@@ -71,6 +71,13 @@
       "when": 1793001600000,
       "tag": "0009_personal_simulations",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1793088000000,
+      "tag": "0010_preference_wait",
+      "breakpoints": true
     }
   ]
 }

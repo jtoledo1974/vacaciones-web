@@ -986,3 +986,63 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .personal-sim-steps{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
 .my-election-sim{margin-left:12px}
 @media(max-width:420px){.personal-sim h2{font-size:18px}.personal-sim .button-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.personal-sim .button-row button:last-child{grid-column:1/-1}}
+
+/* How a saved list acts when the turn arrives: three plain-worded options. */
+.preference-mode{border:1px solid var(--line);border-radius:10px;padding:12px;margin:16px 0 0;display:grid;gap:8px;min-width:0}
+.preference-mode legend{font-size:11px;font-weight:650;letter-spacing:.4px;color:#5d8470;padding:0 4px}
+.preference-mode-option{display:flex!important;flex-direction:row!important;align-items:flex-start;gap:10px;padding:10px;border:1px solid transparent;border-radius:8px;cursor:pointer;color:#314c40;font-size:13px}
+.preference-mode-option.is-selected{border-color:#9cc6b8;background:#f1f7f3}
+.preference-mode-option input{flex:none;margin:2px 0 0;width:18px;height:18px;accent-color:var(--teal)}
+.preference-mode-option span{display:grid;gap:3px}
+.preference-mode-option small{font-weight:400;color:#64766d;line-height:1.45}
+.preference-wait{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;margin:-2px 0 4px 38px}
+.preference-wait-chips{display:flex;flex-wrap:wrap;gap:8px}
+.preference-wait-chip{min-height:40px;min-width:64px;padding:8px 12px;border:1px solid #dce5d6;border-radius:20px;background:#fff;color:#314c40;font-size:13px;font-weight:550}
+.preference-wait-chip[aria-pressed=true]{background:#317a69;border-color:#317a69;color:#fff}
+.preference-wait-other{flex-basis:100%;gap:4px}
+.preference-wait-other select{max-width:200px}
+.preference-wait small{flex-basis:100%;color:#64766d}
+.preference-wait-error{color:#a8664b!important}
+.preference-mode-note{color:#64766d;line-height:1.45}
+.my-election-plan{margin:12px 0 0;padding:12px 14px;border-radius:9px;background:#fdf6e6;border:1px solid #efdcae;color:#5b4a1f;font-size:13px;line-height:1.5}
+.my-election-plan p{margin:0}
+.my-election.is-my-turn .my-election-plan strong{color:inherit}
+.my-election-plan.is-empty{background:#faece5;border-color:#f0d6c9;color:#8a4f37}
+.my-election-countdown{display:inline-block;margin-top:6px;font-weight:650;font-variant-numeric:tabular-nums}
+/* Managers: who is left in the round and what resuming would award. */
+.round-queue>summary{display:flex;flex-direction:column;gap:2px;text-align:left}
+.round-queue>summary .eyebrow{margin:0}
+.round-queue-summary{font-size:13px;color:#314c40;font-weight:550}
+.round-queue-chain{margin:4px 0 14px;padding:12px 14px;border-radius:9px;background:#f1f7f3;border:1px solid #d5e7de;font-size:13px;line-height:1.5}
+.round-queue-chain.is-paused{background:#fdf6e6;border-color:#efdcae}
+.round-queue-chain ol{margin:6px 0;padding-left:20px}
+.round-queue-chain p{margin:6px 0 0}
+.round-queue-list{list-style:none;margin:0;padding:0}
+.round-queue-list li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:9px 0;border-bottom:1px solid #edf0ef;font-size:13px}
+.round-queue-list li.is-current{background:#f1f7f3;border-radius:6px;padding:9px 8px}
+.round-queue-code{font-weight:700;color:#203738}
+.round-queue-now{font-size:10px;font-weight:650;letter-spacing:.5px;text-transform:uppercase;color:#317a69}
+.round-queue-mode{margin-left:auto;font-size:11px;padding:3px 8px;border-radius:12px;background:#eef1ee;color:#5f6f68}
+.round-queue-mode.is-immediate{background:#e3efe9;color:#2f6b58}
+.round-queue-mode.is-wait{background:#faf1da;color:#85632b}
+.round-queue-deadline{flex-basis:100%;color:#85632b}
+.round-queue-note{margin:12px 0 0}
+@media(max-width:600px){.preference-wait{margin-left:0}.round-queue-mode{margin-left:0}}
+.preference-list li{flex-wrap:wrap}
+.preference-label{flex-basis:100%;margin-left:52px;padding:7px 10px;font-size:12px}
+@media(max-width:600px){.preference-label{margin-left:0}}
+.preference-name{display:block;font-size:11px;font-weight:650;color:#5d8470;letter-spacing:.3px}
+/* On one's turn: the list, by name, with what can be chosen now. */
+.my-election-now{margin:12px 0 0;padding:12px 14px;border-radius:9px;background:#fff;color:#203738;font-size:13px}
+.my-election.is-my-turn .my-election-now strong{color:#203738}
+.my-election-now ol{list-style:none;margin:8px 0 0;padding:0}
+.my-election-now li{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid #edf0ef}
+.my-election-now-mark{flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700}
+.my-election-now li.is-ok .my-election-now-mark{background:#e3efe9;color:#2f6b58}
+.my-election-now li.is-gone .my-election-now-mark{background:#faece5;color:#a8664b}
+.my-election-now li.is-mine .my-election-now-mark{background:#eef1ee;color:#5f6f68}
+.my-election-now li.is-gone .my-election-now-text{color:#8a9893}
+.my-election-now-text{flex:1;min-width:0}
+.my-election-now-text small{display:block;font-size:11px;color:#64766d}
+.my-election-now li.is-ok small{color:#2f6b58;font-weight:600}
+.my-election-now button{flex:none;padding:8px 14px}

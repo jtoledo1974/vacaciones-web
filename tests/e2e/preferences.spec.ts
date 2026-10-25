@@ -79,7 +79,7 @@ for(const size of [
   await editor.getByRole('button',{name:'Subir preferencia 3',exact:true}).click();
   const list=editor.getByRole('list',{name:'Preferencias en orden de prioridad'});
   await expect(list.locator('li')).toHaveCount(3);
-  await editor.getByLabel('Mantener estas preferencias en todas las rondas restantes').check();
+  await editor.getByLabel('Mantener esta lista en todas las rondas restantes').check();
   await shot('04-ordenadas');
   // Keyboard focus wraps inside the mobile review; Escape preserves the draft.
   if(size.width<=900){
@@ -93,9 +93,9 @@ for(const size of [
   let saved=(await read(request,s.id)).election.preferences.find((p:any)=>p.member_id===member.id);
   expect(saved).toMatchObject({dates:[dates[0],dates[2],dates[1]],persistent:true});
   await expect(editor).toContainText('Preferencias guardadas');await shot('05-guardadas');
-  await editor.getByLabel('Mantener estas preferencias en todas las rondas restantes').uncheck();
+  await editor.getByLabel('Mantener esta lista en todas las rondas restantes').uncheck();
   await expect(editor.locator('.preference-state').first()).toHaveText('Cambios sin guardar');
-  await editor.getByLabel('Mantener estas preferencias en todas las rondas restantes').check();
+  await editor.getByLabel('Mantener esta lista en todas las rondas restantes').check();
   await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');
   await expect(editor.getByRole('status')).toHaveText('La lista coincide con la versión guardada.');
   await editor.getByRole('button',{name:'Quitar preferencia 2',exact:true}).click();
@@ -155,7 +155,7 @@ test('preferencias: cuotas agotadas siguen visibles, se conservan al guardar y r
  await expect(editor.getByRole('listitem')).toHaveCount(1);
  await expect(editor.getByRole('button',{name:'Quitar preferencia 1'})).toBeVisible();
  if(!process.env.CI)await page.screenshot({path:info.outputPath('08-sin-cupo-conservadas.png')});
- await editor.getByLabel('Mantener estas preferencias en todas las rondas restantes').check();
+ await editor.getByLabel('Mantener esta lista en todas las rondas restantes').check();
  await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');await expect(editor.getByRole('button',{name:'Guardar preferencias',exact:true})).toBeDisabled();
  expect((await read(request,s.id)).election.preferences.find((p:any)=>p.member_id===member.id).dates).toEqual([date]);
  await close(page);data=await read(request,s.id);await post(request,'campaign/'+s.id,{action:'config',version:data.campaign.version,config:original});

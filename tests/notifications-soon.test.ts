@@ -58,5 +58,5 @@ test('una lista ya usada cuenta como inactiva',async()=>{
 });
 
 test('el texto invita a preparar las preferencias',()=>{
- assert.deepEqual(notificationText({id:'soon:c1:m-fran:1',round:1}),{title:'Vacaciones · Tu turno se acerca',body:'Ronda 1. Te toca pronto y no tienes preferencias activas. Prepáralas por si no estás cuando llegue tu turno.'});
+ assert.deepEqual(notificationText({id:'soon:c1:m-fran:1',round:1}),{title:'Vacaciones · Tu turno se acerca',body:'Ronda 1. Te toca pronto y no tienes preferencias que se apliquen solas. Prepáralas por si no estás cuando llegue tu turno.'});
 });
