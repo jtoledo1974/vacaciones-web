@@ -29,7 +29,7 @@ async function api(method:'GET'|'POST',body?:unknown):Promise<NotificationSettin
   if(response.status===401)throw Error('Inicia sesión con la cuenta vinculada a tu controlador para configurar los avisos.');
   throw Error(json.error||'No se ha podido consultar el servicio de notificaciones');
  }
- return json as NotificationSettings;
+ return json as unknown as NotificationSettings;
 }
 function getDevice():Device{
  const appleMobile=isAppleMobile(navigator.userAgent,navigator.maxTouchPoints);
