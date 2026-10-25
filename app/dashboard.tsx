@@ -231,7 +231,7 @@ function Dashboard() {
       panel.scrollIntoView({behavior:'smooth',block:'start'});
       setJumpToActivation(false);
     },[jumpToActivation,nav,canManage,cid,data?.campaign.version]);
-    return <div className="app">
+    return <div className={'app'+(data&&!canManage&&nav==='eleccion'?' controller-ux':'')}>
       <aside className={'sidebar ' + (menu ? 'shown' : '')}>
         <a className="brand" href="/"><span className="brand-mark">V<span>·</span></span><div>Vacaciones<small>OCHO EQUIPOS</small></div></a>
         <button className="close-mobile" onClick={() => setMenu(false)} aria-label="Cerrar menú"><X /></button>
