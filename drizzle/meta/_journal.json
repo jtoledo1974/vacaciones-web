@@ -64,6 +64,13 @@
       "when": 1792868400000,
       "tag": "0008_audit_campaign",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793001600000,
+      "tag": "0009_personal_simulations",
+      "breakpoints": true
     }
   ]
 }

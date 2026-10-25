@@ -18,7 +18,7 @@ const listShort:Record<MyElection['list']['state'],string>={none:'sin preferenci
 
 /** The controller's own situation, first on the page: turn, cycles and list.
  * compact: a one-line summary that unfolds, for managers running the table while it is not their turn. */
-export default function MyElectionCard({me,autoPick,onChoose,onList,compact=false}:{me:MyElection;autoPick?:AutoPick|null;onChoose:()=>void;onList:()=>void;compact?:boolean}){
+export default function MyElectionCard({me,autoPick,onChoose,onList,onSimulate,compact=false}:{me:MyElection;autoPick?:AutoPick|null;onChoose:()=>void;onList:()=>void;onSimulate?:()=>void;compact?:boolean}){
  // An automatic pick stays visible until dismissed on this device: it may have happened while away.
  const [dismissed,setDismissed]=useState(true);
  useEffect(()=>{
@@ -63,6 +63,7 @@ export default function MyElectionCard({me,autoPick,onChoose,onList,compact=fals
    <button type="button" className="secondary" onClick={onList}>{me.list.state==='none'?'Preparar mis preferencias':me.list.state==='used'?'Reactivar mis preferencias':'Revisar mis preferencias'}</button>
   </div>
   <a className="my-election-notify" href="/notificaciones"><Bell size={16} aria-hidden="true"/>Avísame cuando me toque</a>
+  {onSimulate&&me.phase==='waiting'&&<button type="button" className="secondary my-election-sim" onClick={onSimulate}>¿Qué se me bloquea? Simular</button>}
  </>;
  if(compact)return <details className="panel my-election my-election-compact" aria-label="Mi elección" open={!!autoPick&&!dismissed}>
   <summary><span className="my-election-kicker">Tu elección</span><span>{headline} · {me.cycles.length}/{me.entitlement} · {listShort[me.list.state]}</span></summary>

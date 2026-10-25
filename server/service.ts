@@ -11,6 +11,7 @@ import { cas, tableColumns, type Repository, type Statement } from './repository
 import {validateRoster,rowStatements} from './roster.ts';
 import {ApiError} from './errors.ts';
 import {ElectionService,electionStateStatement} from './election-service.ts';
+import {PersonalSimulationService} from './personal-simulation.ts';
 import {cloneSimulation} from './simulations.ts';
 import {validateElectionState} from '../domain/election.ts';
 export {ApiError} from './errors.ts';
@@ -39,6 +40,7 @@ export async function principal(repo: Repository, identity: Identity, superEmail
 export class Service {
     constructor(private repo: Repository, public actor: Principal) { }
     election(){return new ElectionService(this.repo,this.actor,{load:cid=>this.load(cid),commit:ops=>this.commit(ops),audit:(a,c,b,n)=>this.audit(a,c,b,n)});}
+    personalSimulation(){return new PersonalSimulationService(this.repo,this.actor,{load:cid=>this.load(cid),election:()=>this.election()});}
     async list(){
         const r=await this.repo.batch([{sql:'SELECT * FROM teams ORDER BY id'},{sql:'SELECT * FROM campaigns ORDER BY year DESC,team_id,created_at'}]);
         const campaigns=r[1].results.filter(c=>c.scope_key==='live'||canWrite(this.actor,c.team_id));

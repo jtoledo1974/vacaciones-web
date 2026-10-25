@@ -78,6 +78,8 @@ async function serve(request: Request) {
                 if(!doc)throw new ApiError('Documento no disponible',404);
                 return new Response(doc.content,{headers:{'Content-Type':'text/markdown; charset=utf-8','Content-Disposition':`attachment; filename="${doc.filename}"`,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
             }
+            if(path[0]==='personal-simulation'&&path[1])
+                return reply(await service.personalSimulation().view(path[1]));
             if (path[0] === 'session')
             return reply({ principal: actor, identity: user ? { provider: user.provider,subject: user.subject,email: user.email } : null });
             if (path[0] === 'index')
@@ -117,6 +119,7 @@ async function serve(request: Request) {
             return reply(await service.init());
         if (path[0] === 'campaigns')
             return reply(await service.createCampaigns(b.year, b.copyYear ?? null, b.rosterYear===undefined?'latest':b.rosterYear));
+        if(path[0]==='personal-simulation'&&path[1])return reply(await service.personalSimulation().mutate(path[1],b));
         if(path[0]==='simulations'&&path[1])return reply(b.action==='delete'?await service.deleteSimulation(path[1],b):await service.createSimulation(path[1],b));
         if(path[0]==='election'&&path[1]){
             const changed=await effectiveService.election().mutate(path[1],b);

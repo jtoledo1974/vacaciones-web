@@ -26,5 +26,8 @@ export const turnNotifications=sqliteTable('turn_notifications',{id:text('id').p
 
 export const pushDeliveries=sqliteTable('push_deliveries',{eventId:text('event_id').notNull(),endpoint:text('endpoint').notNull(),status:text('status').notNull().default('pending'),leaseToken:text('lease_token'),leaseExpiresAt:integer('lease_expires_at').notNull().default(0),attempts:integer('attempts').notNull().default(0)},t=>[primaryKey({columns:[t.eventId,t.endpoint]})]);
 
+// A controller's private what-if: readable only by its owner, never by the election engine.
+export const personalSimulations=sqliteTable('personal_simulations',{ownerKey:text('owner_key').notNull(),campaignId:text('campaign_id').notNull(),memberId:text('member_id').notNull(),json:text('json').notNull(),updatedAt:text('updated_at').notNull()},t=>[primaryKey({columns:[t.ownerKey,t.campaignId]})]);
+
 // Administrative reconstruction state is never part of publicly readable election data.
 export const reconstructionSessions=sqliteTable('reconstruction_sessions',{campaignId:text('campaign_id').primaryKey().references(()=>campaigns.id),json:text('json').notNull()});

@@ -968,3 +968,21 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 
 /* #66: turn forecast when lists ahead resolve instantly. */
 .my-election-soon{margin:10px 0 0;padding:10px 12px;border-radius:8px;background:#fff6dc;border:1px solid #ecd28c;color:#5c4510;font-size:14px;line-height:1.5}
+
+/* Personal simulator: private what-if for the linked controller. */
+.election-layout[hidden]{display:none}
+.personal-sim-banner{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;padding:10px 14px;margin-bottom:12px;border-radius:8px;background:#efe8f8;border:1px solid #d6c6ec;color:#45285f;font-size:14px;line-height:1.4}
+.personal-sim-banner strong{text-transform:uppercase;letter-spacing:.4px;font-size:12px}
+.personal-sim-notice{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+.personal-sim h2{margin:4px 0 6px;font-size:20px}
+.personal-sim h3{margin:0 0 8px;font-size:16px}
+.personal-sim .button-row button{min-height:44px}
+.personal-sim-list{margin:0;padding-left:18px;display:grid;gap:8px;font-size:14px;line-height:1.4}
+.personal-sim-list small{display:block;color:#5b2a86;font-weight:600}
+.personal-sim-permits{margin:0;display:grid;gap:10px}
+.personal-sim-permits dt{font-weight:700;font-size:13px;color:var(--ink)}
+.personal-sim-permits dd{margin:2px 0 0;display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.personal-sim-permits dd.is-exhausted b{color:#a3392f}
+.personal-sim-steps{margin:0;padding-left:20px;display:grid;gap:4px;font-size:14px}
+.my-election-sim{margin-left:12px}
+@media(max-width:420px){.personal-sim h2{font-size:18px}.personal-sim .button-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}.personal-sim .button-row button:last-child{grid-column:1/-1}}

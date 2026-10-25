@@ -26,9 +26,11 @@ export type RuleProblem = {
   certainty?: 'proven' | 'indeterminate';
   evidence?: string;
 };
-/** Extraordinary third-place permits per period (preverano 2, posverano 1).
- * Overridden only to test, by relaxation, which permit causes a block. */
-export type Permits2027 = { preThird?: number; postThird?: number };
+/** Extraordinary third-place permits per period (preverano 2, posverano 1), an
+ * optional cap on all EC3+EC4 of a period (preverano 3, posverano 2) and the
+ * shared summer EC3/EC4 pool (2). Overridden only to test, by relaxation or
+ * restriction, which permit causes a block or how many a state already needs. */
+export type Permits2027 = { preThird?: number; postThird?: number; preExtras?: number; postExtras?: number; summerShared?: number };
 const MONTHS_2027=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
 const PERIOD_NAMES_2027=['preverano','verano','posverano'];
 /** "2027-09-30" -> "30 sep", for messages shown to people. */
@@ -65,11 +67,12 @@ function has2027Accounting(state:PolicyState,counts:number[],permits?:Permits202
  return accountingForTally(tally,permits);
 }
 /** Guide v1.3: an EC4 not used for a fourth place may serve as an EC3. */
-function ec3Ec4Valid(t:PeriodTally,ec3:number,ec4=1):boolean {
+function ec3Ec4Valid(t:PeriodTally,ec3:number,ec4=1,extras=ec3+ec4):boolean {
  const thirds=ec3+Math.max(0,ec4-t.four);
  for(let third=0;third<=Math.min(thirds,t.three);third++){
   for(let chain=0;chain<=t.four;chain++){
-   if(third+chain>thirds)continue;
+   // Each fourth place spends an EC4; each third, own or chained, an EC3 or a spare EC4.
+   if(third+chain>thirds||third+chain+t.four>extras)continue;
    const fourthFromOne=t.one-third-chain;
    if(fourthFromOne>=0&&fourthFromOne<=t.four&&t.two>=t.four-fourthFromOne)return true;
   }
@@ -81,13 +84,13 @@ function accountingForTally(tally:PeriodTally[],permits?:Permits2027):boolean {
  if(pre.four>1||post.four>1||summer.four>2||pre.one>3||post.one>2||summer.one>2)return false;
  // PRE and POST: EC3 may chain with EC4, EC4 may leave a single or act as EC3.
  // Every resulting single needs a local source.
- if(!ec3Ec4Valid(pre,permits?.preThird??2)||!ec3Ec4Valid(post,permits?.postThird??1))return false;
+ if(!ec3Ec4Valid(pre,permits?.preThird??2,1,permits?.preExtras)||!ec3Ec4Valid(post,permits?.postThird??1,1,permits?.postExtras))return false;
  // SUMMER: two shared permits. A fourth uses EC4; an optional EC3 can
  // target a third or chain onto that fourth. Sources stay inside summer.
  for(let third=0;third<=Math.min(2,summer.three);third++){
   for(let chain=0;chain<=summer.four;chain++){
    const used=third+chain+summer.four;
-   if(used>2||used<summer.one)continue;
+   if(used>(permits?.summerShared??2)||used<summer.one)continue;
    // A source may supply twice: an ordinary third can finish at one.
    if(used-summer.one<=summer.two+summer.one)return true;
   }

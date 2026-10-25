@@ -8,6 +8,7 @@ import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 import {cycleAvailability,slotExplanation,summarizeImpact} from './cycle-availability-ui';
 import MyElectionCard from './my-election-card';
+import PersonalSimulator from './personal-simulator';
 import Glossary from './glossary';
 import {myElection} from './my-election-state';
 
@@ -162,7 +163,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const cycleNumbers=numberTimelineCycles(election.timeline??[]);
  const [choosingReconstructionStart,setChoosingReconstructionStart]=useState(false);
  const [archivedTarget,setArchivedTarget]=useState('');
- const [mode,setMode]=useState<'choose'|'preferences'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
+ const [mode,setMode]=useState<'choose'|'preferences'|'simulate'>('choose'),[memberId,setMemberId]=useState(mine&&preferenceMemberIds.includes(mine)?mine:preferenceMembers[0]?.id??''),[selected,setSelected]=useState<string[]>([]),[jointSelected,setJointSelected]=useState<Record<string,string[]>>({}),[jointTarget,setJointTarget]=useState(''),[detail,setDetail]=useState<any>(null),[dates,setDates]=useState<string[]>([]),[message,setMessage]=useState(''),[pairOptions,setPairOptions]=useState<string[]|null>(null),[loadingOptions,setLoadingOptions]=useState(false),[filterMember,setFilterMember]=useState(mine??'');
  const thinkingPhase=choicePhase??(loadingOptions?'options':null);
  const thinking=thinkingPhase!==null;
  useEffect(()=>{
@@ -235,6 +236,9 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   return ()=>{active=false;setLoadingOptions(false);};
  },[selected.join(','),turn?.needed,data.campaign.version,election.occupancyPolicyVersion]);
  const canChoose=open&&!frozen&&state?.status==='active'&&!!turn?.memberId&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&!frozen&&preferenceMemberIds.length>0;
+ // Only the linked controller, on the real 2027 election while it runs.
+ const canSimulate=!!mine&&!data.preview&&!simulation&&data.campaign.year===2027&&open&&!frozen&&state?.status==='active';
+ useEffect(()=>{if(!canSimulate&&mode==='simulate')setMode('choose');},[canSimulate,mode]);
  const reconstructionCandidates:any[]=election.reconstruction?.candidates??[];
  const candidatesById=new Map<string,any>(reconstructionCandidates.filter((candidate:any)=>!candidate.archived).map((candidate:any)=>[candidate.id,candidate]));
  const archivedCandidates=reconstructionCandidates.filter((candidate:any)=>candidate.archived);
@@ -377,6 +381,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  return <>
   {me&&!frozen&&!(manage&&me.phase!=='my-turn')&&<MyElectionCard me={me} autoPick={autoPick}
    onChoose={async()=>{if(mode!=='choose'&&!await leavePreferences())return;setMode('choose');showCalendar();}}
+   onSimulate={canSimulate?async()=>{if(mode==='preferences'&&!await leavePreferences())return;setMode('simulate');setDetail(null);showCalendar();}:undefined}
    onList={()=>{if(!canPreferences)return;if(mine&&preferenceMemberIds.includes(mine))setMemberId(mine);setMode('preferences');setDetail(null);onPreferenceEdit?.();showCalendar();}}/>}
   {thinking&&<div className="election-thinking-inline" role="status" aria-live="polite"><span className="election-thinking-spinner" aria-hidden="true"/>{thinkingMessage}</div>}
   {thinking&&slowChoice&&<div className="election-thinking-backdrop"><section className="election-thinking-dialog" role="dialog" aria-modal="true" aria-labelledby="election-thinking-title">
@@ -404,9 +409,10 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed===1?'1 ciclo':turn.needed+' ciclos'} por elegir</span>}
    </div>
    <div className="election-turn-controls">
-    {canPreferences&&<div className="election-view-switch" role="group" aria-label="Modo de vacaciones">
-     <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode!=='choose')await cancelPreferences();}}>Calendario</button>
-     <button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>{manage?'Preferencias':'Mis preferencias'}</button>
+    {(canPreferences||canSimulate)&&<div className="election-view-switch" role="group" aria-label="Modo de vacaciones">
+     <button type="button" className="election-view-option" aria-pressed={mode==='choose'} title="Consultar ciclos y elegir cuando corresponda" onClick={async()=>{if(mode==='preferences')await cancelPreferences();else setMode('choose');}}>Calendario</button>
+     {canPreferences&&<button type="button" className="election-view-option" aria-pressed={mode==='preferences'} title="Preparar y guardar la lista de ciclos preferidos" onClick={()=>{setMode('preferences');setDetail(null);onPreferenceEdit?.();}}>{manage?'Preferencias':'Mis preferencias'}</button>}
+     {canSimulate&&<button type="button" className="election-view-option" aria-pressed={mode==='simulate'} title="Simular qué ciclos se te bloquean según lo que pidan los demás" onClick={async()=>{if(mode==='preferences'&&!await leavePreferences())return;setMode('simulate');setDetail(null);}}>Simular</button>}
     </div>}
     {manage&&!state&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={onConfigureElection}>Configurar e iniciar elección</button>}
     {manage&&state?.status==='paused'&&open&&<button type="button" className="primary election-quick-action" disabled={busy} onClick={()=>act({action:'resume'},'Elección reanudada')}>Reanudar elección</button>}
@@ -425,6 +431,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   </section>}
   {me&&!frozen&&manage&&me.phase!=='my-turn'&&<MyElectionCard compact me={me} autoPick={autoPick}
    onChoose={async()=>{if(mode!=='choose'&&!await leavePreferences())return;setMode('choose');showCalendar();}}
+   onSimulate={canSimulate?async()=>{if(mode==='preferences'&&!await leavePreferences())return;setMode('simulate');setDetail(null);showCalendar();}:undefined}
    onList={()=>{if(!canPreferences)return;if(mine&&preferenceMemberIds.includes(mine))setMemberId(mine);setMode('preferences');setDetail(null);onPreferenceEdit?.();showCalendar();}}/>}
   {manage&&open&&!frozen&&state?.status==='active'&&pendingGroups.length>0&&!turn?.pendingTie&&<div className="alert warning election-blocker" role="status">
    <span><strong>{pendingGroups.length===1?'1 empate pendiente de sorteo.':pendingGroups.length+' empates pendientes de sorteo.'}</strong> La elección se detendrá al llegar {pendingGroups.length===1?'a él':'al primero'} si no se sortea antes.</span>
@@ -469,7 +476,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    <strong>{manage?'Preparando preferencias de '+(data.members.find((m:any)=>m.id===memberId)?.code??''):'Preparando tus preferencias'}</strong>
    <span>Pulsa un ciclo para añadirlo; vuelve a pulsarlo para quitarlo. El orden en que los pulses es tu prioridad.</span>
   </div>}
-  <div className={"election-layout"+(detail&&!frozen?" has-active-detail":"")+(mode==='preferences'&&canPreferences?" is-preparing-preferences":"")+(frozen&&manage&&open?" is-reconstructing":"")}>
+  {mode==='simulate'&&canSimulate&&<PersonalSimulator data={data} onExit={()=>setMode('choose')}/>}
+  <div hidden={mode==='simulate'&&canSimulate} className={"election-layout"+(detail&&!frozen?" has-active-detail":"")+(mode==='preferences'&&canPreferences?" is-preparing-preferences":"")+(frozen&&manage&&open?" is-reconstructing":"")}>
    {manage&&open&&frozen&&<ReconstructionPanel data={data} busy={busy} act={act}/>}
    <div className="election-calendar-wrap">
     <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} cycles={data.result.cycles}
