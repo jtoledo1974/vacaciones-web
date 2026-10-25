@@ -314,7 +314,8 @@ test('navegación compacta entre Calendario y Preferencias',async({page,request}
   await page.setViewportSize({width,height:640});
   const bounds=await switcher.boundingBox();
   expect(bounds).not.toBeNull();
-  expect(bounds!.height).toBeLessThan(44);
+  // One row of 44 px touch targets (#64), never wrapped onto a second row.
+  expect(bounds!.height).toBeLessThanOrEqual(56);
   expect(bounds!.x).toBeGreaterThanOrEqual(0);
   expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width+1);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
