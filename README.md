@@ -122,4 +122,4 @@ VAPID y un navegador compatible con Web Push.
 
 ## Normas definitivas de 2027
 
-La política vigente es `lecs-2027-occupancy-v5`: solo la guía de elección v1.1 y las cifras de la hoja «Info.Cupos RRHH». Ver [reglas](docs/policy-2027-definitive-guide.md).
+La política vigente es `lecs-2027-occupancy-v6`: solo la guía de elección v1.3 y las cifras de la hoja «Info.Cupos RRHH». Ver [reglas](docs/policy-2027-definitive-guide.md).

@@ -45,12 +45,11 @@ test('PRE has two independent extra thirds and a fourth at a different destinati
  assert.equal(evaluate2027Final(chained).valid,true,'PRE EC3 and EC4 can chain on one destination');
 });
 
-test('three PRE singles: two EC3 and the EC4, never a fourth single',()=>{
+test('three PRE singles: 2 EC3 + EC4 or 3 EC3 (guide v1.3), never a fourth single',()=>{
  const three=completed([1,1,1,3,3,4],[2,2,2],[2,2,2]);
  assert.equal(evaluate2027Final(three).valid,true,JSON.stringify(evaluate2027Final(three).issues));
  const noFourth=completed([1,1,1,3,3,3],[2,2,2],[2,2,2]);
- assert.ok(evaluate2027Final(noFourth).issues.some(w=>w.code==='REDISTRIBUTION_WITNESS'),
-   'without the EC4 a third single would need a third EC3');
+ assert.equal(evaluate2027Final(noFourth).valid,true,'the unused EC4 acts as a third EC3');
  const fourSingles=completed([1,1,1,1,3,3,4],[2,2,2],[3,2,2]);
  assert.ok(evaluate2027Final(fourSingles).issues.some(w=>w.code==='PRE_SINGLE_LIMIT'));
 });
@@ -102,7 +101,7 @@ test('same final allocation is independent of order of the requested dates',()=>
   const a=[{member_id:'m0',cycle_date:'p0'},{member_id:'m0',cycle_date:'s0'}];
   const b=[...a].reverse();
   assert.equal(evaluate2027Candidate(base,a).allowed,evaluate2027Candidate(base,b).allowed);
-  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v5');
+  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v6');
 });
 
 test('real 2027 calendars A–H have a six-cycle completion witness for the RRHH staffing',()=>{

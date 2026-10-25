@@ -41,6 +41,13 @@ test('guide: PRE EC4 may leave the third single; a fourth single exceeds three p
  assert.equal(evaluate2027Final(allocation([1,1,4],[2],[2])).valid,true,'EC3 and EC4 chained');
  assert.equal(evaluate2027Final(allocation([1,1,1,1,3,3,4,3],[2],[2])).valid,false);
 });
+test('guide v1.3: PRE 3 EC3 and POST 2 EC3; the EC4 never becomes an extra fourth',()=>{
+ assert.equal(evaluate2027Final(allocation([1,1,1,3,3,3],[2],[2])).valid,true);
+ assert.equal(evaluate2027Final(allocation([2],[2],[1,1,3,3])).valid,true);
+ assert.equal(evaluate2027Final(allocation([2],[2],[1,1,1,3,3,3])).valid,false,'POST max two singles');
+ assert.equal(evaluate2027Final(allocation([1,1,4,4,2,2],[2],[2])).valid,false,'PRE one fourth');
+ assert.equal(evaluate2027Final(allocation([2],[2],[2,2,4,4,1,1])).valid,false,'POST one fourth');
+});
 test('guide: no empty cycle, exclusions still apply',()=>{
  assert.equal(evaluate2027Final(allocation([2],[0,4],[2])).valid,false);
  const state=allocation([2],[1,4,2],[2]);state.cycles.find(c=>c.date==='2027-06-02')!.fourthExcluded=true;
@@ -81,4 +88,31 @@ test('HR sheet: the team summer total is fixed; individuals may take more or few
  assert.equal(done.status,'possible');
  assert.ok(done.witness!.every(a=>a.cycle_date.startsWith('2027-06')));
  assert.equal(canComplete2027({...pending,summerTotal:3},{maxChecks:10000}).status,'impossible');
+});
+
+test('guide v1.3: exhaustive PRE/POST oracle, EC3 2→3 and EC4 3→4 or as EC3',()=>{
+ // Independent forward model from ordinary 2/3 cycles; a source never empties.
+ function reachable(size:number,ec3:number):Set<string> {
+  const seen=new Set<string>();
+  const visit=(counts:number[],e3:number,e4:number)=>{
+   seen.add(counts.join(','));
+   counts.forEach((source,i)=>counts.forEach((target,j)=>{
+    if(i===j||source<2)return;
+    const next=[...counts];next[i]--;next[j]++;
+    if(target===2&&e3)visit(next,e3-1,e4);
+    if(target===2&&e4)visit(next,e3,e4-1);
+    if(target===3&&e4)visit(next,e3,e4-1);
+   }));
+  };
+  for(let bits=0;bits<1<<size;bits++)visit(Array.from({length:size},(_,i)=>2+((bits>>i)&1)),ec3,1);
+  return seen;
+ }
+ for(const [period,ec3] of [[0,2],[2,1]] as const){
+  const ok=reachable(5,ec3);
+  for(let bits=0;bits<1<<10;bits++){
+   const counts=Array.from({length:5},(_,i)=>1+((bits>>(2*i))&3));
+   const state=period===0?allocation(counts,[2],[2]):allocation([2],[2],counts);
+   assert.equal(evaluate2027Final(state).valid,ok.has(counts.join(',')),period+': '+counts.join(','));
+  }
+ }
 });

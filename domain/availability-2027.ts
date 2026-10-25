@@ -216,9 +216,9 @@ function blockedReasons(
  */
 const EXTRA_THIRD_PROBES:{code:string;permits:Permits2027;message:string}[]=[
  {code:'PRE_EXTRA_THIRD_CONSTRAINT',permits:{preThird:3},
-  message:'Ocupar esta plaza exigiría más ampliaciones extraordinarias a tercera plaza en preverano de las dos autorizadas.'},
+  message:'Ocupar esta plaza exigiría más ampliaciones extraordinarias a tercera plaza en preverano de las autorizadas, contando el EC4 que no se use como cuarta plaza.'},
  {code:'POST_EXTRA_THIRD_CONSTRAINT',permits:{postThird:2},
-  message:'Ocupar esta plaza exigiría más ampliaciones extraordinarias a tercera plaza en posverano de la autorizada.'}
+  message:'Ocupar esta plaza exigiría más ampliaciones extraordinarias a tercera plaza en posverano de las autorizadas, contando el EC4 que no se use como cuarta plaza.'}
 ];
 function extraThirdCause(state:PolicyState,c:PolicyCycle,position:number,maxChecks:number):RuleProblem|null {
  for(const probe of EXTRA_THIRD_PROBES){

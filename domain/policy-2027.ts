@@ -5,7 +5,7 @@
  * A witness contains all additional person/cycle assignments. A failed
  * bounded search is INDETERMINATE, never silently treated as impossible.
  */
-export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v5' as const;
+export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v6' as const;
 export type Period2027 = 0 | 1 | 2;
 export type PolicyCycle = { date: string; period: Period2027; fourthExcluded?: boolean; maximum?: number };
 export type PolicyMember = { id: string; entitlement: number };
@@ -64,7 +64,9 @@ function has2027Accounting(state:PolicyState,counts:number[],permits?:Permits202
  }
  return accountingForTally(tally,permits);
 }
-function ec3Ec4Valid(t:PeriodTally,thirds:number):boolean {
+/** Guide v1.3: an EC4 not used for a fourth place may serve as an EC3. */
+function ec3Ec4Valid(t:PeriodTally,ec3:number,ec4=1):boolean {
+ const thirds=ec3+Math.max(0,ec4-t.four);
  for(let third=0;third<=Math.min(thirds,t.three);third++){
   for(let chain=0;chain<=t.four;chain++){
    if(third+chain>thirds)continue;
@@ -77,7 +79,7 @@ function ec3Ec4Valid(t:PeriodTally,thirds:number):boolean {
 function accountingForTally(tally:PeriodTally[],permits?:Permits2027):boolean {
  const [pre,summer,post]=tally;
  if(pre.four>1||post.four>1||summer.four>2||pre.one>3||post.one>2||summer.one>2)return false;
- // PRE and POST: EC3 may chain with EC4, and EC4 may also leave a single.
+ // PRE and POST: EC3 may chain with EC4, EC4 may leave a single or act as EC3.
  // Every resulting single needs a local source.
  if(!ec3Ec4Valid(pre,permits?.preThird??2)||!ec3Ec4Valid(post,permits?.postThird??1))return false;
  // SUMMER: two shared permits. A fourth uses EC4; an optional EC3 can

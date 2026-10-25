@@ -349,8 +349,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  }
  const rules2027=data.campaign.year===2027&&<details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
   <summary>Cómo se aplican los cupos de 2027</summary>
-    <p>En preverano hay dos ampliaciones a tres plazas y una ampliación a cuatro, que pueden encadenarse. Cada una puede dejar un ciclo con una sola persona, hasta un máximo de tres.</p>
-    <p>En postverano pueden encadenarse la ampliación a tres y la cuarta plaza. En verano hay dos extracupos en total, utilizables como EC3 o EC4 durante el reparto. Pueden generar ciclos con una persona, pero ninguno puede quedar vacío. Los huecos y extracupos de cada periodo son estancos.</p>
+    <p>En preverano hay tres extracupos: dos ampliaciones a tres plazas y una a cuatro, o tres ampliaciones a tres. Como máximo, un ciclo con cuatro y tres ciclos con una sola persona.</p>
+    <p>En verano hay dos extracupos, de tres o de cuatro plazas; como máximo, dos ciclos con cuatro y dos con una sola persona. En postverano hay dos: una ampliación a tres y una a cuatro, o dos a tres; como máximo, un ciclo con cuatro y dos con una sola persona. La ampliación a cuatro puede usarse como ampliación a tres, nunca al revés. Ningún ciclo puede quedar vacío y los extracupos no pasan de un periodo a otro.</p>
     <p>RR. HH. fija el total de verano en dos ciclos por persona; el resto del año recibe los demás. Una persona puede elegir más o menos de dos en verano, pero el total del equipo no cambia.</p>
  </details>;
  const me=mine?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,automaticAhead:election.automaticAhead,state,turn}):null;
