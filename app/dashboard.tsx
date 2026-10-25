@@ -45,6 +45,20 @@ function Dashboard() {
     const [sessionLoaded,setSessionLoaded]=useState(false);
     const [publicConsultation,setPublicConsultation]=useState(false);
     const currentCid=useRef('');
+    // Native <details> do not dismiss on Escape or outside interaction.
+    useEffect(()=>{
+      const opened=()=>document.querySelectorAll<HTMLDetailsElement>('.election-more-actions[open],.scenario-actions[open]');
+      const onKey=(event:KeyboardEvent)=>{
+        if(event.key==='Escape')opened().forEach(menu=>{menu.open=false;});
+      };
+      const onPointer=(event:PointerEvent)=>{
+        opened().forEach(menu=>{if(!menu.contains(event.target as Node))menu.open=false;});
+      };
+      document.addEventListener('keydown',onKey);
+      document.addEventListener('pointerdown',onPointer);
+      return ()=>{document.removeEventListener('keydown',onKey);document.removeEventListener('pointerdown',onPointer);};
+    },[]);
+
     const preferenceGuard=useRef<null|(()=>Promise<boolean>)>(null);
     const canNavigate=async()=>!preferenceGuard.current||await preferenceGuard.current();
     const isBusy=useRef(false);
@@ -241,12 +255,12 @@ function Dashboard() {
         <span><strong>Vista como controlador {data?.preview?.code??previewCode}</strong> · {data?.preview?.writable?'Simulación privada: puedes guardar sus preferencias y elecciones':'Campaña real: prueba los controles, sin guardar cambios'}</span>
         <button type="button" className="secondary" onClick={()=>{const target=new URL(location.href);target.searchParams.delete('verComo');location.assign(target.toString());}}>Salir de vista previa</button>
       </div>}
-      <div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : superuser?'Administración general':'Administración del equipo'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors">
-        <label>Ejercicio<select aria-label="Ejercicio" value={year} disabled={!index} onChange={async e=>{
+      <div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {index?year:'…'}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : superuser?'Administración general':'Administración del equipo'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors">
+        <label>Ejercicio<select aria-label="Ejercicio" value={index?year:''} disabled={!index} onChange={async e=>{
             const selectedYear=Number(e.target.value);if(!index||!await canNavigate())return;setYearChoice(selectedYear);
             if(team)setCid(index.campaigns.find((c:any)=>c.year===selectedYear&&c.team_id===team&&c.scope_key==='live')?.id??'');
             else{const u=new URL(location.href);u.searchParams.set('year',String(selectedYear));history.replaceState({},'',u);}
-        }}>{Array.from(new Set(index?.campaigns.filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)??[2026])).map((y:any)=><option key={y} value={y}>{y}</option>)}</select></label>
+        }}>{!index?<option value="">Cargando…</option>:Array.from(new Set(index.campaigns.filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year))).map((y:any)=><option key={y} value={y}>{y}</option>)}</select></label>
         <label>Equipo<select aria-label="Equipo" value={team} disabled={!index} onChange={async e=>{
             const nextTeam=e.target.value;
             if(!index||!await canNavigate())return;
