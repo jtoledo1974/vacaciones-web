@@ -35,8 +35,13 @@ test('guide: PRE and POST cannot borrow each other’s source holes',()=>{
  assert.equal(evaluate2027Final(allocation([4,2],[2],[2])).valid,true);
  assert.equal(evaluate2027Final(allocation([2],[2],[4,1])).valid,true);
 });
-test('guide: no empty cycle, no PRE EC4 creating a single, exclusions still apply',()=>{
- assert.equal(evaluate2027Final(allocation([4,1],[2],[2])).valid,false);
+test('guide: PRE EC4 may leave the third single; a fourth single exceeds three permits',()=>{
+ assert.equal(evaluate2027Final(allocation([4,1],[2],[2])).valid,true);
+ assert.equal(evaluate2027Final(allocation([1,1,1,3,3,4],[2],[2])).valid,true);
+ assert.equal(evaluate2027Final(allocation([1,1,4],[2],[2])).valid,true,'EC3 and EC4 chained');
+ assert.equal(evaluate2027Final(allocation([1,1,1,1,3,3,4,3],[2],[2])).valid,false);
+});
+test('guide: no empty cycle, exclusions still apply',()=>{
  assert.equal(evaluate2027Final(allocation([2],[0,4],[2])).valid,false);
  const state=allocation([2],[1,4,2],[2]);state.cycles.find(c=>c.date==='2027-06-02')!.fourthExcluded=true;
  assert.equal(evaluate2027Final(state).valid,false);
