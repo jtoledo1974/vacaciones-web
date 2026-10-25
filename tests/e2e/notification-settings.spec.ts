@@ -43,9 +43,9 @@ test('UI con permiso concedido y API disponible distingue permiso de suscripció
  // This test fixes the Web Push capability explicitly; it tests UI state,
  // not browser delivery (which has a separate integration checklist).
  await page.addInitScript(()=>{
-  if(!('PushManager' in window))Object.defineProperty(window,'PushManager',{configurable:true,value:class PushManager{}});
-  if(!('Notification' in window))Object.defineProperty(window,'Notification',{configurable:true,value:{permission:'granted'}});
-  if(!('serviceWorker' in navigator))Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:async()=>undefined}});
+  Object.defineProperty(window,'PushManager',{configurable:true,value:class PushManager{}});
+  Object.defineProperty(window,'Notification',{configurable:true,value:{permission:'granted'}});
+  Object.defineProperty(navigator,'serviceWorker',{configurable:true,value:{getRegistration:async()=>undefined}});
  });
  await page.route('**/api/notifications',route=>route.fulfill({json:settings}));
  await page.goto('/notificaciones');
