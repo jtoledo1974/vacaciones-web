@@ -351,7 +351,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   <summary>Cómo se aplican los cupos de 2027</summary>
     <p>En preverano hay dos ampliaciones a tres plazas y una ampliación a cuatro, que pueden encadenarse. Cada una puede dejar un ciclo con una sola persona, hasta un máximo de tres.</p>
     <p>En postverano pueden encadenarse la ampliación a tres y la cuarta plaza. En verano hay dos extracupos en total, utilizables como EC3 o EC4 durante el reparto. Pueden generar ciclos con una persona, pero ninguno puede quedar vacío. Los huecos y extracupos de cada periodo son estancos.</p>
-    <p>La flexibilidad de origen entre periodos está permitida provisionalmente por el responsable, con aviso cuando impida cumplir la interpretación territorial estricta de RR. HH. No es autorización definitiva de RR. HH. La referencia de dos ciclos estivales por persona es informativa.</p>
+    <p>RR. HH. fija el total de verano en dos ciclos por persona; el resto del año recibe los demás. Una persona puede elegir más o menos de dos en verano, pero el total del equipo no cambia.</p>
  </details>;
  const me=mine?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,automaticAhead:election.automaticAhead,state,turn}):null;
  const canChooseHere=canChoose;
@@ -389,7 +389,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {data.campaign.year===2027&&(data.result.policyWarnings??[]).length>0&&
    <section className="panel" aria-label="Avisos de las normas de vacaciones 2027">
     <h3>Avisos de reparto 2027</h3>
-    <p>Estos avisos no bloquean la elección. Distinguen la flexibilidad provisional entre periodos de la referencia estival informativa; deben revisarse expresamente al cerrar el ejercicio.</p>
+    <p>Estos avisos no bloquean la elección; deben revisarse expresamente al cerrar el ejercicio.</p>
     {(data.result.policyWarnings??[]).map((w:any,i:number)=>
      <p key={w.code+'-'+i} role="status" className="alert warning">
       <strong>{w.period===0?'Preverano':w.period===1?'Verano':w.period===2?'Postverano':'Distribución general'}:</strong> {w.message}

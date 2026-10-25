@@ -163,9 +163,6 @@ export class ElectionService{
   // sends the next advance request. Normal GET and final POST stay complete.
   const pendingAutomatic=!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences));
   const skipFullAvailability=!!options.skipAvailabilityForPendingAutomatic&&pendingAutomatic;
-  // Per-cell availability never enumerates informative summer-warning
-  // alternatives. Only the actual selected batch
-  // needs their exhaustive review at preflight and commit.
   // A single source of truth per snapshot. Previous code evaluated rejected
   // 2027 choices twice and reconstructed the full HR calendar for every date.
   const availabilityReasons:Record<string,string>={};

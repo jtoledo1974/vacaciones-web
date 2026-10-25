@@ -18,6 +18,6 @@ El administrador puede introducir tu lista si se la entregas por otro medio. Los
 
 ## Elegir en tu turno
 
-La pantalla indica quién elige. Si te corresponde, pulsa un ciclo válido y confirma. En la regla provisional se elige uno por turno. Si está habilitado, puedes aplazar una vez para elegir dos en la siguiente ocasión: los dos se comprueban y guardan juntos. Si la lista automática no permite completar el turno, este queda esperando; no se salta a otra persona automáticamente.
+La pantalla indica quién elige. Si te corresponde, pulsa un ciclo válido y confirma. Se elige un ciclo por turno. Si está habilitado, puedes dejar pasar uno o dos turnos para elegir dos o tres ciclos en tu siguiente turno: se comprueban y guardan juntos. Si la lista automática no permite completar el turno, este queda esperando; no se salta a otra persona automáticamente.
 
 La disponibilidad se actualiza periódicamente y siempre se comprueba de nuevo al confirmar. Una campaña cerrada mantiene la consulta pero bloquea las elecciones.

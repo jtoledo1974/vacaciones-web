@@ -5,12 +5,16 @@
  * A witness contains all additional person/cycle assignments. A failed
  * bounded search is INDETERMINATE, never silently treated as impossible.
  */
-export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v4' as const;
+export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v5' as const;
 export type Period2027 = 0 | 1 | 2;
 export type PolicyCycle = { date: string; period: Period2027; fourthExcluded?: boolean; maximum?: number };
 export type PolicyMember = { id: string; entitlement: number };
 export type PolicyAward = { member_id: string; cycle_date: string };
-export type PolicyState = { cycles: PolicyCycle[]; members: PolicyMember[]; awards: PolicyAward[] };
+/** summerTotal: HR fixes the summer allocation (two per CTA, "Info.Cupos RRHH");
+ * the rest of the year receives the remainder. Absent only in synthetic fixtures. */
+export type PolicyState = { cycles: PolicyCycle[]; members: PolicyMember[]; awards: PolicyAward[]; summerTotal?: number };
+/** HR summer allocation: two cycles per CTA, fewer for a smaller individual right. */
+export const summerTarget2027=(members:PolicyMember[])=>members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
 export type RuleProblem = {
   code: string;
   message: string;
@@ -174,9 +178,8 @@ export function evaluate2027Final(state: PolicyState, permits?: Permits2027): Fi
     issues.push(problem('PRE_SINGLE_LIMIT', `Preverano admite como máximo tres ciclos con una persona y tiene ${singles[0]} (${cycleList(singleCycles[0])}).`, {period:0,actual:singles[0],limit:3}));
   if(!has2027Accounting(state,counts,permits))
     issues.push(problem('REDISTRIBUTION_WITNESS','No existe una justificación de los extracupos con huecos de su propio periodo y los permisos autorizados.'));
-  const summerTotal = sums[1], summerReference = state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
-  if (summerTotal !== summerReference)
-    warnings.push(problem('SUMMER_REFERENCE', `El verano termina con ${summerTotal} turnos frente a los ${summerReference} de referencia (dos por controlador). Es informativo.`, {period:1,actual:summerTotal,limit:summerReference}));
+  if (state.summerTotal !== undefined && sums[1] !== state.summerTotal)
+    issues.push(problem('SUMMER_TOTAL', `El verano termina con ${sums[1]} turnos y RR. HH. fija ${state.summerTotal} (dos por controlador).`, {period:1,actual:sums[1],limit:state.summerTotal}));
   return { valid: issues.length === 0, issues, warnings };
 }
 
@@ -247,7 +250,7 @@ function match(state:PolicyState,scenario:Scenario,summerTotal?:number,minimumCy
   for(let p=0;p<3;p++){
     const target=p===1&&summerTotal!==undefined ? summerTotal-periodUsed[p] : undefined;
     const lower=target!==undefined ? target : 0;
-    // In a regular territorial allocation every fourth needs a double in
+    // In an ordinary allocation every fourth needs a double in
     // the same outside period: total = 3*n - doubles + fourths <= 3*n.
     const upper=target!==undefined ? target : strictRegular&&p!==1
       ?Math.max(0,3*periodSize[p]-periodUsed[p]):remaining;
@@ -316,7 +319,7 @@ const combinations = function* (values:number[],count:number,start=0,picked:numb
  * Search all period-specific exceptional placement combinations. When the
  * exploration limit is reached, do not claim impossibility.
  *
- * The fixed-summer comparison is informative; territorial isolation is mandatory.
+ * The HR summer total and per-period extras are mandatory.
  */
 export type CompletionOptions2027={
    summerTotal?:number; maxChecks?:number;
@@ -331,6 +334,7 @@ function witnessFamily(state:PolicyState,opts:CompletionOptions2027):string {
 }
 /** Cached complete allocations are certificates, never cached assumptions. */
 export function canComplete2027(state:PolicyState,opts:CompletionOptions2027={}):Completion {
+  if(opts.summerTotal===undefined&&state.summerTotal!==undefined)opts={...opts,summerTotal:state.summerTotal};
   const family=opts.exact&&!opts.permits?witnessFamily(state,opts):null;
   const previous=family?completionWitnessCache.get(family):undefined;
   if(previous&&(!opts.minimumCycle||state.cycles.some(c=>c.date===opts.minimumCycle!.date)&&
@@ -373,12 +377,12 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
   }
   if(state.members.some(m=>!Number.isInteger(m.entitlement)||m.entitlement<0||m.entitlement>6||people.get(m.id)!>m.entitlement))return {status:'impossible',checked:0,reason:'Derechos individuales excedidos'};
   for(const c of state.cycles)if(counts.get(c.date)!>Math.min(c.maximum??4,c.fourthExcluded?3:4))return {status:'impossible',checked:0,reason:'Ciclo con ocupación superior al máximo'};
-  // Territorial redistribution preserves the ordinary 2/3 capacity inside
+  // Per-period extras preserve the ordinary 2/3 capacity inside
   // each outside period. Fixed awards can never be removed by a completion.
   for(const p of [0,1,2]){
     const dates=new Set(state.cycles.filter(c=>c.period===p).map(c=>c.date));
     if(state.awards.filter(a=>dates.has(a.cycle_date)).length>3*dates.size)
-      return {status:'impossible',checked:0,reason:'La ocupación fija supera la capacidad territorial ordinaria del periodo'};
+      return {status:'impossible',checked:0,reason:'La ocupación fija supera la capacidad ordinaria del periodo'};
   }
   // A fully allocated campaign needs no combinatorial scenario search.
   // This is also important for publication and review: a timeout must never
@@ -394,7 +398,7 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
   // A nearly complete allocation can be proved (or disproved) by direct
   // enumeration of the outstanding person/cycle pairs. This avoids the
   // combinatorial exceptional-cycle search and, crucially, prevents a
-  // bounded timeout from hiding a provable strict-territorial warning.
+  // bounded timeout from hiding a provable result.
   const pending=state.members.flatMap(m=>range(m.entitlement-(people.get(m.id)??0))
     .map(()=>m.id));
   if(pending.length===1&&maxChecks>=state.cycles.length){
@@ -648,32 +652,5 @@ export function evaluate2027Candidate(
     completion.status==='indeterminate'
       ?[problem('COMPLETION_UNDETERMINED','No se ha demostrado que exista una completación válida; no se adjudica automáticamente.')]:[];
   const warnings:RuleProblem[]=[];
-  if(completion.status==='possible'&&includeWarnings){
-    // A positively verified final completion is a constructive proof for
-    // either informative comparison; do not pay for another exact search.
-    const finalWitness={...next,awards:[...next.awards,...(completion.witness??[])]};
-    const summerReference=state.members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
-    const summerDates=new Set(state.cycles.filter(c=>c.period===1).map(c=>c.date));
-    const currentSummer=finalWitness.awards.filter(a=>summerDates.has(a.cycle_date)).length;
-    const reference=currentSummer===summerReference?{status:'possible' as const}
-      :canComplete2027(next,{summerTotal:summerReference,maxChecks,exact:options.exact});
-    if(reference.status==='impossible'){
-      // Find the achievable summer total closest to the reference. The witness
-      // total is already proven, so the search only spans the (small) gap.
-      const step=currentSummer<summerReference?-1:1;
-      let closest=currentSummer,exactClosest=true;
-      for(let total=summerReference+step;total!==currentSummer;total+=step){
-        const check=canComplete2027(next,{summerTotal:total,maxChecks,exact:options.exact});
-        if(check.status==='possible'){closest=total;break;}
-        if(check.status==='indeterminate'){exactClosest=false;break;}
-      }
-      const bound=exactClosest?(step<0?'como máximo':'como mínimo'):'en una terminación válida';
-      warnings.push(problem('SUMMER_REFERENCE',step<0
-        ?`Con esta elección el verano ya no podrá cubrir los ${summerReference} turnos de referencia (dos por controlador): ${bound} se cubrirán ${closest}. ${summerReference-closest===1?'El turno restante pasará':`Los ${summerReference-closest} restantes pasarán`} a preverano o posverano. Es informativo: no bloquea la elección.`
-        :`Con esta elección el verano tendrá ${bound} ${closest} turnos, más que los ${summerReference} de referencia (dos por controlador). Es informativo: no bloquea la elección.`,
-        {period:1,actual:closest,limit:summerReference}));
-    }else if(reference.status==='indeterminate')
-      warnings.push(problem('SUMMER_UNDETERMINED',`No se ha podido comprobar si el verano aún puede cubrir los ${summerReference} turnos de referencia (dos por controlador).`,{period:1,limit:summerReference}));
-  }
   return {allowed:completion.status==='possible',completion,issues,warnings};
 }

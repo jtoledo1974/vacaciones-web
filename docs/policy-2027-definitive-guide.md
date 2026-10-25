@@ -1,22 +1,18 @@
-# Política definitiva LECS 2027 · v3
+# Política LECS 2027 · v5
 
-Fuente: Guía de elección LECS 2027 v1.1, 25/10/2026, páginas 2–3. Aclaración del responsable: los extracupos de preverano y postverano se generan exclusivamente con huecos de su propio periodo; son estancos.
+Única fuente normativa: *Guía de elección de vacaciones LECS 2027 v1.1* (25/10/2026), completada con las cifras de la hoja de RR. HH. «Info.Cupos RRHH» (plantillas, ciclos por periodo y terceras plazas necesarias). No se aplica ninguna otra interpretación.
 
-## Política única
+## Reglas
 
-- Seis ciclos ordinarios por CTA, salvo autorización individual de RRHH. Dos estivales son referencia de dimensionamiento, no una reserva individual ni un máximo de elecciones.
-- Ningún ciclo vacío. Máximo cuatro personas, sujeto a exclusiones EC4 de RRHH ya cargadas en el calendario de 2027.
-- Preverano: dos EC3 y un EC4, encadenables. El EC4 puede dejar un ciclo individual (decisión del responsable, 25/10/2026: se suprime «La utilización del cupo 4 no podrá generar un ciclo adicional con un solo CTA de vacaciones», que hacía inalcanzable el máximo). Máximo tres ciclos individuales, sin convertir ese techo en un tercer EC3.
-- Postverano: un EC3 y un EC4, encadenables; máximo dos ciclos individuales.
-- Verano: bolsa compartida de dos permisos, cada uno EC3 o EC4 según las elecciones. Se admite encadenar EC3 y EC4 en un destino, consumiendo ambos permisos. Se admiten ciclos individuales derivados de esos permisos, sin obligación de crearlos. Con dos permisos no pueden justificarse tres huecos individuales.
-- Origen y destino de cada extra permanecen en el mismo periodo. Las terceras plazas ordinarias necesarias no se confunden con los permisos extraordinarios. No se impone un total estival fijo.
+- Seis ciclos de V por CTA, salvo cantidad individual acordada con RR. HH. (guía §13).
+- Ningún ciclo sin CTA de V. Cupo base 2; terceras plazas necesarias; máximo 4 con extracupo, salvo ciclos excluidos de EC4 por RR. HH. (Semana Santa, Feria, Navidad).
+- Verano: el equipo termina con dos ciclos por CTA (hoja de RR. HH.); el resto del año recibe los demás. Cada persona puede elegir más o menos de dos en verano (guía §5), sin reserva individual.
+- Extracupos estancos por periodo: se justifican con huecos del mismo periodo.
+  - Preverano: 2 EC3 + 1 EC4, encadenables; máximo tres ciclos con un único CTA. Se suprime la condición «el EC4 no puede generar un ciclo adicional con un único CTA», que hacía inalcanzable ese máximo.
+  - Verano: 2 extracupos, cada uno EC3 o EC4 según se pidan; ciclos con un único CTA derivados permitidos.
+  - Postverano: 1 EC3 + 1 EC4, encadenables; máximo dos ciclos con un único CTA.
+- Turnos: seis rondas de menor a mayor puntuación, sin invertir; empates sorteados y rotados (§10); dejar pasar uno o dos turnos para elegir dos o tres ciclos después (§11); turnos conjuntos de hasta tres en el turno del último (§12).
 
-## Implementación y compatibilidad
+## Implementación
 
-Versión semántica: lecs-2027-occupancy-v4 (v3 impedía que el EC4 de preverano dejara un ciclo individual). Se elimina strictRegions y el contraste con flexibilidad territorial; no hay aviso administrativo que permita autorizar una infracción territorial. La búsqueda comprueba que todas las vacaciones pendientes siguen siendo asignables, sin duplicar ciclos individuales. Una búsqueda acotada inconclusa sigue siendo indeterminada.
-
-Las referencias informativas al dimensionamiento estival se conservan. Las revisiones históricas y su versión original permanecen archivadas. Los snapshots de disponibilidad de otra versión no se reutilizan; los nuevos cálculos usan v3. Publicar un cálculo antiguo exige recalcular mediante el control de versión existente. No se migran ni alteran adjudicaciones reales durante las pruebas.
-
-## TDD
-
-Primer commit: pruebas de aceptación que fallaban con v2 (verano individual, compensación territorial y completación parcial). Segundo paso: política única y actualización de regresiones que dependían expresamente de la interpretación provisional. Validar tests unitarios, tipos, CI de escritorio y móvil antes de merge y despliegue.
+`lecs-2027-occupancy-v5`. Los snapshots de otra versión se recalculan; las revisiones históricas se conservan. Una búsqueda acotada inconclusa queda indeterminada y no se adjudica automáticamente.

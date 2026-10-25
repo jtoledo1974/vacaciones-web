@@ -102,7 +102,7 @@ test('same final allocation is independent of order of the requested dates',()=>
   const a=[{member_id:'m0',cycle_date:'p0'},{member_id:'m0',cycle_date:'s0'}];
   const b=[...a].reverse();
   assert.equal(evaluate2027Candidate(base,a).allowed,evaluate2027Candidate(base,b).allowed);
-  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v4');
+  assert.equal(OCCUPANCY_POLICY_2027,'lecs-2027-occupancy-v5');
 });
 
 test('real 2027 calendars A–H have a six-cycle completion witness for the RRHH staffing',()=>{
@@ -427,4 +427,10 @@ test('flow certificate failure never rejects a valid allocation needing singles'
  const completion=canComplete2027(partial,{maxChecks:100});
  assert.equal(completion.status,'possible',completion.reason);
  assert.ok(completion.witness?.some(a=>a.member_id===missing.member_id&&a.cycle_date==='p0'));
+});
+
+test('policyState2027 carries the HR summer total: two per CTA',()=>{
+ const members=['X1','X2','X3'].map(code=>({id:code,code}) as any);
+ const state=policyState2027(2027,'A',defaultConfig(2027),members,[]);
+ assert.equal(state.summerTotal,6);
 });

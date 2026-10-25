@@ -70,3 +70,15 @@ test('guide: exhaustive four-cycle summer oracle with at most two EC3/EC4 moves'
   assert.equal(evaluate2027Final(allocation([2],counts,[2])).valid,reachable.has(counts.join(',')),counts.join(','));
  }
 });
+
+test('HR sheet: the team summer total is fixed; individuals may take more or fewer',()=>{
+ const base=allocation([2,2],[2,2],[2,2]);
+ assert.equal(evaluate2027Final({...base,summerTotal:4}).valid,true);
+ assert.ok(evaluate2027Final({...base,summerTotal:5}).issues.some(i=>i.code==='SUMMER_TOTAL'));
+ // The last pending CTA must go to summer when summer is one short.
+ const pending={...base,awards:base.awards.filter(a=>a.member_id!=='p4'),summerTotal:4};
+ const done=canComplete2027(pending,{maxChecks:10000});
+ assert.equal(done.status,'possible');
+ assert.ok(done.witness!.every(a=>a.cycle_date.startsWith('2027-06')));
+ assert.equal(canComplete2027({...pending,summerTotal:3},{maxChecks:10000}).status,'impossible');
+});
