@@ -371,7 +371,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {simulation&&quickMode&&<span className="election-fast-indicator" role="status">Simulación · confirmación rápida</span>}
     <span className="eyebrow">{state?.status==='active'?`RONDA ${turn?.round} · EN CURSO`:state?.status==='complete'?'ELECCIÓN COMPLETADA':state?.status==='paused'?'ELECCIÓN EN PAUSA':'ELECCIÓN SIN INICIAR'}</span>
     <h2>{turn?.pendingTie?'Empate pendiente antes del siguiente turno':state?.status==='active'&&current?`${turn?.participants?.length>1?turn.participants.map((id:string)=>data.members.find((m:any)=>m.id===id)?.code).join(" + "):current.code} elige ahora`:'Consulta de ciclos'}</h2>
-    {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed} ciclo(s) por elegir</span>}
+    {state?.status==='active'&&current&&!turn?.pendingTie&&<span className="muted">{turn.needed===1?'1 ciclo':turn.needed+' ciclos'} por elegir</span>}
    </div>
    <div className="election-turn-controls">
     {canPreferences&&<div className="election-view-switch" role="group" aria-label="Modo de vacaciones">
@@ -422,7 +422,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {!frozen&&turn?.pendingTie&&<TieResolver key={turn.pendingTie.join('|')} group={turn.pendingTie} data={data} busy={busy} act={act} manage={manage} open={open}/> }
   {manage&&!frozen&&state?.status==='active'&&state.automaticPaused&&<div className="alert warning" role="status">Los automatismos están detenidos por una operación administrativa. Puedes corregir el turno manualmente; no se adjudicará de nuevo por sorpresa. <button type="button" className="secondary" disabled={busy||!open} onClick={async()=>{if(await confirm('¿Reanudar los automatismos? Las preferencias vigentes podrían adjudicar inmediatamente los siguientes turnos.'))act({action:'resume_automatic'},'Automatismos reanudados');}}>Reanudar automatismos</button></div>}
   {election.pendingAutomatic&&canPreferences&&<div className="alert warning">Hay elecciones automáticas pendientes. <button className="secondary" disabled={busy||!open||previewReadOnly} onClick={()=>act({action:"advance"},"Elecciones automáticas procesadas")}>Continuar automatismos</button></div>}
-{mode==='choose'&&<div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0} ciclos · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>}
+{mode==='choose'&&<div className="election-filter"><label>Ver vacaciones de<select aria-label="Ver vacaciones de controlador" value={filterMember} onChange={e=>setFilterMember(e.target.value)}><option value="">Todo el equipo</option>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>{filterMember&&<span>{(n=>n===1?'1 ciclo':n+' ciclos')(election.points.find((p:any)=>p.member_id===filterMember)?.cycles??0)} · {election.points.find((p:any)=>p.member_id===filterMember)?.points??0} de baremo sin ponderar</span>}<a href="#puntos-equipo">Ver puntos y ciclos del equipo</a></div>}
   {canPreferences&&mode==='preferences'&&manage&&<label className="preference-member">Introducir preferencias para<select aria-label="Preferencias de controlador" value={memberId} disabled={busy} onChange={async e=>{const next=e.target.value;if(await leavePreferences()){setMemberId(next);setPreferenceMessage('');onPreferenceEdit?.();}}}>{preferenceMembers.map((m:any)=><option key={m.id} value={m.id}>{m.code}</option>)}</select></label>}
   {mode==='preferences'&&canPreferences&&<div className="preference-mode-banner" role="status">
    <strong>{manage?'Preparando preferencias de '+(data.members.find((m:any)=>m.id===memberId)?.code??''):'Preparando tus preferencias'}</strong>
@@ -574,7 +574,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
      <ol className="turn-list">{roundOrder.map((id:string)=>{
       const m=data.members.find((m:any)=>m.id===id),p=election.points.find((p:any)=>p.member_id===id);
       return <li key={id} className={id===turn?.memberId?'current-turn':''}><strong>{m?.code}</strong>
-       <span>{data.config?.previousScores?.[m?.code]!==undefined?'Anterior: '+data.config.previousScores[m.code]+' puntos · ':''}{p?.cycles??0} ciclos · {p?.points??0} puntos{state?.credits[id]?' · '+state.credits[id]+' turno(s) aplazado(s)':''}</span></li>;
+       <span>{data.config?.previousScores?.[m?.code]!==undefined?'Anterior: '+data.config.previousScores[m.code]+' puntos · ':''}{(p?.cycles??0)===1?'1 ciclo':(p?.cycles??0)+' ciclos'} · {p?.points??0} puntos{state?.credits[id]?' · '+state.credits[id]+(state.credits[id]===1?' turno aplazado':' turnos aplazados'):''}</span></li>;
      })}</ol>
      <p className="muted">Puntuación de los ciclos elegidos del año actual; no cambia el orden inicial de elección.</p>
     </section>

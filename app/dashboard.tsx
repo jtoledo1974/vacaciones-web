@@ -66,6 +66,8 @@ function Dashboard() {
     useEffect(()=>{currentCid.current=cid;},[cid]);
     useEffect(()=>{isBusy.current=busy;},[busy]);
     useEffect(()=>{setPublicConsultation(false);},[cid,identity]);
+    // Success notices float over the page (#64) and fade on their own; errors stay until closed.
+    useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>setNotice(''),6000);return ()=>clearTimeout(timer);},[notice]);
     async function loadIndex() { const i = await api('index'); setIndex(i); return i; }
     function selectLanding(i:any) {
       if(currentCid.current)return;
