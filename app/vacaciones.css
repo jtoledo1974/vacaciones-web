@@ -722,3 +722,17 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac3-table .vac3-date button{min-height:44px}
 }
 @media(max-width:850px){.menu-mobile,.close-mobile{display:grid}}
+
+/* Controller-wide legacy microtext also appears outside the cycle workspace. */
+.app.controller-ux :is(
+ small,.primary,.secondary,.tag,.status,summary,label,
+ .detail p,.person-chip,.legend,.calendar-bottom,
+ .day,.day-label,.month h3 span,.stat>span,.stat small,
+ .alert,.empty p,.topbar .private-pill,
+ .nav-caption,.sidebar-bottom,.sidebar-foot,
+ .sidebar-session p,.sidebar-session small,.profile,.profile small,
+ .avatar,.sidebar-bottom>a,.session-detail-label,.session-signout,
+ .alternative-login summary,.session-detail-label,
+ .vac2-occupants,.vac2-date-link,
+ table,table th,table td,td code
+){font-size:12px}
