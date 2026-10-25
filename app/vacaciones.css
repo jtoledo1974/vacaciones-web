@@ -679,7 +679,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .campaign-strip .separator{color:#52645a}
 .tag{color:#425c44}
 /* Public/controller pages need readable metadata without modifying admin tables. */
-.app:has(.my-election) :is(
+.app.controller-ux :is(
  .topbar .private-pill,.header-account-info small,.heading p,
  .vac2-heading p,.vac2-legend,.vac2-legend b,.vac2-month h3,
  .vac2-line,.vac2-cycle-sub,.vac2-names,.vac2-weekdays,.vac2-day,
@@ -696,9 +696,16 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .preference-dock-status > span,.preference-feedback,
  .vac3-tools,.vac3-size-actions button,.vac3-legend,
  .vac3-choice-indicator,.vac3-table,
- .content footer,.content footer .footer-build
+ .content footer,.content footer .footer-build,
+ .header-session-pending,.header-account-info strong,
+ .election-pending-count,.election-fast-mode,.election-fast-indicator,
+ .election-log-impact summary,.election-log-warning,.election-log-highlight,
+ .election-thinking-dialog .muted,.election-auto-notice,
+ .vac2-year-2027 .vac2-day-count,
+ .preference-dock .preference-feedback,
+ .vac2-member-card summary,.vac2-members-mobile small
 ){font-size:12px}
-.app:has(.my-election) :is(.vac2-legend,.vac2-cycle-sub,.vac2-footnote,
+.app.controller-ux :is(.vac2-legend,.vac2-cycle-sub,.vac2-footnote,
  .election-log li span,.election-log .election-log-note,
  .vac3-tools,.vac3-legend){color:#465d50}
 @media(max-width:900px){
