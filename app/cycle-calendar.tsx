@@ -136,7 +136,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    <span className="vac2-legend-summer"><i className="vac2-summer-key"/>Verano</span>
    <span><i className="vac2-selection-key"/>{preferenceMode?'Tus preferencias':'Tu selección'}</span>
   </div>
-  {view==='table'&&<CycleTable year={year} cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect} availability={availability}/>}
+  {view==='table'&&<CycleTable year={year} cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect} availability={availability} notForMe={notForMe}/>}
   {view==='map'&&<nav className="vac2-month-jump" aria-label="Ir al mes">{months.map((name,m)=>byMonth[m].length>0&&<button type="button" key={m}
    onClick={()=>document.getElementById('vac2-map-month-'+m)?.scrollIntoView({behavior:'smooth',block:'start'})}>{name.slice(0,3)}</button>)}</nav>}
   {view==='map'&&<div className="vac2-month-grid vac2-map">{months.map((_,m)=>renderMonth(m,false))}</div>}
