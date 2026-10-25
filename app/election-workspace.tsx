@@ -8,6 +8,7 @@ import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 import {cycleAvailability,slotExplanation,summarizeImpact} from './cycle-availability-ui';
 import MyElectionCard from './my-election-card';
+import Glossary from './glossary';
 import {myElection} from './my-election-state';
 
 export function ActivationPanel({data,busy,act,onActivated,onResolveScores,onResolveCycles,onSaveSource}:any){
@@ -433,7 +434,9 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} cycles={data.result.cycles}
      selected={mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
      busy={busy||loadingOptions||choiceSubmitting} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
-     awards={data.awards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability}/>
+     awards={data.awards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability} glossary={!manage}
+     notForMe={!manage&&mode==='choose'&&canChoose&&turn?.participants?.length===1&&!loadingOptions
+      ?data.result.cycles.map((c:any)=>c.date).filter((d:string)=>!(pairOptions??election.available).includes(d)&&!selected.includes(d)):undefined}/>
    </div>
    <aside className="election-side">
     {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} cancel={cancelPreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?'La lista coincide con la versión guardada.':preferenceMessage}/>}
@@ -580,6 +583,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
 
 
   {!manage&&!mine&&<section className="panel"><h2>Preparar tus preferencias</h2><p>Inicia sesión con la cuenta de ChatGPT cuyo correo electrónico figura en la plantilla del equipo. Si no tienes acceso, pide al administrador que compruebe el correo registrado. Podrá introducir tu lista por ti si no usas la web.</p>{!identity&&<a className="secondary" href={signinUrl}>Iniciar sesión</a>}</section>}
+  {!manage&&<Glossary/>}
   {!manage&&rules2027}
   <details className="panel"><summary>Vacaciones confirmadas · {data.awards.length} ciclos</summary><div className="table-wrap"><table><thead><tr><th>Controlador</th><th>Ciclo</th><th>Baremo</th>{manage&&<th>Corrección</th>}</tr></thead><tbody>{data.awards.map((a:any)=>{const c=data.result.cycles.find((c:any)=>c.date===a.cycle_date);return <tr key={a.id}><td>{data.members.find((m:any)=>m.id===a.member_id)?.code}</td><td>{formatDate(a.cycle_date)}</td><td>{c?.score}</td>{manage&&<td><button className="secondary" disabled={busy||state?.status==='active'||!open} onClick={async()=>{if(await confirm('¿Eliminar este ciclo confirmado?'))legacy({action:'delete_award',id:a.id},'Ciclo eliminado');}}>Eliminar ciclo</button></td>}</tr>;})}</tbody></table></div></details>
   {manage&&data.requests.some((r:any)=>!data.awards.some((a:any)=>a.member_id===r.member_id&&a.cycle_date===r.cycle_date))&&<details className="panel"><summary>Peticiones anteriores sin ciclo confirmado</summary><p className="muted">Registros creados antes del flujo de elección. Puedes eliminarlos para corregir datos anteriores; no son las nuevas listas de preferencias.</p>{data.requests.filter((r:any)=>!data.awards.some((a:any)=>a.member_id===r.member_id&&a.cycle_date===r.cycle_date)).map((r:any)=><p key={r.id}>{data.members.find((m:any)=>m.id===r.member_id)?.code} · {formatDate(r.cycle_date)} <button className="secondary" disabled={busy||!open||state?.status==="active"} onClick={async()=>{if(await confirm("¿Eliminar esta petición anterior sin elección confirmada?"))legacy({action:"delete_request",id:r.id},"Petición anterior eliminada");}}>Eliminar petición anterior</button></p>)}</details>}

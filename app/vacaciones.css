@@ -817,3 +817,40 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac2-year-2027 .vac2-key.vac2-free-4{background:#0b4f40}.vac2-year-2027 .vac2-key.vac2-free-3{background:#1f7a60}.vac2-year-2027 .vac2-key.vac2-free-2{background:#9fd3bd}.vac2-year-2027 .vac2-key.vac2-free-1{background:#dcefe6}
 .vac2-year-2027 .vac2-key.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px)}
 .vac2-year-2027 .vac2-key.vac2-unknown{background:#fff;border:2px dashed #6c7480}
+@media(max-width:900px){.vac2-panel{overflow:clip}}
+/* #64 «Para mí»: en tu turno, lo que no puedes coger se ve atenuado de entrada. */
+.vac2-cycle.vac2-not-for-me,.vac2-day.vac2-not-for-me{filter:saturate(.15);opacity:.55}
+.vac2-year-2027 .vac2-cycle.vac2-not-for-me{background:#eceeed;color:#3d4744;border-left-color:#c9cfcc}
+.vac2-year-2027 .vac2-cycle.vac2-not-for-me{opacity:1;filter:none}
+/* #64 reordenar: el número de posición es un selector nativo. */
+.preference-list{list-style:none;padding-left:0}
+.preference-list li::marker{content:none}
+.preference-position{flex:none;width:52px;min-height:44px;padding:0 6px 0 10px;border:2px solid #b0136b;border-radius:10px;background:#fff;color:#7a0d4a;font-size:16px;font-weight:800;text-align:center}
+.preference-usage{padding:6px 10px;gap:2px}.preference-usage .preference-consent{min-height:40px}.preference-editor-footer{gap:8px;padding:10px 16px}
+/* Hover must not hide the summer edge: it matters most at the first and last summer cycles. */
+.vac3-table tr.vac3-summer:hover .vac3-points{box-shadow:inset 6px 0 #e0a526,inset 0 -1px #8db8a9}
+.vac3-table tr.vac3-selected:hover .vac3-points{box-shadow:inset 3px 0 #b0136b,inset 0 -1px #8db8a9}
+.vac3-table tr.vac3-summer.vac3-selected:hover .vac3-points{box-shadow:inset 6px 0 #e0a526,inset 9px 0 #b0136b,inset 0 -1px #8db8a9}
+.vac3-table tr.vac3-selected:hover td:last-child{box-shadow:inset -3px 0 #b0136b,inset 0 -1px #8db8a9}
+.vac3-table tr.vac3-not-for-me td{background:#f1f3f2;color:#5b6663}.vac3-table tr.vac3-not-for-me .vac3-date button::after{content:" · no para ti";font-weight:500;color:#5b6663}
+/* #64 la misma escala para cualquier ejercicio, no solo 2027. */
+.vac2-panel:not(.vac2-year-2027) .vac2-free-4{--vac2-status:#0b4f40;--vac2-foreground:#fff}
+.vac2-panel:not(.vac2-year-2027) .vac2-free-3{--vac2-status:#1f7a60;--vac2-foreground:#fff}
+.vac2-panel:not(.vac2-year-2027) .vac2-free-2{--vac2-status:#9fd3bd;--vac2-foreground:#0d2b23}
+.vac2-panel:not(.vac2-year-2027) .vac2-free-1{--vac2-status:#dcefe6;--vac2-foreground:#0d2b23}
+.vac2-panel:not(.vac2-year-2027) .vac2-free-0{--vac2-status:#eceeed;--vac2-foreground:#3d4744}
+.vac2-panel:not(.vac2-year-2027) .vac2-cycle{background:var(--vac2-status);color:var(--vac2-foreground);border:1px solid #c9d6d0;border-left:6px solid transparent}
+.vac2-panel:not(.vac2-year-2027) .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
+.vac2-panel:not(.vac2-year-2027) .vac2-day{background:var(--vac2-status);color:var(--vac2-foreground)}
+.vac2-panel:not(.vac2-year-2027) .vac2-cycle.vac2-free-0,.vac2-panel:not(.vac2-year-2027) .vac2-day.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px)}
+.vac2-panel:not(.vac2-year-2027) .vac2-cycle.vac2-summer{border-left-color:#e0a526;box-shadow:none}
+.vac2-panel:not(.vac2-year-2027) .vac2-day.vac2-summer{box-shadow:inset 0 -4px 0 #e0a526}
+.vac2-panel:not(.vac2-year-2027) .vac2-cycle-sub,.vac2-panel:not(.vac2-year-2027) .vac2-names{color:inherit}
+/* #64 glosario en lenguaje llano. */
+.glossary summary{font-size:15px;font-weight:650;color:#1f5a4b;min-height:44px;display:flex;align-items:center}
+.glossary dl{display:grid;gap:12px;margin:10px 0 0}
+.glossary dl>div{display:grid;gap:2px}
+.glossary dt{font-weight:700;font-size:14px;color:#1d3331}
+.glossary dd{margin:0;font-size:13px;line-height:1.5;color:#40574c}
+.vac2-glossary-link{display:inline-flex;align-items:center;min-height:32px;font-weight:650;color:#1f5a4b;text-decoration:underline;text-underline-offset:3px}
+#glosario{scroll-margin-top:16px}

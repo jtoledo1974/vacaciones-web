@@ -19,13 +19,15 @@ type Props={
  busy:boolean;
  onSelect:(cycle:Cycle)=>void;
  availability?:AvailabilitySnapshot|null;
+ notForMe?:string[];
 };
 
 function shortDate(iso:string):string{
  return new Date(iso+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short'}).replaceAll('.','').replaceAll(' ','-');
 }
 
-export default function CycleTable({year,cycles,awards,members,selected,highlighted,preferenceMode,busy,onSelect,availability}:Props){
+export default function CycleTable({year,cycles,awards,members,selected,highlighted,preferenceMode,busy,onSelect,availability,notForMe}:Props){
+ const blocked=new Set(notForMe??[]);
  const [fontSize,setFontSize]=useState(12);
  const codes=useMemo(()=>new Map(members.map(m=>[m.id,m.code])),[members]);
  const occupants=useMemo(()=>{
@@ -58,7 +60,7 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
       const free=Math.max(0,c.max-c.occupied),extra=free===0&&c.available===true;
       const status=cycleAvailability(c,availability,year);
       const label=shortDate(c.date)+' a '+shortDate(c.end)+', '+c.score+' puntos, '+c.occupied+' plazas ocupadas, '+status.description+(extra&&year!==2027?', posible cupo adicional':'')+(people.length?', '+people.join(', '):'');
-      return <tr key={c.date} className={(c.period===1?'vac3-summer ':'')+(chosen.has(c.date)?'vac3-selected ':'')+(marked.has(c.date)?'vac3-highlight ':'')} onClick={()=>{if(!busy)onSelect(c);}} data-cycle-date={c.date}>
+      return <tr key={c.date} className={(c.period===1?'vac3-summer ':'')+(blocked.has(c.date)?'vac3-not-for-me ':'')+(chosen.has(c.date)?'vac3-selected ':'')+(marked.has(c.date)?'vac3-highlight ':'')} onClick={()=>{if(!busy)onSelect(c);}} data-cycle-date={c.date}>
        <td className="vac3-points">{c.score}</td>
        <td className="vac3-date">
         <button type="button" data-cycle-date={c.date} aria-label={label} aria-pressed={chosen.has(c.date)} disabled={busy} title={label} onClick={event=>{event.stopPropagation();onSelect(c);}}>
