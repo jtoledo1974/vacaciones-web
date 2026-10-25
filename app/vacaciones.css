@@ -854,3 +854,12 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .glossary dd{margin:0;font-size:13px;line-height:1.5;color:#40574c}
 .vac2-glossary-link{display:inline-flex;align-items:center;min-height:32px;font-weight:650;color:#1f5a4b;text-decoration:underline;text-underline-offset:3px}
 #glosario{scroll-margin-top:16px}
+/* #64 avisos flotantes: visibles estés donde estés de la página; no capturan clics. */
+.content>.alert.success,.content>.alert.error{position:fixed;top:12px;left:50%;transform:translateX(-50%);width:min(560px,calc(100% - 24px));z-index:200;margin:0;box-shadow:0 8px 28px #0f2a2233;pointer-events:none;font-size:14px;animation:toast-in .18s ease-out}
+.content>.alert.success{background:#0b4f40;color:#fff;border-color:#0b4f40}
+.content>.alert.error button{pointer-events:auto;min-width:44px;min-height:44px}
+@media(min-width:851px){.content>.alert.success,.content>.alert.error{left:calc(50% + 117px)}}
+@keyframes toast-in{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
+@media (prefers-reduced-motion:reduce){.content>.alert.success,.content>.alert.error{animation:none}}
+/* With a cycle card open at the bottom, a sticky month row at the top would leave no room for the calendar. */
+.has-active-detail .vac2-month-jump{position:static}

@@ -111,7 +111,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    })}</tbody></table></div>
    <div className="vac2-members-mobile">{membersOrder.map(id=>{
     const entries=awards.filter(a=>a.member_id===id).map(a=>byDate.get(a.cycle_date)).filter((c):c is Cycle=>!!c).sort((a,b)=>a.date.localeCompare(b.date));
-    return <details key={id} className="vac2-member-card"><summary><b>{byId.get(id)}</b><span>{entries.length} ciclos · {points.find(p=>p.member_id===id)?.points??0} pt</span></summary>
+    return <details key={id} className="vac2-member-card"><summary><b>{byId.get(id)}</b><span>{entries.length===1?'1 ciclo':entries.length+' ciclos'} · {points.find(p=>p.member_id===id)?.points??0} pt</span></summary>
      <div>{entries.length?entries.map(c=><button type="button" className="vac2-member-cycle" key={c.date} onClick={()=>onSelect(c)}>{formatDate(c.date)} – {formatDate(c.end)} · {c.score} pt</button>):<p className="muted">Sin ciclos adjudicados</p>}</div>
     </details>;
    })}</div>

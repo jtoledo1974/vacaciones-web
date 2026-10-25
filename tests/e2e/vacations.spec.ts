@@ -299,6 +299,21 @@ test('vista de controlador distingue Mis preferencias de la navegación administ
  await expect(page.locator('.preferences-panel')).toBeVisible();
 });
 
+test('vista de controlador: tarjeta «Mi elección», turno propio y glosario',{tag:'@both'},async({page,request})=>{
+ const scenario=await setup(request,page);
+ await open(page,scenario.id);await activate(page);
+ const as=async(code:string)=>{const url=new URL(page.url());url.searchParams.set('verComo',code);await page.goto(url.toString());};
+ await as('QA_A');
+ const card=page.getByRole('region',{name:'Mi elección'});
+ await expect(card.getByRole('heading',{name:'Es tu turno'})).toBeVisible();
+ await expect(card).toContainText('No tienes preferencias guardadas');
+ await expect(card.getByRole('button',{name:'Elegir ahora'})).toBeVisible();
+ await as('QA_B');
+ await expect(card.getByRole('heading',{name:'Eres el siguiente'})).toBeVisible();
+ await page.getByRole('link',{name:'ⓘ Qué significa'}).click();
+ await expect(page.locator('#glosario')).toHaveAttribute('open','');
+});
+
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
  const s=await setup(request,page);await open(page,s.id);
  const switcher=page.getByRole('group',{name:'Modo de vacaciones'});

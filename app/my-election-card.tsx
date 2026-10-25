@@ -28,7 +28,8 @@ export default function MyElectionCard({me,autoPick,onChoose,onList}:{me:MyElect
  }
  const turn=me.phase==='my-turn';
  const headline=turn?'Es tu turno'
-  :me.phase==='waiting'?(me.turnsAhead===0?'Eres el siguiente':me.turnsAhead!==null?`Faltan ${me.turnsAhead} turnos para el tuyo`:'Esperando tu turno')
+  :me.phase==='waiting'?(/* turnsAhead includes whoever is choosing right now. */
+   me.turnsAhead!==null&&me.turnsAhead<=1?'Eres el siguiente':me.turnsAhead!==null?`Faltan ${me.turnsAhead} turnos para el tuyo`:'Esperando tu turno')
   :me.phase==='paused'?'La elección está en pausa'
   :me.phase==='not-started'?'La elección aún no ha empezado'
   :'Ya tienes todas tus vacaciones';
@@ -53,7 +54,7 @@ export default function MyElectionCard({me,autoPick,onChoose,onList}:{me:MyElect
   </div>
   <div className={'my-election-row my-election-list is-'+me.list.state}>
    <div><strong>{listText[me.list.state]}</strong>
-    {me.list.entries.length>0&&<span className="my-election-quiet">{me.list.entries.length} opciones{lost?` · ${lost} sin plazas`:''}{me.list.firstViable?` · primera disponible: ${formatDate(me.list.firstViable)}`:''}</span>}</div>
+    {me.list.entries.length>0&&<span className="my-election-quiet">{me.list.entries.length===1?'1 opción':me.list.entries.length+' opciones'}{lost?` · ${lost} sin plazas`:''}{me.list.firstViable?` · primera disponible: ${formatDate(me.list.firstViable)}`:''}</span>}</div>
    <button type="button" className="secondary" onClick={onList}>{me.list.state==='none'?'Preparar mis preferencias':me.list.state==='used'?'Reactivar mis preferencias':'Revisar mis preferencias'}</button>
   </div>
   <a className="my-election-notify" href="/notificaciones"><Bell size={16} aria-hidden="true"/>Avísame cuando me toque</a>
