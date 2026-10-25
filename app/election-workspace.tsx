@@ -322,10 +322,18 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   if(simulation&&quickMode&&!busy&&next.length===turn.needed&&turn?.participants?.length===1)
    void submitChoice(next.map(date=>({member_id:turn.memberId,cycle_date:date})));
  }
+ const rules2027=data.campaign.year===2027&&<details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
+  <summary>Cómo se aplican los cupos de 2027</summary>
+    <p>En preverano hay dos ampliaciones a tres plazas en ciclos distintos y una ampliación a cuatro en un tercer ciclo. La cuarta no genera otro ciclo con una sola persona. Pueden terminar hasta tres ciclos individuales sin que ello suponga otro extracupo.</p>
+    <p>En postverano pueden encadenarse la ampliación a tres y la cuarta plaza. En verano todos los ciclos deben terminar con al menos dos personas; están permitidos como máximo dos ciclos con cuatro.</p>
+    <p>La flexibilidad de origen entre periodos está permitida provisionalmente por el responsable, con aviso cuando impida cumplir la interpretación territorial estricta de RR. HH. No es autorización definitiva de RR. HH. La referencia de dos ciclos estivales por persona es informativa.</p>
+ </details>;
  const me=!manage?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,state,turn}):null;
+ const lastAuto=me?(election.timeline??[]).find((e:any)=>e.automatic&&e.memberIds.includes(mine)):null;
+ const autoPick=lastAuto?{id:lastAuto.id,round:lastAuto.round,dates:lastAuto.choices.filter((c:any)=>c.member_id===mine).map((c:any)=>({date:c.cycle_date,end:data.result.cycles.find((x:any)=>x.date===c.cycle_date)?.end??c.cycle_date}))}:null;
  const showCalendar=()=>document.querySelector('.vac2-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
  return <>
-  {me&&!frozen&&<MyElectionCard me={me}
+  {me&&!frozen&&<MyElectionCard me={me} autoPick={autoPick}
    onChoose={async()=>{if(mode!=='choose'&&!await leavePreferences())return;setMode('choose');showCalendar();}}
    onList={()=>{if(!canPreferences)return;setMode('preferences');setDetail(null);onPreferenceEdit?.();showCalendar();}}/>}
   {thinking&&<div className="election-thinking-inline" role="status" aria-live="polite"><span className="election-thinking-spinner" aria-hidden="true"/>{thinkingMessage}</div>}
@@ -335,13 +343,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    <p aria-live="polite">{thinkingMessage}</p>
    <p className="muted">Algunas elecciones, especialmente al ocupar una cuarta plaza, necesitan verificar que todos los controladores puedan completar sus vacaciones. No se ha confirmado ninguna adjudicación hasta que termine la comprobación.</p>
   </section></div>}
-  {data.campaign.year===2027&&
-   <details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
-    <summary>Cómo se aplican los cupos de 2027</summary>
-    <p>En preverano hay dos ampliaciones a tres plazas en ciclos distintos y una ampliación a cuatro en un tercer ciclo. La cuarta no genera otro ciclo con una sola persona. Pueden terminar hasta tres ciclos individuales sin que ello suponga otro extracupo.</p>
-    <p>En postverano pueden encadenarse la ampliación a tres y la cuarta plaza. En verano todos los ciclos deben terminar con al menos dos personas; están permitidos como máximo dos ciclos con cuatro.</p>
-    <p>La flexibilidad de origen entre periodos está permitida provisionalmente por el responsable, con aviso cuando impida cumplir la interpretación territorial estricta de RR. HH. No es autorización definitiva de RR. HH. La referencia de dos ciclos estivales por persona es informativa.</p>
-   </details>}
+  {manage&&rules2027}
   {data.campaign.year===2027&&(data.result.policyWarnings??[]).length>0&&
    <section className="panel" aria-label="Avisos de las normas de vacaciones 2027">
     <h3>Avisos de reparto 2027</h3>
@@ -552,6 +554,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
 
 
   {!manage&&!mine&&<section className="panel"><h2>Preparar tus preferencias</h2><p>Inicia sesión con la cuenta de ChatGPT cuyo correo electrónico figura en la plantilla del equipo. Si no tienes acceso, pide al administrador que compruebe el correo registrado. Podrá introducir tu lista por ti si no usas la web.</p>{!identity&&<a className="secondary" href={signinUrl}>Iniciar sesión</a>}</section>}
+  {!manage&&rules2027}
   <details className="panel"><summary>Vacaciones confirmadas · {data.awards.length} ciclos</summary><div className="table-wrap"><table><thead><tr><th>Controlador</th><th>Ciclo</th><th>Baremo</th>{manage&&<th>Corrección</th>}</tr></thead><tbody>{data.awards.map((a:any)=>{const c=data.result.cycles.find((c:any)=>c.date===a.cycle_date);return <tr key={a.id}><td>{data.members.find((m:any)=>m.id===a.member_id)?.code}</td><td>{formatDate(a.cycle_date)}</td><td>{c?.score}</td>{manage&&<td><button className="secondary" disabled={busy||state?.status==='active'||!open} onClick={async()=>{if(await confirm('¿Eliminar este ciclo confirmado?'))legacy({action:'delete_award',id:a.id},'Ciclo eliminado');}}>Eliminar ciclo</button></td>}</tr>;})}</tbody></table></div></details>
   {manage&&data.requests.some((r:any)=>!data.awards.some((a:any)=>a.member_id===r.member_id&&a.cycle_date===r.cycle_date))&&<details className="panel"><summary>Peticiones anteriores sin ciclo confirmado</summary><p className="muted">Registros creados antes del flujo de elección. Puedes eliminarlos para corregir datos anteriores; no son las nuevas listas de preferencias.</p>{data.requests.filter((r:any)=>!data.awards.some((a:any)=>a.member_id===r.member_id&&a.cycle_date===r.cycle_date)).map((r:any)=><p key={r.id}>{data.members.find((m:any)=>m.id===r.member_id)?.code} · {formatDate(r.cycle_date)} <button className="secondary" disabled={busy||!open||state?.status==="active"} onClick={async()=>{if(await confirm("¿Eliminar esta petición anterior sin elección confirmada?"))legacy({action:"delete_request",id:r.id},"Petición anterior eliminada");}}>Eliminar petición anterior</button></p>)}</details>}
   {manage&&<details className="panel"><summary>Revisiones y cierre del ejercicio</summary>{data.result.issues.length>0&&<p className="alert error">{data.result.issues.join(' · ')}</p>}{data.result.warnings.length>0&&<p className="alert warning">{data.result.warnings.join(' · ')}</p>}<button className="secondary" disabled={busy||!open||state?.status==='active'} onClick={()=>legacy({action:'calculate'},'Revisión calculada')}>Calcular revisión</button>{data.runs.map((run:any)=><p key={run.id}>{new Date(run.created_at).toLocaleDateString('es-ES')} · {run.id.slice(0,8)} {superuser&&run.source_version===data.campaign.version&&<button className="secondary" disabled={busy||state?.status==='active'} onClick={async()=>{if(await confirm('¿Guardar esta revisión como resultado final y cerrar el ejercicio?'+(data.campaign.year===2027&&(data.result.policyWarnings??[]).length?'\n\nAvisos de RR. HH. que quedarán revisados y registrados a tu nombre:\n'+data.result.policyWarnings.map((w:any)=>'— '+w.message).join('\n'):'')))legacy({action:'publish',runId:run.id,reviewedWarnings:(data.result.policyWarnings??[]).map((w:any)=>w.code)},'Revisión final publicada');}}>Guardar resultado final</button>}</p>)}</details>}

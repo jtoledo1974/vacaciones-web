@@ -1,18 +1,31 @@
 'use client';
+import {useEffect,useState} from 'react';
 import {Bell} from 'lucide-react';
 import {formatDate} from './cycle-calendar';
 import type {MyElection} from './my-election-state';
 
 const listText:Record<MyElection['list']['state'],string>={
- none:'Sin lista: nadie elegirá por ti.',
- 'active-next':'Tu lista elegirá por ti en tu próximo turno.',
- 'active-all':'Tu lista elegirá por ti en todos tus turnos.',
- used:'Tu lista ya se usó y está inactiva: no elegirá por ti.',
- paused:'Tu lista está guardada; los automatismos están detenidos.',
+ none:'No tienes preferencias guardadas: en tu turno tendrás que elegir tú.',
+ 'active-next':'En tu próximo turno se elegirá automáticamente de tus preferencias.',
+ 'active-all':'En todos tus turnos se elegirá automáticamente de tus preferencias.',
+ used:'Tus preferencias ya se usaron: en tu próximo turno no se elegirá de ellas.',
+ paused:'Preferencias guardadas, pero la elección automática está detenida.',
 };
 
+export type AutoPick={id:string;round:number;dates:{date:string;end:string}[]};
+
 /** The controller's own situation, first on the page: turn, cycles and list. */
-export default function MyElectionCard({me,onChoose,onList}:{me:MyElection;onChoose:()=>void;onList:()=>void}){
+export default function MyElectionCard({me,autoPick,onChoose,onList}:{me:MyElection;autoPick?:AutoPick|null;onChoose:()=>void;onList:()=>void}){
+ // An automatic pick stays visible until dismissed on this device: it may have happened while away.
+ const [dismissed,setDismissed]=useState(true);
+ useEffect(()=>{
+  try{setDismissed(!autoPick||localStorage.getItem('vacaciones_auto_seen')===autoPick.id);}
+  catch{setDismissed(!autoPick);}
+ },[autoPick?.id]);
+ function dismiss(){
+  setDismissed(true);
+  try{if(autoPick)localStorage.setItem('vacaciones_auto_seen',autoPick.id);}catch{/* Solo en esta sesión. */}
+ }
  const turn=me.phase==='my-turn';
  const headline=turn?'Es tu turno'
   :me.phase==='waiting'?(me.turnsAhead===0?'Eres el siguiente':me.turnsAhead!==null?`Faltan ${me.turnsAhead} turnos para el tuyo`:'Esperando tu turno')
@@ -29,6 +42,10 @@ export default function MyElectionCard({me,onChoose,onList}:{me:MyElection;onCho
     <h2>{headline}</h2>{sub&&<p>{sub}</p>}</div>
    {turn&&<button type="button" className="primary my-election-cta" onClick={onChoose}>Elegir ahora</button>}
   </div>
+  {autoPick&&!dismissed&&<div className="my-election-auto" role="status">
+   <span><strong>Se ha elegido por ti de tus preferencias:</strong> {autoPick.dates.map(d=>formatDate(d.date)+' – '+formatDate(d.end)).join(' + ')} · ronda {autoPick.round}.</span>
+   <button type="button" className="secondary" onClick={dismiss}>Entendido</button>
+  </div>}
   <div className="my-election-row">
    <strong>Mis vacaciones · {me.cycles.length}/{me.entitlement}</strong>
    {me.cycles.length?<div className="my-election-chips">{me.cycles.map(c=><span key={c.date}>{formatDate(c.date)} – {formatDate(c.end)}</span>)}</div>
@@ -37,7 +54,7 @@ export default function MyElectionCard({me,onChoose,onList}:{me:MyElection;onCho
   <div className={'my-election-row my-election-list is-'+me.list.state}>
    <div><strong>{listText[me.list.state]}</strong>
     {me.list.entries.length>0&&<span className="my-election-quiet">{me.list.entries.length} opciones{lost?` · ${lost} sin plazas`:''}{me.list.firstViable?` · primera disponible: ${formatDate(me.list.firstViable)}`:''}</span>}</div>
-   <button type="button" className="secondary" onClick={onList}>{me.list.state==='none'?'Preparar mi lista':me.list.state==='used'?'Reactivar mi lista':'Revisar mi lista'}</button>
+   <button type="button" className="secondary" onClick={onList}>{me.list.state==='none'?'Preparar mis preferencias':me.list.state==='used'?'Reactivar mis preferencias':'Revisar mis preferencias'}</button>
   </div>
   <a className="my-election-notify" href="/notificaciones"><Bell size={16} aria-hidden="true"/>Avísame cuando me toque</a>
  </section>;
