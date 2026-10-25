@@ -827,3 +827,8 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .preference-list li::marker{content:none}
 .preference-position{flex:none;width:52px;min-height:44px;padding:0 6px 0 10px;border:2px solid #b0136b;border-radius:10px;background:#fff;color:#7a0d4a;font-size:16px;font-weight:800;text-align:center}
 .preference-usage{padding:6px 10px;gap:2px}.preference-usage .preference-consent{min-height:40px}.preference-editor-footer{gap:8px;padding:10px 16px}
+/* Hover must not hide the summer edge: it matters most at the first and last summer cycles. */
+.vac3-table tr.vac3-summer:hover .vac3-points{box-shadow:inset 6px 0 #e0a526,inset 0 -1px #8db8a9}
+.vac3-table tr.vac3-selected:hover .vac3-points{box-shadow:inset 3px 0 #b0136b,inset 0 -1px #8db8a9}
+.vac3-table tr.vac3-summer.vac3-selected:hover .vac3-points{box-shadow:inset 6px 0 #e0a526,inset 9px 0 #b0136b,inset 0 -1px #8db8a9}
+.vac3-table tr.vac3-selected:hover td:last-child{box-shadow:inset -3px 0 #b0136b,inset 0 -1px #8db8a9}
