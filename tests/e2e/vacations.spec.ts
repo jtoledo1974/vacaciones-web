@@ -2,6 +2,38 @@ import {test,expect,type APIRequestContext,type Page} from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin='http://127.0.0.1:5199';
 
+test('menús de acciones se cierran con Escape y clic exterior',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page);
+ await open(page,s.id);
+ await activate(page);
+ const actionMenu=page.locator('.election-turn-controls > .election-more-actions');
+ const opener=actionMenu.locator('summary');
+ await opener.click();
+ await expect(actionMenu).toHaveAttribute('open','');
+ await page.keyboard.press('Escape');
+ await expect(actionMenu).not.toHaveAttribute('open','');
+ await opener.click();
+ await expect(actionMenu).toHaveAttribute('open','');
+ await page.getByRole('heading',{name:'Vacaciones del equipo'}).click();
+ await expect(actionMenu).not.toHaveAttribute('open','');
+
+ const scenarioMenu=page.locator('.scenario-actions');
+ await scenarioMenu.locator('summary').click();
+ await expect(scenarioMenu).toHaveAttribute('open','');
+ await page.keyboard.press('Escape');
+ await expect(scenarioMenu).not.toHaveAttribute('open','');
+ await scenarioMenu.locator('summary').click();
+ await page.getByRole('heading',{name:'Vacaciones del equipo'}).click();
+ await expect(scenarioMenu).not.toHaveAttribute('open','');
+ if((page.viewportSize()?.width??1280)<=900){
+  for(const target of [opener,scenarioMenu.locator('summary')]){
+   const rect=await target.boundingBox();
+   expect(rect?.width).toBeGreaterThanOrEqual(44);
+   expect(rect?.height).toBeGreaterThanOrEqual(44);
+  }
+ }
+});
+
 test('activación visible desde Vacaciones, regreso automático y reanudación destacada',{tag:'@both'},async({page,request})=>{
  const scenario=await setup(request,page);
  expect(scenario.data.election.state).toBeNull();
