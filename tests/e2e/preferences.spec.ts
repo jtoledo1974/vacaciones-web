@@ -200,7 +200,8 @@ test('preferencias: guardar tras undo conserva la pausa de automatismos de main'
  await add(page,dates[0]);let editor=await review(page);
  await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
  await page.getByRole('dialog',{name:'Confirmar cambio'}).getByRole('button',{name:'Confirmar',exact:true}).click();
- await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');await close(page);
+ // Saving during one's own turn awards at once and consumes the list (#64).
+ await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias ya usadas');await close(page);
  const saved=await read(request,s.id);expect(saved.awards).toHaveLength(1);
  await command(request,s.id,{action:'election_undo',historyId:saved.election.undo});
  await expect(page.getByRole('button',{name:'Reanudar automatismos',exact:true})).toBeVisible({timeout:18000});

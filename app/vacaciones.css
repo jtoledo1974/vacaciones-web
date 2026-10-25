@@ -750,3 +750,16 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .my-election-auto .secondary{min-height:44px;font-size:13px}
 @media (max-width:580px){.my-election-auto .secondary{width:100%}}
 .app.controller-ux .campaign-strip>span:first-child{flex-wrap:wrap;row-gap:6px;min-width:0}.app.controller-ux .campaign-strip b{white-space:nowrap}.app.controller-ux .campaign-strip .tag{white-space:normal}
+/* #64 editor de preferencias: estado honesto, decisión de uso siempre visible, filas compactas. */
+.preference-state.used,.preference-dock-status .used{color:#8a4b1f;font-weight:650}
+.preference-used-note{background:#fff6e5;border:1px solid #f0d9a8;color:#5a3b10;border-radius:8px;padding:10px 12px;font-size:13px}
+.preference-usage{display:grid;gap:4px;padding:10px 12px;border-radius:8px;background:#f2f7f4}
+.preference-usage .preference-consent{flex-direction:row;align-items:center;gap:10px;font-size:13px;font-weight:600;color:#1d3331;min-height:44px}
+.preference-usage .preference-consent input{width:20px;height:20px}
+.preference-usage small{font-size:12px;color:#40574c;line-height:1.45}
+.preference-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0 8px 4px}
+.preference-list li>.preference-date{flex:1;min-width:0}
+.preference-date strong{font-size:14px}
+.preference-date small{margin-top:2px;font-size:12px}
+.preference-row-actions{margin-top:0!important;flex:none}
+.preference-row-actions button{min-width:44px;padding:8px}
