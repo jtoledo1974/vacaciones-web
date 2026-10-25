@@ -72,3 +72,6 @@ El secreto debe ser **idéntico** en ambos entornos y nunca debe enviarse desde 
 8. Probar el endpoint externo y los secretos en el alojamiento real.
 
 **Estado:** PR en borrador; no fusionado ni desplegado. La cuenta Cloudflare personal aún debe configurarse. El código de Cron está preparado, pero no existe ninguna tarea externa activa hasta desplegar el Worker.
+
+## «Tu lista ha elegido por ti» (#66)
+El dispatcher de Cron también avisa cuando una lista de preferencias adjudica un ciclo (acción `advance` de la auditoría) en una campaña real. Solo avisa a la cuenta vinculada al controlador elegido, y únicamente si la adjudicación sigue vigente: una elección deshecha no se anuncia. Para no repetir el histórico al desplegar, solo se tienen en cuenta las elecciones de las últimas 6 horas. El aviso dice el ciclo y la ronda, y abre el equipo y el año. Usa la misma cola `turn_notifications` con identificador `auto:<auditoría>:<miembro>:<fecha>`, sin migración, y no se marca como obsoleto cuando avanza el turno ni cuando la elección termina. Pruebas en `tests/notifications-automatic.test.ts`.
