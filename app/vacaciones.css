@@ -822,3 +822,8 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac2-cycle.vac2-not-for-me,.vac2-day.vac2-not-for-me{filter:saturate(.15);opacity:.55}
 .vac2-year-2027 .vac2-cycle.vac2-not-for-me{background:#eceeed;color:#3d4744;border-left-color:#c9cfcc}
 .vac2-year-2027 .vac2-cycle.vac2-not-for-me{opacity:1;filter:none}
+/* #64 reordenar: el número de posición es un selector nativo. */
+.preference-list{list-style:none;padding-left:0}
+.preference-list li::marker{content:none}
+.preference-position{flex:none;width:52px;min-height:44px;padding:0 6px 0 10px;border:2px solid #b0136b;border-radius:10px;background:#fff;color:#7a0d4a;font-size:16px;font-weight:800;text-align:center}
+.preference-usage{padding:6px 10px;gap:2px}.preference-usage .preference-consent{min-height:40px}.preference-editor-footer{gap:8px;padding:10px 16px}
