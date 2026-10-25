@@ -363,7 +363,9 @@ test('integración: administración agrupada y navegación pública en escritori
  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
  await expect(page.getByRole('button',{name:'Configuración',exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'Administración',exact:true}).click();
- await expect(page.getByRole('heading',{name:'Campañas anuales'})).toBeVisible();
+ // Global work for all teams is not offered inside a simulation (#65).
+ await expect(page.getByRole('heading',{name:'Estado de la campaña'})).toBeVisible();
+ await expect(page.getByRole('heading',{name:'Campañas anuales'})).toHaveCount(0);
  await expect(page.getByRole('link',{name:'Descargar copia completa'})).toBeHidden();
  await page.getByText('Parámetros del ejercicio',{exact:true}).click();
  await expect(page.getByRole('button',{name:'Guardar parámetros'})).toBeVisible();

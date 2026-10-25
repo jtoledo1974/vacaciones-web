@@ -916,3 +916,4 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .campaign-strip-meta{font-size:0}
 .campaign-strip-meta>:not(.campaign-strip-sync),.campaign-strip-sync{display:none}
 .campaign-strip-sync.is-offline{display:inline;font-size:12px;color:#8a4b1f;font-weight:600}
+.all-teams{border-color:#c9c2e0}.all-teams .eyebrow{display:block;color:#5b2a86}
