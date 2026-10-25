@@ -198,7 +198,7 @@ function blockedReasons(
    'No hay suficientes controladores con derechos pendientes que puedan elegir este ciclo sin repetirlo.',
    c.period,date,eligible,targetNeed)];
  const remainingMinimums=state.cycles.filter(x=>x.date!==date)
-  .reduce((sum,x)=>sum+Math.max(0,(x.period===1?2:1)-state.awards.filter(a=>a.cycle_date===x.date).length),0);
+  .reduce((sum,x)=>sum+Math.max(0,1-state.awards.filter(a=>a.cycle_date===x.date).length),0);
  if(pending<targetNeed+remainingMinimums)
   return [reason('MINIMUM_COVERAGE',
    'Esta plaza impediría alcanzar los mínimos obligatorios de los demás ciclos.',
@@ -252,7 +252,7 @@ export function constructCycleWitness2027(
  if(!evaluate2027Final({...state,awards:initial}).valid)return null;
  const current=initial.filter(a=>a.cycle_date===date).length;
  if(current>=target)return witness;
- const minByDate=new Map(state.cycles.map(c=>[c.date,c.period===1?2:1]));
+ const minByDate=new Map(state.cycles.map(c=>[c.date,1]));
  let attempts=0;
  const move=(remaining:PolicyAward[],depth:number):PolicyAward[]|null=>{
   if(++attempts>96)return null;

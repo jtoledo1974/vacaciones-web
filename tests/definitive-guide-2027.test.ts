@@ -47,3 +47,21 @@ test('guide: partial summer completion recovers a last legal award and its witne
  assert.equal(canComplete2027(final,{maxChecks:10000}).status,'possible');
  assert.equal(evaluate2027Candidate(final,[last]).allowed,true);
 });
+
+test('guide: exhaustive four-cycle summer oracle with at most two EC3/EC4 moves',()=>{
+ // Independent forward model: ordinary cycles start at 2/3; a permit moves
+ // one place locally to a destination at 2 (EC3) or 3 (EC4). No empty source.
+ const reachable=new Set<string>();
+ function visit(counts:number[],remaining:number):void {
+  reachable.add(counts.join(','));if(!remaining)return;
+  counts.forEach((source,i)=>counts.forEach((target,j)=>{
+   if(i===j||source<2||target<2||target>3)return;
+   const next=[...counts];next[i]--;next[j]++;visit(next,remaining-1);
+  }));
+ }
+ for(let bits=0;bits<16;bits++)visit(Array.from({length:4},(_,i)=>2+((bits>>i)&1)),2);
+ for(let bits=0;bits<256;bits++){
+  const counts=Array.from({length:4},(_,i)=>1+((bits>>(2*i))&3));
+  assert.equal(evaluate2027Final(allocation([2],counts,[2])).valid,reachable.has(counts.join(',')),counts.join(','));
+ }
+});
