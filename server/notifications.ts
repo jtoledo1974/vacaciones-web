@@ -1,4 +1,4 @@
-import {currentTurn} from '../domain/election.ts';
+import {choiceIssues,currentTurn,entitlementFor,type ElectionContext} from '../domain/election.ts';
 import type {Repository} from './repository.ts';
 import {requireSuper,type Principal} from './permissions.ts';
 import {deliverPush,publicPushKey,type PushConfig} from './web-push.ts';
@@ -112,7 +112,13 @@ const AUTO_PREFIX='auto:';
 const AUTO_WINDOW_MS=6*3600_000;
 const shortDate=(iso:string)=>new Date(iso+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short',timeZone:'UTC'}).replace('.','');
 
-function notificationText(row:{id:string;round:number}){
+export function notificationText(row:{id:string;round:number}){
+ if(row.id.startsWith(LOW_PREFIX)){
+  const left=Number(row.id.split(':').at(-1));
+  return {title:'Vacaciones · Tu lista se queda sin opciones',body:left===0
+   ?'Ninguna de tus preferencias está disponible. Añade otras antes de tu turno.'
+   :(left===1?'Solo queda 1 opción disponible':'Solo quedan '+left+' opciones disponibles')+' en tus preferencias. Añade alguna más antes de tu turno.'};
+ }
  if(!row.id.startsWith(AUTO_PREFIX))return {title:'Vacaciones · Es tu turno',body:'Ronda '+row.round+'. Ya puedes elegir tus vacaciones.'};
  const date=row.id.split(':').at(-1)!;
  return {title:'Vacaciones · Tu lista ha elegido por ti',body:'Ciclo del '+shortDate(date)+', ronda '+row.round+'. Ábrelo para revisar tus preferencias.'};
@@ -143,6 +149,52 @@ export async function enqueueAutomaticChoices(repo:Repository,campaignId:string,
  return enqueued;
 }
 
+// low:<campaign>:<member>:<viable options left>, at most one notice per count.
+const LOW_PREFIX='low:';
+const LOW_LIST_THRESHOLD=2;
+// Recompute viability only shortly after a decision; it is the expensive part.
+const LOW_WINDOW_MS=10*60_000;
+const isTurnEvent=(id:string)=>!id.startsWith(AUTO_PREFIX)&&!id.startsWith(LOW_PREFIX);
+
+type LowListInput={
+ campaignId:string;members:{id:string;person_id:string}[];preferences:{member_id:string;dates:string[];active?:boolean}[];
+ turnMemberIds:string[];needs:(memberId:string)=>boolean;viable:(memberId:string,date:string)=>boolean;now:number;
+};
+/** Warn controllers whose active list has few viable options left. Only the
+ * owner is told, and only a count: nobody learns what others chose. */
+export async function enqueueLowListAlerts(repo:Repository,input:LowListInput){
+ const recent=await repo.all("SELECT id FROM audit WHERE campaign_id=? AND action IN ('choose','choose_joint','advance','reconstruction_step') AND created_at>=? LIMIT 1",[input.campaignId,new Date(input.now-LOW_WINDOW_MS).toISOString()]);
+ if(!recent.length)return 0;
+ let enqueued=0;
+ for(const pref of input.preferences){
+  // Whoever is choosing now gets «Es tu turno» instead.
+  if(pref.active===false||!pref.dates.length||input.turnMemberIds.includes(pref.member_id)||!input.needs(pref.member_id))continue;
+  const member=input.members.find(m=>m.id===pref.member_id);
+  if(!member)continue;
+  const account=(await repo.all('SELECT principal_key FROM controller_accounts WHERE person_id=?',[member.person_id]))[0];
+  if(!account)continue;
+  const left=pref.dates.filter(date=>input.viable(pref.member_id,date)).length;
+  if(left>LOW_LIST_THRESHOLD)continue;
+  await repo.batch([{sql:'INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at) VALUES(?,?,?,?,?,?)',args:[[LOW_PREFIX+input.campaignId,pref.member_id,left].join(':'),account.principal_key,input.campaignId,pref.member_id,0,new Date(input.now).toISOString()]}]);
+  enqueued++;
+ }
+ return enqueued;
+}
+
+/** Bind the low-list check to the election rules: an option is viable when
+ * the member could choose it now on its own. */
+export function lowListInput(ctx:ElectionContext,turn:{participants?:string[];memberId?:string|null},rows:{member_id:string;dates_json:string;active:number}[],campaignId:string,now:number):LowListInput{
+ return {
+  campaignId,now,
+  // Campaign rows carry person_id beyond the domain Member type.
+  members:ctx.members as unknown as {id:string;person_id:string}[],
+  preferences:rows.map(r=>({member_id:r.member_id,dates:JSON.parse(r.dates_json),active:!!r.active})),
+  turnMemberIds:turn.participants?.length?turn.participants:turn.memberId?[turn.memberId]:[],
+  needs:id=>ctx.awards.filter(a=>a.member_id===id).length<entitlementFor(ctx,id),
+  viable:(id,date)=>!ctx.awards.some(a=>a.cycle_date===date&&a.member_id===id)&&!choiceIssues(ctx,id,[date]).length,
+ };
+}
+
 /**
  * Scheduled, independent dispatcher. Never invoked from the election write path.
  * A failed push or missing notifications table cannot block a vacation choice.
@@ -170,6 +222,8 @@ export async function dispatchNotifications(repo:Repository,config:PushConfig,ca
    const members=parts[0].results;
    const ctx={year:campaign.year,team:campaign.team_id,config:JSON.parse(campaign.config_json),members,awards:parts[1].results,requests:parts[2].results};
    const turn=currentTurn(ctx,state);
+   // Isolated: a viability failure must not stop «Es tu turno».
+   try{enqueued+=await enqueueLowListAlerts(repo,lowListInput(ctx,turn,await repo.all('SELECT member_id,dates_json,active FROM preferences WHERE campaign_id=?',[campaign.id]),campaign.id,now));}catch{errors++;}
    if(turn.pendingTie||!turn.memberId)continue;
    const participants:string[]=turn.participants?.length?turn.participants:[turn.memberId];
    for(const memberId of participants){
@@ -200,7 +254,7 @@ export async function dispatchNotifications(repo:Repository,config:PushConfig,ca
    const valid=participants.map(memberId=>[campaign.id,memberId,turn.round,state.cursor].join(':'));
    const pending=await repo.all("SELECT id FROM turn_notifications WHERE campaign_id=? AND push_status='pending'",[campaign.id]);
    // Automatic-choice notices stay valid after the turn moves on.
-   for(const row of pending)if(!row.id.startsWith(AUTO_PREFIX)&&!valid.includes(row.id))await repo.batch([{sql:"UPDATE turn_notifications SET push_status='obsolete' WHERE id=?",args:[row.id]}]);
+   for(const row of pending)if(isTurnEvent(row.id)&&!valid.includes(row.id))await repo.batch([{sql:"UPDATE turn_notifications SET push_status='obsolete' WHERE id=?",args:[row.id]}]);
    if(pending.length&&budget.remaining>0)await flushTurnNotifications(repo,config,campaign.id,budget,sender);
   }catch{errors++;}
  }
