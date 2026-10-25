@@ -82,6 +82,6 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
     </tbody>
    </table>
   </div>
-  <div className="vac3-legend"><span><i className="vac3-summer-key"/>Verano</span><span><i className="vac3-selection-key"/>Selección (sin relleno)</span><span>{year===2027?'Blanco: adjudicación globalmente posible · Oscuro: bloqueo demostrado · ?: sin determinar · Pulsa el ciclo para ver detalles':'× No autorizado · +? Cupo adicional posible'}</span></div>
+  {year!==2027&&<div className="vac3-legend"><span>× No autorizado · +? Cupo adicional posible</span></div>}
  </div>;
 }

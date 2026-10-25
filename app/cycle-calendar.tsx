@@ -69,7 +69,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    aria-label={cycleTitle(c,year,availability)+(people.length?' · '+people.join(', '):'')}
    title={cycleTitle(c,year,availability)}
    className={'vac2-cycle '+status.className+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(highlighted.includes(c.date)?' vac2-person':'')}>
-    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{year===2027?status.label+' viables':extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
+    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{year===2027?(status.label==='?'?'? por confirmar':status.label==='1'?'1 libre':status.label+' libres'):extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
     <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{c.occupied}/{c.max} ocupadas{extraAvailable(c)?' · ampliable':''}</span></span>
     {preferenceMode&&selected.includes(c.date)&&<span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date)+1}</span>}
     {people.length>0&&<span className="vac2-names" title={people.join(', ')}>{people.join(' · ')}</span>}
@@ -125,11 +125,15 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
     <button type="button" className={view==='members'?'active':''} aria-pressed={view==='members'} onClick={()=>changeView('members')}>Por CTA</button>
    </div>
   </div>
-  {view!=='table'&&<div className="vac2-legend" aria-label="Leyenda de plazas disponibles">
-   <b>{year===2027?'Plazas globalmente viables':'Plazas libres'}</b>{[4,3,2,1,0].map(n=><span key={n}><i className={'vac2-key vac2-free-'+n}/>{n}</span>)}
-   {year===2027&&<span><i className="vac2-key vac2-unknown"/>? Indeterminado</span>}
-   <span className="vac2-legend-summer"><i className="vac2-summer-key"/>Verano ENAIRE</span>
-  </div>}
+  {/* One legend for every view (#64): same colours, same words. */}
+  <div className="vac2-legend" aria-label="Leyenda de plazas disponibles">
+   {view==='table'
+    ?<><span><i className="vac3-key vac3-key-free"/>Plaza libre</span><span><i className="vac3-key vac3-key-occupied"/>Ocupada (código)</span><span><i className="vac2-key vac2-free-0"/>Sin plaza</span></>
+    :<><b>Plazas libres</b>{[4,3,2,1,0].map(n=><span key={n}><i className={'vac2-key vac2-free-'+n}/>{n}</span>)}</>}
+   {year===2027&&<span><i className="vac2-key vac2-unknown"/>? Por confirmar</span>}
+   <span className="vac2-legend-summer"><i className="vac2-summer-key"/>Verano</span>
+   <span><i className="vac2-selection-key"/>{preferenceMode?'Tus preferencias':'Tu selección'}</span>
+  </div>
   {view==='table'&&<CycleTable year={year} cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect} availability={availability}/>}
   {view==='map'&&<div className="vac2-month-grid vac2-map">{months.map((_,m)=>renderMonth(m,false))}</div>}
   {view==='calendar'&&<>
@@ -138,8 +142,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   </>}
   {view==='members'&&renderMembers()}
   <p className="vac2-footnote">{year===2027
-   ?'Las cifras 0–4 indican cuántas adjudicaciones adicionales son globalmente viables para algún conjunto de controladores; no garantizan cualquier combinación. ? indica cálculo no concluyente; nunca equivale a bloqueo. Pulsa un ciclo para conocer sus motivos.'
-   :'Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar.'}
-   {view==='table'?' En la tabla, las plazas viables son blancas y las bloqueadas oscuras.':' El marco dorado indica verano.'}</p>
+   ?'Las plazas libres tienen en cuenta las normas del reparto: si una persona coge un ciclo, puede reducir las de otros. «?» significa que aún se está calculando; no es un bloqueo. Pulsa un ciclo para ver el detalle.'
+   :'Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar.'}</p>
  </section>;
 }
