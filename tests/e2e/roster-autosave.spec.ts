@@ -7,13 +7,11 @@ const origin='http://127.0.0.1:5199';
  */
 async function openAdministration(page:import('@playwright/test').Page):Promise<void> {
   await expect(page.getByLabel('Equipo',{exact:true})).toHaveValue('C');
-  const nav=page.getByRole('button',{name:'Administración',exact:true});
-  await expect(nav).toBeAttached();
   const mobileMenu=page.getByRole('button',{name:'Abrir menú',exact:true});
-  if(await mobileMenu.isVisible()) {
-    await mobileMenu.click({timeout:8_000});
-    await expect(nav).toBeVisible();
-  }
+  if(await mobileMenu.isVisible())await mobileMenu.click({timeout:8_000});
+  // Role selectors deliberately ignore controls hidden in a closed mobile sidebar.
+  const nav=page.getByRole('button',{name:'Administración',exact:true});
+  await expect(nav).toBeVisible();
   await nav.click({timeout:8_000});
   await expect(page.getByRole('heading',{name:'Plantilla del equipo C'})).toBeVisible();
 }
