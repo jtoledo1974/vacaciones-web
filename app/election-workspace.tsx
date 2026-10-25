@@ -268,17 +268,18 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    // unless the preflight reports policy warnings: those always need review.
    if(!simulation||!quickMode||warningLines.length>0){
     setChoicePhase(null);
-    const impactText=impactLines.length
-     ?'\n\nConsecuencias sobre la disponibilidad:\n'+impactLines.slice(0,14).join('\n')+
-       (impactLines.length>14?'\n… y '+(impactLines.length-14)+' cambios más (consultables en el historial).':'')
-     :'';
-    // Policy warnings are why this dialog interrupts: show them first and in bold.
-    const summary=<>
-     {'¿Confirmar '+choices.length+' ciclo(s) para '+names+'?\n'+choices.map(c=>formatDate(c.cycle_date)).join(' + ')}
-     {warningLines.length>0&&<strong>{'\n\nAvisos normativos:\n'+warningLines.join('\n')}</strong>}
-     {impactText}
-    </>;
-    if(!await confirm(summary,undefined,{title:'Confirmar adjudicación e impacto',confirmLabel:'Adjudicar'}))return;
+    const own=!manage&&turn.memberId===mine&&turn.participants?.length===1;
+    // The dialog body is rendered inside a <p>: structure it with inline elements only.
+    // Policy warnings are why this dialog interrupts: show them right after the cycles.
+    const summary=<span className="confirm-choice">
+     <span className="confirm-lead">{own?'Vas a coger:':'¿Adjudicar a '+names+'?'}</span>
+     {choices.map(c=>{const cycle=data.result.cycles.find((x:any)=>x.date===c.cycle_date);return <span className="confirm-cycle" key={c.member_id+c.cycle_date}>
+      <b>{formatDate(c.cycle_date)} – {formatDate(cycle?.end??c.cycle_date)}</b>{' · '+(cycle?.score??'—')+' puntos'}{turn.participants?.length>1?' · '+codeFor(c.member_id):''}</span>;})}
+     {warningLines.length>0&&<strong className="confirm-warnings">{'Avisos normativos:\n'+warningLines.join('\n')}</strong>}
+     {impactLines.length>0&&<span className="confirm-impact"><span className="confirm-impact-title">Consecuencias para el equipo</span>
+      {impactLines.slice(0,4).join('\n')}{impactLines.length>4?'\n… y '+(impactLines.length-4)+' cambios más, consultables en el historial.':''}</span>}
+    </span>;
+    if(!await confirm(summary,undefined,{title:own?'Confirmar tus vacaciones':'Confirmar adjudicación',confirmLabel:own?'Sí, las quiero':'Adjudicar'}))return;
    }
    setChoicePhase('saving');
    const result=turn.participants?.length>1

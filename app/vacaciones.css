@@ -764,3 +764,11 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .preference-row-actions{margin-top:0!important;flex:none}
 .preference-row-actions button{min-width:44px;padding:8px}
 .cycle-preference-action{margin-top:12px}.cycle-preference-action button{width:100%;min-height:44px;font-size:14px}
+/* #64 confirmación estructurada: fechas completas, avisos primero, consecuencias resumidas. */
+.confirm-choice{display:grid;gap:8px;white-space:normal}
+.confirm-lead{font-size:14px;color:#2d4441}
+.confirm-cycle{display:block;font-size:15px;color:#1d3331;padding:10px 12px;border-radius:8px;background:#eef5f1}
+.confirm-cycle b{font-size:17px}
+.confirm-warnings{display:block;white-space:pre-line;background:#fff3df;border:1px solid #f0cf8f;color:#6a3d06;border-radius:8px;padding:10px 12px;font-size:13px}
+.confirm-impact{display:block;white-space:pre-line;font-size:13px;color:#40574c;line-height:1.5}
+.confirm-impact-title{display:block;font-weight:650;color:#2d4441;margin-bottom:2px}

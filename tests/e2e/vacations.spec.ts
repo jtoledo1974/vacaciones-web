@@ -172,7 +172,7 @@ async function confirm(page:Page,button:string){
  // A covered/unclickable control should fail locally, not consume the entire 45 s test timeout.
  await target.click({timeout:10_000});
  if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
-  const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'});
+  const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación'});
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button',{name:'Adjudicar',exact:true}).click();
  }else await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
@@ -192,7 +192,7 @@ test('confirmación rápida es opcional y local únicamente en simulaciones',{ta
  await expect(page.getByText('Simulación · confirmación rápida')).toBeVisible();
  await cycle(page,scenario.data.result.cycles[0].date);
  await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
- await expect(page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'})).toHaveCount(0);
+ await expect(page.getByRole('dialog',{name:'Confirmar adjudicación'})).toHaveCount(0);
  await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'↶ Deshacer'}).click();
  await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toHaveCount(0);
