@@ -48,6 +48,18 @@ test('una lista heredada con automatic=false también se aplica sin regrabarla',
 test('consulta anónima ve también adjudicaciones automáticas sin exponer preferencias o datos personales',async()=>{
  const {repo,s,cid,d}=await setup(),[a,b]=d.members,dates=d.result.cycles.map((c:any)=>c.date);await act(s,cid,{action:'preferences',memberId:b.id,dates:[dates[1]]});await act(s,cid,start(d));await act(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
  const publicView=await new Service(repo,{id:null,role:'viewer',teams:[]}).view(cid);assert.equal(publicView.awards.length,2);assert.equal(publicView.result.cycles[0].occupied,1);assert.ok(Number.isFinite(publicView.result.cycles[0].score));assert.deepEqual(publicView.election.preferences,[]);assert.equal(publicView.election.state.source,undefined);assert.ok(!JSON.stringify(publicView).includes('Nombre privado'));assert.equal(publicView.requests.length,0);
+ const publicEvents=publicView.election.timeline;
+ assert.equal(publicEvents.length,2);
+ const automatic=publicEvents.find((item:any)=>item.automatic);
+ assert.ok(automatic,'La adjudicación por lista debe identificarse como automática');
+ assert.deepEqual(automatic.choices,[{member_id:b.id,cycle_date:dates[1]}]);
+ assert.deepEqual(Object.keys(automatic).sort(),['automatic','choices','deferredTurns','id','kind','memberIds','round']);
+ assert.ok(!JSON.stringify(publicEvents).includes('before_json'));
+ assert.ok(!JSON.stringify(publicEvents).includes('impact'));
+ assert.ok(!JSON.stringify(publicEvents).includes('warnings'));
+ const managerEvents=(await s.view(cid)).election.timeline;
+ assert.ok(managerEvents.some((item:any)=>item.id===automatic.id&&typeof item.createdAt==='string'));
+ assert.ok(managerEvents.every((item:any)=>'ties' in item));
 });
 test('undo y redo recuperan cola, preferencias y ocupación; una versión obsoleta no pierde datos',async()=>{
  const {s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;await act(s,cid,start(d));let next=await act(s,cid,{action:'choose',memberId:a.id,dates:[date]});const before=next.election.state;
