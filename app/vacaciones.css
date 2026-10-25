@@ -703,8 +703,6 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac3-tools,.vac3-legend){color:#465d50}
 @media(max-width:900px){
  .menu-mobile,.close-mobile{width:44px;min-width:44px;height:44px;place-items:center}
- .menu-mobile{display:grid}
- .close-mobile{display:grid}
  .vac2-view-switch button,.election-view-option{min-height:44px}
  .election-turn-controls>.election-more-actions{flex-basis:44px;min-width:44px}
  .election-more-actions>summary,.election-turn-controls>.election-more-actions>summary,
@@ -716,3 +714,4 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac3-table th,.vac3-table td{height:44px}
  .vac3-table .vac3-date button{min-height:44px}
 }
+@media(max-width:850px){.menu-mobile,.close-mobile{display:grid}}
