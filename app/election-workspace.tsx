@@ -460,8 +460,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
       </div>
      </>}
     </section>}
-    {manage&&<section className="panel election-history-panel" aria-label="Historial de elección">
-     <div className="election-history-head"><h2>Últimos turnos y adjudicaciones</h2>
+    {(manage||(election.timeline??[]).length>0)&&<section className="panel election-history-panel" aria-label="Historial de elección">
+     <div className="election-history-head"><h2>{manage?'Últimos turnos y adjudicaciones':'Historial de la elección'}</h2>
       <div className="election-workflow-actions">
        {!frozen&&(election.undo||data.undo)&&open&&<button type="button" className="secondary" disabled={busy} onClick={async()=>{
         if((!simulation||!quickMode)&&!await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))return;
@@ -503,6 +503,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
           return <div className="election-log-cycle" key={choice.member_id+'|'+choice.cycle_date}>{cycleNumbers.get(event.id)&&<strong className="election-cycle-number">R{event.round} · {cycleNumbers.get(event.id)![index]} — </strong>}{event.memberIds.length>1?code(choice.member_id)+' · ':''}{formatDate(choice.cycle_date)} · {cycle?.score??'—'} puntos</div>;
          })}
          {event.kind==='legacy'&&<p className="election-log-note">Adjudicación importada o anterior al registro de turnos.</p>}
+         {event.automatic&&<p className="election-log-note election-log-automatic">Elegido automáticamente por su lista de preferencias.</p>}
          {event.kind==='choice'&&event.memberIds.length>1&&<p className="election-log-note">Turno conjunto de {event.memberIds.length} controladores.</p>}
          {event.kind==='choice'&&event.deferredTurns>0&&<p className="election-log-note">Turno {event.deferredTurns===1?'doble':'triple'}: recupera {event.deferredTurns} aplazamiento(s) anterior(es).</p>}
          {(event.warnings??[]).map((w:any,i:number)=><p key={w.code+'-'+i} role="status" className="alert warning election-log-warning">

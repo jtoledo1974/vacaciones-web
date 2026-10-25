@@ -705,7 +705,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .preference-dock .preference-feedback,
  .vac2-member-card summary,.vac2-members-mobile small
 ){font-size:12px}
-.app.controller-ux :is(.vac2-legend,.vac2-cycle-sub,.vac2-footnote,
+.app.controller-ux :is(.vac2-legend,.vac2-footnote,
  .election-log li span,.election-log .election-log-note,
  .vac3-tools,.vac3-legend){color:#465d50}
 @media(max-width:900px){
@@ -736,3 +736,4 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac2-occupants,.vac2-date-link,
  table,table th,table td,td code
 ){font-size:12px}
+.election-log-automatic{color:#1f5a4b;font-weight:600}
