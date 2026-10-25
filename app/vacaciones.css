@@ -679,7 +679,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .campaign-strip .separator{color:#52645a}
 .tag{color:#425c44}
 /* Public/controller pages need readable metadata without modifying admin tables. */
-.app.controller-ux :is(
+.app :is(
  .topbar .private-pill,.header-account-info small,.heading p,
  .vac2-heading p,.vac2-legend,.vac2-legend b,.vac2-month h3,
  .vac2-line,.vac2-cycle-sub,.vac2-names,.vac2-weekdays,.vac2-day,
@@ -724,7 +724,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 @media(max-width:850px){.menu-mobile,.close-mobile{display:grid}}
 
 /* Controller-wide legacy microtext also appears outside the cycle workspace. */
-.app.controller-ux :is(
+.app :is(
  small,.primary,.secondary,.tag,.status,summary,label,
  .detail p,.person-chip,.legend,.calendar-bottom,
  .day,.day-label,.month h3 span,.stat>span,.stat small,
@@ -876,3 +876,12 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .simulation-band strong{letter-spacing:.4px;text-transform:uppercase}
 .app.is-simulation main{box-shadow:inset 6px 0 0 #5b2a86}
 .scenario-actions>summary{width:auto!important;padding:0 14px;font-size:13px;font-weight:650}
+/* #65 la misma base de legibilidad en gestión: los responsables también usan el móvil. */
+.app :is(.section-head p,.team-checkboxes label,.save-bar,.subject,.stat small,.legend,.calendar-bottom,.vac3-tools,.joint-agreement-list label,.history-reconstruction-picker,.election-history-head p,.tie-dialog-group small,.tie-dialog-resolved p,.reconstruction-decisions label small,.roster-table input,.roster-table select,.roster-table td,.roster-table th,.users-table td,.users-table th){font-size:12px}
+.app .team-checkboxes label{min-height:44px;align-items:center}
+.app .team-checkboxes input[type=checkbox]{width:20px;height:20px}
+.app details.panel>summary{font-size:15px;font-weight:650;color:#1f5a4b}
+@media(max-width:900px){.content input:not([type=checkbox]):not([type=radio]):not([type=file]),.content select{min-height:40px}.content .roster-more{min-width:40px;min-height:40px}.content input[type=checkbox]{width:20px;height:20px}}
+@media(max-width:580px){.selectors{flex-wrap:wrap}}
+.campaign-strip>span:first-child{flex-wrap:wrap;row-gap:6px;min-width:0}.campaign-strip .tag{white-space:normal}
+.preference-usage{padding:4px 10px 6px}.preference-usage .preference-consent{min-height:40px;font-size:13px}.preference-usage small{font-size:12px;line-height:1.35}.preference-editor-footer{gap:6px}
