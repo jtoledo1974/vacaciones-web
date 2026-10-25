@@ -928,3 +928,6 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .activation-steps strong{color:#1d3331}
 .activation-steps span{grid-column:2;color:#40574c;font-size:13px;overflow-wrap:anywhere}
 #activation-panel .team-checkboxes label{font-size:14px}
+
+/* #66: turn forecast when lists ahead resolve instantly. */
+.my-election-soon{margin:10px 0 0;padding:10px 12px;border-radius:8px;background:#fff6dc;border:1px solid #ecd28c;color:#5c4510;font-size:14px;line-height:1.5}

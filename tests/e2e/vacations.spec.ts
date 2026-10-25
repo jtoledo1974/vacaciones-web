@@ -314,6 +314,18 @@ test('vista de controlador: tarjeta «Mi elección», turno propio y glosario',{
  await expect(page.locator('#glosario')).toHaveAttribute('open','');
 });
 
+test('vista de controlador: previsión cuando quienes van delante eligen con sus preferencias (#66)',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page),dates=s.data.result.cycles.map((c:any)=>c.date);
+ // QA_A elige a mano; QA_B y QA_C, por delante de QA_D, tienen preferencias activas.
+ for(const person of [1,2])await election(request,s.id,{action:'preferences',memberId:s.data.members[person].id,dates:[dates[person+4]],persistent:true});
+ await open(page,s.id);await activate(page);
+ const url=new URL(page.url());url.searchParams.set('verComo','QA_D');await page.goto(url.toString());
+ const card=page.getByRole('region',{name:'Mi elección'});
+ await expect(card.getByRole('heading',{name:'Faltan 3 turnos para el tuyo'})).toBeVisible();
+ await expect(card).toContainText('Tu turno puede llegar en cuanto termine quien está eligiendo ahora: las otras 2 personas que van delante elegirán automáticamente con sus preferencias.');
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+});
+
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
  const s=await setup(request,page);await open(page,s.id);
  const switcher=page.getByRole('group',{name:'Modo de vacaciones'});

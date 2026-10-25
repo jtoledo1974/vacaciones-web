@@ -2,7 +2,7 @@
 import {useEffect,useState} from 'react';
 import {Bell} from 'lucide-react';
 import {formatDate} from './cycle-calendar';
-import type {MyElection} from './my-election-state';
+import {aheadNote,type MyElection} from './my-election-state';
 
 const listText:Record<MyElection['list']['state'],string>={
  none:'No tienes preferencias guardadas: en tu turno tendrás que elegir tú.',
@@ -39,6 +39,7 @@ export default function MyElectionCard({me,autoPick,onChoose,onList,compact=fals
  const sub=turn?`Elige ${me.needed===1?'1 ciclo':me.needed+' ciclos'} en el calendario.`
   :me.phase==='waiting'&&me.turnsAhead!==null?'Estimación: los turnos conjuntos y aplazamientos pueden cambiarla.'
   :'';
+ const note=aheadNote(me);
  const lost=me.list.entries.filter(e=>!e.mine&&e.free===0).length;
  const body=<>
   <div className="my-election-head">
@@ -46,6 +47,7 @@ export default function MyElectionCard({me,autoPick,onChoose,onList,compact=fals
     <h2>{headline}</h2>{sub&&<p>{sub}</p>}</div>
    {turn&&<button type="button" className="primary my-election-cta" onClick={onChoose}>Elegir ahora</button>}
   </div>
+  {note&&<p className="my-election-soon">{note}</p>}
   {autoPick&&!dismissed&&<div className="my-election-auto" role="status">
    <span><strong>Se ha elegido por ti de tus preferencias:</strong> {autoPick.dates.map(d=>formatDate(d.date)+' – '+formatDate(d.end)).join(' + ')} · ronda {autoPick.round}.</span>
    <button type="button" className="secondary" onClick={dismiss}>Entendido</button>
