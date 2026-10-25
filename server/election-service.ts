@@ -10,6 +10,7 @@ import {buildElectionTimeline,publicElectionTimeline,type PublicElectionTimeline
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
 import {historicalAvailability} from './availability-history.ts';
 import {AuditContext} from './audit-context.ts';
+import {peopleAhead} from '../app/my-election-state.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
@@ -227,7 +228,10 @@ export class ElectionService{
 
   const cycleAvailability=ctx.year===2027&&!skipFullAvailability?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,timeline,reconstruction};
+  // Only a count, for the controller's own forecast; never whose lists are active.
+  const ahead=mine&&raw.state?.status==='active'&&!raw.state.automaticPaused&&!turn?.pendingTie?peopleAhead(raw.state,ctx.awards,ctx.config.cyclesPerPerson,mine):null;
+  const automaticAhead=ahead?ahead.filter(id=>raw.preferences.some(p=>p.member_id===id&&p.active!==false&&p.dates.length)).length:null;
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,automaticAhead,timeline,reconstruction};
  }
  async mutate(cid:string,body:any){
   if(this.actor.preview&&this.actor.preview.campaignId!==cid)throw new ApiError('Vista previa ajena a esta campaña',403);

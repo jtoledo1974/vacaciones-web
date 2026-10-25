@@ -470,3 +470,16 @@ test('el administrador puede sortear anticipadamente otro grupo incluso si la el
  assert.equal(next.election.state.pendingTieGroups.length,0);
  assert.deepEqual([...next.election.state.tieResolutions[0].order].sort(),ids.slice(1).sort());
 });
+test('el controlador sabe cuántos de los que van delante tienen preferencias activas, sin ver cuáles',async()=>{
+ const {s,cid,d,person}=await setup(),[a,b,c]=d.members,date=d.result.cycles[3].date;
+ await act(s,cid,{action:'link_account',memberId:c.id,subject:'person@example.test',accountVersion:0});
+ await act(s,cid,{action:'preferences',memberId:b.id,dates:[date],automatic:true});
+ await act(s,cid,start(d,[a.id,b.id,c.id]));
+ const mine=(await person.view(cid)).election;
+ assert.equal(mine.myMemberId,c.id);
+ assert.equal(mine.automaticAhead,1);
+ assert.deepEqual(mine.preferences,[]);
+ await act(s,cid,{action:'pause'});
+ assert.equal((await person.view(cid)).election.automaticAhead,null);
+ assert.equal((await s.view(cid)).election.automaticAhead,null);
+});

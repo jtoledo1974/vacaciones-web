@@ -353,7 +353,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <p>En postverano pueden encadenarse la ampliación a tres y la cuarta plaza. En verano hay dos extracupos en total, utilizables como EC3 o EC4 durante el reparto. Pueden generar ciclos con una persona, pero ninguno puede quedar vacío. Los huecos y extracupos de cada periodo son estancos.</p>
     <p>La flexibilidad de origen entre periodos está permitida provisionalmente por el responsable, con aviso cuando impida cumplir la interpretación territorial estricta de RR. HH. No es autorización definitiva de RR. HH. La referencia de dos ciclos estivales por persona es informativa.</p>
  </details>;
- const me=mine?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,state,turn}):null;
+ const me=mine?myElection({myMemberId:mine,cyclesPerPerson:data.config?.cyclesPerPerson??6,cycles:data.result.cycles,awards:data.awards,preferences:election.preferences,automaticAhead:election.automaticAhead,state,turn}):null;
  const canChooseHere=canChoose;
  const canUndo=!!(election.undo||data.undo)&&open;
  async function undoLast(){

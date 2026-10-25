@@ -965,3 +965,6 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .notifications-help dl{display:grid;grid-template-columns:1fr auto;gap:8px 16px;margin-top:14px}
 .notifications-help dd{margin:0;font-weight:650}
 @media(max-width:390px){.notifications-page{padding:16px 12px 36px}.notifications-page .notifications-card{padding:16px}.notifications-state{gap:10px}}
+
+/* #66: turn forecast when lists ahead resolve instantly. */
+.my-election-soon{margin:10px 0 0;padding:10px 12px;border-radius:8px;background:#fff6dc;border:1px solid #ecd28c;color:#5c4510;font-size:14px;line-height:1.5}

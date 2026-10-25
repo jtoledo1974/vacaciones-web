@@ -48,3 +48,18 @@ test('fases sin elección activa', () => {
  assert.equal(myElection({...base,state:null})!.phase,'not-started');
  assert.equal(myElection({...base,state:{...state,status:'paused'}})!.phase,'paused');
 });
+
+test('quienes van delante con preferencias activas: cuándo puede llegar tu turno', async () => {
+ const {aheadNote}=await import('../app/my-election-state.ts');
+ const waiting=(automaticAhead:number|null,turnsAhead=2)=>({...myElection(base)!,turnsAhead,automaticAhead});
+ assert.equal(myElection({...base,automaticAhead:1})!.automaticAhead,1);
+ // Someone ahead always chooses by hand (usually whoever is choosing now):
+ // if all of them had active lists, their turns would already be resolved.
+ assert.equal(aheadNote(waiting(1,2)),'Tu turno puede llegar en cuanto termine quien está eligiendo ahora: la otra persona que va delante elegirá automáticamente con sus preferencias.');
+ assert.equal(aheadNote(waiting(2,3)),'Tu turno puede llegar en cuanto termine quien está eligiendo ahora: las otras 2 personas que van delante elegirán automáticamente con sus preferencias.');
+ assert.equal(aheadNote(waiting(1,3)),'1 de las 3 personas que van delante elegirá automáticamente con sus preferencias. Tu turno puede llegar en cuanto elijan las otras 2.');
+ assert.equal(aheadNote(waiting(2,2)),null);
+ assert.equal(aheadNote(waiting(0)),null);
+ assert.equal(aheadNote(waiting(null)),null);
+ assert.equal(aheadNote({...waiting(2),phase:'my-turn'}),null);
+});

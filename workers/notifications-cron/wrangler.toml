@@ -9,3 +9,7 @@ crons = ["* * * * *"]
 
 [vars]
 SITE_ORIGIN = "https://vacaciones.lazaro.es"
+
+# Keep cron runs and dispatch errors visible in the Cloudflare dashboard.
+[observability]
+enabled = true
