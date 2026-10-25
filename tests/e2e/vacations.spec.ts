@@ -731,7 +731,8 @@ test('dos clientes abiertos reciben una adjudicación sin recargar manualmente',
  await second.getByRole('button',{name:'Administración',exact:true}).click();
  const updated=await election(request,s.id,{action:'choose',memberId:s.data.members[1].id,dates:[s.data.result.cycles[1].date]});
  expect(updated.awards).toHaveLength(2);
- await expect(second.getByText('Actualización automática · hasta 5 s')).toBeVisible();
+ // The sync indicator is only shown when offline (#65); it must still report live updates.
+ await expect(second.locator('.campaign-strip-sync')).toHaveText('Actualización automática · hasta 5 s');
  if(await second.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await second.getByRole('button',{name:'Abrir menú',exact:true}).click();
  await second.getByRole('button',{name:'Vacaciones',exact:true}).click();
  await expect(second.getByRole('heading',{name:'QA_C elige ahora'})).toBeVisible({timeout:18000});

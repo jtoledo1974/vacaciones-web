@@ -23,7 +23,7 @@ export default function UserForm({admin,busy,save,team,superuser=false}:any){
  <h3>{selected?'Editar permisos':'Asignar permisos'}</h3><div className="entry-form">
  <label>Proveedor<select aria-label="Proveedor de identidad" value={provider} disabled={!!selected||busy} onChange={e=>setProvider(e.target.value)}><option value="chatgpt">ChatGPT Sites</option><option value="firebase">Firebase Auth</option></select></label>
  <label>{provider==='chatgpt'?'Correo electrónico de ChatGPT':'UID de Firebase'}<input required type={provider==='chatgpt'?'email':'text'} value={subject} onChange={e=>setSubject(e.target.value)} disabled={busy||(!superuser&&!!selected)}/></label>
- <label>Rol<select value={role} disabled={busy} onChange={e=>setRole(e.target.value)}><option value="team_admin">Responsable de equipo</option><option value="viewer">Solo lectura / retirar administración</option></select></label>
+ <label>Rol<select value={role} disabled={busy} onChange={e=>setRole(e.target.value)}><option value="team_admin">Responsable de equipo</option><option value="viewer">Retirar permisos de gestión</option></select></label>
  <label>Caducidad opcional<input type="date" value={expires} disabled={busy} onChange={e=>setExpires(e.target.value)}/></label>
  <button className="primary" disabled={busy||(superuser&&role==='team_admin'&&!teams.length)}>Guardar permisos</button>{selected&&<button type="button" className="secondary" disabled={busy} onClick={reset}>Cancelar edición</button>}</div>
  {superuser&&<div className="team-checkboxes">{'ABCDEFGH'.split('').map(t=><label key={t}><input type="checkbox" disabled={busy||role!=='team_admin'} checked={teams.includes(t)} onChange={e=>setTeams(e.target.checked?[...teams,t]:teams.filter(x=>x!==t))}/>Equipo {t}</label>)}</div>}

@@ -148,12 +148,12 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
         {live&&manageAccounts&&<><th>Correo de acceso / UID</th><th>Autenticación</th></>}
         <th><span className="sr-only">Acciones</span></th></tr></thead>
       <tbody>{rows.map((r,i)=><tr key={r.memberId??'new-'+i}>
-        <td><input className="roster-code" aria-label={'Identificador fila '+(i+1)} value={r.code} maxLength={24} disabled={locked} onChange={e=>change(i,'code',e.target.value)}/></td>
-        <td><input className="roster-name" aria-label={'Nombre fila '+(i+1)} value={r.label} maxLength={120} disabled={locked} onChange={e=>change(i,'label',e.target.value)}/></td>
-        <td><input className="roster-date" aria-label={'Puntuación anterior de '+r.code} type="number" min="0" max="10000" step="any" value={r.previousScore} placeholder="Pendiente" disabled={locked} onChange={e=>change(i,'previousScore',e.target.value)}/></td>
+        <td data-label="Nick"><input className="roster-code" aria-label={'Identificador fila '+(i+1)} value={r.code} maxLength={24} disabled={locked} onChange={e=>change(i,'code',e.target.value)}/></td>
+        <td data-label="Nombre"><input className="roster-name" aria-label={'Nombre fila '+(i+1)} value={r.label} maxLength={120} disabled={locked} onChange={e=>change(i,'label',e.target.value)}/></td>
+        <td data-label={'Puntos '+(data.campaign.year-1)}><input className="roster-date" aria-label={'Puntuación anterior de '+r.code} type="number" min="0" max="10000" step="any" value={r.previousScore} placeholder="Pendiente" disabled={locked} onChange={e=>change(i,'previousScore',e.target.value)}/></td>
         {live&&manageAccounts&&<>
-          <td><input className="roster-subject" aria-label={'Correo de acceso o UID de '+r.code} value={r.subject} maxLength={250} placeholder={r.legacyKey?'Vínculo anterior activo':r.provider==='firebase'?'UID Firebase':'correo@ejemplo.es'} disabled={locked} autoComplete="off" onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,subject:e.target.value,legacyKey:undefined,provider:e.target.value&&!row.provider?'chatgpt':row.provider}:row))}/></td>
-          <td><select className="roster-provider" aria-label={'Autenticación de '+r.code} value={r.provider} disabled={locked} onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,provider:e.target.value as Provider,subject:e.target.value?row.subject:'',legacyKey:e.target.value==='chatgpt'?row.legacyKey:undefined}:row))}>
+          <td data-label="Correo de acceso" className="roster-access"><input className="roster-subject" aria-label={'Correo de acceso o UID de '+r.code} value={r.subject} maxLength={250} placeholder={r.legacyKey?'Vínculo anterior activo':r.provider==='firebase'?'UID Firebase':'correo@ejemplo.es'} disabled={locked} autoComplete="off" onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,subject:e.target.value,legacyKey:undefined,provider:e.target.value&&!row.provider?'chatgpt':row.provider}:row))}/></td>
+          <td data-label="Autenticación"><select className="roster-provider" aria-label={'Autenticación de '+r.code} value={r.provider} disabled={locked} onChange={e=>setRows(current=>current.map((row,n)=>n===i?{...row,provider:e.target.value as Provider,subject:e.target.value?row.subject:'',legacyKey:e.target.value==='chatgpt'?row.legacyKey:undefined}:row))}>
             <option value="">Sin vincular</option><option value="chatgpt">ChatGPT Sites</option><option value="firebase">Firebase</option>
           </select></td>
         </>}

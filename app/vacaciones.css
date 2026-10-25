@@ -890,3 +890,29 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .my-election-compact>summary{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-height:52px;padding:8px 0;font-size:14px;color:#1d3331;cursor:pointer}
 .my-election-compact>summary .my-election-kicker{margin:0;font-size:12px}
 .my-election-compact[open]{padding-bottom:16px}
+.campaign-status-line{font-size:15px;color:#1d3331;margin:6px 0 0}.campaign-close .button-row{margin-top:10px}
+/* #65 plantilla en fichas en el móvil: el correo de acceso, la tarea más habitual, sin desplazar la tabla. */
+@media(max-width:700px){
+ .roster-table-wrap{overflow:visible}
+ .roster-table,.roster-table tbody{display:block;width:100%}
+ .roster-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+ .roster-table tr{display:grid;grid-template-columns:1fr 1fr auto;gap:8px 10px;align-items:end;padding:12px;margin-bottom:10px;border:1px solid #d6e0db;border-radius:10px;background:#fff}
+ .roster-table td{display:block;padding:0;border:0}
+ .roster-table td[data-label]::before{content:attr(data-label);display:block;margin-bottom:4px;font-size:12px;font-weight:650;color:#40574c}
+ .roster-table td.roster-access{grid-column:1/-1}
+ .roster-table td input,.roster-table td select{width:100%;max-width:none}
+ .roster-table td.roster-menu-cell{grid-column:3;grid-row:1;align-self:start}
+}
+@media(max-width:700px){
+ .roster-table-wrap{max-height:none;border:0}
+ .roster-table{min-width:0!important;font-size:14px}
+ .roster-table td,.roster-table th{min-width:0!important;height:auto}
+ .roster-table td:nth-child(2){min-width:0!important}
+ .roster-table td input,.roster-table td select{width:100%!important;min-width:0!important;height:40px;border:1px solid #c9d6d0;background:#fff;font-size:14px;padding:6px 10px}
+ .roster-table td.roster-menu-cell{width:auto;min-width:0}
+}
+@media(max-width:700px){.roster-table td:nth-child(3){grid-row:2;grid-column:1}.roster-table td.roster-access{grid-row:3}.roster-table td:nth-child(5){grid-row:2;grid-column:2/-1}}
+/* #65 la franja técnica tampoco aporta a los gestores: solo se muestra si se pierde la conexión. */
+.campaign-strip-meta{font-size:0}
+.campaign-strip-meta>:not(.campaign-strip-sync),.campaign-strip-sync{display:none}
+.campaign-strip-sync.is-offline{display:inline;font-size:12px;color:#8a4b1f;font-weight:600}
