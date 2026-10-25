@@ -433,7 +433,9 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} cycles={data.result.cycles}
      selected={mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
      busy={busy||loadingOptions||choiceSubmitting} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
-     awards={data.awards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability}/>
+     awards={data.awards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability}
+     notForMe={!manage&&mode==='choose'&&canChoose&&turn?.participants?.length===1&&!loadingOptions
+      ?data.result.cycles.map((c:any)=>c.date).filter((d:string)=>!(pairOptions??election.available).includes(d)&&!selected.includes(d)):undefined}/>
    </div>
    <aside className="election-side">
     {mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)&&<PreferencesEditor data={data} readOnly={previewReadOnly} memberId={memberId} dates={dates} setDates={editDates} persistent={persistent} setPersistent={editPersistence} dirty={dirty} busy={busy} save={savePreferences} cancel={cancelPreferences} message={!dirty&&/sin guardar/i.test(preferenceMessage)?'La lista coincide con la versión guardada.':preferenceMessage}/>}
