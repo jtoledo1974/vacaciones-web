@@ -6,7 +6,7 @@ import {availabilityByCycle,compactAvailability,recordedAvailabilityByCycle2027,
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
-import {buildElectionTimeline} from './election-timeline.ts';
+import {buildElectionTimeline,publicElectionTimeline,type PublicElectionTimelineItem} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
 import {historicalAvailability} from './availability-history.ts';
 import {AuditContext} from './audit-context.ts';
@@ -216,12 +216,13 @@ export class ElectionService{
    available=result.cycles.filter(c=>!choiceIssues(ctx,focus,[c.date]).length).map(c=>c.date);
   const points=d.members.map((m:any)=>({member_id:m.id,cycles:d.awards.filter((a:any)=>a.member_id===m.id).length,points:(d.requests.some((r:any)=>r.member_id===m.id)?d.requests.filter((r:any)=>r.member_id===m.id):d.awards.filter((a:any)=>a.member_id===m.id)).reduce((sum:number,a:any)=>sum+(result.cycles.find(c=>c.date===a.cycle_date)?.score??0),0)}));
   const history=manage?await this.history(cid,options.auditContext):null;
-  // Replay persisted actions rather than inferring turns from individual awards.
-  // Return all events; the UI reveals older entries incrementally.
-  let timeline:ReturnType<typeof buildElectionTimeline>=[];
-  if(manage){
+  // Replay persisted actions, then expose only an allowlisted compact projection
+  // to public viewers. Managers retain the complete existing timeline.
+  let timeline:ReturnType<typeof buildElectionTimeline>|PublicElectionTimelineItem[]=[];
+  if(manage||raw.state||ctx.awards.length){
    const rows=await (options.auditContext?.rows()??this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]));
-   timeline=buildElectionTimeline(rows as any,ctx,raw.state,history!);
+   const events=buildElectionTimeline(rows as any,ctx,raw.state,history??undefined);
+   timeline=manage?events:publicElectionTimeline(events,rows as any);
   }
 
   const cycleAvailability=ctx.year===2027&&!skipFullAvailability?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
