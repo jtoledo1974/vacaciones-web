@@ -666,3 +666,53 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .my-election-notify{display:inline-flex;align-items:center;gap:8px;margin-top:12px;min-height:44px;font-size:13px;font-weight:550;color:#1f5a4b;text-decoration:underline;text-underline-offset:3px}
 @media (max-width:580px){.my-election-head{flex-direction:column;align-items:stretch}.my-election-cta{width:100%}.my-election-row .secondary{width:100%}}
 .my-election.is-my-turn .my-election-list strong{color:#fff}
+
+
+/* #64 accessibility foundation: legibility and touch targets. */
+/* WCAG AA: old muted/eyebrow/labels/strip were 3.02/4.20/4.11/3.12:1. */
+:root{--muted:#465d50}
+.muted,.eyebrow,.heading p,.selectors label,label{color:#465d50}
+.eyebrow,.selectors label{font-size:12px}
+.campaign-strip{color:#40574c;font-size:12px}
+.campaign-strip b{color:#304e3e;font-size:12px}
+.campaign-strip .status{color:#365b45;font-size:12px}
+.campaign-strip .separator{color:#52645a}
+.tag{color:#425c44}
+/* Public/controller pages need readable metadata without modifying admin tables. */
+.app:has(.my-election) :is(
+ .topbar .private-pill,.header-account-info small,.heading p,
+ .vac2-heading p,.vac2-legend,.vac2-legend b,.vac2-month h3,
+ .vac2-line,.vac2-cycle-sub,.vac2-names,.vac2-weekdays,.vac2-day,
+ .vac2-occupants,.vac2-members-wrap .muted,.vac2-members-wrap table thead th,
+ .vac2-footnote,.vac2-view-switch button,.vac2-month-nav button,
+ .vac2-member-card summary span,.vac2-member-cycle,
+ .election-workflow-card p,.election-log li,.election-log li b,
+ .election-log li span,.election-log .election-log-note,
+ .election-show-more,.election-turn-status .eyebrow,
+ .election-turn-status .muted,.election-turn p,
+ .election-view-option,.election-more-actions > summary,
+ .election-quick-action,.election-selected-summary,
+ .preference-editor-head .eyebrow,.vac2-preference-rank,
+ .preference-dock-status > span,.preference-feedback,
+ .vac3-tools,.vac3-size-actions button,.vac3-legend,
+ .vac3-choice-indicator,.vac3-table,
+ .content footer,.content footer .footer-build
+){font-size:12px}
+.app:has(.my-election) :is(.vac2-legend,.vac2-cycle-sub,.vac2-footnote,
+ .election-log li span,.election-log .election-log-note,
+ .vac3-tools,.vac3-legend){color:#465d50}
+@media(max-width:900px){
+ .menu-mobile,.close-mobile{width:44px;min-width:44px;height:44px;place-items:center}
+ .menu-mobile{display:grid}
+ .close-mobile{display:grid}
+ .vac2-view-switch button,.election-view-option{min-height:44px}
+ .election-turn-controls>.election-more-actions{flex-basis:44px;min-width:44px}
+ .election-more-actions>summary,.election-turn-controls>.election-more-actions>summary,
+ .scenario-actions>summary{display:grid;place-items:center;min-width:44px;width:44px;min-height:44px;height:44px;cursor:pointer}
+ .scenario-actions>.scenario-menu{top:calc(100% + 4px)}
+ .vac2-member-card>summary,details.panel>summary{min-height:44px;align-items:center}
+ details.panel>summary{display:flex}
+ .vac3-size-actions button{min-width:44px;min-height:44px}
+ .vac3-table th,.vac3-table td{height:44px}
+ .vac3-table .vac3-date button{min-height:44px}
+}
