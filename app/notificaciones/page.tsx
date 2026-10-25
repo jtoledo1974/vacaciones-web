@@ -1,82 +1,197 @@
 'use client';
-import {useEffect,useState} from 'react';
-import {firebaseBearerToken} from '../firebase-client';
 
-type NotificationSettings={canTest:boolean;publicKey:string|null;subscriptions:{endpoint:string;createdAt:string}[];notifications:{id:string;campaign_id:string;round:number;created_at:string;team_id:string;year:number}[]};
-const decode=(value:string):Uint8Array=>{
+import {useCallback,useEffect,useState} from 'react';
+import {Bell,BellOff,CheckCircle2,HelpCircle,RefreshCw,ShieldAlert,Smartphone} from 'lucide-react';
+import {firebaseBearerToken} from '../firebase-client';
+import {isAppleMobile,notificationView} from './notification-view';
+
+type NotificationSettings={
+ canTest:boolean;
+ publicKey:string|null;
+ subscriptions:{endpoint:string;createdAt:string}[];
+ notifications:{id:string;campaign_id:string;round:number;created_at:string;team_id:string;year:number}[];
+};
+type Device={supported:boolean;appleMobile:boolean;standalone:boolean;permission:NotificationPermission|'unsupported'};
+
+const decode=(value:string):Uint8Array<ArrayBuffer>=>{
  const raw=atob(value.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-value.length%4)%4));
  return Uint8Array.from(raw,c=>c.charCodeAt(0));
 };
-async function api(method:'GET'|'POST',body?:unknown):Promise<any>{
+async function api(method:'GET'|'POST',body?:unknown):Promise<NotificationSettings>{
  const token=await firebaseBearerToken();
- const r=await fetch('/api/notifications',{method,cache:'no-store',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
- const response=await r.json() as {error?:string};if(!r.ok)throw Error(response.error||'Error de notificaciones');return response;
+ const response=await fetch('/api/notifications',{
+  method,cache:'no-store',
+  headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},
+  body:body?JSON.stringify(body):undefined
+ });
+ const json=await response.json() as {error?:string};
+ if(!response.ok){
+  if(response.status===401)throw Error('Inicia sesión con la cuenta vinculada a tu controlador para configurar los avisos.');
+  throw Error(json.error||'No se ha podido consultar el servicio de notificaciones');
+ }
+ return json as NotificationSettings;
 }
+function getDevice():Device{
+ const appleMobile=isAppleMobile(navigator.userAgent,navigator.maxTouchPoints);
+ const standalone=window.matchMedia('(display-mode: standalone)').matches||
+  Boolean((navigator as Navigator&{standalone?:boolean}).standalone);
+ const supported='Notification' in window&&'serviceWorker' in navigator&&'PushManager' in window&&window.isSecureContext;
+ return {appleMobile,standalone,supported,permission:'Notification' in window?Notification.permission:'unsupported'};
+}
+
 export default function NotificationPreferences(){
  const [settings,setSettings]=useState<NotificationSettings|null>(null);
  const [enabled,setEnabled]=useState(false);
- const [permission,setPermission]=useState('desconocido');
+ const [device,setDevice]=useState<Device>({supported:false,appleMobile:false,standalone:false,permission:'unsupported'});
+ const [loading,setLoading]=useState(true);
+ const [failed,setFailed]=useState(false);
  const [message,setMessage]=useState('');
  const [busy,setBusy]=useState(false);
- async function refresh(){
-  const data:NotificationSettings=await api('GET');setSettings(data);
-  if('Notification' in window)setPermission(Notification.permission);
-  if('serviceWorker' in navigator){
-   const registration=await navigator.serviceWorker.getRegistration('/notificaciones/');
-   const active=await registration?.pushManager.getSubscription();
-   setEnabled(!!active&&data.subscriptions.some(s=>s.endpoint===active.endpoint));
-  }
- }
- useEffect(()=>{void refresh().catch(e=>setMessage(String(e)));},[]);
+ const [error,setError]=useState('');
+
+ const refresh=useCallback(async()=>{
+  setLoading(true);
+  setFailed(false);
+  setError('');
+  try{
+   const local=getDevice();
+   setDevice(local);
+   const data=await api('GET');
+   setSettings(data);
+   let active=false;
+   if(local.supported&&(!local.appleMobile||local.standalone)){
+    const registration=await navigator.serviceWorker.getRegistration('/notificaciones/');
+    const subscription=await registration?.pushManager.getSubscription();
+    active=!!subscription&&data.subscriptions.some(s=>s.endpoint===subscription.endpoint);
+   }
+   setEnabled(active);
+  }catch(e){
+   setFailed(true);
+   setError(e instanceof Error?e.message:String(e));
+  }finally{setLoading(false);}
+ },[]);
+
+ useEffect(()=>{void refresh();},[refresh]);
+
+ const view=notificationView({
+  loading,failed,supported:device.supported,hasPublicKey:!!settings?.publicKey,
+  permission:device.permission,enabled,appleMobile:device.appleMobile,standalone:device.standalone,
+ });
+
  async function toggle(){
+  if(!view.action||busy)return;
   setBusy(true);setMessage('');
   try{
-   if(!('serviceWorker' in navigator)||!('PushManager' in window)||!('Notification' in window))throw Error('Web Push no disponible en este navegador');
-   if(!settings?.publicKey)throw Error('Falta configurar las claves VAPID en el servidor');
    if(!enabled){
-    // Permissions must be requested directly within the user's click gesture.
-    const granted=await Notification.requestPermission();setPermission(granted);
-    if(granted!=='granted')throw Error('El navegador no ha autorizado las notificaciones');
+    // Browser permission prompts require a direct user gesture.
+    const permission=await Notification.requestPermission();
+    setDevice(d=>({...d,permission}));
+    if(permission!=='granted')throw Error('No se han autorizado los avisos. Comprueba los permisos del navegador.');
    }
    const registration=await navigator.serviceWorker.register('/push-probe-sw.js',{scope:'/notificaciones/'});
-   await navigator.serviceWorker.ready;
+   // The registration is scoped to /notificaciones, so do not await
+   // navigator.serviceWorker.ready on any other URL.
    let subscription=await registration.pushManager.getSubscription();
    if(enabled){
-    if(subscription){await api('POST',{action:'unsubscribe',endpoint:subscription.endpoint});await subscription.unsubscribe();}
-    setMessage('Notificaciones desactivadas en este dispositivo');
+    if(subscription){
+     await api('POST',{action:'unsubscribe',endpoint:subscription.endpoint});
+     await subscription.unsubscribe();
+    }
+    setMessage('Has desactivado los avisos en este dispositivo.');
    }else{
-    if(!subscription)subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decode(settings.publicKey) as BufferSource});
+    if(!settings?.publicKey)throw Error('El servicio de notificaciones todavía no está configurado.');
+    if(!subscription){
+     subscription=await registration.pushManager.subscribe({
+      userVisibleOnly:true,
+      applicationServerKey:decode(settings.publicKey),
+     });
+    }
     await api('POST',{action:'subscribe',subscription:subscription.toJSON()});
-    setMessage('Dispositivo registrado para recibir avisos de tu turno');
+    setMessage('Avisos activados en este dispositivo. Recibirás avisos para tus turnos de elección.');
    }
    await refresh();
-  }catch(e){setMessage(e instanceof Error?e.message:String(e));}
-  finally{setBusy(false);}
+  }catch(e){
+   setError(e instanceof Error?e.message:String(e));
+   setDevice(getDevice());
+  }finally{setBusy(false);}
  }
+
  async function testPush(){
-  setBusy(true);setMessage('');
+  if(!settings?.canTest||!enabled||busy)return;
+  setBusy(true);setMessage('');setError('');
   try{
-   if(!settings?.canTest)throw Error('Esta prueba requiere permisos de superadministrador');
    const registration=await navigator.serviceWorker.getRegistration('/notificaciones/');
    const subscription=await registration?.pushManager.getSubscription();
    if(!subscription||!settings.subscriptions.some(s=>s.endpoint===subscription.endpoint))
-    throw Error('Activa antes las notificaciones en este dispositivo con tu cuenta de superadministrador');
+    throw Error('Activa primero los avisos con tu cuenta de superadministrador.');
    await api('POST',{action:'test',endpoint:subscription.endpoint});
-   setMessage('El servicio Push ha aceptado el aviso de prueba. Comprueba si aparece en el sistema; la aceptación no garantiza su visualización.');
-  }catch(e){setMessage(e instanceof Error?e.message:String(e));}
+   setMessage('El servicio Push ha aceptado la prueba. Comprueba si aparece la notificación en tu dispositivo.');
+  }catch(e){setError(e instanceof Error?e.message:String(e));}
   finally{setBusy(false);}
  }
- return <main style={{maxWidth:750,margin:'2.5rem auto',padding:'0 1rem',fontFamily:'system-ui'}}>
-  <a href="/">← Volver a vacaciones</a>
-  <h1>Notificaciones de vacaciones</h1>
-  <p>Recibe un aviso cuando llegue tu turno de elección, aunque no tengas abierta la aplicación. Requiere iniciar sesión con la cuenta vinculada a tu controlador y autorizar notificaciones en cada dispositivo.</p>
-  <p>Permiso del navegador: <strong>{permission}</strong>. En este dispositivo: <strong>{enabled?'Activadas':'Desactivadas'}</strong>.</p>
-  <button disabled={busy||!settings?.publicKey} onClick={toggle} style={{padding:12}}>{busy?'Procesando…':enabled?'Desactivar en este dispositivo':'Activar notificaciones en este dispositivo'}</button>
-  {!settings?.publicKey&&<p>Notificaciones remotas pendientes de configuración VAPID por parte del administrador.</p>}
-  {settings?.canTest&&<section aria-label="Prueba Push de superadministrador"><h2>Prueba de notificación Push</h2><p>Envía un aviso Push real únicamente a este dispositivo, registrado con tu cuenta de superadministrador. No modifica turnos, preferencias ni campañas y no utiliza simulaciones.</p><button type="button" disabled={busy||!enabled||!settings.publicKey} onClick={testPush} style={{padding:12}}>Enviar Push de prueba a este dispositivo</button>{!enabled&&<p><small>Activa primero las notificaciones en este dispositivo para habilitar la prueba.</small></p>}</section>}
-  {message&&<p role="status">{message}</p>}
-  <h2>Últimos avisos de turno</h2>
-  {!settings?.notifications.length?<p>No hay avisos registrados.</p>:<ul>{settings.notifications.map(n=><li key={n.id}>Ronda {n.round} · {new Date(n.created_at).toLocaleString('es-ES')} · <a href={'/?equipo='+encodeURIComponent(n.team_id)+'&year='+encodeURIComponent(String(n.year))}>Abrir elección</a></li>)}</ul>}
-  <p><small>El sonido depende de los ajustes del navegador y del sistema operativo. En Windows, comprueba las notificaciones y sonidos de Chrome, el volumen y «No molestar». La web no puede forzar un sonido de alerta.</small></p>
+
+ const Icon=view.kind==='active'?CheckCircle2:view.kind==='inactive'?Bell:view.kind==='install'?Smartphone:view.kind==='blocked'?ShieldAlert:BellOff;
+
+ return <main className="notifications-page">
+  <div className="notifications-wrap">
+   <a className="notifications-back" href="/">← Volver a vacaciones</a>
+   <header className="notifications-header">
+    <h1>Notificaciones de vacaciones</h1>
+    <p>Te avisaremos cuando llegue tu turno de elección. Configura los avisos en cada dispositivo que quieras utilizar.</p>
+   </header>
+   <section className="panel notifications-card" aria-label="Estado de las notificaciones">
+    <div className={'notifications-state is-'+view.kind} role="status">
+     <span className="notifications-state-icon"><Icon size={22} aria-hidden="true"/></span>
+     <div><h2>{view.heading}</h2><p>{view.description}</p></div>
+    </div>
+    {view.kind==='install'&&<div className="notifications-instructions">
+     <h3>Cómo activarlos en iPhone o iPad</h3>
+     <ol><li>Abre esta web en Safari y toca <strong>Compartir</strong>.</li>
+      <li>Selecciona <strong>Añadir a pantalla de inicio</strong>.</li>
+      <li>Abre <strong>Vacaciones LECS</strong> desde el icono creado y pulsa <strong>Activar avisos</strong>.</li></ol>
+     <p>Necesitas iOS o iPadOS 16.4 o posterior. Desde una pestaña normal del navegador no se pueden activar.</p>
+    </div>}
+    {view.kind==='blocked'&&<div className="notifications-instructions">
+     <p>{device.appleMobile?'En Ajustes de iOS, busca Notificaciones y permite los avisos de Vacaciones LECS.':'Abre la configuración del sitio (icono junto a la dirección web), permite las notificaciones y vuelve aquí.'}</p>
+    </div>}
+    {view.action&&<button type="button" className={enabled?'secondary notifications-action':'primary notifications-action'} disabled={busy} onClick={()=>void toggle()}>
+     {busy?'Guardando…':view.action}
+    </button>}
+    {view.kind==='unavailable'&&<p className="notifications-hint">La activación estará disponible cuando el administrador complete la configuración Push.</p>}
+    <button type="button" className="notifications-refresh" disabled={busy||loading} onClick={()=>void refresh()}>
+     <RefreshCw size={16} aria-hidden="true"/> Volver a comprobar
+    </button>
+    {error&&<p className="notifications-feedback is-error" role="alert">{error}</p>}
+    {message&&<p className="notifications-feedback is-success" role="status">{message}</p>}
+   </section>
+
+   {settings?.canTest&&<section className="panel notifications-card" aria-label="Prueba Push de superadministrador">
+    <h2>Probar los avisos</h2>
+    <p>Envía una notificación de prueba solo a este dispositivo, sin modificar elecciones ni simulaciones.</p>
+    <button type="button" className="secondary notifications-action" disabled={busy||!enabled||!settings.publicKey||view.kind!=='active'} onClick={()=>void testPush()}>
+     Enviar aviso de prueba
+    </button>
+    {!enabled&&<p className="notifications-hint">Activa primero los avisos para habilitar la prueba.</p>}
+   </section>}
+
+   <section className="panel notifications-card" aria-label="Últimos avisos de turno">
+    <h2>Últimos avisos</h2>
+    {loading?<p className="notifications-hint">Cargando avisos…</p>:!settings?.notifications.length?
+     <p className="notifications-hint">Todavía no hay avisos registrados.</p>:
+     <ul className="notifications-history">{settings.notifications.map(n=><li key={n.id}>
+      <span>Ronda {n.round} · {new Date(n.created_at).toLocaleString('es-ES')}</span>
+      <a href={'/?equipo='+encodeURIComponent(n.team_id)+'&year='+encodeURIComponent(String(n.year))}>Ver elección</a>
+     </li>)}</ul>}
+   </section>
+   <details className="notifications-help">
+    <summary><HelpCircle size={17} aria-hidden="true"/> Ayuda y diagnóstico</summary>
+    <p>Necesitas iniciar sesión con la cuenta vinculada a tu controlador, aceptar los permisos de notificación y mantenerlos habilitados en el sistema. El dispositivo decide cómo y cuándo muestra y reproduce los avisos.</p>
+    <p>Los avisos no se envían durante simulaciones. El servicio puede aceptar una notificación aunque el sistema operativo no la muestre.</p>
+    <p><a href="/notificaciones/diagnostico">Abrir diagnóstico técnico</a></p>
+    <dl><dt>Permiso del navegador</dt><dd>{device.permission==='granted'?'Permitido':device.permission==='denied'?'Bloqueado':device.permission==='default'?'Sin solicitar':'No disponible'}</dd>
+     <dt>Suscripción registrada</dt><dd>{loading?'Comprobando…':failed?'No comprobada':enabled?'Sí':'No'}</dd>
+    </dl>
+   </details>
+  </div>
  </main>;
 }
