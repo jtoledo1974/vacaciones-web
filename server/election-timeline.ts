@@ -129,3 +129,25 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
  }
  return events.sort((a,b)=>b.sequence-a.sequence).map(entry=>entry.item);
 }
+
+
+/**
+ * The public history is an explicit allowlist, never a serialized audit event.
+ * In particular, undo/reconstruction snapshots, availability impacts, internal
+ * warnings, actors and preference data must not leave the server.
+ */
+export type PublicElectionTimelineItem=Pick<ElectionTimelineItem,
+ 'id'|'kind'|'round'|'memberIds'|'choices'|'deferredTurns'|'method'|'order'> & {automatic?:true};
+
+export function publicElectionTimeline(items:ElectionTimelineItem[],rows:Pick<AuditRow,'id'|'action'>[]):PublicElectionTimelineItem[]{
+ const automaticallyChosen=new Set(rows.filter(row=>row.action==='advance').map(row=>row.id));
+ return items.map(item=>({
+  id:item.id,kind:item.kind,round:item.round,
+  memberIds:[...item.memberIds],
+  choices:item.choices.map(({member_id,cycle_date})=>({member_id,cycle_date})),
+  deferredTurns:item.deferredTurns,
+  ...(item.kind==='tie'&&item.method?{method:item.method}:{}),
+  ...(item.kind==='tie'&&item.order?{order:[...item.order]}:{}),
+  ...(item.kind==='choice'&&automaticallyChosen.has(item.id)?{automatic:true as const}:{})
+ }));
+}

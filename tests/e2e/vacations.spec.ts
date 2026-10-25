@@ -2,11 +2,43 @@ import {test,expect,type APIRequestContext,type Page} from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin='http://127.0.0.1:5199';
 
+test('menús de acciones se cierran con Escape y clic exterior',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page);
+ await open(page,s.id);
+ await activate(page);
+ const actionMenu=page.locator('.election-turn-controls > .election-more-actions');
+ const opener=actionMenu.locator('summary');
+ await opener.click();
+ await expect(actionMenu).toHaveAttribute('open','');
+ await page.keyboard.press('Escape');
+ await expect(actionMenu).not.toHaveAttribute('open','');
+ await opener.click();
+ await expect(actionMenu).toHaveAttribute('open','');
+ await page.getByRole('heading',{name:'Vacaciones del equipo'}).click();
+ await expect(actionMenu).not.toHaveAttribute('open','');
+
+ const scenarioMenu=page.locator('.scenario-actions');
+ await scenarioMenu.locator('summary').click();
+ await expect(scenarioMenu).toHaveAttribute('open','');
+ await page.keyboard.press('Escape');
+ await expect(scenarioMenu).not.toHaveAttribute('open','');
+ await scenarioMenu.locator('summary').click();
+ await page.getByRole('heading',{name:'Vacaciones del equipo'}).click();
+ await expect(scenarioMenu).not.toHaveAttribute('open','');
+ if((page.viewportSize()?.width??1280)<=900){
+  for(const target of [opener,scenarioMenu.locator('summary')]){
+   const rect=await target.boundingBox();
+   expect(rect?.width).toBeGreaterThanOrEqual(44);
+   expect(rect?.height).toBeGreaterThanOrEqual(44);
+  }
+ }
+});
+
 test('activación visible desde Vacaciones, regreso automático y reanudación destacada',{tag:'@both'},async({page,request})=>{
  const scenario=await setup(request,page);
  expect(scenario.data.election.state).toBeNull();
  await open(page,scenario.id);
- const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
+ const switcher=page.getByRole('group',{name:'Modo de vacaciones'});
  await expect(switcher.getByRole('button',{name:'Calendario',exact:true})).toBeVisible();
  const configure=page.getByRole('button',{name:'Configurar e iniciar elección',exact:true});
  await expect(configure).toBeVisible();
@@ -140,7 +172,7 @@ async function confirm(page:Page,button:string){
  // A covered/unclickable control should fail locally, not consume the entire 45 s test timeout.
  await target.click({timeout:10_000});
  if(/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)){
-  const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'});
+  const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación'});
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button',{name:'Adjudicar',exact:true}).click();
  }else await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
@@ -160,7 +192,7 @@ test('confirmación rápida es opcional y local únicamente en simulaciones',{ta
  await expect(page.getByText('Simulación · confirmación rápida')).toBeVisible();
  await cycle(page,scenario.data.result.cycles[0].date);
  await expect(page.getByRole('button',{name:'Confirmar ciclo',exact:true})).toHaveCount(0);
- await expect(page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'})).toHaveCount(0);
+ await expect(page.getByRole('dialog',{name:'Confirmar adjudicación'})).toHaveCount(0);
  await expect(page.getByRole('heading',{name:'QA_B elige ahora',exact:true})).toBeVisible();
  await page.getByRole('button',{name:'↶ Deshacer'}).click();
  await expect(page.getByRole('dialog',{name:'Confirmar cambio'})).toHaveCount(0);
@@ -258,7 +290,7 @@ test('vista de controlador distingue Mis preferencias de la navegación administ
  await open(page,scenario.id);
  await page.getByLabel('Probar simulación como controlador').selectOption('QA_A');
  await expect(page.getByText('Vista como controlador QA_A')).toBeVisible();
- const tabs=page.getByRole('group',{name:'Vista de vacaciones'});
+ const tabs=page.getByRole('group',{name:'Modo de vacaciones'});
  const mine=tabs.getByRole('button',{name:'Mis preferencias',exact:true});
  await expect(mine).toBeVisible();
  await expect(tabs.getByRole('button',{name:'Preferencias',exact:true})).toHaveCount(0);
@@ -269,7 +301,7 @@ test('vista de controlador distingue Mis preferencias de la navegación administ
 
 test('navegación compacta entre Calendario y Preferencias',async({page,request})=>{
  const s=await setup(request,page);await open(page,s.id);
- const switcher=page.getByRole('group',{name:'Vista de vacaciones'});
+ const switcher=page.getByRole('group',{name:'Modo de vacaciones'});
  const calendar=switcher.getByRole('button',{name:'Calendario',exact:true});
  const preferences=switcher.getByRole('button',{name:'Preferencias',exact:true});
  await expect(calendar).toHaveAttribute('aria-pressed','true');
@@ -282,7 +314,8 @@ test('navegación compacta entre Calendario y Preferencias',async({page,request}
   await page.setViewportSize({width,height:640});
   const bounds=await switcher.boundingBox();
   expect(bounds).not.toBeNull();
-  expect(bounds!.height).toBeLessThan(44);
+  // One row of 44 px touch targets (#64), never wrapped onto a second row.
+  expect(bounds!.height).toBeLessThanOrEqual(56);
   expect(bounds!.x).toBeGreaterThanOrEqual(0);
   expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(width+1);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
@@ -367,14 +400,14 @@ test('aplazar, elegir dos en calendario y deshacer/rehacer',{tag:'@both'},async(
 
 test('preferencias delegadas y elección automática al llegar el turno',async({page,request})=>{
   const s=await setup(request,page),date=s.data.result.cycles[0].date;
-  await open(page,s.id);await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
+  await open(page,s.id);await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
   await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(s.data.members[1].id);
   await cycle(page,date);await expect(page.getByLabel('Asignar automáticamente desde esta lista cuando llegue mi turno')).toHaveCount(0);
   if(!await page.locator('.preference-sheet').isVisible()&&await page.getByRole('button',{name:'Revisar y guardar',exact:true}).isVisible())await page.getByRole('button',{name:'Revisar y guardar',exact:true}).click();
   await page.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
   await expect(page.getByRole('status').filter({hasText:'Preferencias guardadas'}).first()).toBeVisible();
   if(await page.getByRole('button',{name:'Cerrar revisión de preferencias',exact:true}).isVisible())await page.getByRole('button',{name:'Cerrar revisión de preferencias',exact:true}).click();
-  await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();await activate(page);
+  await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();await activate(page);
   await cycle(page,date);await confirm(page,'Confirmar ciclo');
   await expect(page.getByRole('heading',{name:'QA_C elige ahora',exact:true})).toBeVisible();
   const d=await read(request,s.id);expect(d.awards).toHaveLength(2);expect(d.awards.some((a:any)=>a.member_id===s.data.members[1].id)).toBeTruthy();
@@ -410,7 +443,7 @@ test('undo en navegador deshace solo el último turno automático y permite corr
 test('guardar preferencias durante el turno avisa antes de adjudicar automáticamente',async({page,request})=>{
  const s=await setup(request,page),member=s.data.members[0],date=s.data.result.cycles[0].date;
  await open(page,s.id);await activate(page);
- await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
+ await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Preferencias',exact:true}).click();
  await page.getByLabel('Preferencias de controlador',{exact:true}).selectOption(member.id);
  await cycle(page,date);
  if(!await page.locator('.preference-sheet').isVisible()&&await page.getByRole('button',{name:'Revisar y guardar',exact:true}).isVisible())await page.getByRole('button',{name:'Revisar y guardar',exact:true}).click();

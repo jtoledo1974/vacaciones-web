@@ -101,7 +101,7 @@ for(const size of [
   await editor.getByRole('button',{name:'Quitar preferencia 2',exact:true}).click();
   await expect(editor).toContainText('Cambios sin guardar');await shot('06-modificar-guardadas');
   await close(page);
-  await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
+  await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
   await expect(page.getByRole('dialog',{name:'¿Descartar los cambios?'})).toContainText('aún no la has guardado');await shot('07-proteger-cambio-modo');
   await page.getByRole('dialog',{name:'¿Descartar los cambios?'}).getByRole('button',{name:'Seguir editando',exact:true}).click();
   await expect(page.getByRole('button',{name:'Preferencias',exact:true})).toHaveAttribute('aria-pressed','true');
@@ -173,7 +173,7 @@ test('preferencias: fallo de guardado conserva borrador y cancelar salida no lo 
  await page.getByLabel('Equipo',{exact:true}).selectOption('B');
  await page.getByRole('dialog',{name:'¿Descartar los cambios?'}).getByRole('button',{name:'Seguir editando',exact:true}).click();
  await expect(page.getByLabel('Equipo',{exact:true})).toHaveValue('C');
- await page.getByRole('group',{name:'Vista de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
+ await page.getByRole('group',{name:'Modo de vacaciones'}).getByRole('button',{name:'Calendario',exact:true}).click();
  await page.getByRole('dialog',{name:'¿Descartar los cambios?'}).getByRole('button',{name:'Descartar cambios',exact:true}).click();
  await page.getByRole('button',{name:'Preferencias',exact:true}).click();await review(page);
  await expect(editor.getByRole('listitem')).toHaveCount(0);
@@ -200,7 +200,8 @@ test('preferencias: guardar tras undo conserva la pausa de automatismos de main'
  await add(page,dates[0]);let editor=await review(page);
  await editor.getByRole('button',{name:'Guardar preferencias',exact:true}).click();
  await page.getByRole('dialog',{name:'Confirmar cambio'}).getByRole('button',{name:'Confirmar',exact:true}).click();
- await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias guardadas');await close(page);
+ // Saving during one's own turn awards at once and consumes the list (#64).
+ await expect(editor.locator('.preference-state').first()).toHaveText('Preferencias ya usadas');await close(page);
  const saved=await read(request,s.id);expect(saved.awards).toHaveLength(1);
  await command(request,s.id,{action:'election_undo',historyId:saved.election.undo});
  await expect(page.getByRole('button',{name:'Reanudar automatismos',exact:true})).toBeVisible({timeout:18000});

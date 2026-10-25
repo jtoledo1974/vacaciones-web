@@ -67,8 +67,8 @@ test('2027: confirmar muestra el impacto, el historial lo registra y deshacer re
  const date=preCycles(data)[0];
  await page.locator('button[data-cycle-date="'+date+'"]').first().click();
  await page.getByRole('button',{name:'Confirmar ciclo',exact:true}).click();
- const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'});
- await expect(dialog).toContainText('¿Confirmar 1 ciclo(s) para '+turnCode(data)+'?');
+ const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación'});
+ await expect(dialog).toContainText('¿Adjudicar a '+turnCode(data)+'?');
  await dialog.getByRole('button',{name:'Adjudicar',exact:true}).click();
  await expect.poll(async()=>(await read(request,id)).awards.length).toBe(1);
  await expect(page.getByRole('heading',{name:turnCode(await read(request,id))+' elige ahora',exact:true})).toBeVisible();
@@ -120,7 +120,7 @@ test('2027: la confirmación rápida se detiene ante un aviso normativo y lo mue
  await menu.locator('summary').click();
  await menu.getByRole('checkbox',{name:'Requerir confirmación antes de adjudicar'}).uncheck();
  await page.locator('button[data-cycle-date="'+last+'"]').first().click();
- const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación e impacto'});
+ const dialog=page.getByRole('dialog',{name:'Confirmar adjudicación'});
  await expect(dialog).toBeVisible();
  await expect(dialog.locator('strong')).toContainText('Avisos normativos:');
  await expect(dialog.locator('strong')).toContainText('Lectura estricta de RR. HH.');

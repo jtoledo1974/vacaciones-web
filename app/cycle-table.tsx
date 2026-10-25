@@ -26,7 +26,7 @@ function shortDate(iso:string):string{
 }
 
 export default function CycleTable({year,cycles,awards,members,selected,highlighted,preferenceMode,busy,onSelect,availability}:Props){
- const [fontSize,setFontSize]=useState(10);
+ const [fontSize,setFontSize]=useState(12);
  const codes=useMemo(()=>new Map(members.map(m=>[m.id,m.code])),[members]);
  const occupants=useMemo(()=>{
   const result=new Map<string,string[]>();
@@ -40,8 +40,8 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
   <div className="vac3-tools">
    <span><strong>{cycles.length}</strong> ciclos · 8 días por ciclo</span>
    <span className="vac3-size-actions">
-    <button type="button" onClick={()=>setFontSize(x=>Math.max(9,x-1))} disabled={fontSize<=9} aria-label="Reducir letra de la tabla">A−</button>
-    <button type="button" onClick={()=>setFontSize(x=>Math.min(13,x+1))} disabled={fontSize>=13} aria-label="Ampliar letra de la tabla">A+</button>
+    <button type="button" onClick={()=>setFontSize(x=>Math.max(12,x-1))} disabled={fontSize<=12} aria-label="Reducir letra de la tabla">A−</button>
+    <button type="button" onClick={()=>setFontSize(x=>Math.min(16,x+1))} disabled={fontSize>=16} aria-label="Ampliar letra de la tabla">A+</button>
    </span>
   </div>
   <div className="vac3-scroll" role="region" tabIndex={0} aria-label="Tabla de ciclos de vacaciones; desplaza para consultar todas las filas y columnas">
@@ -82,6 +82,6 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
     </tbody>
    </table>
   </div>
-  <div className="vac3-legend"><span><i className="vac3-summer-key"/>Verano</span><span><i className="vac3-selection-key"/>Selección (sin relleno)</span><span>{year===2027?'Blanco: adjudicación globalmente posible · Oscuro: bloqueo demostrado · ?: sin determinar · Pulsa el ciclo para ver detalles':'× No autorizado · +? Cupo adicional posible'}</span></div>
+  {year!==2027&&<div className="vac3-legend"><span>× No autorizado · +? Cupo adicional posible</span></div>}
  </div>;
 }

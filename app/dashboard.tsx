@@ -45,6 +45,20 @@ function Dashboard() {
     const [sessionLoaded,setSessionLoaded]=useState(false);
     const [publicConsultation,setPublicConsultation]=useState(false);
     const currentCid=useRef('');
+    // Native <details> do not dismiss on Escape or outside interaction.
+    useEffect(()=>{
+      const opened=()=>document.querySelectorAll<HTMLDetailsElement>('.election-more-actions[open],.scenario-actions[open]');
+      const onKey=(event:KeyboardEvent)=>{
+        if(event.key==='Escape')opened().forEach(menu=>{menu.open=false;});
+      };
+      const onPointer=(event:PointerEvent)=>{
+        opened().forEach(menu=>{if(!menu.contains(event.target as Node))menu.open=false;});
+      };
+      document.addEventListener('keydown',onKey);
+      document.addEventListener('pointerdown',onPointer);
+      return ()=>{document.removeEventListener('keydown',onKey);document.removeEventListener('pointerdown',onPointer);};
+    },[]);
+
     const preferenceGuard=useRef<null|(()=>Promise<boolean>)>(null);
     const canNavigate=async()=>!preferenceGuard.current||await preferenceGuard.current();
     const isBusy=useRef(false);
@@ -217,7 +231,7 @@ function Dashboard() {
       panel.scrollIntoView({behavior:'smooth',block:'start'});
       setJumpToActivation(false);
     },[jumpToActivation,nav,canManage,cid,data?.campaign.version]);
-    return <div className="app">
+    return <div className={'app'+(data&&!canManage&&nav==='eleccion'?' controller-ux':'')}>
       <aside className={'sidebar ' + (menu ? 'shown' : '')}>
         <a className="brand" href="/"><span className="brand-mark">V<span>·</span></span><div>Vacaciones<small>OCHO EQUIPOS</small></div></a>
         <button className="close-mobile" onClick={() => setMenu(false)} aria-label="Cerrar menú"><X /></button>
@@ -241,12 +255,12 @@ function Dashboard() {
         <span><strong>Vista como controlador {data?.preview?.code??previewCode}</strong> · {data?.preview?.writable?'Simulación privada: puedes guardar sus preferencias y elecciones':'Campaña real: prueba los controles, sin guardar cambios'}</span>
         <button type="button" className="secondary" onClick={()=>{const target=new URL(location.href);target.searchParams.delete('verComo');location.assign(target.toString());}}>Salir de vista previa</button>
       </div>}
-      <div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {year}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : superuser?'Administración general':'Administración del equipo'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors">
-        <label>Ejercicio<select aria-label="Ejercicio" value={year} disabled={!index} onChange={async e=>{
+      <div className="heading"><div><div className="eyebrow">PLANIFICACIÓN · {index?year:'…'}</div><h1>{nav === 'eleccion' ? 'Vacaciones del equipo' : nav === 'ayuda' ? 'Ayuda y documentación' : superuser?'Administración general':'Administración del equipo'}</h1><p>{nav === 'eleccion' ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.' : 'Cada cambio se guarda en la campaña seleccionada.'}</p></div><div className="selectors">
+        <label>Ejercicio<select aria-label="Ejercicio" value={index?year:''} disabled={!index} onChange={async e=>{
             const selectedYear=Number(e.target.value);if(!index||!await canNavigate())return;setYearChoice(selectedYear);
             if(team)setCid(index.campaigns.find((c:any)=>c.year===selectedYear&&c.team_id===team&&c.scope_key==='live')?.id??'');
             else{const u=new URL(location.href);u.searchParams.set('year',String(selectedYear));history.replaceState({},'',u);}
-        }}>{Array.from(new Set(index?.campaigns.filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year)??[2026])).map((y:any)=><option key={y} value={y}>{y}</option>)}</select></label>
+        }}>{!index?<option value="">Cargando…</option>:Array.from(new Set(index.campaigns.filter((c:any)=>c.scope_key==='live').map((c:any)=>c.year))).map((y:any)=><option key={y} value={y}>{y}</option>)}</select></label>
         <label>Equipo<select aria-label="Equipo" value={team} disabled={!index} onChange={async e=>{
             const nextTeam=e.target.value;
             if(!index||!await canNavigate())return;
@@ -270,7 +284,7 @@ function Dashboard() {
         </div></div>
     {error && <div className="alert error" role="alert">{error}<button onClick={() => setError('')} aria-label="Cerrar error">×</button></div>}{notice && <div className="alert success" role="status">{notice}</div>}
         {nav === 'ayuda' ? <Help/> : !index ? <div className="panel empty">Cargando el espacio de trabajo…</div> : !index.teams.length ? <div className="panel empty"><Layers size={36}/><h2>Tu espacio de vacaciones</h2><p>Prepara ocho equipos y una campaña de prueba de 2026.<br />Todos los identificadores iniciales son ficticios.</p>{superuser ? <button className="primary" disabled={busy} onClick={() => perform(async () => { const i = await api('initialize', {}); setCid(''); return i; }, 'Espacio de prueba preparado')}>Preparar campaña de prueba <ArrowUpRight size={16}/></button> : <p>Un superadministrador debe preparar la primera campaña.</p>}</div> : !cid ? <div className="panel empty"><Layers size={36}/><h2>Selecciona un equipo</h2><p>Elige el equipo y ejercicio que quieres consultar.</p></div> : !data ? <div className="panel empty">Cargando campaña…</div> : <>
-        <div className="campaign-strip"><span><span className={'status-dot ' + data.campaign.status}/><b>Equipo {team} · {year}</b><span className="status">{labels[data.campaign.status]}</span>{data.campaign.scope_key!=="live"&&<span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>}{data.campaign.data_kind==="demo"&&<span className="tag">Datos de ejemplo</span>}</span><span>{data.preview?(data.preview.writable?'Simulación editable como controlador':'Vista previa de solo lectura'):(data.editable ? 'Área de gestión' : data.election?.myMemberId ? 'Controlador · preferencias propias' : accessNoticeRequired&&!publicConsultation ? 'Cuenta sin acceso a esta campaña' : 'Consulta pública')} <span className="separator">/</span> {data.campaign.scope_key==='live'?'Ocupación actual · Consulta pública':'Datos aislados · Solo administradores'} <span className="separator">/</span> <span aria-live="polite">{syncState==='offline'?'Sin conexión · reintentando':syncState==='checking'?'Conectando…':'Actualización automática · hasta 5 s'}</span></span></div>
+        <div className="campaign-strip"><span><span className={'status-dot ' + data.campaign.status}/><b>Equipo {team} · {year}</b><span className="status">{labels[data.campaign.status]}</span>{data.campaign.scope_key!=="live"&&<span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>}{data.campaign.data_kind==="demo"&&<span className="tag">Datos de ejemplo</span>}</span><span className="campaign-strip-meta">{data.preview?(data.preview.writable?'Simulación editable como controlador':'Vista previa de solo lectura'):(data.editable ? 'Área de gestión' : data.election?.myMemberId ? 'Controlador · preferencias propias' : accessNoticeRequired&&!publicConsultation ? 'Cuenta sin acceso a esta campaña' : 'Consulta pública')} <span className="separator">/</span> {data.campaign.scope_key==='live'?'Ocupación actual · Consulta pública':'Datos aislados · Solo administradores'} <span className="separator">/</span> <span aria-live="polite" className={'campaign-strip-sync is-'+syncState}>{syncState==='offline'?'Sin conexión · reintentando':syncState==='checking'?'Conectando…':'Actualización automática · hasta 5 s'}</span></span></div>
         {nav === 'eleccion' && (accessNoticeRequired&&!publicConsultation
           ? <CampaignAccessNotice
               email={sessionEmail} provider={sessionProvider} team={team} year={year}

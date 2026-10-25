@@ -644,3 +644,176 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 /* Build stamp at the very bottom: diagnostic, not a navigation item. */
 .content > footer .footer-build{display:block;flex-basis:100%;text-align:right;margin-top:3px;font-size:10px;line-height:1.4;font-weight:400;color:#829288}
 .content > footer .footer-build time{font:inherit;color:inherit}
+/* Mi elección (#64): la situación propia del controlador, primero en la página. */
+.my-election{padding:18px 20px;border-color:#cfe0d8}
+.my-election-head{display:flex;justify-content:space-between;align-items:center;gap:14px}
+.my-election-kicker{display:block;font-size:12px;font-weight:650;letter-spacing:1.2px;color:#3f6b57;margin-bottom:6px}
+.my-election h2{font-size:22px;color:#1d3331}
+.my-election-head p{margin:4px 0 0;font-size:13px;color:#4f625b}
+.my-election.is-my-turn{background:#317a69;border-color:#317a69;color:#fff}
+.my-election.is-my-turn h2,.my-election.is-my-turn .my-election-kicker,.my-election.is-my-turn .my-election-head p,.my-election.is-my-turn strong,.my-election.is-my-turn .my-election-quiet,.my-election.is-my-turn .my-election-notify{color:#fff}
+.my-election.is-my-turn .my-election-cta{background:#fff;color:#1f5a4b}
+.my-election.is-my-turn .my-election-chips span{background:#ffffff26;color:#fff}
+.my-election-cta{min-height:44px;font-size:14px;padding:11px 20px}
+.my-election-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;border-top:1px solid #e4eae7;margin-top:14px;padding-top:12px;font-size:13px;color:#2d4441}
+.my-election.is-my-turn .my-election-row{border-top-color:#ffffff40}
+.my-election-row strong{font-size:13px}
+.my-election-row .secondary{min-height:44px;font-size:13px}
+.my-election-chips{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+.my-election-chips span{background:#e7f1ec;color:#1f5a4b;border-radius:6px;padding:6px 9px;font-size:13px;font-weight:550}
+.my-election-quiet{display:block;font-size:12px;color:#55675f;margin-top:3px}
+.my-election-list.is-used strong,.my-election-list.is-none strong{color:#8a4b1f}
+.my-election-notify{display:inline-flex;align-items:center;gap:8px;margin-top:12px;min-height:44px;font-size:13px;font-weight:550;color:#1f5a4b;text-decoration:underline;text-underline-offset:3px}
+@media (max-width:580px){.my-election-head{flex-direction:column;align-items:stretch}.my-election-cta{width:100%}.my-election-row .secondary{width:100%}}
+.my-election.is-my-turn .my-election-list strong{color:#fff}
+
+
+/* #64 accessibility foundation: legibility and touch targets. */
+/* WCAG AA: old muted/eyebrow/labels/strip were 3.02/4.20/4.11/3.12:1. */
+:root{--muted:#465d50}
+.muted,.eyebrow,.heading p,.selectors label,label{color:#465d50}
+.eyebrow,.selectors label{font-size:12px}
+.campaign-strip{color:#40574c;font-size:12px}
+.campaign-strip b{color:#304e3e;font-size:12px}
+.campaign-strip .status{color:#365b45;font-size:12px}
+.campaign-strip .separator{color:#52645a}
+.tag{color:#425c44}
+/* Public/controller pages need readable metadata without modifying admin tables. */
+.app.controller-ux :is(
+ .topbar .private-pill,.header-account-info small,.heading p,
+ .vac2-heading p,.vac2-legend,.vac2-legend b,.vac2-month h3,
+ .vac2-line,.vac2-cycle-sub,.vac2-names,.vac2-weekdays,.vac2-day,
+ .vac2-occupants,.vac2-members-wrap .muted,.vac2-members-wrap table thead th,
+ .vac2-footnote,.vac2-view-switch button,.vac2-month-nav button,
+ .vac2-member-card summary span,.vac2-member-cycle,
+ .election-workflow-card p,.election-log li,.election-log li b,
+ .election-log li span,.election-log .election-log-note,
+ .election-show-more,.election-turn-status .eyebrow,
+ .election-turn-status .muted,.election-turn p,
+ .election-view-option,.election-more-actions > summary,
+ .election-quick-action,.election-selected-summary,
+ .preference-editor-head .eyebrow,.vac2-preference-rank,
+ .preference-dock-status > span,.preference-feedback,
+ .vac3-tools,.vac3-size-actions button,.vac3-legend,
+ .vac3-choice-indicator,.vac3-table,
+ .content footer,.content footer .footer-build,
+ .header-session-pending,.header-account-info strong,
+ .election-pending-count,.election-fast-mode,.election-fast-indicator,
+ .election-log-impact summary,.election-log-warning,.election-log-highlight,
+ .election-thinking-dialog .muted,.election-auto-notice,
+ .vac2-year-2027 .vac2-day-count,
+ .preference-dock .preference-feedback,
+ .vac2-member-card summary,.vac2-members-mobile small
+){font-size:12px}
+.app.controller-ux :is(.vac2-legend,.vac2-footnote,
+ .election-log li span,.election-log .election-log-note,
+ .vac3-tools,.vac3-legend){color:#465d50}
+@media(max-width:900px){
+ .menu-mobile,.close-mobile{width:44px;min-width:44px;height:44px;place-items:center}
+ .vac2-view-switch button,.election-view-option{min-height:44px}
+ .election-turn-controls>.election-more-actions{flex-basis:44px;min-width:44px}
+ .election-more-actions>summary,.election-turn-controls>.election-more-actions>summary,
+ .scenario-actions>summary{display:grid;place-items:center;min-width:44px;width:44px;min-height:44px;height:44px;cursor:pointer}
+ .scenario-actions>.scenario-menu{top:calc(100% + 4px)}
+ .vac2-member-card>summary,details.panel>summary{min-height:44px;align-items:center}
+ details.panel>summary{display:flex}
+ .vac3-size-actions button{min-width:44px;min-height:44px}
+ .vac3-table th,.vac3-table td{height:44px}
+ .vac3-table .vac3-date button{min-height:44px}
+}
+@media(max-width:850px){.menu-mobile,.close-mobile{display:grid}}
+
+/* Controller-wide legacy microtext also appears outside the cycle workspace. */
+.app.controller-ux :is(
+ small,.primary,.secondary,.tag,.status,summary,label,
+ .detail p,.person-chip,.legend,.calendar-bottom,
+ .day,.day-label,.month h3 span,.stat>span,.stat small,
+ .alert,.empty p,.topbar .private-pill,
+ .nav-caption,.sidebar-bottom,.sidebar-foot,
+ .sidebar-session p,.sidebar-session small,.profile,.profile small,
+ .avatar,.sidebar-bottom>a,.session-detail-label,.session-signout,
+ .alternative-login summary,.session-detail-label,
+ .vac2-occupants,.vac2-date-link,
+ table,table th,table td,td code
+){font-size:12px}
+.election-log-automatic{color:#1f5a4b;font-weight:600}
+/* #64 primera pantalla del controlador: su situación antes que los metadatos. */
+.app.controller-ux .heading{margin-bottom:14px;gap:12px}
+.app.controller-ux .heading .eyebrow,.app.controller-ux .heading p{display:none}
+.app.controller-ux .heading h1{font-size:22px;letter-spacing:-.5px;line-height:1.25}
+.app.controller-ux .campaign-strip{margin-bottom:14px;padding-bottom:12px;align-items:center}
+.app.controller-ux .campaign-strip-meta{font-size:0}
+.app.controller-ux .campaign-strip-meta>:not(.campaign-strip-sync),.app.controller-ux .campaign-strip-sync{display:none}
+.app.controller-ux .campaign-strip-sync.is-offline{display:inline;font-size:12px;color:#8a4b1f;font-weight:600}
+@media(max-width:580px){.app.controller-ux .heading{flex-direction:column;align-items:stretch}.app.controller-ux .selectors{width:100%}.app.controller-ux .selectors label{flex:1;width:auto}}
+.my-election-auto{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;padding:12px 14px;border-radius:9px;background:#fff6e5;border:1px solid #f0d9a8;color:#5a3b10;font-size:13px;line-height:1.45}
+.my-election-auto .secondary{min-height:44px;font-size:13px}
+@media (max-width:580px){.my-election-auto .secondary{width:100%}}
+.app.controller-ux .campaign-strip>span:first-child{flex-wrap:wrap;row-gap:6px;min-width:0}.app.controller-ux .campaign-strip b{white-space:nowrap}.app.controller-ux .campaign-strip .tag{white-space:normal}
+/* #64 editor de preferencias: estado honesto, decisión de uso siempre visible, filas compactas. */
+.preference-state.used,.preference-dock-status .used{color:#8a4b1f;font-weight:650}
+.preference-used-note{background:#fff6e5;border:1px solid #f0d9a8;color:#5a3b10;border-radius:8px;padding:10px 12px;font-size:13px}
+.preference-usage{display:grid;gap:4px;padding:10px 12px;border-radius:8px;background:#f2f7f4}
+.preference-usage .preference-consent{flex-direction:row;align-items:center;gap:10px;font-size:13px;font-weight:600;color:#1d3331;min-height:44px}
+.preference-usage .preference-consent input{width:20px;height:20px}
+.preference-usage small{font-size:12px;color:#40574c;line-height:1.45}
+.preference-list li{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0 8px 4px}
+.preference-list li>.preference-date{flex:1;min-width:0}
+.preference-date strong{font-size:14px}
+.preference-date small{margin-top:2px;font-size:12px}
+.preference-row-actions{margin-top:0!important;flex:none}
+.preference-row-actions button{min-width:44px;padding:8px}
+.cycle-preference-action{margin-top:12px}.cycle-preference-action button{width:100%;min-height:44px;font-size:14px}
+/* #64 confirmación estructurada: fechas completas, avisos primero, consecuencias resumidas. */
+.confirm-choice{display:grid;gap:8px;white-space:normal}
+.confirm-lead{font-size:14px;color:#2d4441}
+.confirm-cycle{display:block;font-size:15px;color:#1d3331;padding:10px 12px;border-radius:8px;background:#eef5f1}
+.confirm-cycle b{font-size:17px}
+.confirm-warnings{display:block;white-space:pre-line;background:#fff3df;border:1px solid #f0cf8f;color:#6a3d06;border-radius:8px;padding:10px 12px;font-size:13px}
+.confirm-impact{display:block;white-space:pre-line;font-size:13px;color:#40574c;line-height:1.5}
+.confirm-impact-title{display:block;font-weight:650;color:#2d4441;margin-bottom:2px}
+/* #64 escala única y apta para daltónicos: un solo tono, de oscuro (muchas plazas) a claro,
+   y el 0 se distingue por textura. Contraste del texto ≥ 4,5:1 en todos los niveles. */
+.vac2-year-2027 .vac2-free-4{--vac2-status:#0b4f40;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-free-3{--vac2-status:#1f7a60;--vac2-foreground:#fff}
+.vac2-year-2027 .vac2-free-2{--vac2-status:#9fd3bd;--vac2-foreground:#0d2b23}
+.vac2-year-2027 .vac2-free-1{--vac2-status:#dcefe6;--vac2-foreground:#0d2b23}
+.vac2-year-2027 .vac2-free-0{--vac2-status:#eceeed;--vac2-foreground:#3d4744}
+.vac2-year-2027 .vac2-unknown{--vac2-status:#fff;--vac2-foreground:#2a3330}
+.vac2-year-2027 .vac2-cycle.vac2-free-0,.vac2-year-2027 .vac2-day.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px)}
+.vac2-year-2027 .vac2-cycle.vac2-unknown,.vac2-year-2027 .vac2-day.vac2-unknown{border:2px dashed #6c7480}
+.vac2-year-2027 .vac2-cycle{border:1px solid #c9d6d0;border-left:6px solid transparent}
+.vac2-year-2027 .vac2-cycle.vac2-summer{border-left-color:#e0a526;box-shadow:none}
+.vac2-year-2027 .vac2-day.vac2-summer{box-shadow:inset 0 -4px 0 #e0a526}
+.vac2-year-2027 .vac2-cycle-sub,.vac2-year-2027 .vac2-names{opacity:1}
+.vac2-key{width:14px;height:14px;border:1px solid #9aa9a3;vertical-align:-2px}
+.vac2-key.vac2-free-4{background:#0b4f40}.vac2-key.vac2-free-3{background:#1f7a60}.vac2-key.vac2-free-2{background:#9fd3bd}.vac2-key.vac2-free-1{background:#dcefe6}
+.vac2-key.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px)}
+.vac2-key.vac2-unknown{background:#fff;border:2px dashed #6c7480}
+.vac2-summer-key{display:inline-block;width:6px;height:16px;border:0;border-radius:2px;background:#e0a526;vertical-align:-3px}
+.vac2-selection-key{display:inline-block;width:14px;height:14px;border-radius:3px;outline:3px solid #b0136b;outline-offset:-3px;vertical-align:-2px}
+.vac2-legend span{display:inline-flex;align-items:center;gap:6px}
+/* Selección y preferencias: magenta, distinto de verdes y dorado. */
+.vac2-selected,.vac2-year-2027 .vac2-cycle.vac2-selected,.vac2-year-2027 .vac2-day.vac2-selected{outline:3px solid #b0136b;outline-offset:2px}
+.vac2-preference-rank,.app.controller-ux .vac2-preference-rank{display:inline-block;align-self:flex-start;margin-top:6px;padding:2px 9px;border-radius:999px;background:#fff;color:#7a0d4a;border:2px solid #b0136b;font-size:12px;font-weight:800}
+/* Tabla: misma semántica. */
+.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px);color:#3d4744}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled .vac3-slot-code{color:#3d4744}
+.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown{background:#fff;outline:2px dashed #6c7480;outline-offset:-3px}
+.vac3-2027 .vac3-table .vac3-selected td,.vac3-2027 .vac3-table .vac3-selected td.vac3-slot{border-top:3px solid #b0136b;border-bottom:3px solid #b0136b}
+.vac3-table .vac3-choice-indicator{background:#fff;color:#7a0d4a;border:2px solid #b0136b;border-radius:999px;font-weight:800}
+.vac3-key{display:inline-block;width:14px;height:14px;border:1px solid #9aa9a3;border-radius:3px;vertical-align:-2px}
+.vac3-key-free{background:#fff}.vac3-key-occupied{background:#e4ece8}
+.vac3-table .vac3-summer .vac3-points{box-shadow:inset 6px 0 #e0a526}.vac3-table .vac3-selected .vac3-points{box-shadow:inset 3px 0 #b0136b}.vac3-table .vac3-summer.vac3-selected .vac3-points{box-shadow:inset 6px 0 #e0a526,inset 9px 0 #b0136b}.vac3-table .vac3-selected td:last-child{box-shadow:inset -3px 0 #b0136b}
+/* #64 modo preferencias reconocible y salto a mes en el Mapa. */
+.preference-mode-banner{display:grid;gap:3px;margin:0 0 12px;padding:12px 14px;border-radius:10px;background:#fbeaf3;border:1px solid #e6a9cb;border-left:6px solid #b0136b;color:#4a0c2e;font-size:13px;line-height:1.45}
+.preference-mode-banner strong{font-size:15px}
+.is-preparing-preferences .vac2-panel{border-color:#e6a9cb;box-shadow:0 0 0 2px #f6d3e6}
+.vac2-month-jump{display:flex;gap:6px;overflow-x:auto;padding:4px 0 10px;margin-bottom:4px;position:sticky;top:0;z-index:4;background:#fff;scrollbar-width:thin}
+.vac2-month-jump button{flex:none;min-width:44px;min-height:44px;padding:0 12px;border:1px solid #c9d6d0;border-radius:999px;background:#fff;color:#1f5a4b;font-size:13px;font-weight:650}
+.vac2-month{scroll-margin-top:64px}
+@media(min-width:901px){.vac2-month-jump{display:none}}
+.vac2-month-jump{flex-direction:row}
+.vac2-year-2027 .vac2-key.vac2-free-4{background:#0b4f40}.vac2-year-2027 .vac2-key.vac2-free-3{background:#1f7a60}.vac2-year-2027 .vac2-key.vac2-free-2{background:#9fd3bd}.vac2-year-2027 .vac2-key.vac2-free-1{background:#dcefe6}
+.vac2-year-2027 .vac2-key.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px)}
+.vac2-year-2027 .vac2-key.vac2-unknown{background:#fff;border:2px dashed #6c7480}
