@@ -98,6 +98,8 @@ jobs:
           test "$(pnpm --version)" = 11.25.0
       - name: Install locked dependencies using the local store
         run: pnpm install --frozen-lockfile --store-dir /pnpm/store
+      - name: Prettier (comprobar formato)
+        run: pnpm format:check
       # The build needs no secrets or Site variables.
       - run: pnpm build
       # Informative until the existing errors are fixed; see docs/PRUEBAS.md.
