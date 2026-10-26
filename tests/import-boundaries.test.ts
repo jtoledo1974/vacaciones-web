@@ -7,12 +7,9 @@ import ts from 'typescript';
 
 const root=path.resolve(import.meta.dirname,'..');
 
-// These two server -> UI dependencies belong to tarea/modulo-secuencia.
-// Remove each exception as soon as that task moves the shared logic to domain.
-const legacyImports:Record<string,string>={
- 'server/election-service.ts -> app/my-election-state':'La secuencia de elección aún comparte lógica con la interfaz (tarea/modulo-secuencia).',
- 'server/notifications.ts -> app/my-election-state':'La cola de avisos todavía utiliza turnsUntil de la interfaz (tarea/modulo-secuencia).'
-};
+// Temporary, documented layer exceptions. Remove each one as soon as its task
+// moves the shared logic to domain.
+const legacyImports:Record<string,string>={};
 
 // Policy implementation can be imported directly by its own unit/integration tests.
 // Production consumers must use domain/policy.ts or domain/hr-calendars.ts.

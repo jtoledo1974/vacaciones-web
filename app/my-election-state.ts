@@ -1,4 +1,6 @@
-import {orderForRound,type ElectionState} from '../domain/election.ts';
+import type {ElectionState} from '../domain/election.ts';
+import {turnsUntil} from '../domain/sequence.ts';
+export {peopleAhead,turnsUntil} from '../domain/sequence.ts';
 
 type Cycle={date:string;end:string;score:number;occupied:number;max:number};
 type Award={member_id:string;cycle_date:string};
@@ -68,26 +70,6 @@ export function myElection(input:MyElectionInput):MyElection|null{
   return {...base,phase:'my-turn',needed:turn.needed??1,turnsAhead:0};
 
  return {...base,phase:'waiting',turnsAhead:turnsUntil(state,input.awards,entitlement,me)};
-}
-
-/** People with cycles still to choose before `me`, from the current cursor.
- * null when `me` never comes up. Shared with the server's Push alerts. */
-export function turnsUntil(state:ElectionState,awards:{member_id:string}[],entitlement:number,me:string):number|null{
- return peopleAhead(state,awards,entitlement,me)?.length??null;
-}
-
-/** The members counted by turnsUntil, in order. */
-export function peopleAhead(state:ElectionState,awards:{member_id:string}[],entitlement:number,me:string):string[]|null{
- const counts=new Map<string,number>();
- for(const a of awards)counts.set(a.member_id,(counts.get(a.member_id)??0)+1);
- const n=state.order.length;
- const ahead:string[]=[];
- for(let cursor=state.cursor;cursor<state.cursor+n*(entitlement+1);cursor++){
-  const id=orderForRound(state,Math.floor(cursor/n))[cursor%n];
-  if(id===me)return ahead;
-  if((counts.get(id)??0)<entitlement)ahead.push(id);
- }
- return null;
 }
 
 /** When lists ahead resolve instantly, the wait depends only on those who

@@ -1,6 +1,8 @@
 import {calculate,type Member,type Request,type Award} from './vacations.ts';
 import type {Config} from './calendar.ts';
 import {policyFor,occupancyFor} from './policy.ts';
+import {nextSlot,orderForRound,type SequenceInput} from './sequence.ts';
+export {orderForRound} from './sequence.ts';
 
 // Criterios Vacaciones 1.1 (10/06/2025), pp. 1-3.
 export const ELECTION_POLICY_VERSION='criterios-vacaciones-1.1-2025';
@@ -129,20 +131,17 @@ export function validateElectionState(state:ElectionState,members:Member[]){
  if(state.pendingTieGroups!==undefined&&(!Array.isArray(state.pendingTieGroups)||state.pendingTieGroups.some(group=>!Array.isArray(group)||!(state.tieGroups??[]).some(tie=>tie.length===group.length&&tie.every((id,i)=>id===group[i])))))throw new Error('Empates pendientes no válidos');
  if(state.tieResolutions!==undefined&&(!Array.isArray(state.tieResolutions)||state.tieResolutions.some(r=>!r||!['random','external'].includes(r.method)||typeof r.at!=='string'||typeof r.actor!=='string'||!Array.isArray(r.order)||r.order.length<2||new Set(r.order).size!==r.order.length||r.order.some(id=>!state.order.includes(id))||(r.anticipated!==undefined&&typeof r.anticipated!=='boolean'))))throw new Error('Actas de sorteo no válidas');
 }
-export function orderForRound(state:ElectionState,round:number):string[]{
- const result=[...state.order];
- for(const group of state.tieGroups??[]){
-  const first=state.order.indexOf(group[0]),offset=round%group.length;
-  result.splice(first,group.length,...group.slice(offset),...group.slice(0,offset));
- }
- return result;
+/** The campaign's turn sequence, with each member's entitlement taken from the year's policy. */
+export function sequenceFor(ctx:ElectionContext,state:ElectionState):SequenceInput{
+ return {state,awards:ctx.awards,entitlement:id=>entitlementFor(ctx,id),maxRounds:ctx.config.cyclesPerPerson+4};
 }
 export function currentTurn(ctx:ElectionContext,input:ElectionState){
  const state=structuredClone(input);validateElectionState(state,ctx.members);
  const n=state.order.length;
  const round=Math.floor(state.cursor/n)+1;
  if(state.status!=='active')return {state,memberId:null,needed:0,round,participants:[] as string[],requiredByMember:{} as Record<string,number>};
- if(ctx.members.every(m=>count(ctx,m.id)>=entitlementFor(ctx,m.id))){
+ const slot=nextSlot(sequenceFor(ctx,state));
+ if('complete' in slot){
   const rules=occupancyFor(ctx.year);
   if(rules){
     const evaluation=rules.evaluateFinal(rules.state(ctx,ctx.members,ctx.awards));
@@ -150,21 +149,10 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
   }
   state.status='complete';return {state,memberId:null,needed:0,round,participants:[] as string[],requiredByMember:{} as Record<string,number>};
  }
- // Every completed or joint-deferred slot still consumes one turn in the round.
- for(let scanned=0;scanned<n*(ctx.config.cyclesPerPerson+4);scanned++){
-  const currentRound=Math.floor(state.cursor/n);
-  const inRound=orderForRound(state,currentRound),id=inRound[state.cursor%n];
-  const remaining=entitlementFor(ctx,id)-count(ctx,id);
-  if(remaining===0){state.cursor++;continue;}
-  const pendingTie=(state.pendingTieGroups??[]).find(group=>group.includes(id));
-  if(pendingTie)return {state,memberId:null,needed:0,round:currentRound+1,participants:[] as string[],requiredByMember:{} as Record<string,number>,pendingTie};
-  const joint=[...(state.jointGroups??[]),...(state.jointAgreements??[]).filter(a=>!a.cancelledAt&&a.round===currentRound+1).map(a=>a.members)].find(g=>g.includes(id));
-  const participants=joint?inRound.filter(person=>joint.includes(person)&&count(ctx,person)<entitlementFor(ctx,person)):[id];
-  if(participants[participants.length-1]!==id){state.cursor++;continue;}
-  const requiredByMember=Object.fromEntries(participants.map(person=>[person,Math.min(1+(state.credits[person]??0),entitlementFor(ctx,person)-count(ctx,person))]));
-  return {state,memberId:id,needed:Object.values(requiredByMember).reduce((a,b)=>a+b,0),round:currentRound+1,participants,requiredByMember};
- }
- throw new Error('No se ha podido avanzar la elección');
+ state.cursor=slot.cursor;
+ if(slot.pendingTie)return {state,memberId:null,needed:0,round:slot.round,participants:[] as string[],requiredByMember:{} as Record<string,number>,pendingTie:slot.pendingTie};
+ const {participants,requiredByMember}=slot;
+ return {state,memberId:participants[participants.length-1],needed:Object.values(requiredByMember).reduce((a,b)=>a+b,0),round:slot.round,participants,requiredByMember};
 }
 /** Resolve a specific pending tie ahead of its turn, without consuming any election slot. */
 export function resolveTie(ctx:ElectionContext,input:ElectionState,order:string[],method:'random'|'external',actor:string,at:string,groupMemberIds?:string[]){

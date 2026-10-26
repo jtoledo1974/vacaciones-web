@@ -9,7 +9,7 @@ import {buildElectionTimeline,publicElectionTimeline,type PublicElectionTimeline
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
 import {historicalAvailability} from './availability-history.ts';
 import {AuditContext,auditAfter} from './audit-context.ts';
-import {peopleAhead} from '../app/my-election-state.ts';
+import {peopleAhead} from '../domain/sequence.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});

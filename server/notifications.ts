@@ -1,5 +1,5 @@
 import {choiceIssues,currentTurn,entitlementFor,type ElectionContext,type ElectionState} from '../domain/election.ts';
-import {turnsUntil} from '../app/my-election-state.ts';
+import {turnsUntil} from '../domain/sequence.ts';
 import type {Repository} from './repository.ts';
 import {requireSuper,type Principal} from './permissions.ts';
 import {deliverPush,publicPushKey,type PushConfig} from './web-push.ts';
