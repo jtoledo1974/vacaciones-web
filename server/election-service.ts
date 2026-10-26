@@ -42,13 +42,14 @@ import { ApiError } from './errors.ts';
 import { buildElectionTimeline, publicElectionTimeline, type PublicElectionTimelineItem } from './election-timeline.ts';
 import { ReconstructionService, appliedAudit } from './reconstruction.ts';
 import { historicalAvailability } from './availability-history.ts';
-import { AuditContext, auditAfter } from './audit-context.ts';
+import { AuditContext, auditAfter, eventsFor } from './audit-context.ts';
+import { ELECTION_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
 import { peopleAhead } from '../domain/sequence.ts';
 
 type Host = {
   load: (cid: string) => Promise<any>;
   commit: (ops: Statement[]) => Promise<any>;
-  audit: (action: string, c: any, before: any, after: any) => Statement;
+  audit: (action: AuditAction, c: any, before: any, after: any) => Statement;
 };
 const context = (d: any): ElectionContext => ({
   year: d.campaign.year,
@@ -156,11 +157,7 @@ export class ElectionService {
     if (audit) return audit.replay();
     // Replay the append-only audit to recover independent undo and redo stacks.
     // A new decision after an undo creates a new branch and clears only the redo stack.
-    const rows = await this.repo.all(
-      'SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',
-      [cid],
-    );
-    return appliedAudit(rows);
+    return appliedAudit(await eventsFor(this.repo, cid));
   }
   // Edits to lists this actor may not touch stay out of their undo: «Deshacer»
   // reaches the newest decision below them instead of being blocked by them.
@@ -486,11 +483,7 @@ export class ElectionService {
     // to public viewers. Managers retain the complete existing timeline.
     let timeline: ReturnType<typeof buildElectionTimeline> | PublicElectionTimelineItem[] = [];
     if (manage || raw.state || ctx.awards.length) {
-      const rows = await (options.auditContext?.rows() ??
-        this.repo.all(
-          'SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',
-          [cid],
-        ));
+      const rows = await (options.auditContext?.rows() ?? eventsFor(this.repo, cid));
       const events = buildElectionTimeline(rows as any, ctx, raw.state, history ?? undefined);
       timeline = manage ? events : publicElectionTimeline(events, rows as any);
     }
@@ -674,7 +667,7 @@ export class ElectionService {
     if (reconstruction && reconstruction.status !== 'completed')
       throw new ApiError('Elección congelada: termina la reconstrucción administrativa antes de continuar', 409);
     const ops = cas(cid, c.version),
-      snapshot = { format: 'election-undo-v1', ...raw, awards: d.awards, requests: d.requests };
+      snapshot = { format: ELECTION_UNDO_FORMAT, ...raw, awards: d.awards, requests: d.requests };
     let state = raw.state,
       preferences = raw.preferences,
       choices: any[] = [],
