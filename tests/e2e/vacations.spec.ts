@@ -858,3 +858,37 @@ test('sin equipo en URL no se impone C y el administrador puede borrar una simul
  await expect(page.getByRole('status').filter({hasText:'Simulación eliminada'})).toBeVisible();
  expect((await request.get('/api/campaign/'+s.id)).status()).toBe(404);
 });
+
+test('Por CTA: ordenación de personas y ciclos independiente en móvil y escritorio',{tag:'@both'},async({page,request})=>{
+ const s=await setup(request,page),members=s.data.members,cycles=s.data.result.cycles;
+ const dates=[.70,.20,.55,.05,.10].map(part=>cycles[Math.floor(cycles.length*part)].date);
+ expect(new Set(dates).size).toBe(5);
+ await election(request,s.id,{action:'start',rulesConfirmed:true,allowDeferral:true});
+ for(let i=0;i<5;i++)await election(request,s.id,{action:'choose',memberId:members[i%4].id,dates:[dates[i]]});
+ await open(page,s.id);
+ await page.getByRole('group',{name:'Vista del calendario'}).getByRole('button',{name:'Por CTA'}).click();
+ const controls=page.getByRole('group',{name:'Ordenación de vacaciones por CTA'});
+ const memberSelect=controls.getByLabel('Orden de CTA'),cycleSelect=controls.getByLabel('Orden de ciclos');
+ await expect(memberSelect).toHaveValue('request');
+ await expect(cycleSelect).toHaveValue('chronological');
+ const rows=page.locator('.vac2-members-desktop tbody tr');
+ const getRows=()=>rows.evaluateAll(items=>items.map(row=>({
+  code:row.querySelector('th')?.textContent?.trim()??'',
+  points:Number(row.querySelector('td:last-child')?.textContent?.trim())
+ })));
+ const initial=await getRows();
+ expect(initial.map(r=>r.code)).toEqual(members.map((m:any)=>m.code));
+ const chronological=await rows.first().locator('.vac2-date-link').allTextContents();
+ expect(chronological).toHaveLength(2);
+ await cycleSelect.selectOption('request');
+ expect(await rows.first().locator('.vac2-date-link').allTextContents()).toEqual([...chronological].reverse());
+ expect((await getRows()).map(r=>r.code)).toEqual(initial.map(r=>r.code));
+ await memberSelect.selectOption('points');
+ expect((await getRows()).map(r=>r.code)).toEqual([...initial].sort((a,b)=>a.points-b.points||initial.indexOf(a)-initial.indexOf(b)).map(r=>r.code));
+ await cycleSelect.selectOption('chronological');
+ await expect(memberSelect).toHaveValue('points');
+ if((page.viewportSize()?.width??1280)<=900){
+  await expect(page.locator('.vac2-member-card')).toHaveCount(members.length);
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBeTruthy();
+ }
+});

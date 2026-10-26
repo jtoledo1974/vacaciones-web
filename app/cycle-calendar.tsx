@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useMemo,useState} from 'react';
 import CycleTable from './cycle-table';
+import {orderMemberAwards,orderMemberIds,type CycleOrder,type MemberOrder} from '../domain/member-display-order';
 import type {AvailabilitySnapshot} from '../domain/availability-2027';
 import {cycleAvailability,cycleOccupancyLabel} from './cycle-availability-ui';
 
@@ -40,6 +41,8 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   }catch{ /* La vista funciona sin cookies. */ }
  }
  const [activeMonth,setActiveMonth]=useState(0);
+ const [memberOrder,setMemberOrder]=useState<MemberOrder>('request');
+ const [cycleOrder,setCycleOrder]=useState<CycleOrder>('chronological');
  const byDate=useMemo(()=>new Map(cycles.map(c=>[c.date,c])),[cycles]);
  const byId=useMemo(()=>new Map(members.map(m=>[m.id,m.code])),[members]);
  const holders=useMemo(()=>{
@@ -51,6 +54,15 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   const ids=[...order,...members.map(m=>m.id)];
   return [...new Set(ids)].filter(id=>byId.has(id));
  },[order,members,byId]);
+ const memberPoints=useMemo(()=>{
+  const totals=new Map<string,number>();
+  for(const award of awards)totals.set(award.member_id,(totals.get(award.member_id)??0)+(byDate.get(award.cycle_date)?.score??0));
+  for(const p of points)totals.set(p.member_id,p.points);
+  return totals;
+ },[awards,byDate,points]);
+ const displayedMembers=useMemo(()=>orderMemberIds(membersOrder,memberPoints,memberOrder),[membersOrder,memberPoints,memberOrder]);
+ const memberEntries=(id:string):Cycle[]=>orderMemberAwards(awards.filter(a=>a.member_id===id),cycleOrder)
+  .map(a=>byDate.get(a.cycle_date)).filter((c):c is Cycle=>!!c);
  const byMonth=useMemo(()=>months.map((_,m)=>cycles.filter(c=>monthIndex(c.date)===m)),[cycles]);
  const monthDates=useMemo(()=>months.map((_,m)=>{
   const result:(Cycle|null)[]=[];
@@ -103,20 +115,34 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
  }
  function renderMembers(){
   return <div className="vac2-members-wrap">
-   <p className="muted">Cada fila muestra hasta seis ciclos por CTA, ordenados por fecha de vacaciones, no por turno de petición.</p>
-   <div className="vac2-members-desktop table-wrap"><table><thead><tr><th>CTA</th>{Array.from({length:6},(_,i)=><th key={i}>C{i+1}</th>)}<th>Pts</th></tr></thead><tbody>{membersOrder.map(id=>{
-    const entries=awards.filter(a=>a.member_id===id).map(a=>byDate.get(a.cycle_date)).filter((c):c is Cycle=>!!c).sort((a,b)=>a.date.localeCompare(b.date));
-    const p=points.find(p=>p.member_id===id);
-    return <tr key={id}><th>{byId.get(id)}</th>{Array.from({length:6},(_,i)=><td key={i}>{entries[i]?<button type="button" className="vac2-date-link" onClick={()=>onSelect(entries[i])}>{formatDate(entries[i].date)}</button>:'—'}</td>)}<td>{p?.points??entries.reduce((s,c)=>s+c.score,0)}</td></tr>;
+   <div className="vac2-member-controls" role="group" aria-label="Ordenación de vacaciones por CTA">
+    <label htmlFor="vac2-member-sort">Orden de CTA
+     <select id="vac2-member-sort" value={memberOrder} onChange={e=>setMemberOrder(e.target.value as MemberOrder)}>
+      <option value="request">Orden de petición</option>
+      <option value="points">Puntos acumulados ↑</option>
+     </select>
+    </label>
+    <label htmlFor="vac2-cycle-sort">Orden de ciclos
+     <select id="vac2-cycle-sort" value={cycleOrder} onChange={e=>setCycleOrder(e.target.value as CycleOrder)}>
+      <option value="chronological">Cronológico</option>
+      <option value="request">Orden de petición</option>
+     </select>
+    </label>
+   </div>
+   <p className="muted">Los puntos acumulados suman los ciclos adjudicados. El orden de petición de los ciclos sigue las adjudicaciones registradas.</p>
+   <div className="vac2-members-desktop table-wrap"><table><thead><tr><th scope="col">CTA</th>{Array.from({length:6},(_,i)=><th scope="col" key={i}>C{i+1}</th>)}<th scope="col">Pts</th></tr></thead><tbody>{displayedMembers.map(id=>{
+    const entries=memberEntries(id);
+    return <tr key={id}><th scope="row">{byId.get(id)}</th>{Array.from({length:6},(_,i)=><td key={i}>{entries[i]?<button type="button" className="vac2-date-link" onClick={()=>onSelect(entries[i])}>{formatDate(entries[i].date)}</button>:'—'}</td>)}<td>{memberPoints.get(id)??0}</td></tr>;
    })}</tbody></table></div>
-   <div className="vac2-members-mobile">{membersOrder.map(id=>{
-    const entries=awards.filter(a=>a.member_id===id).map(a=>byDate.get(a.cycle_date)).filter((c):c is Cycle=>!!c).sort((a,b)=>a.date.localeCompare(b.date));
-    return <details key={id} className="vac2-member-card"><summary><b>{byId.get(id)}</b><span>{entries.length===1?'1 ciclo':entries.length+' ciclos'} · {points.find(p=>p.member_id===id)?.points??0} pt</span></summary>
+   <div className="vac2-members-mobile">{displayedMembers.map(id=>{
+    const entries=memberEntries(id);
+    return <details key={id} className="vac2-member-card"><summary><b>{byId.get(id)}</b><span>{entries.length===1?'1 ciclo':entries.length+' ciclos'} · {memberPoints.get(id)??0} pt</span></summary>
      <div>{entries.length?entries.map(c=><button type="button" className="vac2-member-cycle" key={c.date} onClick={()=>onSelect(c)}>{formatDate(c.date)} – {formatDate(c.end)} · {c.score} pt</button>):<p className="muted">Sin ciclos adjudicados</p>}</div>
     </details>;
    })}</div>
   </div>;
  }
+
  return <section className={"panel vac2-panel"+(year===2027?" vac2-year-2027":"")} aria-label="Calendario de ciclos">
   <div className="vac2-heading">
    <div><h2>Disponibilidad y baremo</h2>{!preferenceMode&&<p className="muted">Selecciona cualquier ciclo para ver detalles y ocupantes.</p>}</div>

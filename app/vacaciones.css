@@ -80,6 +80,10 @@
 .vac2-occupants span{overflow-wrap:anywhere}
 .vac2-month-nav{display:none}
 .vac2-members-wrap{padding:10px 0 0}
+.vac2-member-controls{display:flex;flex-wrap:wrap;gap:8px 12px;margin:0 0 10px}
+.vac2-member-controls label{display:flex;flex:1 1 185px;flex-direction:column;gap:5px;min-width:0;color:#445e52;font-size:12px;font-weight:650}
+.vac2-member-controls select{width:100%;min-width:0;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:#204d3e;font:inherit;font-size:13px;font-weight:500}
+.vac2-member-controls select:focus-visible{outline:2px solid #235f4e;outline-offset:2px}
 .vac2-members-wrap .muted{font-size:11px;margin:2px 0 12px}
 .vac2-members-desktop{overflow-x:auto}
 .vac2-members-wrap table{min-width:610px}
@@ -130,6 +134,7 @@
  .vac2-calendar>.vac2-active-mobile{display:block}
  .vac2-calendar .vac2-month{padding:13px}
  .vac2-calendar .vac2-day{font-size:12px;min-height:31px}
+ .vac2-member-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
  .vac2-members-desktop{display:none}
  .vac2-members-mobile{display:grid;gap:7px}
  .vac2-member-card{margin:0;border:1px solid var(--line);border-radius:7px;padding:0}
