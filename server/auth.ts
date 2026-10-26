@@ -1,4 +1,4 @@
-import {getChatGPTUser} from '../app/chatgpt-auth';
+import {getChatGPTUser} from './chatgpt-auth';
 import type {Identity} from './permissions';
 import {verifyFirebaseIdToken} from './firebase-auth';
 import {localAdminIdentity,type LocalAdminConfig} from './local-admin.ts';

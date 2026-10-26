@@ -1,20 +1,7 @@
 import {currentTurn,orderForRound,type ElectionContext,type ElectionState} from '../domain/election.ts';
 import {appliedAudit,auditBefore,auditAfter,type AuditRow} from './audit-context.ts';
-import type {AvailabilityChange, ImpactEvent} from '../domain/occupancy.ts';
-
-type LoggedChoice={member_id:string;cycle_date:string};
-export type ElectionTimelineItem={
- id:string;kind:'choice'|'defer'|'tie'|'legacy'|'joint';round:number|null;createdAt:string;
- memberIds:string[];choices:LoggedChoice[];deferredTurns:number;
- ties:{memberId:string;position:number;total:number;order:string[]}[];
- method?:'random'|'external';order?:string[];anticipated?:boolean;jointAction?:'register_joint'|'cancel_joint';
- impact?: {
-  policyVersion:string; status:'exact'|'indeterminate'|'invalid';
-  campaignVersionBefore:number; campaignVersionAfter:number;
-  changes:AvailabilityChange[];events:ImpactEvent[];
- };
- warnings?:{code:string;message:string;period?:number}[];
-};
+import type {ElectionTimelineItem} from '../domain/election-timeline-types.ts';
+export type {ElectionTimelineItem} from '../domain/election-timeline-types.ts';
 
 function parsed(row:AuditRow,side:'before'|'after'):any{
  try{return side==='before'?auditBefore(row):auditAfter(row);}catch{return null;}
@@ -65,7 +52,7 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
    const reconstructed=row.action==='reconstruction_step';
    const kind=reconstructed?after?.kind:row.action;
    const round=roundAt(row,ctx);
-   const choices:LoggedChoice[]=(Array.isArray(after?.choices)?after.choices:[])
+   const choices:ElectionTimelineItem['choices']=(Array.isArray(after?.choices)?after.choices:[])
     .filter((choice:any)=>typeof choice?.member_id==='string'&&typeof choice?.cycle_date==='string'&&awardKeys.has(choice.member_id+'|'+choice.cycle_date));
    for(const choice of choices)accounted.add(choice.member_id+'|'+choice.cycle_date);
    let turn:ReturnType<typeof currentTurn>|null=null;

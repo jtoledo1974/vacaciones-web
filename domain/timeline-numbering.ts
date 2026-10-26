@@ -1,4 +1,4 @@
-import type {ElectionTimelineItem} from '../server/election-timeline.ts';
+import type {ElectionTimelineItem} from './election-timeline-types.ts';
 
 /** Count individual awarded cycles chronologically, before UI pagination. */
 export function numberTimelineCycles(events:ElectionTimelineItem[]){
