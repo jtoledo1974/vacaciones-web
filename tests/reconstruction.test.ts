@@ -174,3 +174,25 @@ test('reconstrucción guiada reproduce un acuerdo conjunto creado a mitad de ron
  assert.deepEqual(v.election.state.jointAgreements[0].members,[ids[2],ids[3]]);
  assert.equal(v.awards.length,4);
 });
+test('reconstruir y deshacer con más de 11 listas de preferencias respeta el límite de parámetros de D1',async()=>{
+ // Con 9 columnas por preferencia, 12 filas por INSERT daban 108 parámetros y D1 respondía 500.
+ const repo=new SQLiteRepo(),s=new Service(repo,owner);await s.init();
+ const cid=(await s.list()).campaigns.find(c=>c.team_id==='C').id;
+ const codes=Array.from({length:14},(_,i)=>'M'+String(i).padStart(2,'0'));
+ let d=await s.view(cid);
+ d=await s.mutate(cid,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:codes.map(code=>({code,label:'Ejemplo '+code,seniority:''}))}});
+ d=await s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:Object.fromEntries(codes.map((c,i)=>[c,i*10])),previousScoresSource:'Puntuaciones históricas del fixture'}});
+ const ids=d.members.map((m:any)=>m.id),dates=d.result.cycles.map((c:any)=>c.date);
+ for(const [i,id] of ids.entries())await act(s,cid,{action:'preferences',memberId:id,dates:[dates[(i+2)%dates.length]]});
+ await act(s,cid,start(ids,{automaticPaused:true}));
+ await act(s,cid,{action:'choose',memberId:ids[0],dates:[dates[0]]});
+ let v=await s.view(cid);
+ assert.ok((await repo.all('SELECT COUNT(*) n FROM preferences WHERE campaign_id=?',[cid]))[0].n>=12);
+ const target=v.election.reconstruction.candidates.find((e:any)=>e.action==='choose'&&e.memberIds.includes(ids[0]));
+ v=await act(s,cid,{action:'reconstruction_start',historyId:target.id});
+ assert.equal(v.awards.length,0);
+ v=await act(s,cid,{action:'reconstruction_cancel'});
+ assert.equal(v.awards.length,1);
+ v=await act(s,cid,{action:'election_undo',historyId:v.election.undo});
+ assert.equal(v.awards.length,0);
+});

@@ -4,7 +4,7 @@ import {policyState2027} from '../domain/election-2027.ts';
 import {canComplete2027,evaluate2027Candidate,evaluate2027Final,partialAssessment2027,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
 import {availabilityByCycle,compactAvailability,recordedAvailabilityByCycle2027,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact,type AvailabilitySnapshot,type CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
-import {cas,type Repository,type Statement} from './repository.ts';
+import {cas,insertRows,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
 import {buildElectionTimeline,publicElectionTimeline,type PublicElectionTimelineItem} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
@@ -15,9 +15,6 @@ import {peopleAhead} from '../app/my-election-state.ts';
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
 export function electionStateStatement(cid:string,state:ElectionState|null):Statement{return state?{sql:'INSERT INTO election_states(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',args:[cid,JSON.stringify(state)]}:{sql:'DELETE FROM election_states WHERE campaign_id=?',args:[cid]};}
-function insertRows(table:string,columns:string[],rows:unknown[][]):Statement[]{
- const ops:Statement[]=[];for(let i=0;i<rows.length;i+=12){const chunk=rows.slice(i,i+12);ops.push({sql:`INSERT INTO ${table}(${columns.join(',')}) VALUES ${chunk.map(()=>`(${columns.map(()=>'?').join(',')})`).join(',')}`,args:chunk.flat()});}return ops;
-}
 export class ElectionService{
  constructor(private repo:Repository,private actor:Principal,private host:Host){}
  reconstruction(){return new ReconstructionService(this.repo,this.actor,this.host);}

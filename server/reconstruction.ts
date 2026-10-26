@@ -4,7 +4,7 @@ import {immediate2027Issues} from '../domain/policy-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
 import {availabilityImpact,availabilityByCycle,compactAvailability,type AvailabilitySnapshot,type CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
 import {canWrite,type Principal} from './permissions.ts';
-import {cas,type Repository,type Statement} from './repository.ts';
+import {cas,insertRows,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
 import {AuditContext,appliedAudit,auditBefore,auditAfter} from './audit-context.ts';
 export {appliedAudit} from './audit-context.ts';
@@ -17,19 +17,14 @@ type Host={load:(cid:string)=>Promise<any>;commit:(statements:Statement[])=>Prom
 const ctx=(d:any,awards=d.awards,requests=d.requests):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,awards,requests});
 const snap=(state:ElectionState|null,preferences:Preference[],d:any):Snapshot=>({state:structuredClone(state),preferences:structuredClone(preferences),awards:structuredClone(d.awards),requests:structuredClone(d.requests)});
 const statement=(cid:string,state:ElectionState|null):Statement=>state?{sql:'INSERT INTO election_states(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',args:[cid,JSON.stringify(state)]}:{sql:'DELETE FROM election_states WHERE campaign_id=?',args:[cid]};
-function inserts(table:string,cols:string[],rows:any[][]):Statement[]{
- const statements:Statement[]=[];
- for(let i=0;i<rows.length;i+=12){const batch=rows.slice(i,i+12);statements.push({sql:'INSERT INTO '+table+'('+cols.join(',')+') VALUES '+batch.map(()=>'('+cols.map(()=>'?').join(',')+')').join(','),args:batch.flat()});}
- return statements;
-}
 function restore(cid:string,s:Snapshot):Statement[]{
  return [
   {sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},
   {sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},
   {sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},
-  ...inserts('awards',['id','campaign_id','member_id','cycle_date','version'],s.awards.map(a=>[a.id,cid,a.member_id,a.cycle_date,a.version])),
-  ...inserts('requests',['id','campaign_id','member_id','slot','cycle_date','version'],s.requests.map(r=>[r.id,cid,r.member_id,r.slot,r.cycle_date,r.version])),
-  ...inserts('preferences',PREFERENCE_COLUMNS,s.preferences.map(p=>preferenceRow(p,cid))),
+  ...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],s.awards.map(a=>[a.id,cid,a.member_id,a.cycle_date,a.version])),
+  ...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],s.requests.map(r=>[r.id,cid,r.member_id,r.slot,r.cycle_date,r.version])),
+  ...insertRows('preferences',PREFERENCE_COLUMNS,s.preferences.map(p=>preferenceRow(p,cid))),
   statement(cid,s.state)
  ];
 }
@@ -250,8 +245,8 @@ export class ReconstructionService{
   if(state.status==='complete'||state.cursor>=s.targetCursor)s.status='review';
   // A chosen historic preference is never applied automatically: the administrator
   // selected it explicitly. The exact choice and associated request are one transaction.
-  ops.push(statement(cid,state),...inserts('awards',['id','campaign_id','member_id','cycle_date','version'],awardRows),
-   ...inserts('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
+  ops.push(statement(cid,state),...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],awardRows),
+   ...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
   for(const p of preferences){const previous=raw.preferences.find(q=>q.member_id===p.member_id);if(previous&&previous.active!==p.active)ops.push({sql:'UPDATE preferences SET active=? WHERE member_id=? AND campaign_id=?',args:[p.active!==false?1:0,p.member_id,cid]});}
   const impact=c.year===2027&&choices.length
    ?availabilityImpact(
