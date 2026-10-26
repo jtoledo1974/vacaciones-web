@@ -135,6 +135,12 @@ async function post(api:APIRequestContext,path:string,body:unknown){
 }
 async function read(api:APIRequestContext,id:string){const r=await api.get('/api/campaign/'+id);expect(r.ok()).toBeTruthy();return r.json();}
 async function election(api:APIRequestContext,id:string,body:object){const d=await read(api,id);return post(api,'election/'+id,{...body,version:d.campaign.version});}
+// The dialog closes before the UI's POST is stored: wait for it before reading by API.
+async function confirmSaved(page:Page,id:string){
+ const saved=page.waitForResponse(r=>r.url().includes('/api/election/'+id)&&r.request().method()==='POST');
+ await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ expect((await saved).ok()).toBeTruthy();
+}
 async function setup(api:APIRequestContext,page:Page){
   await api.get('/signin-with-chatgpt?return_to=/');
   await page.context().addCookies((await api.storageState()).cookies);
@@ -560,8 +566,9 @@ test('reconstrucción guiada: tercera elección distinta y cuarta por preferenci
  await page.getByRole('button',{name:'Registrar decisión y continuar'}).click();
  await expect(page.getByRole('heading',{name:'Turnos reconstruidos'})).toBeVisible();
  await page.getByRole('button',{name:'Finalizar reconstrucción'}).click();
- await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ await confirmSaved(page,s.id);
  const result=await read(request,s.id);
+ expect(result.election.reconstruction.status).toBe('completed');
  expect(result.awards.find((a:any)=>a.member_id===ids[2]).cycle_date).toBe(dates[3]);
  expect(result.awards.find((a:any)=>a.member_id===ids[3]).cycle_date).toBe(dates[4]);
  expect(result.election.state.automaticPaused).toBe(true);
@@ -657,7 +664,7 @@ test('un administrador puede iniciar reconstrucción desde una rama abandonada d
  await historyPanel.locator('.history-archived-choices summary').click();
  await historyPanel.getByLabel('Elegir decisión de rama anterior').selectOption(archived.id);
  await historyPanel.getByRole('button',{name:'Reconstruir desde la decisión anterior'}).click();
- await page.getByRole('dialog').getByRole('button',{name:'Confirmar',exact:true}).click();
+ await confirmSaved(page,s.id);
  state=await read(request,s.id);
  expect(state.election.reconstruction.active).toBe(true);
  expect(state.election.reconstruction.current.memberId).toBe(ids[2]);
