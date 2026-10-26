@@ -52,7 +52,7 @@ export function buildElectionTimeline(rows:AuditRow[],ctx:ElectionContext,state:
    const reconstructed=row.action==='reconstruction_step';
    const kind=reconstructed?after?.kind:row.action;
    const round=roundAt(row,ctx);
-   const choices:LoggedChoice[]=(Array.isArray(after?.choices)?after.choices:[])
+   const choices:ElectionTimelineItem['choices']=(Array.isArray(after?.choices)?after.choices:[])
     .filter((choice:any)=>typeof choice?.member_id==='string'&&typeof choice?.cycle_date==='string'&&awardKeys.has(choice.member_id+'|'+choice.cycle_date));
    for(const choice of choices)accounted.add(choice.member_id+'|'+choice.cycle_date);
    let turn:ReturnType<typeof currentTurn>|null=null;
