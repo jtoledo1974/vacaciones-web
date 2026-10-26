@@ -105,68 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'transfer_member') {
-    if (c.scope_key !== 'live')
-      throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
-    const member = d.members.find((m) => m.id === body.memberId);
-    if (!member) throw new ApiError('Controlador no encontrado', 404);
-    if (grantsIndividualEntitlements(c.year) && d.config.individualEntitlements?.[member.code])
-      throw new ApiError('Retira primero la excepción individual de RRHH antes de trasladar al controlador');
-    if (election.preferences.some((p) => p.member_id === member.id && p.dates.length))
-      throw new ApiError('Vacía sus preferencias antes de cambiar de turno');
-    if ([...d.requests, ...d.awards].some((r) => r.member_id === member.id))
-      throw new ApiError(
-        'El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.',
-      );
-    const target = (
-      await repo.all("SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key='live'", [
-        body.targetTeam,
-        c.year,
-      ])
-    )[0];
-    if (!target || target.id === cid || target.status !== 'open')
-      throw new ApiError('Elige otro equipo con campaña abierta en el mismo ejercicio');
-    requireWrite(actor, target.team_id);
-    if (target.version !== body.targetVersion)
-      throw new ApiError('El equipo de destino cambió. Recarga antes de trasladar.', 409);
-    const destination = await service.load(target.id);
-    const targetElection = await service.election().read(target.id);
-    if (targetElection.state?.status === 'active')
-      throw new ApiError('Pausa también la elección del equipo de destino antes del traslado');
-    if (destination.members.some((m) => m.person_id === member.person_id || m.code === member.code))
-      throw new ApiError('La persona o su identificador ya existe en el equipo de destino');
-    if (destination.members.length >= 100)
-      throw new ApiError('El equipo de destino ha alcanzado el máximo de 100 controladores');
-    service.assertCompletable(
-      target,
-      destination.config,
-      [...destination.members, { ...member, id: 'transfer-prospective' }],
-      destination.awards,
-      'Trasladar controlador',
-    );
-    ops.push(
-      ...cas(target.id, target.version),
-      electionStateStatement(target.id, null),
-      { sql: 'DELETE FROM preferences WHERE member_id=? AND campaign_id=?', args: [member.id, cid] },
-      { sql: 'DELETE FROM campaign_members WHERE id=? AND campaign_id=?', args: [member.id, cid] },
-      {
-        sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',
-        args: [
-          id(),
-          target.id,
-          member.person_id,
-          member.code,
-          member.label,
-          member.seniority,
-          Math.max(-1, ...destination.members.map((m) => m.position)) + 1,
-        ],
-      },
-      { sql: "UPDATE campaigns SET data_kind='configured' WHERE id IN (?,?)", args: [cid, target.id] },
-    );
-    before = member;
-    after = { code: member.code, from: c.team_id, to: target.team_id, year: c.year };
-    ops.push(service.audit('transfer_received', target, null, after));
-  } else if (action === 'retire_member') {
+  if (action === 'retire_member') {
     const member = d.members.find((m) => m.id === body.memberId);
     if (!member) throw new ApiError('Identificador no encontrado', 404);
     if (grantsIndividualEntitlements(c.year) && d.config.individualEntitlements?.[member.code])
@@ -662,6 +601,70 @@ async function executeBulkMembers(ctx: CommandContext): Promise<CommandResult> {
   return { before, after };
 }
 
+async function executeTransferMember(ctx: CommandContext): Promise<CommandResult> {
+  const { service, repo, actor, cid, body, d, c, election, ops } = ctx;
+  let before: any = null;
+  let after: any = body;
+  if (c.scope_key !== 'live')
+    throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
+  const member = d.members.find((m) => m.id === body.memberId);
+  if (!member) throw new ApiError('Controlador no encontrado', 404);
+  if (grantsIndividualEntitlements(c.year) && d.config.individualEntitlements?.[member.code])
+    throw new ApiError('Retira primero la excepción individual de RRHH antes de trasladar al controlador');
+  if (election.preferences.some((p) => p.member_id === member.id && p.dates.length))
+    throw new ApiError('Vacía sus preferencias antes de cambiar de turno');
+  if ([...d.requests, ...d.awards].some((r) => r.member_id === member.id))
+    throw new ApiError(
+      'El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.',
+    );
+  const target = (
+    await repo.all("SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key='live'", [body.targetTeam, c.year])
+  )[0];
+  if (!target || target.id === cid || target.status !== 'open')
+    throw new ApiError('Elige otro equipo con campaña abierta en el mismo ejercicio');
+  requireWrite(actor, target.team_id);
+  if (target.version !== body.targetVersion)
+    throw new ApiError('El equipo de destino cambió. Recarga antes de trasladar.', 409);
+  const destination = await service.load(target.id);
+  const targetElection = await service.election().read(target.id);
+  if (targetElection.state?.status === 'active')
+    throw new ApiError('Pausa también la elección del equipo de destino antes del traslado');
+  if (destination.members.some((m) => m.person_id === member.person_id || m.code === member.code))
+    throw new ApiError('La persona o su identificador ya existe en el equipo de destino');
+  if (destination.members.length >= 100)
+    throw new ApiError('El equipo de destino ha alcanzado el máximo de 100 controladores');
+  service.assertCompletable(
+    target,
+    destination.config,
+    [...destination.members, { ...member, id: 'transfer-prospective' }],
+    destination.awards,
+    'Trasladar controlador',
+  );
+  ops.push(
+    ...cas(target.id, target.version),
+    electionStateStatement(target.id, null),
+    { sql: 'DELETE FROM preferences WHERE member_id=? AND campaign_id=?', args: [member.id, cid] },
+    { sql: 'DELETE FROM campaign_members WHERE id=? AND campaign_id=?', args: [member.id, cid] },
+    {
+      sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',
+      args: [
+        id(),
+        target.id,
+        member.person_id,
+        member.code,
+        member.label,
+        member.seniority,
+        Math.max(-1, ...destination.members.map((m) => m.position)) + 1,
+      ],
+    },
+    { sql: "UPDATE campaigns SET data_kind='configured' WHERE id IN (?,?)", args: [cid, target.id] },
+  );
+  before = member;
+  after = { code: member.code, from: c.team_id, to: target.team_id, year: c.year };
+  ops.push(service.audit('transfer_received', target, null, after));
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -770,7 +773,7 @@ export const COMMANDS: Record<string, Command> = {
     election: 'reset',
     execute: executeBulkMembers,
   },
-  transfer_member: { preconditions: editing, election: 'reset', execute: legacy('transfer_member') },
+  transfer_member: { preconditions: editing, election: 'reset', execute: executeTransferMember },
   retire_member: { preconditions: editing, election: 'reset', execute: legacy('retire_member') },
   member: {
     preconditions: { ...editing, renameOnly: (body, d) => sameSeniority(d, body) },
