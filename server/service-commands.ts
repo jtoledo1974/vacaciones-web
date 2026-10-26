@@ -105,21 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'delete_request' || action === 'delete_award') {
-    const table = action === 'delete_request' ? 'requests' : 'awards';
-    before = (action === 'delete_request' ? d.requests : d.awards).find((r) => r.id === body.id);
-    if (!before) throw new ApiError('Registro no encontrado', 404);
-    ops.push({ sql: `DELETE FROM ${table} WHERE id=? AND campaign_id=?`, args: [body.id, cid] });
-    // Original imported selections populated both relations. Keep their correction unified.
-    // Criterios 1.1 p.2: correcting a later award must not erase the original selection.
-    // Legacy imported grids without an election still behave as before.
-    if (action === 'delete_award' && !election.state)
-      ops.push({
-        sql: 'DELETE FROM requests WHERE campaign_id=? AND member_id=? AND cycle_date=?',
-        args: [cid, before.member_id, before.cycle_date],
-      });
-    after = { deleted: body.id };
-  } else if (action === 'award') {
+  if (action === 'award') {
     const m = d.members.find((m) => m.id === body.memberId);
     if (!m) throw new ApiError('Identificador ajeno al equipo');
     if (d.awards.some((a) => a.member_id === m.id && a.cycle_date === body.date))
@@ -617,6 +603,28 @@ async function executeRequest(ctx: CommandContext): Promise<CommandResult> {
   return { before, after };
 }
 
+const executeDeleteRequest =
+  (action: string) =>
+  async (ctx: CommandContext): Promise<CommandResult> => {
+    const { cid, body, d, election, ops } = ctx;
+    let before: any = null;
+    let after: any = body;
+    const table = action === 'delete_request' ? 'requests' : 'awards';
+    before = (action === 'delete_request' ? d.requests : d.awards).find((r) => r.id === body.id);
+    if (!before) throw new ApiError('Registro no encontrado', 404);
+    ops.push({ sql: `DELETE FROM ${table} WHERE id=? AND campaign_id=?`, args: [body.id, cid] });
+    // Original imported selections populated both relations. Keep their correction unified.
+    // Criterios 1.1 p.2: correcting a later award must not erase the original selection.
+    // Legacy imported grids without an election still behave as before.
+    if (action === 'delete_award' && !election.state)
+      ops.push({
+        sql: 'DELETE FROM requests WHERE campaign_id=? AND member_id=? AND cycle_date=?',
+        args: [cid, before.member_id, before.cycle_date],
+      });
+    after = { deleted: body.id };
+    return { before, after };
+  };
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -684,9 +692,13 @@ export const COMMANDS: Record<string, Command> = {
   redo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('redo_vacations') },
   config: { preconditions: editing, election: 'reset', execute: executeConfig },
   request: { ...vacations, execute: executeRequest },
-  delete_request: { ...vacations, execute: legacy('delete_request') },
+  delete_request: { ...vacations, execute: executeDeleteRequest('delete_request') },
   award: { ...vacations, execute: legacy('award'), audited: availabilityImpact('award') },
-  delete_award: { ...vacations, execute: legacy('delete_award'), audited: availabilityImpact('delete_award') },
+  delete_award: {
+    ...vacations,
+    execute: executeDeleteRequest('delete_award'),
+    audited: availabilityImpact('delete_award'),
+  },
   calculate: {
     preconditions: { activeElection: 'allowed', closedCampaign: false },
     election: 'keep',
