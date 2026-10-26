@@ -1,4 +1,17 @@
-import type { Repository } from './repository.ts';
+import type { Repository, Statement } from './repository.ts';
+import {
+  CHOICE_ACTIONS,
+  RESTORING_ACTIONS,
+  decodeEvent,
+  encodeEvent,
+  isElectionUndo,
+  isVacationsUndo,
+  type AuditAction,
+  type AuditEvent,
+} from '../domain/events.ts';
+
+// This module is the only reader and writer of the `audit` table; its rows
+// follow the schema of domain/events.ts.
 
 export type AuditRow = {
   id: string;
@@ -89,7 +102,7 @@ export function appliedAudit(rows: any[]) {
         if (original) done.push(original);
       }
       redo.length = 0;
-    } else if (row.before_json && auditBefore(row).format === 'election-undo-v1') {
+    } else if (row.before_json && isElectionUndo(auditBefore(row))) {
       // Editing a list does not discard redo: undo and redo keep current lists.
       done.push(row);
       if (row.action !== 'preferences') redo.length = 0;
@@ -115,14 +128,96 @@ export class AuditContext {
     readonly version: number,
   ) {}
   rows(): Promise<AuditRow[]> {
-    return (this.loaded ??= this.repo
-      .all<AuditRow>(
-        'SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',
-        [this.campaignId],
-      )
-      .then((rows) => rows.map(parsedRow)));
+    return (this.loaded ??= eventsFor(this.repo, this.campaignId).then((rows) => rows.map(parsedRow)));
   }
   replay(): Promise<ReturnType<typeof appliedAudit>> {
     return (this.replayed ??= this.rows().then(appliedAudit));
   }
+}
+
+const COLUMNS = 'id,action,before_json,after_json,created_at';
+
+/** Every row of a campaign, in append order. */
+export function eventsFor(repo: Repository, campaignId: string): Promise<AuditRow[]> {
+  return repo.all<AuditRow>(`SELECT ${COLUMNS} FROM audit WHERE campaign_id=? ORDER BY rowid ASC`, [campaignId]);
+}
+/** Typed events of a campaign, in append order. */
+export async function decodedEventsFor(repo: Repository, campaignId: string): Promise<AuditEvent[]> {
+  return (await eventsFor(repo, campaignId)).map(decodeEvent);
+}
+export async function eventById(repo: Repository, campaignId: string, eventId: string): Promise<AuditRow | null> {
+  return (
+    (await repo.all<AuditRow>(`SELECT ${COLUMNS} FROM audit WHERE campaign_id=? AND id=?`, [campaignId, eventId]))[0] ??
+    null
+  );
+}
+/** The latest row of a campaign when it restores availability (undo, redo, back, cancel). */
+export async function lastRestoring(repo: Repository, campaignId: string): Promise<AuditRow | null> {
+  const latest = (
+    await repo.all<AuditRow>(`SELECT ${COLUMNS} FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 1`, [
+      campaignId,
+    ])
+  )[0];
+  return latest && (RESTORING_ACTIONS as readonly string[]).includes(latest.action) ? latest : null;
+}
+/** The vacation change whose undo snapshot yields campaign `version`. */
+export async function lastUndoableVacation(repo: Repository, campaignId: string, version: number) {
+  const entries = await repo.all<AuditRow>(
+    'SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30',
+    [campaignId],
+  );
+  return entries.find((e) => isVacationsUndo(auditBefore(e)) && auditAfter(e).version === version) ?? null;
+}
+/** Global administrative log for superadmins. */
+export function recentAudit(limit = 100): Statement {
+  return { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT ?', args: [limit] };
+}
+/** Recent automatic `advance` rows of a live campaign, with the turn cursor before each one. */
+export function automaticAdvancesSince(repo: Repository, campaignId: string, since: string) {
+  return repo.all<{ id: string; after_json: string; created_at: string; cursor: any; turns: any }>(
+    `SELECT a.id,a.after_json,a.created_at,
+    json_extract(a.before_json,'$.state.cursor') AS cursor,json_array_length(a.before_json,'$.state.order') AS turns
+   FROM audit a JOIN campaigns c ON c.id=a.campaign_id
+   WHERE a.campaign_id=? AND a.action='advance' AND c.scope_key='live' AND a.created_at>=?`,
+    [campaignId, since],
+  );
+}
+/** Whether any decision consuming options happened since `since`. */
+export async function hasChoicesSince(repo: Repository, campaignId: string, since: string): Promise<boolean> {
+  const rows = await repo.all(
+    `SELECT id FROM audit WHERE campaign_id=? AND action IN (${CHOICE_ACTIONS.map((a) => `'${a}'`).join(',')}) AND created_at>=? LIMIT 1`,
+    [campaignId, since],
+  );
+  return rows.length > 0;
+}
+
+export type AppendInput = {
+  id: string;
+  actor: string | null;
+  action: AuditAction;
+  teamId?: string | null;
+  campaignId?: string | null;
+  before: any;
+  after: any;
+  createdAt: string;
+};
+/** The only writer of audit rows. */
+export function append(event: AppendInput): Statement {
+  const stored = encodeEvent(event as any);
+  return {
+    sql: 'INSERT INTO audit(id,actor,action,team_id,campaign_id,before_json,after_json,created_at) VALUES(?,?,?,?,?,?,?,?)',
+    args: [
+      event.id,
+      event.actor,
+      stored.action,
+      event.teamId ?? null,
+      event.campaignId ?? null,
+      stored.before_json,
+      stored.after_json,
+      event.createdAt,
+    ],
+  };
+}
+export function deleteEventsFor(campaignId: string): Statement {
+  return { sql: 'DELETE FROM audit WHERE campaign_id=?', args: [campaignId] };
 }

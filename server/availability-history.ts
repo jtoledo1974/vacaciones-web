@@ -1,4 +1,5 @@
 import type { Repository } from './repository.ts';
+import { eventById, lastRestoring } from './audit-context.ts';
 import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domain/occupancy.ts';
 
 export type HistoricalAvailability = {
@@ -19,25 +20,11 @@ export async function historicalAvailability(
   cid: string,
   version: number,
 ): Promise<HistoricalAvailability> {
-  const rows = await repo.all('SELECT action,after_json FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 1', [
-    cid,
-  ]);
-  const latest = rows[0];
-  if (
-    !latest ||
-    ![
-      'election_undo',
-      'election_redo',
-      'undo_vacations',
-      'redo_vacations',
-      'reconstruction_back',
-      'reconstruction_cancel',
-    ].includes(latest.action)
-  )
-    return { restored: false };
+  const latest = await lastRestoring(repo, cid);
+  if (!latest) return { restored: false };
   let metadata: any;
   try {
-    metadata = JSON.parse(latest.after_json);
+    metadata = JSON.parse(latest.after_json!);
   } catch {
     return { restored: false };
   }
@@ -60,20 +47,20 @@ export async function historicalAvailability(
   if (redo) {
     const undoId = latest.action === 'election_redo' ? metadata.redoTargetId : metadata.undone;
     if (typeof undoId !== 'string') return restored;
-    const undone = await repo.all('SELECT after_json FROM audit WHERE campaign_id=? AND id=?', [cid, undoId]);
-    if (!undone[0]) return restored;
+    const undone = await eventById(repo, cid, undoId);
+    if (!undone) return restored;
     try {
-      const parent = JSON.parse(undone[0].after_json);
+      const parent = JSON.parse(undone.after_json!);
       originalId = latest.action === 'election_redo' ? parent.undoTargetId : parent.undone;
     } catch {
       return restored;
     }
   }
   if (typeof originalId !== 'string') return restored;
-  const original = await repo.all('SELECT after_json FROM audit WHERE campaign_id=? AND id=?', [cid, originalId]);
-  if (!original[0]) return restored;
+  const original = await eventById(repo, cid, originalId);
+  if (!original) return restored;
   try {
-    const details = JSON.parse(original[0].after_json);
+    const details = JSON.parse(original.after_json!);
     const certified = details?.impact,
       administrative = details?.availabilityHistory;
     const recordedAvailability = undo

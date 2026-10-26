@@ -200,6 +200,13 @@ export const OCCUPANCY_2099: OccupancyRules = {
   authority: 'Autoridad ficticia 2099',
   name: 'normas ficticias 2099',
   budgets: { commit: 10, options: { total: 64, perCandidate: 8 }, review: 10 },
+  presentation: {
+    periodNames: ['primer tramo', 'tramo central', 'último tramo'],
+    permits: {},
+    impactEvents: {},
+    staticReasons: [],
+    explanationId: null,
+  },
   state: (c, members, awards) => ({
     cycles: calendar(c.year, c.team, c.config).map((x) => ({
       date: x.date,
