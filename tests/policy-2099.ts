@@ -1,5 +1,5 @@
 import { calendar } from '../domain/calendar.ts';
-import type { VacationPolicy } from '../domain/policy.ts';
+import { proofReview, type VacationPolicy } from '../domain/policy.ts';
 import type {
   OccupancyRules,
   PolicyState,
@@ -11,6 +11,7 @@ import type {
   CycleAvailability,
   CompactAvailabilitySnapshot,
   AvailabilityChange,
+  LegalChoices,
 } from '../domain/occupancy.ts';
 
 /**
@@ -111,6 +112,22 @@ function candidate(state: PolicyState, choices: PolicyAward[]): CandidateAssessm
   return { allowed: completion.status === 'possible', completion, issues: found, warnings: [] };
 }
 
+/** Counting is exact, so no cycle is ever left unknown and budgets are not needed. */
+function legalChoices(state: PolicyState, memberId: string, selected: string[] = []): LegalChoices {
+  const partial = {
+    ...state,
+    awards: [...state.awards, ...selected.map((cycle_date) => ({ member_id: memberId, cycle_date }))],
+  };
+  const result: LegalChoices = { legal: [], illegal: {}, unknown: [], checked: 0 };
+  for (const c of partial.cycles) {
+    const check = candidate(partial, [{ member_id: memberId, cycle_date: c.date }]);
+    result.checked += check.completion.checked;
+    if (check.allowed) result.legal.push(c.date);
+    else result.illegal[c.date] = check.issues;
+  }
+  return result;
+}
+
 function availability(state: PolicyState, checked = 1): AvailabilitySnapshot {
   const invalid = issues(state, []).length > 0,
     cycles: Record<string, CycleAvailability> = {};
@@ -183,6 +200,13 @@ export const OCCUPANCY_2099: OccupancyRules = {
   authority: 'Autoridad ficticia 2099',
   name: 'normas ficticias 2099',
   budgets: { commit: 10, options: { total: 64, perCandidate: 8 }, review: 10 },
+  presentation: {
+    periodNames: ['primer tramo', 'tramo central', 'último tramo'],
+    permits: {},
+    impactEvents: {},
+    staticReasons: [],
+    explanationId: null,
+  },
   state: (c, members, awards) => ({
     cycles: calendar(c.year, c.team, c.config).map((x) => ({
       date: x.date,
@@ -193,6 +217,8 @@ export const OCCUPANCY_2099: OccupancyRules = {
     awards: awards.map((a) => ({ member_id: a.member_id, cycle_date: a.cycle_date })),
   }),
   cycleMaximum: (c, date) => Math.min(c.config.specialQuotas?.[date] ?? POLICY_2099_MAX, POLICY_2099_MAX),
+  legalChoices: (state, memberId, o = {}) => legalChoices(state, memberId, o.selected),
+  review: (c, state, o) => proofReview(OCCUPANCY_2099, c, state, o, { min: 1, base: 2 }),
   evaluateCandidate: (state, choices) => candidate(state, choices),
   evaluateFinal: (state) => {
     const found = issues(state, []);

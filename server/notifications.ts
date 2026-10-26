@@ -9,6 +9,7 @@ import {
 } from '../domain/election.ts';
 import { turnsUntil, type SequenceInput } from '../domain/sequence.ts';
 import type { Repository } from './repository.ts';
+import { automaticAdvancesSince, hasChoicesSince } from './audit-context.ts';
 import { requireSuper, type Principal } from './permissions.ts';
 import { deliverPush, publicPushKey, type PushConfig } from './web-push.ts';
 import { ApiError } from './errors.ts';
@@ -298,13 +299,7 @@ export function notificationText(row: { id: string; round: number }, extra: { de
 /** Queue a notice for each recent choice made by a controller's list in a live
  * campaign, while the award still stands (an undone choice is not announced). */
 export async function enqueueAutomaticChoices(repo: Repository, campaignId: string, now = Date.now()) {
-  const rows = await repo.all(
-    `SELECT a.id,a.after_json,a.created_at,
-    json_extract(a.before_json,'$.state.cursor') AS cursor,json_array_length(a.before_json,'$.state.order') AS turns
-   FROM audit a JOIN campaigns c ON c.id=a.campaign_id
-   WHERE a.campaign_id=? AND a.action='advance' AND c.scope_key='live' AND a.created_at>=?`,
-    [campaignId, new Date(now - AUTO_WINDOW_MS).toISOString()],
-  );
+  const rows = await automaticAdvancesSince(repo, campaignId, new Date(now - AUTO_WINDOW_MS).toISOString());
   let enqueued = 0;
   for (const row of rows) {
     let choices: any[] = [];
@@ -403,11 +398,7 @@ type LowListInput = {
 /** Warn controllers whose active list has few viable options left. Only the
  * owner is told, and only a count: nobody learns what others chose. */
 export async function enqueueLowListAlerts(repo: Repository, input: LowListInput) {
-  const recent = await repo.all(
-    "SELECT id FROM audit WHERE campaign_id=? AND action IN ('choose','choose_joint','advance','reconstruction_step') AND created_at>=? LIMIT 1",
-    [input.campaignId, new Date(input.now - LOW_WINDOW_MS).toISOString()],
-  );
-  if (!recent.length) return 0;
+  if (!(await hasChoicesSince(repo, input.campaignId, new Date(input.now - LOW_WINDOW_MS).toISOString()))) return 0;
   let enqueued = 0;
   for (const pref of input.preferences) {
     // Whoever is choosing now gets «Es tu turno» instead.

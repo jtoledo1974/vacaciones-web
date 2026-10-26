@@ -24,7 +24,8 @@ import { occupancyFor, campaignOf } from '../domain/policy.ts';
 import { canWrite, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { ApiError } from './errors.ts';
-import { AuditContext, appliedAudit, auditBefore, auditAfter } from './audit-context.ts';
+import { AuditContext, appliedAudit, auditBefore, auditAfter, eventsFor } from './audit-context.ts';
+import { ELECTION_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
 export { appliedAudit } from './audit-context.ts';
 
 type Snapshot = {
@@ -74,7 +75,7 @@ type Session = {
 type Host = {
   load: (cid: string) => Promise<any>;
   commit: (statements: Statement[]) => Promise<any>;
-  audit: (action: string, c: any, before: any, after: any) => Statement;
+  audit: (action: AuditAction, c: any, before: any, after: any) => Statement;
 };
 const ctx = (d: any, awards = d.awards, requests = d.requests): ElectionContext => ({
   year: d.campaign.year,
@@ -194,10 +195,7 @@ export class ReconstructionService {
     };
   }
   private async auditRows(cid: string) {
-    return this.repo.all(
-      'SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',
-      [cid],
-    );
+    return eventsFor(this.repo, cid);
   }
   async candidates(d: any, audit?: AuditContext) {
     const rows = await (audit?.rows() ?? this.auditRows(d.campaign.id)),
@@ -721,7 +719,7 @@ export class ReconstructionService {
       this.host.audit(
         'reconstruction_step',
         c,
-        { format: 'election-undo-v1', ...before },
+        { format: ELECTION_UNDO_FORMAT, ...before },
         {
           version: c.version + 1,
           choices,

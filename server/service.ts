@@ -4,7 +4,8 @@ import { calculate } from '../domain/vacations.ts';
 import { occupancyFor, campaignOf } from '../domain/policy.ts';
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
 import { historicalAvailability } from './availability-history.ts';
-import { AuditContext } from './audit-context.ts';
+import { AuditContext, append, deleteEventsFor, lastUndoableVacation, recentAudit } from './audit-context.ts';
+import { VACATIONS_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, insertRows, tableColumns, type Repository, type Statement } from './repository.ts';
 import { validateRoster, rowStatements } from './roster.ts';
@@ -154,7 +155,7 @@ export class Service {
     const personIds = [...new Set(d.members.map((m: any) => m.person_id))] as string[];
     const ops: Statement[] = [
       ...cas(cid, d.campaign.version),
-      { sql: 'DELETE FROM audit WHERE campaign_id=?', args: [cid] },
+      deleteEventsFor(cid),
       { sql: 'DELETE FROM reconstruction_sessions WHERE campaign_id=?', args: [cid] },
       { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
       { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
@@ -257,31 +258,19 @@ export class Service {
     return projectPublishedCampaignView(d, cid, snapshot);
   }
   async vacationUndo(cid: string, version: number) {
-    const entries = await this.repo.all('SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30', [
-      cid,
-    ]);
-    return (
-      entries.find((e) => {
-        const before = e.before_json ? JSON.parse(e.before_json) : null,
-          after = JSON.parse(e.after_json);
-        return before?.format === 'vacations-undo-v1' && after.version === version;
-      }) ?? null
-    );
+    return lastUndoableVacation(this.repo, cid, version);
   }
-  audit(action: string, c: any, before: any, after: any): Statement {
-    return {
-      sql: 'INSERT INTO audit(id,actor,action,team_id,campaign_id,before_json,after_json,created_at) VALUES(?,?,?,?,?,?,?,?)',
-      args: [
-        id(),
-        this.actor.id,
-        action,
-        c?.team_id ?? null,
-        c?.id ?? null,
-        before === null ? null : JSON.stringify(before),
-        JSON.stringify(after),
-        now(),
-      ],
-    };
+  audit(action: AuditAction, c: any, before: any, after: any): Statement {
+    return append({
+      id: id(),
+      actor: this.actor.id,
+      action,
+      teamId: c?.team_id,
+      campaignId: c?.id,
+      before,
+      after,
+      createdAt: now(),
+    });
   }
   async commit(statements: Statement[]) {
     try {
@@ -467,7 +456,7 @@ export class Service {
       const entry = await this.vacationUndo(cid, c.version);
       if (!entry || entry.id !== body.undoId || (action === 'redo_vacations') !== (entry.action === 'undo_vacations'))
         throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.', 409);
-      const snapshot = JSON.parse(entry.before_json);
+      const snapshot = JSON.parse(entry.before_json!);
       if (!Array.isArray(snapshot.awards))
         throw new ApiError('La copia para deshacer carece de adjudicaciones verificables', 409);
       // The target is a prior committed snapshot protected by the campaign
@@ -952,7 +941,7 @@ export class Service {
         'redo_vacations',
       ].includes(action)
     ) {
-      before = { format: 'vacations-undo-v1', requests: d.requests, awards: d.awards, election };
+      before = { format: VACATIONS_UNDO_FORMAT, requests: d.requests, awards: d.awards, election };
       after = { ...after, version: c.version + 1 };
     }
     if (action === 'close' && election.state)
@@ -970,7 +959,7 @@ export class Service {
       );
     } else if (action === 'undo_vacations' || action === 'redo_vacations') {
       const entry = await this.vacationUndo(cid, c.version);
-      const old = entry ? JSON.parse(entry.before_json) : null;
+      const old = entry ? JSON.parse(entry.before_json!) : null;
       if (old?.election) {
         ops.push(
           { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
@@ -1227,7 +1216,7 @@ export class Service {
     const r = await this.repo.batch([
       { sql: 'SELECT * FROM users' },
       { sql: 'SELECT * FROM grants' },
-      { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' },
+      recentAudit(100),
       { sql: "SELECT revision FROM app_state WHERE id='main'" },
     ]);
     return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 };

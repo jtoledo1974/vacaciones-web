@@ -16,6 +16,8 @@ import type {
   Completion,
   CandidateAssessment,
   PermitCount,
+  LegalChoiceOptions,
+  LegalChoices,
 } from './occupancy.ts';
 export type {
   PolicyCycle,
@@ -1112,6 +1114,73 @@ function minimumPermits(
     if (check.status === 'indeterminate') return null;
   }
   return null;
+}
+
+/**
+ * The cycles one member may add to `selected`. Each candidate extends the same
+ * state and repairs one completion witness instead of solving from scratch.
+ */
+export function legalChoices2027(
+  state: PolicyState,
+  memberId: string,
+  opts: LegalChoiceOptions,
+  budgets: { commit: number; options: { total: number; perCandidate: number } },
+): LegalChoices {
+  const selected = opts.selected ?? [];
+  const partial = selected.length
+    ? { ...state, awards: [...state.awards, ...selected.map((cycle_date) => ({ member_id: memberId, cycle_date }))] }
+    : state;
+  const budget = opts.budget ?? budgets.options;
+  let witness = opts.witness,
+    checked = 0,
+    symmetric = false,
+    first: PolicyAward | null = null,
+    proofDates = new Set<string>();
+  if (!Object.hasOwn(opts, 'witness')) {
+    const baseline = canComplete2027(partial, { maxChecks: budgets.commit });
+    witness = baseline.witness;
+    checked += baseline.checked;
+    // The empty campaign is invariant under controller permutations: each
+    // final cycle must have an occupant, so every CTA can choose every cycle.
+    // After one choice, relabel any other witness occupant to the next CTA;
+    // the sole existing assignment is untouched and the histogram identical.
+    first = partial.awards.length === 1 ? partial.awards[0] : null;
+    const sameRights =
+      partial.members.length > 0 &&
+      partial.members[0].entitlement > 0 &&
+      partial.members.every((m) => m.entitlement === partial.members[0].entitlement);
+    symmetric =
+      baseline.status === 'possible' &&
+      sameRights &&
+      (partial.awards.length === 0 ||
+        (!!first && first.member_id !== memberId && !partial.awards.some((a) => a.member_id === memberId)));
+    proofDates = new Set(
+      (baseline.witness ?? []).filter((a) => !first || a.member_id !== first.member_id).map((a) => a.cycle_date),
+    );
+  }
+  const result: LegalChoices = { legal: [], illegal: {}, unknown: [], checked: 0 };
+  let remainingChecks = budget.total;
+  for (const cycle of partial.cycles) {
+    if (symmetric && (!first || proofDates.has(cycle.date))) {
+      result.legal.push(cycle.date);
+      continue;
+    }
+    const candidate = evaluate2027Candidate(
+      partial,
+      [{ member_id: memberId, cycle_date: cycle.date }],
+      Math.min(budget.perCandidate, remainingChecks),
+      witness,
+      false,
+      {},
+    );
+    remainingChecks = Math.max(0, remainingChecks - candidate.completion.checked);
+    checked += candidate.completion.checked;
+    if (candidate.allowed) result.legal.push(cycle.date);
+    else if (candidate.completion.status === 'indeterminate') result.unknown.push(cycle.date);
+    else result.illegal[cycle.date] = candidate.issues;
+  }
+  result.checked = checked;
+  return result;
 }
 
 export function permitCounts2027(state: PolicyState, maxChecks = 300): PermitCount[] {

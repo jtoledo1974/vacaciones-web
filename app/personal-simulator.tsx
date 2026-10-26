@@ -4,16 +4,19 @@ import CycleCalendar, { formatDate } from './cycle-calendar';
 import { orderAwardsBySelection } from '../domain/award-display-order';
 import { api } from './api-client';
 
-const PERIODS = ['Preverano', 'Verano', 'Postverano'];
+import type { PolicyPresentation } from '../domain/occupancy';
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const call = (cid: string, body?: any) =>
   api('personal-simulation/' + cid, body === undefined ? {} : { body }, 'No se pudo actualizar la simulación');
 
-/** Plain-language counter: how many extracupos every legal completion already needs. */
-function permitLine(p: any) {
-  const name = p.kind === 'extras' ? 'Extracupos (EC3/EC4)' : 'Ciclos con cuatro';
+/** Plain-language counter: how many permits every legal completion already needs. */
+function permitLine(p: any, presentation: PolicyPresentation | null) {
+  const label = presentation?.permits[p.kind],
+    name = label?.name ?? p.kind;
   if (p.used === null) return { name, text: 'sin calcular', left: null };
-  return { name, text: p.used + ' de ' + p.limit + (p.kind === 'extras' ? ' en uso' : ''), left: p.limit - p.used };
+  return { name, text: p.used + ' de ' + p.limit + (label?.suffix ?? ''), left: p.limit - p.used };
 }
 
 /**
@@ -22,7 +25,8 @@ function permitLine(p: any) {
  * the last simulated turn. Nothing here reaches the real election.
  */
 export default function PersonalSimulator({ data, onExit }: { data: any; onExit: () => void }) {
-  const cid = data.campaign.id;
+  const cid = data.campaign.id,
+    presentation: PolicyPresentation | null = data.election?.policyPresentation ?? null;
   const [sim, setSim] = useState<any>(null),
     [picked, setPicked] = useState<string[]>([]),
     [busy, setBusy] = useState(false),
@@ -271,9 +275,9 @@ export default function PersonalSimulator({ data, onExit }: { data: any; onExit:
             <dl className="personal-sim-permits">
               {permitsByPeriod.map((list, period) => (
                 <div key={period}>
-                  <dt>{PERIODS[period]}</dt>
+                  <dt>{capitalize(presentation?.periodNames[period] ?? 'Periodo')}</dt>
                   {list.map((p) => {
-                    const l = permitLine(p);
+                    const l = permitLine(p, presentation);
                     return (
                       <dd key={p.kind} className={l.left === 0 ? 'is-exhausted' : ''}>
                         <span>{l.name}</span>

@@ -12,6 +12,7 @@ import ReconstructionPanel from './reconstruction-panel';
 import { cycleAvailability, cycleOccupancyLabel, slotExplanation, summarizeImpact } from './cycle-availability-ui';
 import MyElectionCard from './my-election-card';
 import PersonalSimulator from './personal-simulator';
+import PolicyExplanation from './policy-explanations';
 import Glossary from './glossary';
 import { myElection } from './my-election-state';
 import RoundQueuePanel from './round-queue-panel';
@@ -813,7 +814,9 @@ export default function ElectionWorkspace({
           return;
         }
         impactLines = report.impact
-          ? (({ highlights, details }) => [...highlights, ...details])(summarizeImpact(report.impact))
+          ? (({ highlights, details }) => [...highlights, ...details])(
+              summarizeImpact(report.impact, election.policyPresentation),
+            )
           : ['El impacto no se pudo determinar exactamente; las cotas inciertas no se consideran bloqueos.'];
         warningLines = (report.warnings ?? []).map((issue: any) => issue.message);
       }
@@ -947,25 +950,7 @@ export default function ElectionWorkspace({
     if (simulation && quickMode && !busy && next.length === turn.needed && turn?.participants?.length === 1)
       void submitChoice(next.map((date) => ({ member_id: turn.memberId, cycle_date: date })));
   }
-  const rules2027 = election.occupancyPolicyVersion?.startsWith('lecs-2027-') && (
-    <details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
-      <summary>Cómo se aplican los cupos de 2027</summary>
-      <p>
-        En preverano hay tres extracupos: dos ampliaciones a tres plazas y una a cuatro, o tres ampliaciones a tres.
-        Como máximo, un ciclo con cuatro y tres ciclos con una sola persona.
-      </p>
-      <p>
-        En verano hay dos extracupos, de tres o de cuatro plazas; como máximo, dos ciclos con cuatro y dos con una sola
-        persona. En postverano hay dos: una ampliación a tres y una a cuatro, o dos a tres; como máximo, un ciclo con
-        cuatro y dos con una sola persona. La ampliación a cuatro puede usarse como ampliación a tres, nunca al revés.
-        Ningún ciclo puede quedar vacío y los extracupos no pasan de un periodo a otro.
-      </p>
-      <p>
-        RR. HH. fija el total de verano en dos ciclos por persona; el resto del año recibe los demás. Una persona puede
-        elegir más o menos de dos en verano, pero el total del equipo no cambia.
-      </p>
-    </details>
-  );
+  const rulesPanel = <PolicyExplanation presentation={election.policyPresentation} />;
   const me = mine
     ? myElection({
         myMemberId: mine,
@@ -1099,7 +1084,7 @@ export default function ElectionWorkspace({
           </section>
         </div>
       )}
-      {manage && rules2027}
+      {manage && rulesPanel}
       {ruled && (data.result.policyWarnings ?? []).length > 0 && (
         <section className="panel" aria-label={'Avisos de las normas de vacaciones ' + data.campaign.year}>
           <h3>Avisos de reparto {data.campaign.year}</h3>
@@ -2143,7 +2128,10 @@ export default function ElectionWorkspace({
                                 ))}
                                 {event.impact &&
                                   (() => {
-                                    const { highlights, details } = summarizeImpact(event.impact);
+                                    const { highlights, details } = summarizeImpact(
+                                      event.impact,
+                                      election.policyPresentation,
+                                    );
                                     return (
                                       <>
                                         {highlights.map((line, i) => (
@@ -2303,7 +2291,7 @@ export default function ElectionWorkspace({
         </section>
       )}
       {(!manage || !!mine) && <Glossary />}
-      {!manage && rules2027}
+      {!manage && rulesPanel}
       <details className="panel">
         <summary>Vacaciones confirmadas · {data.awards.length} ciclos</summary>
         <div className="table-wrap">

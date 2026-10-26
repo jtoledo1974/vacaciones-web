@@ -42,19 +42,23 @@ El contrato está en `domain/occupancy.ts`. La implementación de 2027 está rep
 
 ## 5. Presentación
 
-Hoy la presentación es de 2027. Para un año con otras normas hay que revisar:
+Lo que la interfaz dice de las normas viene del motor, en `presentation` (`PolicyPresentation` en `domain/occupancy.ts`). El servidor la publica en la vista como `election.policyPresentation`. Es pública y no lleva datos personales. La de 2027 es `PRESENTATION_2027` en `domain/policy.ts`, y la de 2099, un ejemplo mínimo en `tests/policy-2099.ts`.
+
+- `periodNames`: nombres de los tres periodos, en minúscula («preverano»). El simulador personal los pone con mayúscula inicial.
+- `permits`: el nombre de cada tipo de permiso de `permitReport` (`PermitCount.kind`) y el sufijo tras «usados de límite».
+- `impactEvents`: el texto de cada evento de impacto por código, con las plantillas `{period}`, `{ratio}`, `{count}` y `{cycles}`. Un código sin texto no se muestra.
+- `staticReasons` y `ownRightsReason`: los códigos de motivo que el resumen de impacto no cuenta como consecuencia de una decisión.
+- `explanationId`: el panel de normas que se muestra, de `app/policy-explanations.tsx`, o `null` para ninguno. Un año nuevo añade allí su componente.
+
+Quedan supuestos de 2027 en la interfaz que no cambian el texto de las normas, pero sí la forma:
 
 | Dónde | Qué supone |
 | --- | --- |
-| `app/election-workspace.tsx:365` | El panel `rules2027` solo aparece con versiones `lecs-2027-…` y explica los extracupos de 2027. Otro año no tiene panel. |
-| `app/election-workspace.tsx:523` | «Detalle de las cuatro plazas y motivos de bloqueo». |
-| `app/cycle-availability-ui.ts:38` | Nombres de periodo (preverano, verano, postverano). |
-| `app/cycle-availability-ui.ts:96` | Textos de eventos de impacto propios de 2027 («cuarta plaza», «tercera plaza»). |
+| `app/election-workspace.tsx` | «Detalle de las cuatro plazas y motivos de bloqueo». |
+| `app/personal-simulator.tsx` | La sección «Extracupos» y su explicación. |
 | `app/cycle-availability-ui.ts:19` | La clase de color satura en 4 plazas libres (`Math.min(4, …)`). |
 | `app/cycle-calendar.tsx:160` | La leyenda de plazas libres va de 4 a 0. |
 | `app/cycle-table.tsx:40` | Como mínimo, cuatro columnas de plazas. |
-| `app/personal-simulator.tsx:7` y `:21` | Periodos y nombres de permisos («Extracupos (EC3/EC4)», «Ciclos con cuatro»). |
-| `domain/occupancy.ts:43` | `PermitCount` solo conoce los permisos `extras` y `fourths` de 2027. |
 
 ## 6. Ayuda
 
@@ -76,7 +80,7 @@ Suposiciones de 2027, o del libro Excel de origen, que siguen en código genéri
 - `domain/hr-calendars.ts:20`: las excepciones individuales de ciclos dependen de que haya calendario de RRHH (`year in WORKBOOKS`) y no de la política. Deberían ser una propiedad de `VacationPolicy`.
 - `domain/calendar.ts:99`: una excepción individual admite de 0 a 6 ciclos, el máximo de 2027.
 - `domain/defaults.ts:5`: el baremo por defecto viene del libro de 2026 y marca como `nextYear` las fechas de 2027. Para cualquier otro año se interpreta como «enero del año siguiente», que es lo esperado, pero los valores son los de ese libro.
-- La presentación de la sección 5.
+- Los supuestos de forma de la sección 5.
 
 Arreglado al hacer la prueba de 2099:
 

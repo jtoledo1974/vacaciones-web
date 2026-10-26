@@ -1,5 +1,6 @@
 import type { Identity } from './permissions.ts';
 import type { Repository } from './repository.ts';
+import { append } from './audit-context.ts';
 
 export interface LocalAdminConfig {
   LOCAL_ADMIN_USERNAME?: string;
@@ -120,10 +121,7 @@ async function attemptKey(request: Request, secret: string): Promise<string> {
 }
 /** Session start and end are the only local admin events in audit: no token, IP or credential. */
 function auditEvent(action: 'local_admin_login' | 'local_admin_logout', actor: string, at: string) {
-  return {
-    sql: "INSERT INTO audit(id,actor,action,created_at,after_json) VALUES(?,?,?,?,'{}')",
-    args: [crypto.randomUUID(), actor, action, at],
-  };
+  return append({ id: crypto.randomUUID(), actor, action, before: null, after: {}, createdAt: at });
 }
 async function boundedText(request: Request): Promise<string | null> {
   const reader = request.body?.getReader();

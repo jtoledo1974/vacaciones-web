@@ -44,8 +44,9 @@ export type CandidateAssessment = {
   issues: RuleProblem[];
   warnings: RuleProblem[];
 };
-/** Extra-quota and fourth-place permits a state still needs, per period. */
-export type PermitCount = { period: Period; kind: 'extras' | 'fourths'; used: number | null; limit: number };
+/** A permit a state still needs, per period. Each policy names its kinds in
+ * `PolicyPresentation.permits` (2027: extra quotas and fourth places). */
+export type PermitCount = { period: Period; kind: string; used: number | null; limit: number };
 
 export type AvailabilitySlot = {
   position: number;
@@ -157,6 +158,74 @@ export type Budgets = {
   review: number;
 };
 
+/**
+ * How an impact event reads. Templates replace {period} (the period name),
+ * {ratio} (" (actual/limit)" when both are known), {count} and {cycles}.
+ */
+export type ImpactEventText = {
+  /** Highlighted consequence of a decision; its cycles leave the details. */
+  highlight?: string;
+  /** exceptOwnRights: drop cycles closed only by a person exhausting their own
+   * rights, and say nothing when none is left. */
+  cycles?: 'all' | 'exceptOwnRights';
+  /** Line of the full description, by period when it differs. */
+  line?: string;
+  lineByPeriod?: Partial<Record<Period, string>>;
+};
+
+/**
+ * What the interface says about a policy. Public, with no personal data: it
+ * travels in the election view so that `app/` never assumes a year's rules.
+ */
+export type PolicyPresentation = {
+  /** Lower case, as in «del preverano». */
+  periodNames: [string, string, string];
+  /** Permit report labels by `PermitCount.kind`; `suffix` follows «used de limit». */
+  permits: Record<string, { name: string; suffix?: string }>;
+  impactEvents: Record<string, ImpactEventText>;
+  /** Fixed per-cycle limits: never what a decision caused. */
+  staticReasons: string[];
+  /** The reason code of a person exhausting their own rights. */
+  ownRightsReason?: string;
+  /** The rules panel the interface shows (`app/policy-explanations.tsx`), or null. */
+  explanationId: string | null;
+};
+
+/** Options of `legalChoices`. */
+export type LegalChoiceOptions = {
+  /** Cycles the member already picked in this turn; every candidate extends them. */
+  selected?: string[];
+  /** Search budget shared by every cycle and capped per cycle. Default: `budgets.options`. */
+  budget?: { total: number; perCandidate: number };
+  /** The caller's proof of the state with `selected`: its completion, possibly undefined.
+   * Without the key the engine proves the state itself and may use symmetry shortcuts. */
+  witness?: PolicyAward[];
+};
+/**
+ * Every cycle of the state, in calendar order, in exactly one list. `unknown`
+ * ran out of budget: not a veto, it is proved in full on confirmation.
+ */
+export type LegalChoices = {
+  legal: string[];
+  illegal: Record<string, RuleProblem[]>;
+  unknown: string[];
+  checked: number;
+};
+/** Normative review of an allocation, partial or complete. */
+export type PolicyReview = {
+  /** Per cycle, in the state's order. */
+  limits: { date: string; min: number; base: number; max: number }[];
+  issues: string[];
+  warnings: RuleProblem[];
+  completionStatus: Completion['status'] | 'not-checked';
+};
+export type ReviewOptions = {
+  /** Restored states are shown without a completion search. */
+  skipProof?: boolean;
+  /** False when the common structural validation already found issues: no proof is attempted. */
+  structurallyValid: boolean;
+};
+
 /** The campaign facts every year's rules are evaluated against. */
 export type PolicyCampaign = { year: number; team: string; config: Config };
 
@@ -173,6 +242,7 @@ export type OccupancyRules = {
   /** Human-readable name of the rule set ("normas 2027"). */
   name: string;
   budgets: Budgets;
+  presentation: PolicyPresentation;
   state(
     campaign: PolicyCampaign,
     members: Member[],
@@ -182,6 +252,10 @@ export type OccupancyRules = {
   cycleMaximum(campaign: PolicyCampaign, date: string): number;
   /** An atomic batch of choices on the same prior state. */
   evaluateCandidate(state: PolicyState, choices: PolicyAward[], options?: CandidateOptions): CandidateAssessment;
+  /** The cycles one member may add to `selected`, proved within the budget. */
+  legalChoices(state: PolicyState, memberId: string, options?: LegalChoiceOptions): LegalChoices;
+  /** Limits, issues, warnings and completion status shown with `calculate`. */
+  review(campaign: PolicyCampaign, state: PolicyState, options: ReviewOptions): PolicyReview;
   /** A complete allocation. */
   evaluateFinal(state: PolicyState): FinalAssessment;
   /** Whether every entitlement can still be completed; a bounded search ends 'indeterminate'. */
