@@ -105,95 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'import_roster') {
-    if (
-      c.scope_key === 'live' &&
-      actor.role !== 'superadmin' &&
-      (
-        await repo.all(
-          'SELECT 1 FROM preferences p JOIN campaign_members m ON m.id=p.member_id JOIN controller_accounts a ON a.person_id=m.person_id WHERE p.campaign_id=? LIMIT 1',
-          [cid],
-        )
-      ).length
-    )
-      throw new ApiError(
-        'No se puede sustituir la plantilla mientras existan preferencias privadas de controladores vinculados',
-        403,
-      );
-    const source = body.source;
-    if (!source || source.format !== 'vacaciones-roster-v1' || source.team !== c.team_id || source.year !== c.year)
-      throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
-    const importedConfig = source.config ? checkedConfig(source.config, c.year) : d.config;
-    let rows;
-    try {
-      rows = validateRoster(source.rows, c.year, c.team_id, importedConfig);
-    } catch (e: any) {
-      throw new ApiError(e.message);
-    }
-    if (grantsIndividualEntitlements(c.year)) {
-      const rosterCodes = new Set(rows.map((r) => r.code));
-      for (const code of Object.keys(importedConfig.individualEntitlements ?? {}))
-        if (!rosterCodes.has(code))
-          throw new ApiError('La importación dejaría sin controlador la autorización individual de RRHH: ' + code);
-    }
-    const imported = rows.map((r, i) => ({ ...r, id: id(), personId: id(), position: i }));
-    const selections = imported.flatMap((m) =>
-      (m.dates ?? [])
-        .map((date, i) => ({ id: id(), member_id: m.id, slot: i + 1, cycle_date: date }))
-        .filter((r) => r.cycle_date),
-    );
-    // The original selection grid drives both the request and the vacation relation.
-    const importedAwards = source.copySelections
-      ? selections.map((r) => ({ id: id(), member_id: r.member_id, cycle_date: r.cycle_date }))
-      : [];
-    const check = calculate(c.year, c.team_id, importedConfig, imported, selections, importedAwards);
-    if (check.issues.length) throw new ApiError('Revisa la plantilla: ' + check.issues.join('; '));
-    service.assertCompletable(c, importedConfig, imported, importedAwards, 'Importar plantilla');
-
-    ops.push(
-      { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
-      electionStateStatement(cid, null),
-      { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-      { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-      { sql: 'DELETE FROM campaign_members WHERE campaign_id=?', args: [cid] },
-    );
-
-    for (const m of imported) {
-      const annual = d.members.find((p) => p.code === m.code);
-      const existing = annual ? { id: annual.person_id } : null;
-      if (existing) {
-        m.personId = existing.id;
-        ops.push({
-          sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',
-          args: [m.id, cid, existing.id, m.code, m.label, m.seniority, m.position],
-        });
-      } else ops.push(...rowStatements(cid, c.team_id, m, m.position, m.personId, m.id));
-    }
-    for (const r of selections)
-      ops.push({
-        sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1)',
-        args: [r.id, cid, r.member_id, r.slot, r.cycle_date],
-      });
-    for (const a of importedAwards)
-      ops.push({
-        sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
-        args: [a.id, cid, a.member_id, a.cycle_date],
-      });
-    ops.push({ sql: "UPDATE campaigns SET data_kind='imported' WHERE id=?", args: [cid] });
-    if (source.config)
-      ops.push({
-        sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
-        args: [JSON.stringify(importedConfig), cid],
-      });
-    before = { members: d.members, requests: d.requests, awards: d.awards, config: d.config };
-    after = {
-      source: source.source ?? 'Plantilla importada',
-      members: rows.length,
-      selections: selections.length,
-      awards: importedAwards.length,
-      configurationImported: !!source.config,
-    };
-  } else if (action === 'bulk_members') {
+  if (action === 'bulk_members') {
     let rows;
     try {
       rows = validateRoster(body.rows, c.year, c.team_id, d.config);
@@ -650,6 +562,100 @@ const executeCloseClose =
     return { before, after };
   };
 
+async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> {
+  const { service, repo, actor, cid, body, d, c, ops } = ctx;
+  let before: any = null;
+  let after: any = body;
+  if (
+    c.scope_key === 'live' &&
+    actor.role !== 'superadmin' &&
+    (
+      await repo.all(
+        'SELECT 1 FROM preferences p JOIN campaign_members m ON m.id=p.member_id JOIN controller_accounts a ON a.person_id=m.person_id WHERE p.campaign_id=? LIMIT 1',
+        [cid],
+      )
+    ).length
+  )
+    throw new ApiError(
+      'No se puede sustituir la plantilla mientras existan preferencias privadas de controladores vinculados',
+      403,
+    );
+  const source = body.source;
+  if (!source || source.format !== 'vacaciones-roster-v1' || source.team !== c.team_id || source.year !== c.year)
+    throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
+  const importedConfig = source.config ? checkedConfig(source.config, c.year) : d.config;
+  let rows;
+  try {
+    rows = validateRoster(source.rows, c.year, c.team_id, importedConfig);
+  } catch (e: any) {
+    throw new ApiError(e.message);
+  }
+  if (grantsIndividualEntitlements(c.year)) {
+    const rosterCodes = new Set(rows.map((r) => r.code));
+    for (const code of Object.keys(importedConfig.individualEntitlements ?? {}))
+      if (!rosterCodes.has(code))
+        throw new ApiError('La importación dejaría sin controlador la autorización individual de RRHH: ' + code);
+  }
+  const imported = rows.map((r, i) => ({ ...r, id: id(), personId: id(), position: i }));
+  const selections = imported.flatMap((m) =>
+    (m.dates ?? [])
+      .map((date, i) => ({ id: id(), member_id: m.id, slot: i + 1, cycle_date: date }))
+      .filter((r) => r.cycle_date),
+  );
+  // The original selection grid drives both the request and the vacation relation.
+  const importedAwards = source.copySelections
+    ? selections.map((r) => ({ id: id(), member_id: r.member_id, cycle_date: r.cycle_date }))
+    : [];
+  const check = calculate(c.year, c.team_id, importedConfig, imported, selections, importedAwards);
+  if (check.issues.length) throw new ApiError('Revisa la plantilla: ' + check.issues.join('; '));
+  service.assertCompletable(c, importedConfig, imported, importedAwards, 'Importar plantilla');
+
+  ops.push(
+    { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
+    electionStateStatement(cid, null),
+    { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
+    { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
+    { sql: 'DELETE FROM campaign_members WHERE campaign_id=?', args: [cid] },
+  );
+
+  for (const m of imported) {
+    const annual = d.members.find((p) => p.code === m.code);
+    const existing = annual ? { id: annual.person_id } : null;
+    if (existing) {
+      m.personId = existing.id;
+      ops.push({
+        sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',
+        args: [m.id, cid, existing.id, m.code, m.label, m.seniority, m.position],
+      });
+    } else ops.push(...rowStatements(cid, c.team_id, m, m.position, m.personId, m.id));
+  }
+  for (const r of selections)
+    ops.push({
+      sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1)',
+      args: [r.id, cid, r.member_id, r.slot, r.cycle_date],
+    });
+  for (const a of importedAwards)
+    ops.push({
+      sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+      args: [a.id, cid, a.member_id, a.cycle_date],
+    });
+  ops.push({ sql: "UPDATE campaigns SET data_kind='imported' WHERE id=?", args: [cid] });
+  if (source.config)
+    ops.push({
+      sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
+      args: [JSON.stringify(importedConfig), cid],
+    });
+  before = { members: d.members, requests: d.requests, awards: d.awards, config: d.config };
+  after = {
+    source: source.source ?? 'Plantilla importada',
+    members: rows.length,
+    selections: selections.length,
+    awards: importedAwards.length,
+    configurationImported: !!source.config,
+  };
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -746,7 +752,7 @@ export const COMMANDS: Record<string, Command> = {
     election: 'keep',
     execute: executeCloseClose('reopen'),
   },
-  import_roster: { preconditions: editing, election: 'reset', execute: legacy('import_roster') },
+  import_roster: { preconditions: editing, election: 'reset', execute: executeImportRoster },
   bulk_members: {
     preconditions: {
       ...editing,
