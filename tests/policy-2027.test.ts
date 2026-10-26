@@ -445,3 +445,32 @@ test('team C, 20 CTA: preverano may end at 56 but not 57, decided without exhaus
  const two=evaluate2027Candidate(state,[{member_id:'m'+(k%20),cycle_date:last},{member_id:'m'+((k+1)%20),cycle_date:last}],2000,undefined,false,{exact:true});
  assert.equal(two.completion.status,'impossible');
 });
+
+test('la ocupación mínima pedida poda escenarios sin cambiar ningún resultado',()=>{
+ // Reference: a cycle can reach k people iff some k−n further people fixed there
+ // leave the campaign completable (fixed awards never used the new bound).
+ const combos=<T,>(items:T[],k:number):T[][]=>k===0?[[]]:items.flatMap((x,i)=>combos(items.slice(i+1),k-1).map(rest=>[x,...rest]));
+ let seed=7;const random=()=>(seed=(seed*1103515245+12345)%2147483648)/2147483648;
+ const shapes:[number[],number[],number[]][]=[[[1,1,2,3,3,4],[2,2,2],[2,2,2]],[[2,2,3],[2,3,2,2],[3,2,2]],[[2,3,2,2],[2,2],[2,2,1,3]]];
+ let compared=0,impossible=0;
+ for(const [pre,summer,post] of shapes)for(let round=0;round<6;round++){
+  const full=completed(pre,summer,post);
+  const state={...full,awards:full.awards.filter(()=>random()<0.55)};
+  for(const c of state.cycles)for(let k=1;k<=4;k++){
+   const inside=state.awards.filter(a=>a.cycle_date===c.date).map(a=>a.member_id);
+   const outside=state.members.map(m=>m.id).filter(id=>!inside.includes(id));
+   const need=Math.max(0,k-inside.length);
+   const expected=need>outside.length?'impossible':combos(outside,need).some(group=>
+    canComplete2027({...state,awards:[...state.awards,...group.map(member_id=>({member_id,cycle_date:c.date}))]},{maxChecks:100000}).status==='possible')?'possible':'impossible';
+   const actual=canComplete2027(state,{maxChecks:100000,minimumCycle:{date:c.date,occupancy:k}}).status;
+   assert.equal(actual,expected,`${c.date} ocupación ${k}`);
+   // Small budgets (like the table's probes) may give up, never contradict.
+   for(const maxChecks of [1,32]){
+    const bounded=canComplete2027(state,{maxChecks,minimumCycle:{date:c.date,occupancy:k}}).status;
+    assert.ok(bounded==='indeterminate'||bounded===expected,`${c.date} ocupación ${k} con ${maxChecks}: ${bounded}`);
+   }
+   compared++;if(actual==='impossible')impossible++;
+  }
+ }
+ assert.ok(compared>500&&impossible>10,`${compared} comparaciones, ${impossible} imposibles`);
+});

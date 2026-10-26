@@ -7,6 +7,7 @@ import {
 import {
  canComplete2027, evaluate2027Final, reassign2027Witness, type PolicyState, type PolicyAward
 } from '../domain/policy-2027.ts';
+import realThirds from './policy-2027-tercer-cupo-real.json' with { type: 'json' };
 
 function completedState():PolicyState {
  const counts=[2,2,2,4,4,3,2,2,2,2,2];
@@ -299,4 +300,17 @@ test('a recorded snapshot is not reused when rights differ under identical occup
  assert.equal(recordedAvailabilityByCycle2027(changed,recorded),null);
  const {stateKey:_,...legacy}=recorded;
  assert.equal(recordedAvailabilityByCycle2027(partial,legacy),null,'a record without fingerprint is not evidence');
+});
+
+// Real team A 2027 state (63 awards, people anonymised as A–T) where five third
+// places were shown as «?»: the period bound must settle them within the table budget.
+test('caso real: los terceros cupos inviables se resuelven como bloqueados, no como «?»',()=>{
+ const state=realThirds as PolicyState;
+ const snapshot=availabilityByCycle(state,{useCache:false});
+ const thirds=Object.fromEntries(['2027-06-01','2027-06-09','2027-08-28','2027-09-13','2027-09-21'].map(date=>[date,snapshot.cycles[date].slots[2].status]));
+ assert.deepEqual(thirds,{'2027-06-01':'blocked','2027-06-09':'blocked','2027-08-28':'blocked','2027-09-13':'blocked','2027-09-21':'blocked'});
+ assert.equal(Object.values(snapshot.cycles).flatMap((c:any)=>c.slots).filter((slot:any)=>slot.status==='indeterminate').length,0);
+ // The campaign itself, and a second person in those cycles, remain possible.
+ assert.equal(canComplete2027(state).status,'possible');
+ assert.equal(canComplete2027(state,{minimumCycle:{date:'2027-06-01',occupancy:2}}).status,'possible');
 });

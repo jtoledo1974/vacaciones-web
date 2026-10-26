@@ -330,6 +330,8 @@ export type CompletionOptions2027={
    summerTotal?:number; maxChecks?:number;
   minimumCycle?:{date:string;occupancy:number}; exact?:boolean; permits?:Permits2027;
 };
+// Pruned scenarios allowed per counted check (each costs a few microseconds).
+const PRUNES_PER_CHECK=4096;
 const completionWitnessCache=new Map<string,PolicyAward[]>();
 function witnessFamily(state:PolicyState,opts:CompletionOptions2027):string {
   return JSON.stringify([OCCUPANCY_POLICY_2027,
@@ -459,7 +461,11 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
   // keeps the budget for scenarios that can still meet the summer total.
   const periodTotal=slots.map(s=>s.length);
   const totalRight=state.members.reduce((n,m)=>n+m.entitlement,0);
+  // Pruning is cheap but not free: bound it too, so a hard state stays
+  // indeterminate instead of running unbounded.
+  let pruned=0;const pruneLimit=maxChecks*PRUNES_PER_CHECK;
   const totalsFit=(decided:number,scenario:Scenario):boolean=>{
+    if(++pruned>pruneLimit){exhausted=true;return false;}
     const lo=[0,0,0],hi=[0,0,0];
     for(let q=0;q<3;q++){
       if(q>decided){
@@ -467,7 +473,8 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
         lo[q]=Math.max(2*periodTotal[q],fixed);hi[q]=3*periodTotal[q];continue;
       }
       for(const i of slots[q]){
-        const c=state.cycles[i],n=counts.get(c.date)!,cap=Math.min(c.maximum??4,c.fourthExcluded?3:4);
+        // A requested minimum occupancy is as binding here as fixed awards.
+        const c=state.cycles[i],n=Math.max(counts.get(c.date)!,c.date===opts.minimumCycle?.date?opts.minimumCycle.occupancy:0),cap=Math.min(c.maximum??4,c.fourthExcluded?3:4);
         if(scenario.single.has(i)){lo[q]+=1;hi[q]+=1;}
         else if(scenario.fourth.has(i)){lo[q]+=4;hi[q]+=4;}
         else{lo[q]+=Math.max(2,n);hi[q]+=Math.min(3,cap);}
@@ -502,7 +509,7 @@ function solveCompletion2027(state:PolicyState,opts:CompletionOptions2027):Compl
         // PRE and POST can use their EC3 and EC4 together.
         for(const singles of combinations(candidates,n)){
           const next:Scenario={single:new Set([...scenario.single,...forcedSingle[p],...singles]),fourth:new Set([...scenario.fourth,...fourth])};
-          if(!totalsFit(p,next))continue;
+          if(!totalsFit(p,next)){if(exhausted)return null;continue;}
           const result=choose(p+1,next);if(result)return result;
           if(exhausted)return null;
         }
