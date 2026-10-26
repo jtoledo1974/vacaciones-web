@@ -35,7 +35,7 @@ for(const size of [
  {width:768,height:1024,full:false,mobile:false},
  {width:1440,height:900,full:true,mobile:false},
 ]){
- test(`preferencias: seleccionar, ordenar, guardar y proteger borrador ${size.width}×${size.height}`,size.mobile?{tag:'@mobile-only'}:{},async({page,request},info)=>{
+ test(`preferencias: seleccionar, ordenar, guardar y proteger borrador ${size.width}×${size.height}`,size.mobile?{tag:'@mobile-only'}:size.width===1440?{tag:'@smoke'}:{},async({page,request},info)=>{
   test.setTimeout(90_000);
   await page.setViewportSize(size);
   const s=await fixture(request,page),member=s.data.members[0],dates=s.data.result.cycles.slice(0,3).map((c:any)=>c.date);

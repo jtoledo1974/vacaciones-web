@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
   pull_request:
+    # labeled lets the e2e-full label start the full suite without a new push.
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       runner:
@@ -15,8 +17,9 @@ on:
           - portatil-playwright-02
 
 # Cancel outdated jobs on new commits to the same PR.
+# Unrelated labels get their own group so they do not cancel a running suite.
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}
+  group: tests-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'e2e-full' && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -25,6 +28,7 @@ permissions:
 jobs:
   checks:
     name: Unit tests and types
+    if: github.event.action != 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -38,18 +42,39 @@ jobs:
       - name: TypeScript typecheck
         run: pnpm exec tsc --noEmit -p tsconfig.app.json
 
+  build:
+    name: Build and informative lint
+    if: github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --global pnpm@11.25.0
+      - run: pnpm install --frozen-lockfile
+      # The build needs no secrets or Site variables.
+      - run: pnpm build
+      # Informative until the existing errors are fixed; see docs/PRUEBAS.md.
+      - name: Lint (informative)
+        continue-on-error: true
+        run: pnpm lint
+
   browser:
     name: Playwright desktop and mobile
     # The v2 pool includes the server and isolated laptop runners.
     # Keep the old label on the server for workflows already queued before this change.
     # One Playwright process and one worker keep RAM and isolated D1 within tested limits.
     # Conditions reduce exposure; repository writers can still change workflows.
+    # PR pushes run the @smoke subset; main, manual runs and PRs labelled e2e-full run everything.
     if: >-
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.user.login == 'jtoledo1974' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.head.repo.fork == false) ||
+       github.event.pull_request.head.repo.fork == false &&
+       (github.event.action != 'labeled' || github.event.label.name == 'e2e-full')) ||
       (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974')
     runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
     timeout-minutes: 30
@@ -58,6 +83,7 @@ jobs:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       PLAYWRIGHT_JSON_OUTPUT_FILE: /job-control/playwright.json
+      E2E_SCOPE: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'smoke' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -75,8 +101,12 @@ jobs:
           test -d /ms-playwright
       - name: Install locked dependencies using the local store
         run: pnpm install --frozen-lockfile --store-dir /pnpm/store
-      - name: Playwright desktop and targeted mobile regressions, one worker
-        run: pnpm exec playwright test --workers=1 --retries=0 --reporter=list,json
+      - name: Playwright ${{ env.E2E_SCOPE }} suite, one worker
+        shell: bash
+        run: |
+          grep=()
+          if [ "$E2E_SCOPE" = smoke ]; then grep=(--grep @smoke); fi
+          pnpm exec playwright test --workers=1 --retries=0 --reporter=list,json "${grep[@]}"
 
 # No default upload of screenshots, videos or traces: artifacts stay local.
 # There is no GitHub-hosted fallback for the browser job.

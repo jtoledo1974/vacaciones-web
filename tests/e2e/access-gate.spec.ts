@@ -39,7 +39,7 @@ test('el usuario autenticado sin vinculación recibe un aviso y elige explícita
   await expect(page.getByRole('heading',{name:/Tu cuenta no está vinculada a un controlador/})).toBeVisible();
 });
 
-test('el controlador vinculado accede a preferencias sin aviso de acceso',async({page,request})=>{
+test('el controlador vinculado accede a preferencias sin aviso de acceso',{tag:'@smoke'},async({page,request})=>{
   await mockVisitor(page,request,true);
   await expect(page.getByRole('heading',{name:/Tu cuenta no está vinculada a un controlador/})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Mis preferencias',exact:true})).toBeVisible();

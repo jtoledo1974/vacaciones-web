@@ -17,8 +17,6 @@ pnpm test:e2e
 
 `pnpm test:e2e:ui` abre el explorador interactivo de las pruebas. `pnpm exec playwright show-report` muestra el informe HTML. Los fallos conservan captura y traza en `test-results`; el informe queda en `playwright-report`. Ambos directorios se excluyen de Git.
 
-GitHub Actions ejecuta las pruebas de negocio y Playwright en cada push a `main`, en las pull requests y bajo petición manual. Conserva informes y trazas durante siete días. No necesita credenciales del Site ni de producción.
-
 El servidor de pruebas arranca automáticamente en `127.0.0.1:5199` y se detiene al terminar. No se reutiliza un servidor existente ni se admite una URL remota. Las migraciones se aplican a una carpeta nueva `.sites-runtime/e2e-state/run-<uuid>` en cada ejecución, separada de `.wrangler/state` y de producción. Así no se reutilizan sesiones ni límites de intentos de login. La ruta de la última ejecución queda en `.sites-runtime/e2e-latest-state.txt`. La sesión ficticia local es `seedy@sites.test`; no valida el acceso real a ChatGPT.
 
 Cada prueba crea una simulación con cuatro controladores ficticios. No modifica la campaña real, incluso dentro de la base de pruebas. Las restauraciones afectan exclusivamente a esta base aislada. Los escenarios se ejecutan secuencialmente porque la restauración es global; cada ejecución crea escenarios nuevos y admite repetirse.
@@ -44,3 +42,20 @@ Las capturas quedan en `test-results/`, excluido de Git. Con `CI` no se generan 
 $env:PLAYWRIGHT_CHANNEL='chrome'
 node node_modules/playwright/cli.js test tests/e2e/preferences.spec.ts
 ```
+
+## Integración continua
+
+GitHub Actions no necesita credenciales del Site ni de producción. En cada push a una pull request y a `main` ejecuta, en runners de GitHub:
+
+- `pnpm test` y la comprobación de tipos.
+- `pnpm build`, para que un verde garantice que se puede desplegar.
+- `pnpm lint`, solo informativo (`continue-on-error`) mientras queden los errores heredados, en su mayoría `no-explicit-any`.
+
+Playwright corre en los runners propios con dos niveles:
+
+- **Smoke** en cada push de una pull request: los tests etiquetados `@smoke`, que cubren acceso, consulta de la campaña, elección en un turno y preferencias. `pnpm exec playwright test --list --grep @smoke` muestra el subconjunto.
+- **Suite completa** en cada push a `main`, al lanzar el workflow a mano (`workflow_dispatch`) y en las pull requests con la etiqueta `e2e-full`.
+
+Para pedir la suite completa en una pull request, añade la etiqueta `e2e-full` (`gh pr edit <número> --add-label e2e-full`). Al añadirla se lanza la suite completa sin necesidad de un push nuevo, y los pushes siguientes también la ejecutan mientras la etiqueta siga puesta. Otras etiquetas no relanzan nada. No se suben capturas, vídeos ni trazas: los resultados quedan en la consola del job.
+
+Para marcar un test como smoke se añade `@smoke` a su `tag`, sin cambiar lo que comprueba. El subconjunto debe seguir siendo pequeño: cada test añadido se paga en cada push de cada pull request.

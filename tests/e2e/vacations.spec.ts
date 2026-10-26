@@ -399,7 +399,7 @@ test('integración: administración agrupada y navegación pública en escritori
  await anonymous.close();
 });
 
-test('calendario público, permisos y aislamiento',async({page,request,browser})=>{
+test('calendario público, permisos y aislamiento',{tag:'@smoke'},async({page,request,browser})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   const anonymous=await browser.newContext({baseURL:origin});const p=await anonymous.newPage();
   await p.goto('/?equipo=C&year=2026');await expect(p.getByRole('heading',{name:'Disponibilidad y baremo'})).toBeVisible();
@@ -411,7 +411,7 @@ test('calendario público, permisos y aislamiento',async({page,request,browser})
   await anonymous.close();
 });
 
-test('aplazar, elegir dos en calendario y deshacer/rehacer',{tag:'@both'},async({page,request})=>{
+test('aplazar, elegir dos en calendario y deshacer/rehacer',{tag:['@both','@smoke']},async({page,request})=>{
   const s=await setup(request,page);await open(page,s.id);await activate(page);
   const dates=s.data.result.cycles.map((c:any)=>c.date);await cycle(page,dates[0]);await confirm(page,'Aplazar para elegir dos');
   // An open action menu would cover the Redo control on desktop.
