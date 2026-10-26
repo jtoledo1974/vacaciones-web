@@ -105,57 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'bulk_members') {
-    let rows;
-    try {
-      rows = validateRoster(body.rows, c.year, c.team_id, d.config);
-    } catch (e: any) {
-      throw new ApiError(e.message);
-    }
-    const resolved = rows.map((r, i) => {
-      const member = r.memberId ? d.members.find((m) => m.id === r.memberId) : d.members.find((m) => m.code === r.code);
-      if (r.memberId && !member) throw new ApiError('Controlador ajeno a este equipo');
-      return { row: r, member, position: member?.position ?? d.members.length + i };
-    });
-    const memberIds = resolved.map((r) => r.member?.id).filter(Boolean);
-    if (new Set(memberIds).size !== memberIds.length) throw new ApiError('El mismo controlador aparece en dos filas');
-    const touched = new Set(resolved.map((r) => r.member?.id).filter(Boolean));
-    if (resolved.some((r) => d.members.some((m) => m.code === r.row.code && !touched.has(m.id))))
-      throw new ApiError('Hay un identificador duplicado en la plantilla');
-
-    const renamed = renameConfigCodes(
-      d.config,
-      resolved.flatMap(({ row: r, member }) =>
-        member && member.code !== r.code ? [[member.code, r.code] as [string, string]] : [],
-      ),
-    );
-    if (renamed)
-      ops.push({
-        sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
-        args: [JSON.stringify(renamed), cid],
-      });
-    if (rules && d.awards.length) {
-      const revised = d.members.map((m) => {
-        const updated = resolved.find((item) => item.member?.id === m.id);
-        return updated ? { ...m, code: updated.row.code } : m;
-      });
-      const additions = resolved
-        .filter((item) => !item.member)
-        .map((item, i) => ({ id: 'new-roster-' + i, code: item.row.code, seniority: item.row.seniority }));
-      service.assertCompletable(c, renamed ?? d.config, [...revised, ...additions], d.awards, 'Actualizar plantilla');
-    }
-    for (const { row: r, member, position } of resolved) {
-      if (member)
-        ops.push({
-          sql: 'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',
-          args: [r.code, r.label, r.seniority, member.id, cid],
-        });
-      else ops.push(...rowStatements(cid, c.team_id, r, position, id(), id()));
-    }
-    ops.push({ sql: "UPDATE campaigns SET data_kind='configured' WHERE id=?", args: [cid] });
-    before = d.members;
-    after = rows;
-  } else if (action === 'transfer_member') {
+  if (action === 'transfer_member') {
     if (c.scope_key !== 'live')
       throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
     const member = d.members.find((m) => m.id === body.memberId);
@@ -656,6 +606,62 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
   return { before, after };
 }
 
+async function executeBulkMembers(ctx: CommandContext): Promise<CommandResult> {
+  const { service, cid, body, d, c, rules, ops } = ctx;
+  let before: any = null;
+  let after: any = body;
+  let rows;
+  try {
+    rows = validateRoster(body.rows, c.year, c.team_id, d.config);
+  } catch (e: any) {
+    throw new ApiError(e.message);
+  }
+  const resolved = rows.map((r, i) => {
+    const member = r.memberId ? d.members.find((m) => m.id === r.memberId) : d.members.find((m) => m.code === r.code);
+    if (r.memberId && !member) throw new ApiError('Controlador ajeno a este equipo');
+    return { row: r, member, position: member?.position ?? d.members.length + i };
+  });
+  const memberIds = resolved.map((r) => r.member?.id).filter(Boolean);
+  if (new Set(memberIds).size !== memberIds.length) throw new ApiError('El mismo controlador aparece en dos filas');
+  const touched = new Set(resolved.map((r) => r.member?.id).filter(Boolean));
+  if (resolved.some((r) => d.members.some((m) => m.code === r.row.code && !touched.has(m.id))))
+    throw new ApiError('Hay un identificador duplicado en la plantilla');
+
+  const renamed = renameConfigCodes(
+    d.config,
+    resolved.flatMap(({ row: r, member }) =>
+      member && member.code !== r.code ? [[member.code, r.code] as [string, string]] : [],
+    ),
+  );
+  if (renamed)
+    ops.push({
+      sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
+      args: [JSON.stringify(renamed), cid],
+    });
+  if (rules && d.awards.length) {
+    const revised = d.members.map((m) => {
+      const updated = resolved.find((item) => item.member?.id === m.id);
+      return updated ? { ...m, code: updated.row.code } : m;
+    });
+    const additions = resolved
+      .filter((item) => !item.member)
+      .map((item, i) => ({ id: 'new-roster-' + i, code: item.row.code, seniority: item.row.seniority }));
+    service.assertCompletable(c, renamed ?? d.config, [...revised, ...additions], d.awards, 'Actualizar plantilla');
+  }
+  for (const { row: r, member, position } of resolved) {
+    if (member)
+      ops.push({
+        sql: 'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',
+        args: [r.code, r.label, r.seniority, member.id, cid],
+      });
+    else ops.push(...rowStatements(cid, c.team_id, r, position, id(), id()));
+  }
+  ops.push({ sql: "UPDATE campaigns SET data_kind='configured' WHERE id=?", args: [cid] });
+  before = d.members;
+  after = rows;
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -762,7 +768,7 @@ export const COMMANDS: Record<string, Command> = {
         body.rows.every((r: any) => sameSeniority(d, r)),
     },
     election: 'reset',
-    execute: legacy('bulk_members'),
+    execute: executeBulkMembers,
   },
   transfer_member: { preconditions: editing, election: 'reset', execute: legacy('transfer_member') },
   retire_member: { preconditions: editing, election: 'reset', execute: legacy('retire_member') },
