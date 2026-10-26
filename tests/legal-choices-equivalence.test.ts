@@ -4,7 +4,6 @@ import { defaultConfig } from '../domain/defaults.ts';
 import { calculate, cycleTable, type Award, type Member, type Request } from '../domain/vacations.ts';
 import { occupancyFor, registerPolicy } from '../domain/policy.ts';
 import type { OccupancyRules, PolicyAward, PolicyState, RuleProblem } from '../domain/occupancy.ts';
-import { canComplete2027 } from '../domain/policy-2027.ts';
 import { referenceCalculate } from './calculate-reference.ts';
 import { POLICY_2099 } from './policy-2099.ts';
 import realThirds from './policy-2027-tercer-cupo-real.json' with { type: 'json' };
@@ -114,7 +113,7 @@ const members2027: Member[] = Array.from({ length: 20 }, (_, i) => ({
 }));
 const campaign2027 = { year: 2027, team: 'A', config: config2027 };
 const empty2027 = rules2027.state(campaign2027, members2027, []);
-const witness2027 = canComplete2027(empty2027, { maxChecks: 1000 }).witness!;
+const witness2027 = rules2027.canComplete(empty2027, { maxChecks: 1000 }).witness!;
 
 /** Prefixes of a valid final allocation, a lone foreign award and the real HR fixture. */
 function states2027(): { label: string; state: PolicyState; focus: string }[] {
