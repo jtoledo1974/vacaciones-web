@@ -541,8 +541,6 @@ async function executeTransferMember(ctx: CommandContext): Promise<CommandResult
   const { service, repo, actor, cid, body, d, c, election, ops } = ctx;
   let before: any = null;
   let after: any = body;
-  if (c.scope_key !== 'live')
-    throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
   const member = d.members.find((m) => m.id === body.memberId);
   if (!member) throw new ApiError('Controlador no encontrado', 404);
   if (grantsIndividualEntitlements(c.year) && d.config.individualEntitlements?.[member.code])
@@ -773,7 +771,14 @@ export const COMMANDS: Record<string, Command> = {
     election: 'reset',
     execute: executeBulkMembers,
   },
-  transfer_member: { preconditions: editing, election: 'reset', execute: executeTransferMember },
+  transfer_member: {
+    preconditions: {
+      ...editing,
+      liveOnly: 'El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada',
+    },
+    election: 'reset',
+    execute: executeTransferMember,
+  },
   retire_member: { preconditions: editing, election: 'reset', execute: executeRetireMember },
   member: {
     preconditions: { ...editing, renameOnly: (body, d) => sameSeniority(d, body) },
