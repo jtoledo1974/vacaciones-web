@@ -78,7 +78,8 @@ export default function RosterEditor({data,busy,save,importRoster,retire,transfe
     const previous=r.memberId?byId.get(r.memberId):undefined;
     return accountKey(r)!==accountKey(previous??{provider:'',subject:''});
   }).map(({memberId,code,provider,subject,accountVersion})=>({memberId,code,provider,subject,accountVersion})):[];
-  const scoresDirty=savedRows.length!==original.length||savedRows.some((r,i)=>r.previousScore!==original[i]?.previousScore||r.code!==original[i]?.code)||scoreSource!==(data.config?.previousScoresSource??'');
+  // A nick change alone needs no score save: the server moves its score along.
+  const scoresDirty=savedRows.length!==original.length||savedRows.some((r,i)=>r.previousScore!==original[i]?.previousScore||!r.memberId&&r.code!==original[i]?.code)||scoreSource!==(data.config?.previousScoresSource??'');
   const dirty=rosterDirty||scoresDirty||changedAccounts.length>0;
   const fingerprint=JSON.stringify({rows:savedRows,scoreSource});
   const targetTeams=(teams??[]).filter((t:any)=>t.team_id!==data.campaign.team_id&&t.status==='open'&&t.year===data.campaign.year);

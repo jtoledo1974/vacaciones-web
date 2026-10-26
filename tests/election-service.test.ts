@@ -551,3 +551,29 @@ test('el controlador sabe cuántos de los que van delante tienen preferencias ac
  assert.equal((await person.view(cid)).election.automaticAhead,null);
  assert.equal((await s.view(cid)).election.automaticAhead,null);
 });
+test('con la elección activa se pueden cambiar nicks y nombres; la puntuación acompaña al nick',async()=>{
+ const {s,cid,d}=await setup();
+ const year=d.campaign.year,[a,b,c]=d.members;
+ await act(s,cid,start(d));
+ let current;
+ const rows=(changes:Record<string,any>)=>[a,b,c].map(m=>({memberId:m.id,code:m.code,label:m.label,seniority:m.seniority,...changes[m.code]}));
+ // Swap AA and BB and rename CC's display name, without pausing.
+ current=await s.mutate(cid,{action:'bulk_members',version:(await s.load(cid)).campaign.version,rows:rows({AA:{code:'BB'},BB:{code:'AA'},CC:{label:'Nombre corregido'}})});
+ assert.equal((await s.view(cid)).election.state.status,'active');
+ assert.deepEqual(current.members.map((m:any)=>[m.id,m.code]),[[a.id,'BB'],[b.id,'AA'],[c.id,'CC']]);
+ assert.equal(current.members.find((m:any)=>m.id===c.id).label,'Nombre corregido');
+ assert.deepEqual(current.config.previousScores,{BB:10,AA:20,CC:30},'Cada puntuación sigue a su persona');
+ // Seniority and other corrections still require a pause.
+ await assert.rejects(s.mutate(cid,{action:'member',version:current.campaign.version,memberId:c.id,code:c.code,seniority:year+'-01-01'}),/Pausa la elección/);
+ await assert.rejects(s.mutate(cid,{action:'bulk_members',version:current.campaign.version,rows:[...rows({}),{code:'NUEVO',label:'',seniority:''}]}),/Pausa la elección/);
+});
+test('renombrar con la elección en pausa no borra su estado',async()=>{
+ const {s,cid,d}=await setup();
+ await act(s,cid,start(d));
+ await act(s,cid,{action:'choose',memberId:d.members[0].id,dates:[d.result.cycles[0].date]});
+ await actOne(s,cid,{action:'pause'});
+ const before=(await s.view(cid)).election.state;
+ const v=await s.view(cid);
+ await s.mutate(cid,{action:'bulk_members',version:v.campaign.version,rows:v.members.map((m:any)=>({memberId:m.id,code:m.code==='AA'?'ZZ':m.code,label:m.label,seniority:m.seniority}))});
+ assert.deepEqual((await s.view(cid)).election.state,before);
+});

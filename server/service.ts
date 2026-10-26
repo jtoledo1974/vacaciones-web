@@ -170,7 +170,11 @@ export class Service {
             throw new ApiError('La campaña cambió. Recarga antes de guardar.', 409);
         const action = body.action;
         const election=await this.election().read(cid);
-        if(election.state?.status==='active'&&!['calculate','close',...(c.scope_key==='live'?[]:['reset_vacations'])].includes(action))throw new ApiError('Pausa la elección antes de corregir datos o cambiar la plantilla');
+        // Nicks and names label stable ids, so they may change mid-election; seniority,
+        // additions and every other correction still require a pause.
+        const sameSeniority=(r:any)=>{const m=d.members.find(x=>x.id===r?.memberId);return !!m&&String(r.seniority??'').trim()===m.seniority;};
+        const renameOnly=action==='member'?sameSeniority(body):action==='bulk_members'&&Array.isArray(body.rows)&&body.rows.length===d.members.length&&body.rows.every(sameSeniority);
+        if(election.state?.status==='active'&&!renameOnly&&!['calculate','close',...(c.scope_key==='live'?[]:['reset_vacations'])].includes(action))throw new ApiError('Pausa la elección antes de corregir datos o cambiar la plantilla');
         if (c.status !== 'open' && !['reopen', 'publish', 'close'].includes(action))
             throw new ApiError('La campaña está cerrada. Un superadministrador puede reabrirla.');
         const ops = cas(cid, body.version);
@@ -359,17 +363,15 @@ export class Service {
             const touched=new Set(resolved.map(r=>r.member?.id).filter(Boolean));
             if(resolved.some(r=>d.members.some(m=>m.code===r.row.code&&!touched.has(m.id))))throw new ApiError('Hay un identificador duplicado en la plantilla');
 
-            if(c.year===2027)
-                for(const {row:r,member} of resolved)
-                    if(member&&member.code!==r.code&&d.config.individualEntitlements?.[member.code])
-                        throw new ApiError('Actualiza primero la autorización individual de RRHH antes de cambiar el código '+member.code);
+            const renamed=renameConfigCodes(d.config,resolved.flatMap(({row:r,member})=>member&&member.code!==r.code?[[member.code,r.code] as [string,string]]:[]));
+            if(renamed)ops.push({sql:'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',args:[JSON.stringify(renamed),cid]});
             if(c.year===2027&&d.awards.length){
                 const revised=d.members.map(m=>{
                     const updated=resolved.find(item=>item.member?.id===m.id);
                     return updated?{...m,code:updated.row.code}:m;
                 });
                 const additions=resolved.filter(item=>!item.member).map((item,i)=>({id:'new-roster-'+i,code:item.row.code,seniority:item.row.seniority}));
-                this.assert2027Completable(c,d.config,[...revised,...additions],d.awards,'Actualizar plantilla');
+                this.assert2027Completable(c,renamed??d.config,[...revised,...additions],d.awards,'Actualizar plantilla');
             }
             for(const {row:r,member,position} of resolved){
                 if(member)ops.push({sql:'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',args:[r.code,r.label,r.seniority,member.id,cid]});
@@ -421,8 +423,8 @@ export class Service {
             if(d.members.some(other=>other.code===code&&other.id!==m?.id))
                 throw new ApiError('Ese código ya existe en esta campaña');
             if (m) {
-                if(c.year===2027&&m.code!==code&&d.config.individualEntitlements?.[m.code])
-                    throw new ApiError('Actualiza primero la excepción de RRHH antes de renombrar el controlador');
+                const renamed=renameConfigCodes(d.config,[[m.code,code]]);
+                if(renamed)ops.push({ sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?', args: [JSON.stringify(renamed), cid] });
                 before = m;
                 ops.push({ sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?', args: [code, body.seniority, m.id, cid] });
             }
@@ -443,7 +445,8 @@ export class Service {
         if(action==='close'&&election.state)ops.push(electionStateStatement(cid,{...election.state,status:'paused'}));
         if(action==='reset_vacations'){ops.push({sql:c.scope_key==='live'&&this.actor.role!=='superadmin'?'DELETE FROM preferences WHERE campaign_id=? AND member_id NOT IN (SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?)':'DELETE FROM preferences WHERE campaign_id=?',args:c.scope_key==='live'&&this.actor.role!=='superadmin'?[cid,cid]:[cid]},electionStateStatement(cid,null));}
         else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));ops.push(...insertRows('preferences',PREFERENCE_COLUMNS,old.election.preferences.map((p:any)=>preferenceRow(p,cid))));}}
-        else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
+        // A rename keeps order, queue and turn: they reference ids, not nicks.
+        else if(election.state&&!renameOnly&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
         if(c.year===2027&&['award','delete_award'].includes(action)){
             const updated=action==='award'?[...d.awards,after]:
                 d.awards.filter((a:any)=>a.id!==body.id);
@@ -612,6 +615,16 @@ export class Service {
         await this.commit(ops);
         return { ok: true };
     }
+}
+// Previous scores and RRHH exceptions are keyed by nick: a rename carries them along.
+// Renames apply simultaneously, so swapping two nicks keeps each entry with its person.
+function renameConfigCodes(config:Config,renames:[string,string][]):Config|null{
+ const to=new Map(renames);
+ if(![config.previousScores,config.individualEntitlements].some(map=>map&&Object.keys(map).some(k=>to.has(k))))return null;
+ const rename=<T,>(map:Record<string,T>|undefined)=>map&&Object.fromEntries(Object.entries(map).map(([k,v])=>[to.get(k)??k,v]));
+ return {...config,
+  ...(config.previousScores?{previousScores:rename(config.previousScores)}:{}),
+  ...(config.individualEntitlements?{individualEntitlements:rename(config.individualEntitlements)}:{})};
 }
 async function digest(s: string) { return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))).map(b => b.toString(16).padStart(2, '0')).join(''); }
 

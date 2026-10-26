@@ -359,3 +359,22 @@ test('2027 joint turn of three, each recovering two deferrals, previews and comm
   entries:trio.map((id:string,i:number)=>({member_id:id,dates:free.slice(i*3,i*3+3)}))});
  assert.equal((await service.view(cid)).awards.length,before+9);
 });
+
+test('renombrar un nick con la elección 2027 activa traslada su excepción de RRHH',async()=>{
+ const repo=new SQLiteRepo(),service=new Service(repo,owner);
+ await service.init();await service.createCampaigns(2027,null,null);
+ let d=await service.view((await service.list()).campaigns.find((c:any)=>c.year===2027&&c.team_id==='A').id);
+ const cid=d.campaign.id,codes=Array.from({length:20},(_,i)=>'P'+String(i+1).padStart(2,'0'));
+ d=await service.mutate(cid,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'A',year:2027,copySelections:false,rows:codes.map((code,i)=>({code,label:'CTA '+code,seniority:'2010-01-'+String(i+1).padStart(2,'0')}))}});
+ const entitlement={cycles:d.config.cyclesPerPerson,authorization:'Autorización de RRHH de prueba para P01'};
+ d=await service.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,individualEntitlements:{P01:entitlement},
+  previousScores:Object.fromEntries(codes.map((code,i)=>[code,200+i])),previousScoresSource:'Listado de puntuaciones de ensayo verificadas para 2027'}});
+ await service.election().mutate(cid,{action:'start',version:d.campaign.version,order:d.members.map((m:any)=>m.id),source:'Orden de ensayo verificado para 2027',rulesConfirmed:true,allowDeferral:true});
+ d=await service.view(cid);
+ const p01=d.members.find((m:any)=>m.code==='P01');
+ d=await service.mutate(cid,{action:'member',version:d.campaign.version,memberId:p01.id,code:'X01',seniority:p01.seniority});
+ assert.equal((await service.view(cid)).election.state.status,'active');
+ assert.deepEqual(d.config.individualEntitlements,{X01:entitlement});
+ assert.equal(d.config.previousScores.X01,200);
+ assert.equal(d.config.previousScores.P01,undefined);
+});
