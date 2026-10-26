@@ -105,19 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'request') {
-    const m = d.members.find((m) => m.id === body.memberId);
-    if (!m) throw new ApiError('Identificador ajeno al equipo');
-    if (!Number.isInteger(body.slot) || body.slot < 1 || body.slot > 6) throw new ApiError('Posición entre 1 y 6');
-    if (!calendar(c.year, c.team_id, d.config).some((s) => s.date === body.date)) throw new ApiError('Ciclo no válido');
-    if (d.requests.some((r) => r.member_id === m.id && r.slot !== body.slot && r.cycle_date === body.date))
-      throw new ApiError('Ese ciclo ya está solicitado por el trabajador');
-    before = d.requests.find((r) => r.member_id === m.id && r.slot === body.slot) ?? null;
-    ops.push({
-      sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1) ON CONFLICT(campaign_id,member_id,slot) DO UPDATE SET cycle_date=excluded.cycle_date,version=requests.version+1',
-      args: [id(), cid, m.id, body.slot, body.date],
-    });
-  } else if (action === 'delete_request' || action === 'delete_award') {
+  if (action === 'delete_request' || action === 'delete_award') {
     const table = action === 'delete_request' ? 'requests' : 'awards';
     before = (action === 'delete_request' ? d.requests : d.awards).find((r) => r.id === body.id);
     if (!before) throw new ApiError('Registro no encontrado', 404);
@@ -611,6 +599,24 @@ async function executeConfig(ctx: CommandContext): Promise<CommandResult> {
   return { before, after };
 }
 
+async function executeRequest(ctx: CommandContext): Promise<CommandResult> {
+  const { cid, body, d, c, ops } = ctx;
+  let before: any = null;
+  const after: any = body;
+  const m = d.members.find((m) => m.id === body.memberId);
+  if (!m) throw new ApiError('Identificador ajeno al equipo');
+  if (!Number.isInteger(body.slot) || body.slot < 1 || body.slot > 6) throw new ApiError('Posición entre 1 y 6');
+  if (!calendar(c.year, c.team_id, d.config).some((s) => s.date === body.date)) throw new ApiError('Ciclo no válido');
+  if (d.requests.some((r) => r.member_id === m.id && r.slot !== body.slot && r.cycle_date === body.date))
+    throw new ApiError('Ese ciclo ya está solicitado por el trabajador');
+  before = d.requests.find((r) => r.member_id === m.id && r.slot === body.slot) ?? null;
+  ops.push({
+    sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1) ON CONFLICT(campaign_id,member_id,slot) DO UPDATE SET cycle_date=excluded.cycle_date,version=requests.version+1',
+    args: [id(), cid, m.id, body.slot, body.date],
+  });
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -677,7 +683,7 @@ export const COMMANDS: Record<string, Command> = {
   undo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('undo_vacations') },
   redo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('redo_vacations') },
   config: { preconditions: editing, election: 'reset', execute: executeConfig },
-  request: { ...vacations, execute: legacy('request') },
+  request: { ...vacations, execute: executeRequest },
   delete_request: { ...vacations, execute: legacy('delete_request') },
   award: { ...vacations, execute: legacy('award'), audited: availabilityImpact('award') },
   delete_award: { ...vacations, execute: legacy('delete_award'), audited: availabilityImpact('delete_award') },
