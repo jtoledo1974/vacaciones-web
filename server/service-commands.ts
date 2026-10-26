@@ -101,14 +101,6 @@ export function commandFor(action: unknown): Command | undefined {
   return typeof action === 'string' && Object.hasOwn(COMMANDS, action) ? COMMANDS[action] : undefined;
 }
 
-export async function legacyExecute(ctx: CommandContext, action: string): Promise<CommandResult> {
-  const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
-  let before: any = null,
-    after: any = body;
-  }
-  return { before, after };
-}
-
 async function executeResetVacations(ctx: CommandContext): Promise<CommandResult> {
   const { cid, body, c, ops } = ctx;
   const before: any = null;
@@ -677,10 +669,6 @@ async function executeMember(ctx: CommandContext): Promise<CommandResult> {
   return { before, after };
 }
 
-const legacy =
-  (action: string) =>
-  (ctx: CommandContext): Promise<CommandResult> =>
-    legacyExecute(ctx, action);
 // Nicks and names label stable ids, so they may change mid-election; seniority,
 // additions and every other correction still require a pause.
 const sameSeniority = (d: CommandContext['d'], r: any) => {
