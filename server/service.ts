@@ -12,6 +12,7 @@ import {ApiError} from './errors.ts';
 import {ElectionService,electionStateStatement} from './election-service.ts';
 import {PersonalSimulationService} from './personal-simulation.ts';
 import {cloneSimulation} from './simulations.ts';
+import {projectAdminCampaignView,projectPublicCampaignView,projectPublishedCampaignView} from './projections.ts';
 import {validateElectionState,PREFERENCE_COLUMNS,preferenceRow} from '../domain/election.ts';
 export {ApiError} from './errors.ts';
 const id = () => crypto.randomUUID(), now = () => new Date().toISOString();
@@ -93,13 +94,13 @@ export class Service {
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
     async view(cid:string,options:{skipAvailabilityForPendingAutomatic?:boolean}={}){
         const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);const recovery=occupancyFor(d.campaign.year)?await historicalAvailability(this.repo,cid,d.campaign.version):{restored:false};const restored=recovery.restored;const result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards,{skipProof:restored});const election=await this.election().view(d,{restored,result,recordedAvailability:recovery.recordedAvailability,...options,auditContext:new AuditContext(this.repo,cid,d.campaign.version)});
-        if(canWrite(this.actor,d.campaign.team_id)){const entry=await this.vacationUndo(cid,d.campaign.version);return {...d,election,undo:entry&&entry.action!=='undo_vacations'?{id:entry.id,action:entry.action}:null,redo:entry?.action==='undo_vacations'?{id:entry.id}:null,result,runs:d.runs.map((r:any)=>({...r,result_json:undefined})),editable:true};}
-        return {campaign:{id:cid,year:d.campaign.year,team_id:d.campaign.team_id,status:d.campaign.status,version:d.campaign.version,data_kind:d.campaign.data_kind,scope_key:d.campaign.scope_key,simulation_name:d.campaign.simulation_name},members:d.members.map(m=>({id:m.id,code:m.code})),requests:[],awards:d.awards,result:{...result,ordering:[]},config:null,runs:[],election,participating:!!election.myMemberId,editable:false,preview:this.actor.preview&&this.actor.preview.campaignId===cid?{code:this.actor.preview.code,writable:this.actor.preview.writable}:undefined};
+        if(canWrite(this.actor,d.campaign.team_id)){const entry=await this.vacationUndo(cid,d.campaign.version);return projectAdminCampaignView(d,election,result,entry);}
+        return projectPublicCampaignView(d,cid,election,result,this.actor.preview);
     }
     async publishedView(cid:string){
         const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id))throw new ApiError('Simulación reservada a administradores',403);const run=d.campaign.published_run_id?(await this.repo.all('SELECT * FROM runs WHERE id=? AND campaign_id=?',[d.campaign.published_run_id,cid]))[0]:null;
         if(!run)return null;const snapshot=JSON.parse(run.result_json);
-        return {campaign:{id:cid,year:d.campaign.year,team_id:d.campaign.team_id,status:'published'},members:snapshot.members.map((m:any)=>({id:m.id,code:m.code})),awards:snapshot.awards,result:{...snapshot.result,ordering:[]}};
+        return projectPublishedCampaignView(d,cid,snapshot);
     }
     async vacationUndo(cid:string,version:number) {
         const entries=await this.repo.all('SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30',[cid]);
