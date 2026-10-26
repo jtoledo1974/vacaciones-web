@@ -33,7 +33,7 @@ import {
   type PreferenceMode,
   type ElectionContext,
 } from '../domain/election.ts';
-import { calculate } from '../domain/vacations.ts';
+import { calculate, cycleTable } from '../domain/vacations.ts';
 import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domain/occupancy.ts';
 import { occupancyFor, type OccupancyRules, type PolicyAward } from '../domain/policy.ts';
 import { canWrite, requireSuper, type Principal } from './permissions.ts';
@@ -248,30 +248,24 @@ export class ElectionService {
       // All candidates extend exactly this same already-valid selection.
       // The current completion witness can often be reused or repaired by an
       // atomic exchange rather than solving the full campaign for every date.
-      const partialState = {
-        ...policyState,
-        awards: [...policyState.awards, ...selected.map((cycle_date) => ({ member_id: turn.memberId!, cycle_date }))],
-      };
+      const choices = rules.legalChoices(policyState, turn.memberId!, {
+        selected,
+        witness: chosen.completion.witness,
+      });
       const reasons: Record<string, unknown> = {},
         warnings: Record<string, unknown> = {},
         available: string[] = [],
         pending: string[] = [];
-      let remainingChecks = rules.budgets.options.total;
+      const legal = new Set(choices.legal),
+        unknown = new Set(choices.unknown);
       for (const date of resultDates(ctx)) {
-        const budget = Math.min(rules.budgets.options.perCandidate, remainingChecks);
-        const candidate = rules.evaluateCandidate(partialState, [{ member_id: turn.memberId!, cycle_date: date }], {
-          maxChecks: budget,
-          witness: chosen.completion.witness,
-          warnings: false,
-        });
-        remainingChecks = Math.max(0, remainingChecks - candidate.completion.checked);
-        if (candidate.allowed) available.push(date);
-        else if (candidate.completion.status === 'indeterminate') {
+        if (legal.has(date)) available.push(date);
+        else if (unknown.has(date)) {
           // A slow proof is not a veto. Allow a provisional selection and validate
           // the entire atomic choice on confirmation with the full budget.
           available.push(date);
           pending.push(date);
-        } else reasons[date] = candidate.issues;
+        } else reasons[date] = choices.illegal[date] ?? [];
       }
       return {
         version: d.campaign.version,
@@ -422,39 +416,12 @@ export class ElectionService {
           }
         }
       } else {
-        const baseline = rules.canComplete(allocation, { maxChecks: rules.budgets.commit });
-        let remainingChecks = rules.budgets.options.total;
-        // The empty campaign is invariant under controller permutations: each
-        // final cycle must have an occupant, so every CTA can choose every cycle.
-        // After one choice, relabel any other witness occupant to the next CTA;
-        // the sole existing assignment is untouched and the histogram identical.
-        const first = allocation.awards.length === 1 ? allocation.awards[0] : null;
-        const sameRights =
-          allocation.members.length > 0 &&
-          allocation.members[0].entitlement > 0 &&
-          allocation.members.every((m) => m.entitlement === allocation.members[0].entitlement);
-        const symmetric =
-          baseline.status === 'possible' &&
-          sameRights &&
-          (allocation.awards.length === 0 ||
-            (!!first && first.member_id !== focus && !allocation.awards.some((a) => a.member_id === focus)));
-        const proofDates = new Set(
-          (baseline.witness ?? []).filter((a) => !first || a.member_id !== first.member_id).map((a) => a.cycle_date),
-        );
+        const choices = rules.legalChoices(allocation, focus);
+        const legal = new Set(choices.legal),
+          unknown = new Set(choices.unknown);
         for (const cycle of result.cycles) {
-          if (symmetric && (!first || proofDates.has(cycle.date))) {
-            available.push(cycle.date);
-            continue;
-          }
-          const budget = Math.min(rules.budgets.options.perCandidate, remainingChecks);
-          const diagnostic = rules.evaluateCandidate(allocation, [{ member_id: focus, cycle_date: cycle.date }], {
-            maxChecks: budget,
-            witness: baseline.witness,
-            warnings: false,
-          });
-          remainingChecks = Math.max(0, remainingChecks - diagnostic.completion.checked);
-          if (diagnostic.allowed) available.push(cycle.date);
-          else if (diagnostic.completion.status === 'indeterminate') {
+          if (legal.has(cycle.date)) available.push(cycle.date);
+          else if (unknown.has(cycle.date)) {
             available.push(cycle.date);
             availabilityPending.push(cycle.date);
             availabilityWarnings[cycle.date] = [
@@ -465,7 +432,8 @@ export class ElectionService {
             ];
           } else
             availabilityReasons[cycle.date] =
-              diagnostic.issues.map((i) => i.message).join('; ') || 'No disponible en el contexto actual';
+              (choices.illegal[cycle.date] ?? []).map((i) => i.message).join('; ') ||
+              'No disponible en el contexto actual';
         }
       }
     } else if (focus && !skipFullAvailability)
@@ -1078,5 +1046,5 @@ export function stampTurnAfter(
   return stampTurn(state, cursor, at, restart);
 }
 function resultDates(ctx: ElectionContext) {
-  return calculate(ctx.year, ctx.team, ctx.config, ctx.members, ctx.requests, ctx.awards).cycles.map((c) => c.date);
+  return cycleTable(ctx.year, ctx.team, ctx.config, [], []).map((c) => c.date);
 }

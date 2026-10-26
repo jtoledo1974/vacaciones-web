@@ -157,6 +157,41 @@ export type Budgets = {
   review: number;
 };
 
+/** Options of `legalChoices`. */
+export type LegalChoiceOptions = {
+  /** Cycles the member already picked in this turn; every candidate extends them. */
+  selected?: string[];
+  /** Search budget shared by every cycle and capped per cycle. Default: `budgets.options`. */
+  budget?: { total: number; perCandidate: number };
+  /** The caller's proof of the state with `selected`: its completion, possibly undefined.
+   * Without the key the engine proves the state itself and may use symmetry shortcuts. */
+  witness?: PolicyAward[];
+};
+/**
+ * Every cycle of the state, in calendar order, in exactly one list. `unknown`
+ * ran out of budget: not a veto, it is proved in full on confirmation.
+ */
+export type LegalChoices = {
+  legal: string[];
+  illegal: Record<string, RuleProblem[]>;
+  unknown: string[];
+  checked: number;
+};
+/** Normative review of an allocation, partial or complete. */
+export type PolicyReview = {
+  /** Per cycle, in the state's order. */
+  limits: { date: string; min: number; base: number; max: number }[];
+  issues: string[];
+  warnings: RuleProblem[];
+  completionStatus: Completion['status'] | 'not-checked';
+};
+export type ReviewOptions = {
+  /** Restored states are shown without a completion search. */
+  skipProof?: boolean;
+  /** False when the common structural validation already found issues: no proof is attempted. */
+  structurallyValid: boolean;
+};
+
 /** The campaign facts every year's rules are evaluated against. */
 export type PolicyCampaign = { year: number; team: string; config: Config };
 
@@ -182,6 +217,10 @@ export type OccupancyRules = {
   cycleMaximum(campaign: PolicyCampaign, date: string): number;
   /** An atomic batch of choices on the same prior state. */
   evaluateCandidate(state: PolicyState, choices: PolicyAward[], options?: CandidateOptions): CandidateAssessment;
+  /** The cycles one member may add to `selected`, proved within the budget. */
+  legalChoices(state: PolicyState, memberId: string, options?: LegalChoiceOptions): LegalChoices;
+  /** Limits, issues, warnings and completion status shown with `calculate`. */
+  review(campaign: PolicyCampaign, state: PolicyState, options: ReviewOptions): PolicyReview;
   /** A complete allocation. */
   evaluateFinal(state: PolicyState): FinalAssessment;
   /** Whether every entitlement can still be completed; a bounded search ends 'indeterminate'. */
