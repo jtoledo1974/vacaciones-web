@@ -105,61 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'config') {
-    const cfg = checkedConfig(body.config, c.year);
-    if (rules) {
-      const known = new Set(d.members.map((m: any) => m.code));
-      for (const code of Object.keys(cfg.individualEntitlements ?? {}))
-        if (!known.has(code))
-          throw new ApiError(
-            'La excepción de RRHH hace referencia a un controlador inexistente en esta plantilla: ' + code,
-          );
-      if (election.state) {
-        const normalize = (items: Record<string, unknown> | undefined) =>
-          JSON.stringify(Object.entries(items ?? {}).sort(([a], [b]) => a.localeCompare(b)));
-        if (
-          normalize(d.config.individualEntitlements) !== normalize(cfg.individualEntitlements) ||
-          normalize(d.config.specialQuotas) !== normalize(cfg.specialQuotas) ||
-          d.config.cyclesPerPerson !== cfg.cyclesPerPerson
-        )
-          throw new ApiError(
-            'Los derechos individuales y cupos de RRHH se congelan al activar la elección. Reinicia la elección antes de cambiarlos.',
-          );
-      }
-      if (d.awards.length) {
-        const candidate = rules.canComplete(rules.state(campaignOf(c, cfg), d.members, d.awards), {
-          maxChecks: rules.budgets.commit,
-        });
-        if (candidate.status !== 'possible')
-          throw new ApiError(
-            'Estos parámetros dejarían las adjudicaciones sin una terminación validada: ' +
-              (candidate.reason ?? candidate.status),
-            409,
-          );
-      }
-    }
-    if (election.state) {
-      const previous = d.config.previousScores ?? {},
-        updated = cfg.previousScores ?? {};
-      const keys = new Set([...Object.keys(previous), ...Object.keys(updated)]);
-      if (
-        [...keys].some((key) => previous[key] !== updated[key]) ||
-        (d.config.previousScoresSource ?? '') !== (cfg.previousScoresSource ?? '')
-      )
-        throw new ApiError(
-          'Las puntuaciones anteriores quedan congeladas al activar la elección. Reinicia la elección para modificarlas.',
-        );
-    }
-    const dates = new Set(calendar(c.year, c.team_id, cfg).map((s) => s.date));
-    if ([...d.requests, ...d.awards].some((r) => !dates.has(r.cycle_date)))
-      throw new ApiError('El cambio eliminaría ciclos con solicitudes o adjudicaciones');
-    ops.push({
-      sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
-      args: [JSON.stringify(cfg), cid],
-    });
-    before = d.config;
-    after = cfg;
-  } else if (action === 'request') {
+  if (action === 'request') {
     const m = d.members.find((m) => m.id === body.memberId);
     if (!m) throw new ApiError('Identificador ajeno al equipo');
     if (!Number.isInteger(body.slot) || body.slot < 1 || body.slot > 6) throw new ApiError('Posición entre 1 y 6');
@@ -605,6 +551,66 @@ const executeUndoVacations =
     return { before, after };
   };
 
+async function executeConfig(ctx: CommandContext): Promise<CommandResult> {
+  const { cid, body, d, c, rules, election, ops } = ctx;
+  let before: any = null;
+  let after: any = body;
+  const cfg = checkedConfig(body.config, c.year);
+  if (rules) {
+    const known = new Set(d.members.map((m: any) => m.code));
+    for (const code of Object.keys(cfg.individualEntitlements ?? {}))
+      if (!known.has(code))
+        throw new ApiError(
+          'La excepción de RRHH hace referencia a un controlador inexistente en esta plantilla: ' + code,
+        );
+    if (election.state) {
+      const normalize = (items: Record<string, unknown> | undefined) =>
+        JSON.stringify(Object.entries(items ?? {}).sort(([a], [b]) => a.localeCompare(b)));
+      if (
+        normalize(d.config.individualEntitlements) !== normalize(cfg.individualEntitlements) ||
+        normalize(d.config.specialQuotas) !== normalize(cfg.specialQuotas) ||
+        d.config.cyclesPerPerson !== cfg.cyclesPerPerson
+      )
+        throw new ApiError(
+          'Los derechos individuales y cupos de RRHH se congelan al activar la elección. Reinicia la elección antes de cambiarlos.',
+        );
+    }
+    if (d.awards.length) {
+      const candidate = rules.canComplete(rules.state(campaignOf(c, cfg), d.members, d.awards), {
+        maxChecks: rules.budgets.commit,
+      });
+      if (candidate.status !== 'possible')
+        throw new ApiError(
+          'Estos parámetros dejarían las adjudicaciones sin una terminación validada: ' +
+            (candidate.reason ?? candidate.status),
+          409,
+        );
+    }
+  }
+  if (election.state) {
+    const previous = d.config.previousScores ?? {},
+      updated = cfg.previousScores ?? {};
+    const keys = new Set([...Object.keys(previous), ...Object.keys(updated)]);
+    if (
+      [...keys].some((key) => previous[key] !== updated[key]) ||
+      (d.config.previousScoresSource ?? '') !== (cfg.previousScoresSource ?? '')
+    )
+      throw new ApiError(
+        'Las puntuaciones anteriores quedan congeladas al activar la elección. Reinicia la elección para modificarlas.',
+      );
+  }
+  const dates = new Set(calendar(c.year, c.team_id, cfg).map((s) => s.date));
+  if ([...d.requests, ...d.awards].some((r) => !dates.has(r.cycle_date)))
+    throw new ApiError('El cambio eliminaría ciclos con solicitudes o adjudicaciones');
+  ops.push({
+    sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
+    args: [JSON.stringify(cfg), cid],
+  });
+  before = d.config;
+  after = cfg;
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -670,7 +676,7 @@ export const COMMANDS: Record<string, Command> = {
   },
   undo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('undo_vacations') },
   redo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('redo_vacations') },
-  config: { preconditions: editing, election: 'reset', execute: legacy('config') },
+  config: { preconditions: editing, election: 'reset', execute: executeConfig },
   request: { ...vacations, execute: legacy('request') },
   delete_request: { ...vacations, execute: legacy('delete_request') },
   award: { ...vacations, execute: legacy('award'), audited: availabilityImpact('award') },
