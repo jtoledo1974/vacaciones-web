@@ -584,8 +584,9 @@ export class Service {
         if (!b?.payload || b.payload.format !== 'vacaciones-backup-v1' || b.sha256 !== await digest(JSON.stringify(b.payload)))
             throw new ApiError('Copia inválida o integridad incorrecta');
         const tables={...b.payload.tables}; for(const key of ['preferences','election_states','controller_accounts','reconstruction_sessions'])if(tables[key]===undefined)tables[key]=[];
-        // Restoring a backup must never resurrect a previously revoked session.
-        if(Array.isArray(tables.audit))tables.audit=tables.audit.map((r:any)=>r.action==='local_admin_session'?{...r,action:'local_admin_session_revoked'}:r);
+        // Local admin sessions are not backed up. Older backups kept them (and login
+        // attempts) in audit: drop those rows so a restore never resurrects a session.
+        if(Array.isArray(tables.audit))tables.audit=tables.audit.filter((r:any)=>!['local_admin_session','local_admin_session_revoked','local_admin_login_attempt'].includes(r?.action));
         // Undo history replays audit in insertion order. Older backups listed it by id:
         // recover chronological order from created_at (stable for equal times).
         if(b.payload.auditOrder!=='insertion'&&Array.isArray(tables.audit))tables.audit=[...tables.audit].sort((x:any,y:any)=>String(x.created_at).localeCompare(String(y.created_at)));
@@ -607,6 +608,8 @@ export class Service {
         const token = id(), ops: Statement[] = [{ sql: "UPDATE app_state SET revision=revision+1 WHERE id='main' AND revision=?", args: [expectedRevision] }, { sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] }, { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] }];
         for (const n of [...names].reverse())
             ops.push({ sql: `DELETE FROM ${n}` });
+        // A restore invalidates every local admin session.
+        ops.push({ sql: 'DELETE FROM local_admin_sessions' });
         for (const n of names) {
             const cols = tableColumns[n];
             for (const row of tables[n]) {

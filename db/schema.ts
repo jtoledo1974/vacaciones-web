@@ -31,3 +31,7 @@ export const personalSimulations=sqliteTable('personal_simulations',{ownerKey:te
 
 // Administrative reconstruction state is never part of publicly readable election data.
 export const reconstructionSessions=sqliteTable('reconstruction_sessions',{campaignId:text('campaign_id').primaryKey().references(()=>campaigns.id),json:text('json').notNull()});
+
+// Local admin sessions and throttled login attempts: expiring security state, never backed up.
+export const localAdminSessions=sqliteTable('local_admin_sessions',{id:text('id').primaryKey(),actor:text('actor').notNull(),createdAt:text('created_at').notNull(),expiresAt:integer('expires_at').notNull(),revokedAt:text('revoked_at')});
+export const localAdminAttempts=sqliteTable('local_admin_attempts',{id:text('id').primaryKey(),attemptKey:text('attempt_key').notNull(),createdAt:text('created_at').notNull()},t=>[index('local_admin_attempt_key').on(t.attemptKey,t.createdAt)]);

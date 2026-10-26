@@ -14,7 +14,9 @@ const excludedTables:Record<string,string>={
  push_subscriptions:'Suscripciones de dispositivo: no deben reactivarse al restaurar una copia.',
  turn_notifications:'Historial/cola de notificaciones operativas, no datos de elecciones.',
  push_deliveries:'Intentos y leases de envíos push; restaurarlos reenviaría avisos antiguos.',
- personal_simulations:'Borradores privados de simulación ajenos a la elección oficial.'
+ personal_simulations:'Borradores privados de simulación ajenos a la elección oficial.',
+ local_admin_sessions:'Sesiones del admin local: restaurar una copia las invalida todas.',
+ local_admin_attempts:'Intentos de acceso del admin local: caducan en quince minutos.'
 };
 
 const tables=Object.fromEntries(Object.values(schema).map(table=>[getTableName(table),table]));

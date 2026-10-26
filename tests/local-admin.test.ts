@@ -58,9 +58,11 @@ test('local password login enforces origin, valid JSON, invalid credentials and 
  }
  assert.equal((await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo)).status,429);
  assert.equal((await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!,'203.0.113.11'),config,repo)).status,200);
- const logs=await repo.all<{actor:string;action:string;after_json:string}>("SELECT actor,action,after_json FROM audit WHERE action='local_admin_login_attempt'");
- assert.equal(logs.length,6);
- assert.ok(logs.every(x=>!x.actor.includes('203.0.113.10')&&!x.after_json.includes('password')));
+ const attempts=await repo.all<{attempt_key:string}>('SELECT attempt_key FROM local_admin_attempts');
+ assert.equal(attempts.length,6);
+ assert.ok(attempts.every(x=>!x.attempt_key.includes('203.0.113.10')));
+ const events=await repo.all<{action:string;after_json:string}>("SELECT action,after_json FROM audit WHERE action LIKE 'local_admin%'");
+ assert.deepEqual(events.map(x=>({...x})),[{action:'local_admin_login',after_json:'{}'}]);
 });
 
 
@@ -121,4 +123,42 @@ test('local superadmin authorizes administration and isolated mutations; anonymo
  assert.deepEqual(await admin.view(live.id),before);
  const backup=await admin.backup();await admin.restore(backup,backup.payload.revision);
  assert.equal(await localAdminIdentity(request,config,repo),null);
+});
+
+test('sessions and attempts live in their own tables; audit only gains login and logout events',async()=>{
+ const repo=new SQLiteRepo();
+ const login=await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo);
+ const cookie=login.headers.get('set-cookie')!.split(';')[0],nonce=cookie.split('.')[2];
+ const request=new Request(url,{method:'POST',headers:{Origin:new URL(url).origin,Cookie:cookie}});
+ const [row]=await repo.all<{id:string;actor:string;revoked_at:string|null}>('SELECT id,actor,revoked_at FROM local_admin_sessions');
+ assert.deepEqual({...row},{id:nonce,actor:'local_admin:qa-superadmin',revoked_at:null});
+ // A row that expired server-side no longer authenticates, even with a valid signature.
+ await repo.batch([{sql:'UPDATE local_admin_sessions SET expires_at=expires_at-1'}]);
+ assert.equal(await localAdminIdentity(request,config,repo),null);
+ await repo.batch([{sql:'UPDATE local_admin_sessions SET expires_at=expires_at+1'}]);
+ assert.ok(await localAdminIdentity(request,config,repo));
+ await localAdminLogout(request,config,repo);
+ assert.ok((await repo.all<{revoked_at:string|null}>('SELECT revoked_at FROM local_admin_sessions'))[0].revoked_at);
+ const audit=await repo.all<{id:string;action:string;after_json:string}>("SELECT id,action,after_json FROM audit WHERE action LIKE 'local_admin%' ORDER BY rowid");
+ assert.deepEqual(audit.map(x=>[x.action,x.after_json]),[['local_admin_login','{}'],['local_admin_logout','{}']]);
+ assert.ok(audit.every(x=>x.id!==nonce));
+});
+test('backups leave sessions out, restoring invalidates them, and old backups with session rows in audit still restore',async()=>{
+ const {Service}=await import('../server/service.ts');
+ const repo=new SQLiteRepo();
+ const login=await localAdminLogin(loginRequest('qa-superadmin',config.LOCAL_ADMIN_PASSWORD!),config,repo);
+ const request=new Request(url,{headers:{Cookie:login.headers.get('set-cookie')!.split(';')[0]}});
+ const admin=new Service(repo,await principal(repo,await localAdminIdentity(request,config,repo),''));await admin.init();
+ const backup=await admin.backup();
+ assert.ok(!('local_admin_sessions' in backup.payload.tables)&&!('local_admin_attempts' in backup.payload.tables));
+ // Shape of a backup taken before the sessions left audit.
+ const at=new Date().toISOString(),legacy=['local_admin_session','local_admin_session_revoked','local_admin_login_attempt']
+  .map((action,i)=>({id:'legacy-'+i,actor:'local_admin:qa-superadmin',action,team_id:null,campaign_id:null,before_json:null,after_json:'{}',created_at:at}));
+ const payload={...backup.payload,tables:{...backup.payload.tables,audit:[...backup.payload.tables.audit,...legacy]}};
+ const {createHash}=await import('node:crypto');
+ const old={payload,sha256:createHash('sha256').update(JSON.stringify(payload)).digest('hex')};
+ await admin.restore(old,payload.revision);
+ assert.equal(await localAdminIdentity(request,config,repo),null);
+ assert.equal((await repo.all('SELECT id FROM local_admin_sessions')).length,0);
+ assert.equal((await repo.all("SELECT id FROM audit WHERE id LIKE 'legacy-%'")).length,0);
 });
