@@ -55,6 +55,16 @@ export function policyFor(year:number):VacationPolicy {
   return POLICIES[year]??LEGACY;
 }
 
+/**
+ * Tests only: plug a policy for a year and get back the undo. Production
+ * policies are listed in POLICIES above; nothing else may call this.
+ */
+export function registerPolicy(year:number,policy:VacationPolicy):()=>void {
+  const had=Object.hasOwn(POLICIES,year),previous=POLICIES[year];
+  POLICIES[year]=policy;
+  return ()=>{if(had)POLICIES[year]=previous;else delete POLICIES[year];};
+}
+
 /** The year's occupancy engine, or null for years that use legacy quotas. */
 export function occupancyFor(year:number):OccupancyRules|null {
   return policyFor(year).occupancy;

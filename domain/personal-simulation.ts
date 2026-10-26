@@ -80,7 +80,7 @@ export type PersonalEvaluation={
 function nextPlace(snapshot:AvailabilitySnapshot,date:string){
  const c=snapshot.cycles[date];
  if(!c)return null;
- return c.occupied>=4?{status:'blocked' as const,reasons:[{code:'CYCLE_FULL',message:'Las cuatro plazas del ciclo están ocupadas.',period:c.period,cycle:date}]}
+ return c.occupied>=c.slots.length?{status:'blocked' as const,reasons:[{code:'CYCLE_FULL',message:'Todas las plazas del ciclo están ocupadas.',period:c.period,cycle:date}]}
   :c.slots[c.occupied];
 }
 const blockedIn=(snapshot:AvailabilitySnapshot,date:string)=>nextPlace(snapshot,date)?.status==='blocked';
