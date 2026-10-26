@@ -28,8 +28,9 @@ permissions:
 jobs:
   checks:
     name: Unit tests and types
+    # The e2e-full label run cancels the opened/synchronize run in the same group, so it must run these too.
     if: >-
-      github.event.action != 'labeled' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e-full') &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'pull_request' &&
         github.event.pull_request.user.login == 'jtoledo1974' &&
@@ -66,8 +67,9 @@ jobs:
 
   build:
     name: Build and informative lint
+    # The e2e-full label run cancels the opened/synchronize run in the same group, so it must run these too.
     if: >-
-      github.event.action != 'labeled' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'e2e-full') &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
        (github.event_name == 'pull_request' &&
         github.event.pull_request.user.login == 'jtoledo1974' &&
