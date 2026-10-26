@@ -105,55 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'undo_vacations' || action === 'redo_vacations') {
-    const entry = await service.vacationUndo(cid, c.version);
-    if (!entry || entry.id !== body.undoId || (action === 'redo_vacations') !== (entry.action === 'undo_vacations'))
-      throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.', 409);
-    const snapshot = JSON.parse(entry.before_json!);
-    if (!Array.isArray(snapshot.awards))
-      throw new ApiError('La copia para deshacer carece de adjudicaciones verificables', 409);
-    // The target is a prior committed snapshot protected by the campaign
-    // version CAS. Rechecking global completion here is unnecessary and
-    // can make undo unusably slow; new awards are still validated normally.
-    // Undo/redo may restore a full preference snapshot. Do not let a delegated
-    // administrator overwrite linked controllers' preferences through this route.
-    if (c.scope_key === 'live' && actor.role !== 'superadmin' && snapshot.election) {
-      const mine = await service.election().memberForAccount(d);
-      const linked = await repo.all(
-        'SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',
-        [cid],
-      );
-      const previous = snapshot.election.preferences ?? [],
-        current = election.preferences;
-      if (
-        linked.some(
-          (m: any) =>
-            m.id !== mine &&
-            JSON.stringify(previous.find((p: any) => p.member_id === m.id) ?? null) !==
-              JSON.stringify(current.find((p: any) => p.member_id === m.id) ?? null),
-        )
-      )
-        throw new ApiError(
-          'Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas',
-          403,
-        );
-    }
-    ops.push(
-      { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-      { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-    );
-    for (const r of snapshot.requests)
-      ops.push({
-        sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,?)',
-        args: [r.id, cid, r.member_id, r.slot, r.cycle_date, r.version],
-      });
-    for (const a of snapshot.awards)
-      ops.push({
-        sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,?)',
-        args: [a.id, cid, a.member_id, a.cycle_date, a.version],
-      });
-    after = { undone: entry.id };
-  } else if (action === 'config') {
+  if (action === 'config') {
     const cfg = checkedConfig(body.config, c.year);
     if (rules) {
       const known = new Set(d.members.map((m: any) => m.code));
@@ -597,6 +549,62 @@ async function executeResetVacations(ctx: CommandContext): Promise<CommandResult
   return { before, after };
 }
 
+const executeUndoVacations =
+  (action: string) =>
+  async (ctx: CommandContext): Promise<CommandResult> => {
+    const { service, repo, actor, cid, body, d, c, election, ops } = ctx;
+    const before: any = null;
+    let after: any = body;
+    const entry = await service.vacationUndo(cid, c.version);
+    if (!entry || entry.id !== body.undoId || (action === 'redo_vacations') !== (entry.action === 'undo_vacations'))
+      throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.', 409);
+    const snapshot = JSON.parse(entry.before_json!);
+    if (!Array.isArray(snapshot.awards))
+      throw new ApiError('La copia para deshacer carece de adjudicaciones verificables', 409);
+    // The target is a prior committed snapshot protected by the campaign
+    // version CAS. Rechecking global completion here is unnecessary and
+    // can make undo unusably slow; new awards are still validated normally.
+    // Undo/redo may restore a full preference snapshot. Do not let a delegated
+    // administrator overwrite linked controllers' preferences through this route.
+    if (c.scope_key === 'live' && actor.role !== 'superadmin' && snapshot.election) {
+      const mine = await service.election().memberForAccount(d);
+      const linked = await repo.all(
+        'SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',
+        [cid],
+      );
+      const previous = snapshot.election.preferences ?? [],
+        current = election.preferences;
+      if (
+        linked.some(
+          (m: any) =>
+            m.id !== mine &&
+            JSON.stringify(previous.find((p: any) => p.member_id === m.id) ?? null) !==
+              JSON.stringify(current.find((p: any) => p.member_id === m.id) ?? null),
+        )
+      )
+        throw new ApiError(
+          'Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas',
+          403,
+        );
+    }
+    ops.push(
+      { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
+      { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
+    );
+    for (const r of snapshot.requests)
+      ops.push({
+        sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,?)',
+        args: [r.id, cid, r.member_id, r.slot, r.cycle_date, r.version],
+      });
+    for (const a of snapshot.awards)
+      ops.push({
+        sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,?)',
+        args: [a.id, cid, a.member_id, a.cycle_date, a.version],
+      });
+    after = { undone: entry.id };
+    return { before, after };
+  };
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -660,8 +668,8 @@ export const COMMANDS: Record<string, Command> = {
     election: resetVacationsElection,
     execute: executeResetVacations,
   },
-  undo_vacations: { ...vacations, election: restoreElection, execute: legacy('undo_vacations') },
-  redo_vacations: { ...vacations, election: restoreElection, execute: legacy('redo_vacations') },
+  undo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('undo_vacations') },
+  redo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('redo_vacations') },
   config: { preconditions: editing, election: 'reset', execute: legacy('config') },
   request: { ...vacations, execute: legacy('request') },
   delete_request: { ...vacations, execute: legacy('delete_request') },
