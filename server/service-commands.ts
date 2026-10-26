@@ -105,48 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'publish') {
-    const run = d.runs.find((r) => r.id === body.runId);
-    if (!run || run.source_version !== c.version)
-      throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
-    const savedResult = JSON.parse(run.result_json).result;
-    // A review created with the withdrawn occupancy policy cannot
-    // be acknowledged and published as if it had been calculated
-    // under the current rules. Historical snapshots stay untouched.
-    if (rules && savedResult.occupancyPolicyVersion !== rules.version)
-      throw new ApiError(
-        'La revisión utiliza otra versión de ' + rules.name + '. Calcula una nueva revisión antes de publicar.',
-        409,
-      );
-    if (savedResult.issues.length) throw new ApiError('Resuelve las incidencias antes de publicar');
-    if (rules) {
-      const reviewed = rules.evaluateFinal(rules.state(campaignOf(c, d.config), d.members, d.awards));
-      if (!reviewed.valid)
-        throw new ApiError('No se puede publicar: ' + reviewed.issues.map((i) => i.message).join('; '));
-      const expected = reviewed.warnings.map((w) => w.code).sort();
-      const acknowledged = Array.isArray(body.reviewedWarnings) ? [...new Set(body.reviewedWarnings)].sort() : [];
-      if (JSON.stringify(expected) !== JSON.stringify(acknowledged))
-        throw new ApiError(
-          'Confirma expresamente los avisos de RRHH para publicar: ' +
-            reviewed.warnings.map((w) => w.message).join('; '),
-          409,
-        );
-      after = {
-        status: 'published',
-        runId: run.id,
-        review: {
-          policyVersion: rules.version,
-          campaignVersion: c.version,
-          actor: actor.id,
-          at: now(),
-          warnings: reviewed.warnings,
-        },
-      };
-    }
-    ops.push({ sql: "UPDATE campaigns SET status='published',published_run_id=? WHERE id=?", args: [run.id, cid] });
-    before = { status: c.status, publishedRunId: c.published_run_id };
-    if (!rules) after = { status: 'published', runId: run.id };
-  } else if (action === 'close' || action === 'reopen') {
+  if (action === 'close' || action === 'reopen') {
     ops.push({
       sql: 'UPDATE campaigns SET status=? WHERE id=?',
       args: [action === 'close' ? 'closed' : 'open', cid],
@@ -637,6 +596,52 @@ async function executeCalculate(ctx: CommandContext): Promise<CommandResult> {
   return { before, after };
 }
 
+async function executePublish(ctx: CommandContext): Promise<CommandResult> {
+  const { actor, cid, body, d, c, rules, ops } = ctx;
+  let before: any = null;
+  let after: any = body;
+  const run = d.runs.find((r) => r.id === body.runId);
+  if (!run || run.source_version !== c.version)
+    throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
+  const savedResult = JSON.parse(run.result_json).result;
+  // A review created with the withdrawn occupancy policy cannot
+  // be acknowledged and published as if it had been calculated
+  // under the current rules. Historical snapshots stay untouched.
+  if (rules && savedResult.occupancyPolicyVersion !== rules.version)
+    throw new ApiError(
+      'La revisión utiliza otra versión de ' + rules.name + '. Calcula una nueva revisión antes de publicar.',
+      409,
+    );
+  if (savedResult.issues.length) throw new ApiError('Resuelve las incidencias antes de publicar');
+  if (rules) {
+    const reviewed = rules.evaluateFinal(rules.state(campaignOf(c, d.config), d.members, d.awards));
+    if (!reviewed.valid)
+      throw new ApiError('No se puede publicar: ' + reviewed.issues.map((i) => i.message).join('; '));
+    const expected = reviewed.warnings.map((w) => w.code).sort();
+    const acknowledged = Array.isArray(body.reviewedWarnings) ? [...new Set(body.reviewedWarnings)].sort() : [];
+    if (JSON.stringify(expected) !== JSON.stringify(acknowledged))
+      throw new ApiError(
+        'Confirma expresamente los avisos de RRHH para publicar: ' + reviewed.warnings.map((w) => w.message).join('; '),
+        409,
+      );
+    after = {
+      status: 'published',
+      runId: run.id,
+      review: {
+        policyVersion: rules.version,
+        campaignVersion: c.version,
+        actor: actor.id,
+        at: now(),
+        warnings: reviewed.warnings,
+      },
+    };
+  }
+  ops.push({ sql: "UPDATE campaigns SET status='published',published_run_id=? WHERE id=?", args: [run.id, cid] });
+  before = { status: c.status, publishedRunId: c.published_run_id };
+  if (!rules) after = { status: 'published', runId: run.id };
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -719,7 +724,7 @@ export const COMMANDS: Record<string, Command> = {
   publish: {
     preconditions: { activeElection: 'blocked', closedCampaign: true },
     election: 'keep',
-    execute: legacy('publish'),
+    execute: executePublish,
   },
   close: {
     preconditions: { activeElection: 'allowed', closedCampaign: true },
