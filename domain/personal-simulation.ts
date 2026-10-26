@@ -1,7 +1,6 @@
 import {choose,chooseJoint,currentTurn,entitlementFor,type ElectionContext,type ElectionState,type JointChoice} from './election.ts';
-import {policyState2027} from './election-2027.ts';
-import {canComplete2027,type PolicyState,type RuleProblem,type Permits2027} from './policy-2027.ts';
-import {availabilityByCycle,type AvailabilitySnapshot} from './availability-2027.ts';
+import {occupancyFor,type RuleProblem} from './policy.ts';
+import type {AvailabilitySnapshot,PermitCount} from './occupancy.ts';
 
 /**
  * A controller's private what-if: hypothetical turns played on top of the real
@@ -68,7 +67,7 @@ export type BlockedCycle={
 };
 /** Guide v1.3: per period a pool of extracupos (EC3, or EC4 used as fourth
  * place or as EC3) and, separately, the cycles that may reach four people. */
-export type PermitCount={period:0|1|2;kind:'extras'|'fourths';used:number|null;limit:number};
+export type {PermitCount};
 export type PersonalEvaluation={
  availability:AvailabilitySnapshot;
  blocked:BlockedCycle[];
@@ -87,47 +86,18 @@ function nextPlace(snapshot:AvailabilitySnapshot,date:string){
 const blockedIn=(snapshot:AvailabilitySnapshot,date:string)=>nextPlace(snapshot,date)?.status==='blocked';
 
 /**
- * Smallest number of permits of one kind the state still needs: the count that
- * every legal completion consumes. Independent of the order of the awards, so
- * it never pretends that a given choice "spent" a specific permit.
- */
-function minimumPermits(state:PolicyState,key:keyof Permits2027,limit:number,maxChecks:number,floor=0):number|null{
- // Below `floor` the count is impossible by arithmetic alone; no search is spent proving it.
- for(let k=floor;k<=limit;k++){
-  const check=canComplete2027(state,{maxChecks,permits:{[key]:k}});
-  if(check.status==='possible')return k;
-  if(check.status==='indeterminate')return null;
- }
- return null;
-}
-
-export function permitCounts(state:PolicyState,maxChecks=300):PermitCount[]{
- const fours=[0,0,0];
- const count=new Map<string,number>();
- for(const a of state.awards)count.set(a.cycle_date,(count.get(a.cycle_date)??0)+1);
- for(const c of state.cycles)if((count.get(c.date)??0)===4)fours[c.period]++;
- return [
-  // Every cycle with four people spends one extracupo of its period.
-  {period:0,kind:'extras',used:minimumPermits(state,'preExtras',3,maxChecks,fours[0]),limit:3},
-  {period:0,kind:'fourths',used:fours[0],limit:1},
-  {period:1,kind:'extras',used:minimumPermits(state,'summerShared',2,maxChecks,fours[1]),limit:2},
-  {period:1,kind:'fourths',used:fours[1],limit:2},
-  {period:2,kind:'extras',used:minimumPermits(state,'postExtras',2,maxChecks,fours[2]),limit:2},
-  {period:2,kind:'fourths',used:fours[2],limit:1}
- ];
-}
-
-/**
  * What the simulated turns leave for `me`. Availability only shrinks as
  * awards are added, so the first prefix in which a cycle is blocked is found
  * by bisection over the replayed prefixes.
  */
 export function evaluateScenario(replay:Replayed,me:string,options:{maxChecks?:number}={}):PersonalEvaluation{
  const {ctx}=replay;
- const policy=(awards:ElectionContext['awards'])=>policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,awards);
+ const rules=occupancyFor(ctx.year);
+ if(!rules)throw new Error('El simulador personal requiere un motor de ocupación');
+ const policy=(awards:ElectionContext['awards'])=>rules.state(ctx,ctx.members,awards);
  const snapshots=new Map<number,AvailabilitySnapshot>();
  const at=(i:number)=>{
-  if(!snapshots.has(i))snapshots.set(i,availabilityByCycle(policy(replay.prefixes[i]),{maxChecks:options.maxChecks}));
+  if(!snapshots.has(i))snapshots.set(i,rules.availability(policy(replay.prefixes[i]),{maxChecks:options.maxChecks}));
   return snapshots.get(i)!;
  };
  const last=replay.prefixes.length-1,final=at(last);
@@ -146,5 +116,5 @@ export function evaluateScenario(replay:Replayed,me:string,options:{maxChecks?:n
   blocked.push({cycle:date,status:place.status,reasons:place.reasons,causedBy});
  }
  const remaining=Math.max(0,entitlementFor(ctx,me)-mine.size);
- return {availability:final,blocked,permits:permitCounts(policy(ctx.awards)),remaining};
+ return {availability:final,blocked,permits:rules.permitReport(policy(ctx.awards)),remaining};
 }

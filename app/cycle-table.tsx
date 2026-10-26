@@ -1,7 +1,7 @@
 'use client';
 import {useMemo,useState} from 'react';
 import type {CSSProperties} from 'react';
-import type {AvailabilitySnapshot} from '../domain/availability-2027';
+import type {AvailabilitySnapshot} from '../domain/occupancy';
 import {cycleAvailability,slotExplanation} from './cycle-availability-ui';
 
 type Cycle={date:string;end:string;score:number;period:number;occupied:number;max:number;available?:boolean};
@@ -10,6 +10,8 @@ type Member={id:string;code:string};
 
 type Props={
  year:number;
+ /** The campaign has an occupancy engine: show proven availability per slot. */
+ ruled:boolean;
  cycles:Cycle[];
  awards:Award[];
  members:Member[];
@@ -26,7 +28,7 @@ function shortDate(iso:string):string{
  return new Date(iso+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short'}).replaceAll('.','').replaceAll(' ','-');
 }
 
-export default function CycleTable({year,cycles,awards,members,selected,highlighted,preferenceMode,busy,onSelect,availability,notForMe}:Props){
+export default function CycleTable({year,ruled,cycles,awards,members,selected,highlighted,preferenceMode,busy,onSelect,availability,notForMe}:Props){
  const blocked=new Set(notForMe??[]);
  const [fontSize,setFontSize]=useState(12);
  const codes=useMemo(()=>new Map(members.map(m=>[m.id,m.code])),[members]);
@@ -38,7 +40,7 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
  const columns=Math.max(4,...cycles.map(c=>Math.max(c.max,c.occupied)));
  const chosen=new Set(selected),marked=new Set(highlighted);
  const styles={'--vac3-font-size':fontSize+'px'} as CSSProperties;
- return <div className={"vac3"+(year===2027?" vac3-2027":"")} style={styles}>
+ return <div className={"vac3"+(ruled?" vac3-ruled":"")} style={styles}>
   <div className="vac3-tools">
    <span><strong>{cycles.length}</strong> ciclos · 8 días por ciclo · 1º eligió antes</span>
    <span className="vac3-size-actions">
@@ -58,8 +60,8 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
      {cycles.map(c=>{
       const people=occupants.get(c.date)??[],selectedIndex=selected.indexOf(c.date);
       const free=Math.max(0,c.max-c.occupied),extra=free===0&&c.available===true;
-      const status=cycleAvailability(c,availability,year);
-      const label=shortDate(c.date)+' a '+shortDate(c.end)+', '+c.score+' puntos, '+c.occupied+' plazas ocupadas, '+status.description+(extra&&year!==2027?', posible cupo adicional':'')+(people.length?', '+people.join(', '):'');
+      const status=cycleAvailability(c,availability,ruled);
+      const label=shortDate(c.date)+' a '+shortDate(c.end)+', '+c.score+' puntos, '+c.occupied+' plazas ocupadas, '+status.description+(extra&&!ruled?', posible cupo adicional':'')+(people.length?', '+people.join(', '):'');
       return <tr key={c.date} className={(c.period===1?'vac3-summer ':'')+(blocked.has(c.date)?'vac3-not-for-me ':'')+(chosen.has(c.date)?'vac3-selected ':'')+(marked.has(c.date)?'vac3-highlight ':'')} onClick={()=>{if(!busy)onSelect(c);}} data-cycle-date={c.date}>
        <td className="vac3-points">{c.score}</td>
        <td className="vac3-date">
@@ -70,11 +72,11 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
        </td>
        {Array.from({length:columns},(_,i)=>{
         const occupant=people[i],slot=status.data?.slots[i];
-        const disabled=year===2027?slot?.status==='blocked':i>=c.max;
-        const unknown=year===2027&&(!slot||slot.status==='indeterminate');
+        const disabled=ruled?slot?.status==='blocked':i>=c.max;
+        const unknown=ruled&&(!slot||slot.status==='indeterminate');
         const occupied=Boolean(occupant);
-        const add=year!==2027&&disabled&&i===c.max&&extra;
-        const cellTitle=occupant?'Ocupado por '+occupant:year===2027?slotExplanation(slot):add?'Cupo adicional potencial, sujeto a confirmación':disabled?'Cupo no autorizado':'Cupo libre';
+        const add=!ruled&&disabled&&i===c.max&&extra;
+        const cellTitle=occupant?'Ocupado por '+occupant:ruled?slotExplanation(slot):add?'Cupo adicional potencial, sujeto a confirmación':disabled?'Cupo no autorizado':'Cupo libre';
         return <td key={i} className={'vac3-slot'+(disabled?' vac3-disabled':'')+(unknown?' vac3-unknown':'')+(occupied?' vac3-occupied':'')} title={cellTitle} aria-label={(i+1)+'ª plaza: '+cellTitle}>
          <span className="vac3-slot-code">{occupant??(unknown?'?':add?'+?':disabled?'×':'')}</span>
         </td>;
@@ -84,6 +86,6 @@ export default function CycleTable({year,cycles,awards,members,selected,highligh
     </tbody>
    </table>
   </div>
-  {year!==2027&&<div className="vac3-legend"><span>× No autorizado · +? Cupo adicional posible</span></div>}
+  {!ruled&&<div className="vac3-legend"><span>× No autorizado · +? Cupo adicional posible</span></div>}
  </div>;
 }

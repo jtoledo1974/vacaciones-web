@@ -1,8 +1,7 @@
 import {choose,chooseJoint,currentTurn,defer,consumePreferences,preferredChoice,choiceIssues,entitlementFor,resolveTie,registerJointAgreement,cancelJointAgreement,PREFERENCE_COLUMNS,preferenceRow,type ElectionContext,type ElectionState,type Preference} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
-import {immediate2027Issues} from '../domain/policy-2027.ts';
-import {policyState2027} from '../domain/election-2027.ts';
-import {availabilityImpact,availabilityByCycle,compactAvailability,type AvailabilitySnapshot,type CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
+import type {AvailabilitySnapshot,CompactAvailabilitySnapshot} from '../domain/occupancy.ts';
+import {occupancyFor,campaignOf} from '../domain/policy.ts';
 import {canWrite,type Principal} from './permissions.ts';
 import {cas,insertRows,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
@@ -89,15 +88,16 @@ export class ReconstructionService{
   else if(!skipProof&&original&&turn.participants.length>1){
    // The preview must use exactly the same atomic joint validation as replay.
    // Per-person checks against the old state can incorrectly approve a batch
-   // that consumes a single shared 2027 quota more than once.
+   // that consumes a single shared policy quota more than once.
    try{chooseJoint(ctx(d,awards,requests),working,originalEntries);canOriginal=true;}catch{canOriginal=false;}
   }else if(!skipProof&&original&&turn.memberId){
    try{choose(ctx(d,awards,requests),working,turn.memberId,originalEntries[0]?.dates??[]);canOriginal=true;}catch{canOriginal=false;}
   }
+  const rules=occupancyFor(d.campaign.year);
   const available=turn.participants.length===1&&turn.memberId
-   ?calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,requests,awards,{skip2027Proof:skipProof}).cycles.filter(c=>
-     skipProof&&d.campaign.year===2027
-      ?immediate2027Issues(policyState2027(d.campaign.year,d.campaign.team_id,d.config,d.members,awards),
+   ?calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,requests,awards,{skipProof:skipProof}).cycles.filter(c=>
+     skipProof&&rules
+      ?rules.immediateIssues(rules.state(campaignOf(d.campaign,d.config),d.members,awards),
         [{member_id:turn.memberId!,cycle_date:c.date}]).length===0
       :!choiceIssues(ctx(d,awards,requests),turn.memberId!,[c.date]).length
     ).map(c=>c.date):[];
@@ -171,7 +171,8 @@ export class ReconstructionService{
    const restoreTo:Snapshot={...previous,requests:origin.requests,preferences:working,state:{...previous.state!,automaticPaused:true}};
    const last=originalEvents.at(-1);
    const lastCursor=(last?.before.state?.cursor??0)+(last&&['choose','choose_joint','advance','defer','reconstruction_step'].includes(last.action)?1:0);
-   const originAvailability=c.year===2027?compactAvailability(availabilityByCycle(policyState2027(c.year,c.team_id,d.config,d.members,d.awards))):undefined;
+   const rules=occupancyFor(c.year);
+   const originAvailability=rules?rules.compact(rules.availability(rules.state(campaignOf(c,d.config),d.members,d.awards))):undefined;
    const s:Session={originAvailability,status:'active',startedBy:this.actor.id!,startedAt:new Date().toISOString(),targetId:target.id,targetCursor:Math.max(origin.state?.cursor??0,lastCursor),keepCount,origin,originalEvents,originalAuditIds,applied:[],undone:[]};
    const completed=restoreTo.state!.status==='complete'||restoreTo.state!.cursor>=s.targetCursor;
    if(completed)s.status='review';
@@ -256,17 +257,18 @@ export class ReconstructionService{
   ops.push(statement(cid,state),...insertRows('awards',['id','campaign_id','member_id','cycle_date','version'],awardRows),
    ...insertRows('requests',['id','campaign_id','member_id','slot','cycle_date','version'],newRequests));
   for(const p of preferences){const previous=raw.preferences.find(q=>q.member_id===p.member_id);if(previous&&previous.active!==p.active)ops.push({sql:'UPDATE preferences SET active=? WHERE member_id=? AND campaign_id=?',args:[p.active!==false?1:0,p.member_id,cid]});}
-  const impact=c.year===2027&&choices.length
-   ?availabilityImpact(
-     policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
-     policyState2027(c.year,c.team_id,d.config,d.members,[...d.awards,...choices])
+  const rules=occupancyFor(c.year);
+  const impact=rules&&choices.length
+   ?rules.impact(
+     rules.state(campaignOf(c,d.config),d.members,d.awards),
+     rules.state(campaignOf(c,d.config),d.members,[...d.awards,...choices])
    ):null;
-  if(impact&&s.applied.length)s.applied[s.applied.length-1].beforeAvailability=compactAvailability(impact.before);
-  const auditImpact=impact?{
+  if(impact&&rules&&s.applied.length)s.applied[s.applied.length-1].beforeAvailability=rules.compact(impact.before);
+  const auditImpact=impact&&rules?{
    policyVersion:impact.policyVersion,status:impact.status,
    campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
    changes:impact.changes,events:impact.events,
-   availabilityBefore:compactAvailability(impact.before),availabilityAfter:compactAvailability(impact.after)
+   availabilityBefore:rules.compact(impact.before),availabilityAfter:rules.compact(impact.after)
   }:null;
   ops.push(this.write(cid,s),this.host.audit('reconstruction_step',c,{format:'election-undo-v1',...before},{version:c.version+1,choices,kind,usedId,impact:auditImpact,...(kind==='resolve_tie'?{order}: {})}));
   await this.host.commit(ops);

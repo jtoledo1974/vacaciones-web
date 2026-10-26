@@ -1,8 +1,16 @@
 import {
  canComplete2027, evaluate2027Candidate, evaluate2027Final, regularFlowCertificate2027,
- OCCUPANCY_POLICY_2027, type PolicyState, type PolicyAward,
- type RuleProblem, type Completion, type PolicyCycle, type Permits2027
+ OCCUPANCY_POLICY_2027, type Permits2027
 } from './policy-2027.ts';
+import type {
+ PolicyState,PolicyAward,PolicyCycle,RuleProblem,
+ AvailabilitySlot,CycleAvailability,AvailabilitySnapshot,CompactAvailabilitySnapshot,
+ AvailabilityChange,ImpactEvent,AvailabilityImpact,PreviewChoiceImpact,AvailabilityOptions
+} from './occupancy.ts';
+export type {
+ AvailabilitySlot,CycleAvailability,AvailabilitySnapshot,CompactAvailabilitySnapshot,
+ AvailabilityChange,ImpactEvent,AvailabilityImpact,PreviewChoiceImpact,AvailabilityOptions
+};
 
 /**
  * Global, existential cycle availability for LECS 2027.
@@ -14,65 +22,6 @@ import {
  * If a bounded search fails to finish, an interval of proven/possible places
  * replaces a misleading exact zero. Results are independent of award order.
  */
-export type AvailabilitySlot = {
- position: number;
- status: 'occupied' | 'available' | 'blocked' | 'indeterminate';
- memberId?: string;
- reasons: RuleProblem[];
-};
-export type CycleAvailability = {
- cycle: string;
- period: 0 | 1 | 2;
- occupied: number;
- localMaximum: number;
- status: 'exact' | 'indeterminate' | 'invalid';
- additional: number | null;
- provenAdditional: number;
- possibleAdditionalUpperBound: number;
- slots: AvailabilitySlot[];
-};
-export type AvailabilitySnapshot = {
- policyVersion: typeof OCCUPANCY_POLICY_2027;
- status: 'exact' | 'indeterminate' | 'invalid';
- cycles: Record<string, CycleAvailability>;
- checked: number;
- /** Fingerprint of the exact state proved (policy, calendar, roster with
-  * entitlements, awards). A recorded snapshot is reused only on a match. */
- stateKey?: string;
-};
-export type AvailabilityChange = {
- cycle: string;
- period: 0 | 1 | 2;
- kind: 'directOccupancy' | 'globalConstraint';
- before: {occupied: number; additional: number | null; lower: number; upper: number};
- after: {occupied: number; additional: number | null; lower: number; upper: number};
- delta: number | null;
- reasons: RuleProblem[];
-};
-export type ImpactEvent = {
- code: string;
- period?: 0 | 1 | 2;
- actual?: number;
- limit?: number;
- cycles: string[];
-};
-export type AvailabilityImpact = {
- policyVersion: typeof OCCUPANCY_POLICY_2027;
- status: 'exact' | 'indeterminate' | 'invalid';
- before: AvailabilitySnapshot;
- after: AvailabilitySnapshot;
- changes: AvailabilityChange[];
- events: ImpactEvent[];
-};
-export type PreviewChoiceImpact = {
- policyVersion: typeof OCCUPANCY_POLICY_2027;
- allowed: boolean;
- completionStatus: Completion['status'];
- issues: RuleProblem[];
- warnings: RuleProblem[];
- impact: AvailabilityImpact | null;
-};
-export type AvailabilityOptions = {maxChecks?: number; useCache?: boolean; exact?:boolean};
 
 const cache = new Map<string, AvailabilitySnapshot>();
 const CACHE_LIMIT = 96;
@@ -101,18 +50,6 @@ function keyFor(state:PolicyState,maxChecks:number,exact=false):string {
  * implied by the awards of the state being restored; each reason is stored
  * once and referenced by index. `expandAvailability` restores the exact form.
  */
-export type CompactAvailabilitySnapshot = {
- format: 'availability-c1';
- policyVersion: typeof OCCUPANCY_POLICY_2027;
- status: AvailabilitySnapshot['status'];
- checked: number;
- stateKey?: string;
- /** A reason referenced as n omits its own cycle and period; as "kn" it is stored whole. */
- reasons: Partial<RuleProblem>[];
- /** [cycle, period, occupied, localMaximum, status, additional, lower, upper, slots]
-  * with slots as "o"|"a"|"b"|"i" followed by reason indices. */
- cycles: [string,0|1|2,number,number,CycleAvailability['status'],number|null,number,number,(string|number)[][]][];
-};
 const SLOT_CODES={occupied:'o',available:'a',blocked:'b',indeterminate:'i'} as const;
 const SLOT_STATUS={o:'occupied',a:'available',b:'blocked',i:'indeterminate'} as const;
 export function compactAvailability(snapshot:AvailabilitySnapshot):CompactAvailabilitySnapshot {

@@ -7,12 +7,12 @@ test('occupancy denominator reflects viable capacity rather than theoretical fou
  for(const [occupied,additional,expected] of [[0,3,'0/3'],[2,1,'2/3'],[3,0,'3/3'],[4,0,'4/4']] as const){
   const data=snapshot('exact',additional,additional,additional);
   data.cycles[cycle.date].occupied=occupied;
-  assert.equal(cycleOccupancyLabel({...cycle,occupied},data,2027),expected);
+  assert.equal(cycleOccupancyLabel({...cycle,occupied},data,true),expected);
  }
- assert.equal(cycleOccupancyLabel(cycle,null,2027),'0/?');
- assert.equal(cycleOccupancyLabel(cycle,snapshot('indeterminate',null,1,3),2027),'0/1–3');
- assert.equal(cycleOccupancyLabel(cycle,snapshot('invalid',null,0,0),2027),'0/?');
- assert.equal(cycleOccupancyLabel(cycle,null,2026),'0/4');
+ assert.equal(cycleOccupancyLabel(cycle,null,true),'0/?');
+ assert.equal(cycleOccupancyLabel(cycle,snapshot('indeterminate',null,1,3),true),'0/1–3');
+ assert.equal(cycleOccupancyLabel(cycle,snapshot('invalid',null,0,0),true),'0/?');
+ assert.equal(cycleOccupancyLabel(cycle,null,false),'0/4');
 });
 
 const cycle={date:'2027-07-01',occupied:0,max:4};
@@ -25,24 +25,24 @@ function snapshot(status:'exact'|'indeterminate'|'invalid',additional:number|nul
 }
 
 test('2027 uses exact global feasibility, not local maximum',()=>{
- const view=cycleAvailability(cycle,snapshot('exact',1,1,1),2027);
+ const view=cycleAvailability(cycle,snapshot('exact',1,1,1),true);
  assert.equal(view.label,'1');
  assert.equal(view.className,'vac2-free-1');
  assert.match(view.description,/globalmente viables/);
- assert.equal(cycleAvailability(cycle,null,2027).label,'?');
- assert.equal(cycleAvailability(cycle,null,2027).className,'vac2-unknown');
- assert.equal(cycleAvailability(cycle,snapshot('invalid',null,0,0),2027).label,'—');
+ assert.equal(cycleAvailability(cycle,null,true).label,'?');
+ assert.equal(cycleAvailability(cycle,null,true).className,'vac2-unknown');
+ assert.equal(cycleAvailability(cycle,snapshot('invalid',null,0,0),true).label,'—');
 });
 
 test('indeterminate bounds never appear as exact zero',()=>{
- const unknown=cycleAvailability(cycle,snapshot('indeterminate',null,1,3),2027);
+ const unknown=cycleAvailability(cycle,snapshot('indeterminate',null,1,3),true);
  assert.equal(unknown.label,'?');
  assert.match(unknown.description,/1–3/);
  assert.equal(unknown.className,'vac2-unknown');
 });
 
 test('historical campaigns preserve their original local presentation',()=>{
- const old=cycleAvailability({...cycle,max:3},null,2026);
+ const old=cycleAvailability({...cycle,max:3},null,false);
  assert.equal(old.label,'3');
  assert.equal(old.className,'vac2-free-3');
 });

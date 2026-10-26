@@ -1,11 +1,10 @@
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
-import {policyState2027} from '../domain/election-2027.ts';
-import {availabilityImpact,compactAvailability} from '../domain/availability-2027.ts';
+import {occupancyFor,campaignOf} from '../domain/policy.ts';
+import {grantsIndividualEntitlements} from '../domain/hr-calendars.ts';
 import {historicalAvailability} from './availability-history.ts';
 import {AuditContext} from './audit-context.ts';
-import {evaluate2027Candidate,evaluate2027Final,canComplete2027,immediate2027Issues,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, insertRows, tableColumns, type Repository, type Statement } from './repository.ts';
 import {validateRoster,rowStatements} from './roster.ts';
@@ -77,22 +76,23 @@ export class Service {
         return {ok:true};
     }
     /** Validate prospective roster/award edits before writing them. A local
-     * capacity check is not enough for 2027: every controller must still be
+     * capacity check is not enough for an occupancy engine: every controller must still be
      * able to finish, and final summer minimums must be reachable. */
-    private assert2027Completable(c:any,config:Config,members:any[],awards:any[],action:string){
-        if(c.year!==2027||awards.length===0)return;
-        const state=policyState2027(c.year,c.team_id,config,members,awards);
-        const violations=immediate2027Issues(state,[]);
+    private assertCompletable(c:any,config:Config,members:any[],awards:any[],action:string){
+        const rules=occupancyFor(c.year);
+        if(!rules||awards.length===0)return;
+        const state=rules.state(campaignOf(c,config),members,awards);
+        const violations=rules.immediateIssues(state,[]);
         if(violations.length)throw new ApiError(action+': '+violations.map(x=>x.message).join('; '),409);
-        const proof=canComplete2027(state,{maxChecks:2000});
+        const proof=rules.canComplete(state,{maxChecks:rules.budgets.commit});
         if(proof.status!=='possible')throw new ApiError(
-            action+': la adjudicación resultante no tiene una completación validada según RRHH 2027. '+
+            action+': la adjudicación resultante no tiene una completación validada según '+rules.authority+'. '+
             (proof.reason??proof.status),409);
     }
     async load(cid: string) { const rows = await this.repo.batch([{ sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] }, { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] }, { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] }, { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] }, { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] }]); const campaign = rows[0].results[0]; if (!campaign)
         throw new ApiError('Campaña no encontrada', 404); const config = JSON.parse(rows[1].results[0].json); return { campaign, config, members: rows[2].results, requests: rows[3].results, awards: rows[4].results, runs: rows[5].results }; }
     async view(cid:string,options:{skipAvailabilityForPendingAutomatic?:boolean}={}){
-        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);const recovery=d.campaign.year===2027?await historicalAvailability(this.repo,cid,d.campaign.version):{restored:false};const restored=recovery.restored;const result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards,{skip2027Proof:restored});const election=await this.election().view(d,{restored,result,recordedAvailability:recovery.recordedAvailability,...options,auditContext:new AuditContext(this.repo,cid,d.campaign.version)});
+        const d=await this.load(cid);if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);const recovery=occupancyFor(d.campaign.year)?await historicalAvailability(this.repo,cid,d.campaign.version):{restored:false};const restored=recovery.restored;const result=calculate(d.campaign.year,d.campaign.team_id,d.config,d.members,d.requests,d.awards,{skipProof:restored});const election=await this.election().view(d,{restored,result,recordedAvailability:recovery.recordedAvailability,...options,auditContext:new AuditContext(this.repo,cid,d.campaign.version)});
         if(canWrite(this.actor,d.campaign.team_id)){const entry=await this.vacationUndo(cid,d.campaign.version);return {...d,election,undo:entry&&entry.action!=='undo_vacations'?{id:entry.id,action:entry.action}:null,redo:entry?.action==='undo_vacations'?{id:entry.id}:null,result,runs:d.runs.map((r:any)=>({...r,result_json:undefined})),editable:true};}
         return {campaign:{id:cid,year:d.campaign.year,team_id:d.campaign.team_id,status:d.campaign.status,version:d.campaign.version,data_kind:d.campaign.data_kind,scope_key:d.campaign.scope_key,simulation_name:d.campaign.simulation_name},members:d.members.map(m=>({id:m.id,code:m.code})),requests:[],awards:d.awards,result:{...result,ordering:[]},config:null,runs:[],election,participating:!!election.myMemberId,editable:false,preview:this.actor.preview&&this.actor.preview.campaignId===cid?{code:this.actor.preview.code,writable:this.actor.preview.writable}:undefined};
     }
@@ -162,7 +162,7 @@ export class Service {
         ops.push(this.audit('create_campaign', { id: cid, team_id: t.id }, null, { year, copyYear,rosterYear:rosterSource?.year??null }));
     } await this.commit(ops); return this.list(); }
     async mutate(cid: string, body: any) {
-        const d = await this.load(cid), c = d.campaign;
+        const d = await this.load(cid), c = d.campaign, rules = occupancyFor(c.year);
         requireWrite(this.actor, c.team_id);
         const rebuilding=await this.election().reconstruction().read(cid);
         if(rebuilding&&rebuilding.status!=='completed')throw new ApiError('La elección está congelada mientras se reconstruyen los turnos',409);
@@ -208,7 +208,7 @@ export class Service {
         }
         else if (action === 'config') {
             const cfg = checkedConfig(body.config, c.year);
-            if(c.year===2027){
+            if(rules){
                 const known=new Set(d.members.map((m:any)=>m.code));
                 for(const code of Object.keys(cfg.individualEntitlements??{}))
                     if(!known.has(code))
@@ -221,7 +221,7 @@ export class Service {
                         throw new ApiError('Los derechos individuales y cupos de RRHH se congelan al activar la elección. Reinicia la elección antes de cambiarlos.');
                 }
                 if(d.awards.length){
-                    const candidate=canComplete2027(policyState2027(c.year,c.team_id,cfg,d.members,d.awards),{maxChecks:2000});
+                    const candidate=rules.canComplete(rules.state(campaignOf(c,cfg),d.members,d.awards),{maxChecks:rules.budgets.commit});
                     if(candidate.status!=='possible')
                         throw new ApiError('Estos parámetros dejarían las adjudicaciones sin una terminación validada: '+(candidate.reason??candidate.status),409);
                 }
@@ -271,9 +271,9 @@ export class Service {
             if (d.awards.some(a => a.member_id === m.id && a.cycle_date === body.date))
                 throw new ApiError('Adjudicación duplicada');
             const candidate = { id: id(), member_id: m.id, cycle_date: body.date };
-            if(c.year===2027){
-                const check=evaluate2027Candidate(
-                    policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
+            if(rules){
+                const check=rules.evaluateCandidate(
+                    rules.state(campaignOf(c,d.config),d.members,d.awards),
                     [{member_id:m.id,cycle_date:body.date}]);
                 if(!check.allowed)throw new ApiError(check.issues.map(issue=>issue.message).join('; '));
             }else{
@@ -297,12 +297,12 @@ export class Service {
             // A review created with the withdrawn occupancy policy cannot
             // be acknowledged and published as if it had been calculated
             // under the current rules. Historical snapshots stay untouched.
-            if(c.year===2027&&savedResult.occupancyPolicyVersion!==OCCUPANCY_POLICY_2027)
-                throw new ApiError('La revisión utiliza otra versión de normas 2027. Calcula una nueva revisión antes de publicar.',409);
+            if(rules&&savedResult.occupancyPolicyVersion!==rules.version)
+                throw new ApiError('La revisión utiliza otra versión de '+rules.name+'. Calcula una nueva revisión antes de publicar.',409);
             if (savedResult.issues.length)
                 throw new ApiError('Resuelve las incidencias antes de publicar');
-            if(c.year===2027){
-                const reviewed=evaluate2027Final(policyState2027(c.year,c.team_id,d.config,d.members,d.awards));
+            if(rules){
+                const reviewed=rules.evaluateFinal(rules.state(campaignOf(c,d.config),d.members,d.awards));
                 if(!reviewed.valid)
                     throw new ApiError('No se puede publicar: '+reviewed.issues.map(i=>i.message).join('; '));
                 const expected=reviewed.warnings.map(w=>w.code).sort();
@@ -310,12 +310,12 @@ export class Service {
                 if(JSON.stringify(expected)!==JSON.stringify(acknowledged))
                     throw new ApiError('Confirma expresamente los avisos de RRHH para publicar: '+reviewed.warnings.map(w=>w.message).join('; '),409);
                 after={status:'published',runId:run.id,
-                    review:{policyVersion:OCCUPANCY_POLICY_2027,campaignVersion:c.version,actor:this.actor.id,at:now(),
+                    review:{policyVersion:rules.version,campaignVersion:c.version,actor:this.actor.id,at:now(),
                         warnings:reviewed.warnings}};
             }
             ops.push({ sql: 'UPDATE campaigns SET status=\'published\',published_run_id=? WHERE id=?', args: [run.id, cid] });
             before = { status: c.status, publishedRunId: c.published_run_id };
-            if(c.year!==2027)after = { status: 'published', runId: run.id };
+            if(!rules)after = { status: 'published', runId: run.id };
         }
         else if (action === 'close' || action === 'reopen') {
             ops.push({ sql: 'UPDATE campaigns SET status=? WHERE id=?', args: [action === 'close' ? 'closed' : 'open', cid] });
@@ -328,7 +328,7 @@ export class Service {
             if(!source||source.format!=='vacaciones-roster-v1'||source.team!==c.team_id||source.year!==c.year)throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
             const importedConfig=source.config?checkedConfig(source.config,c.year):d.config;
             let rows;try{rows=validateRoster(source.rows,c.year,c.team_id,importedConfig);}catch(e:any){throw new ApiError(e.message);}
-            if(c.year===2027){
+            if(grantsIndividualEntitlements(c.year)){
                 const rosterCodes=new Set(rows.map(r=>r.code));
                 for(const code of Object.keys(importedConfig.individualEntitlements??{}))
                     if(!rosterCodes.has(code))throw new ApiError('La importación dejaría sin controlador la autorización individual de RRHH: '+code);
@@ -339,7 +339,7 @@ export class Service {
             const importedAwards=source.copySelections?selections.map(r=>({id:id(),member_id:r.member_id,cycle_date:r.cycle_date})):[];
             const check=calculate(c.year,c.team_id,importedConfig,imported,selections,importedAwards);
             if(check.issues.length)throw new ApiError('Revisa la plantilla: '+check.issues.join('; '));
-            this.assert2027Completable(c,importedConfig,imported,importedAwards,'Importar plantilla');
+            this.assertCompletable(c,importedConfig,imported,importedAwards,'Importar plantilla');
 
             ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,null),{sql:'DELETE FROM requests WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM awards WHERE campaign_id=?',args:[cid]},{sql:'DELETE FROM campaign_members WHERE campaign_id=?',args:[cid]});
 
@@ -365,13 +365,13 @@ export class Service {
 
             const renamed=renameConfigCodes(d.config,resolved.flatMap(({row:r,member})=>member&&member.code!==r.code?[[member.code,r.code] as [string,string]]:[]));
             if(renamed)ops.push({sql:'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',args:[JSON.stringify(renamed),cid]});
-            if(c.year===2027&&d.awards.length){
+            if(rules&&d.awards.length){
                 const revised=d.members.map(m=>{
                     const updated=resolved.find(item=>item.member?.id===m.id);
                     return updated?{...m,code:updated.row.code}:m;
                 });
                 const additions=resolved.filter(item=>!item.member).map((item,i)=>({id:'new-roster-'+i,code:item.row.code,seniority:item.row.seniority}));
-                this.assert2027Completable(c,renamed??d.config,[...revised,...additions],d.awards,'Actualizar plantilla');
+                this.assertCompletable(c,renamed??d.config,[...revised,...additions],d.awards,'Actualizar plantilla');
             }
             for(const {row:r,member,position} of resolved){
                 if(member)ops.push({sql:'UPDATE campaign_members SET code=?,label=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',args:[r.code,r.label,r.seniority,member.id,cid]});
@@ -384,7 +384,7 @@ export class Service {
             if(c.scope_key!=='live')throw new ApiError('El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada');
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Controlador no encontrado',404);
-            if(c.year===2027&&d.config.individualEntitlements?.[member.code])
+            if(grantsIndividualEntitlements(c.year)&&d.config.individualEntitlements?.[member.code])
                 throw new ApiError('Retira primero la excepción individual de RRHH antes de trasladar al controlador');
             if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de cambiar de turno');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.');
@@ -397,7 +397,7 @@ export class Service {
             if(targetElection.state?.status==='active')throw new ApiError('Pausa también la elección del equipo de destino antes del traslado');
             if(destination.members.some(m=>m.person_id===member.person_id||m.code===member.code))throw new ApiError('La persona o su identificador ya existe en el equipo de destino');
             if(destination.members.length>=100)throw new ApiError('El equipo de destino ha alcanzado el máximo de 100 controladores');
-            this.assert2027Completable(target,destination.config,
+            this.assertCompletable(target,destination.config,
                 [...destination.members,{...member,id:'transfer-prospective'}],destination.awards,'Trasladar controlador');
             ops.push(...cas(target.id,target.version),electionStateStatement(target.id,null),{sql:'DELETE FROM preferences WHERE member_id=? AND campaign_id=?',args:[member.id,cid]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]},{sql:'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',args:[id(),target.id,member.person_id,member.code,member.label,member.seniority,Math.max(-1,...destination.members.map(m=>m.position))+1]},{sql:"UPDATE campaigns SET data_kind='configured' WHERE id IN (?,?)",args:[cid,target.id]});
             before=member;after={code:member.code,from:c.team_id,to:target.team_id,year:c.year};
@@ -406,9 +406,9 @@ export class Service {
         else if(action==='retire_member'){
             const member=d.members.find(m=>m.id===body.memberId);
             if(!member)throw new ApiError('Identificador no encontrado',404);
-            if(c.year===2027&&d.config.individualEntitlements?.[member.code])
+            if(grantsIndividualEntitlements(c.year)&&d.config.individualEntitlements?.[member.code])
                 throw new ApiError('Retira primero la excepción individual de RRHH antes de dar de baja al controlador');
-            this.assert2027Completable(c,d.config,d.members.filter(m=>m.id!==member.id),d.awards,'Dar de baja controlador');
+            this.assertCompletable(c,d.config,d.members.filter(m=>m.id!==member.id),d.awards,'Dar de baja controlador');
             if(election.preferences.some(p=>p.member_id===member.id&&p.dates.length))throw new ApiError('Vacía sus preferencias antes de dar la baja');
             if([...d.requests,...d.awards].some(r=>r.member_id===member.id))throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
             ops.push({sql:'DELETE FROM preferences WHERE member_id=? AND campaign_id=?',args:[member.id,cid]},{sql:'DELETE FROM campaign_members WHERE id=? AND campaign_id=?',args:[member.id,cid]});
@@ -429,7 +429,7 @@ export class Service {
                 ops.push({ sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?', args: [code, body.seniority, m.id, cid] });
             }
             else {
-                this.assert2027Completable(c,d.config,
+                this.assertCompletable(c,d.config,
                     [...d.members,{id:'new-member-prospective',code,seniority:body.seniority}],
                     d.awards,'Añadir controlador');
                 const pid = id();
@@ -447,13 +447,13 @@ export class Service {
         else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));ops.push(...insertRows('preferences',PREFERENCE_COLUMNS,old.election.preferences.map((p:any)=>preferenceRow(p,cid))));}}
         // A rename keeps order, queue and turn: they reference ids, not nicks.
         else if(election.state&&!renameOnly&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
-        if(c.year===2027&&['award','delete_award'].includes(action)){
+        if(rules&&['award','delete_award'].includes(action)){
             const updated=action==='award'?[...d.awards,after]:
                 d.awards.filter((a:any)=>a.id!==body.id);
-            const impact=availabilityImpact(
-                policyState2027(c.year,c.team_id,d.config,d.members,d.awards),
-                policyState2027(c.year,c.team_id,d.config,d.members,updated));
-            after={...after,availabilityHistory:{before:compactAvailability(impact.before),after:compactAvailability(impact.after)}};
+            const impact=rules.impact(
+                rules.state(campaignOf(c,d.config),d.members,d.awards),
+                rules.state(campaignOf(c,d.config),d.members,updated));
+            after={...after,availabilityHistory:{before:rules.compact(impact.before),after:rules.compact(impact.after)}};
         }
         ops.push(this.audit(action, c, before, after));
         await this.commit(ops);

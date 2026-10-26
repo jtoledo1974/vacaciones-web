@@ -1,5 +1,5 @@
 import type {Repository} from './repository.ts';
-import type {AvailabilitySnapshot,CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
+import type {AvailabilitySnapshot,CompactAvailabilitySnapshot} from '../domain/occupancy.ts';
 
 export type HistoricalAvailability={
  restored:boolean;

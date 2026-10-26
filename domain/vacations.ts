@@ -1,8 +1,6 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
-import {policyState2027,cyclesEntitlement2027} from './election-2027.ts';
-import {OCCUPANCY_POLICY_2027,evaluate2027Final,partialAssessment2027} from './policy-2027.ts';
-import {hr2027FourthExcluded} from './hr-2027.ts';
+import {policyFor} from './policy.ts';
 export type Member = {
     id: string;
     code: string;
@@ -21,11 +19,12 @@ export type Award = {
 };
 export function calculate(
  y: number, team: string, c: Config, members: Member[], requests: Request[], awards: Award[],
- options: {skip2027Proof?:boolean}={}
+ options: {skipProof?:boolean}={}
 ) {
     const cycles = calendar(y, team, c);
+    const policy=policyFor(y),rules=policy.occupancy,campaign={year:y,team,config:c};
     const byDate = new Map(cycles.map(s => [s.date, s]));
-    // Reuse occupancy indexes for 2027 eligibility, scoring and legacy views.
+    // Reuse occupancy indexes for policy eligibility, scoring and legacy views.
     // These replace repeated full award/request scans without changing order.
     const occupiedByDate=new Map<string,number>(),requestedByDate=new Map<string,number>();
     const awardsByMember=new Map<string,Award[]>(),requestsByMember=new Map<string,Request[]>();
@@ -42,11 +41,10 @@ export function calculate(
     }
     const counts = [0, 0, 0];
     cycles.forEach(s => counts[s.period]++);
-    const totalEntitlements=y===2027
-        ?members.reduce((total,m)=>total+cyclesEntitlement2027(c,m),0)
-        :members.length*c.cyclesPerPerson;
-    const summerPlanning=y===2027
-        ?members.reduce((total,m)=>total+Math.min(c.summerPerPerson,cyclesEntitlement2027(c,m)),0)
+    const totalEntitlements=members.reduce((total,m)=>total+policy.entitlement(c,m),0);
+    // Legacy years never clamped the summer target to each member's entitlement.
+    const summerPlanning=rules
+        ?members.reduce((total,m)=>total+Math.min(c.summerPerPerson,policy.entitlement(c,m)),0)
         :members.length*c.summerPerPerson;
     const necessary = [totalEntitlements - summerPlanning,summerPlanning];
     const conventionSummer = Math.max(0, necessary[1] - counts[1] * c.base[1]);
@@ -85,45 +83,45 @@ export function calculate(
     for (const a of awards)
         if (!byDate.has(a.cycle_date) || !memberIds.has(a.member_id))
             issues.push('Adjudicación fuera de campaña');
-    if(y===2027){
-        const state=policyState2027(y,team,c,members,awards);
-        const complete=members.every(m=>awards.filter(a=>a.member_id===m.id).length===cyclesEntitlement2027(c,m));
-        const final=complete?evaluate2027Final(state):null;
-        const year2027Issues:string[]=[];
+    if(rules){
+        const state=rules.state(campaign,members,awards);
+        const complete=members.every(m=>awards.filter(a=>a.member_id===m.id).length===policy.entitlement(c,m));
+        const final=complete?rules.evaluateFinal(state):null;
+        const policyIssues:string[]=[];
         // Partial states are not invalid merely because cycles lack their FINAL minimum.
         for(const a of awards){
             if(!members.some(m=>m.id===a.member_id)||!byDate.has(a.cycle_date))
-                year2027Issues.push('Adjudicación fuera de esta campaña');
+                policyIssues.push('Adjudicación fuera de esta campaña');
         }
         const keys=new Set<string>();
         for(const a of awards){
             const key=a.member_id+'|'+a.cycle_date;
-            if(keys.has(key)) year2027Issues.push('Un controlador no puede repetir un ciclo');
+            if(keys.has(key)) policyIssues.push('Un controlador no puede repetir un ciclo');
             keys.add(key);
         }
-        for(const m of members)if(awards.filter(a=>a.member_id===m.id).length>cyclesEntitlement2027(c,m))
-            year2027Issues.push(m.code+': supera sus ciclos anuales');
+        for(const m of members)if(awards.filter(a=>a.member_id===m.id).length>policy.entitlement(c,m))
+            policyIssues.push(m.code+': supera sus ciclos anuales');
         const detailed=cycles.map(s=>{
             const occupied=awards.filter(a=>a.cycle_date===s.date).length;
-            const max=Math.min(c.specialQuotas?.[s.date]??4,hr2027FourthExcluded(team,s.date)?3:4);
-            if(occupied>max) year2027Issues.push(s.date+': supera el cupo máximo autorizado por RRHH');
+            const max=rules.cycleMaximum(campaign,s.date);
+            if(occupied>max) policyIssues.push(s.date+': supera el cupo máximo autorizado por RRHH');
             return {...s,occupied,requested:requests.filter(a=>a.cycle_date===s.date).length,
                 min:1,base:2,max,available:occupied<max};
         });
         // Warnings that every completion would trigger (summer-total deviation) persist after each adjudication.
         // They are not inferred from provisional occupation (which may still
         // be completed), and they never turn into blocking errors.
-        const partial= !options.skip2027Proof && !complete && !year2027Issues.length && awards.length
-          ? partialAssessment2027(state,500) : null;
-        if(final)year2027Issues.push(...final.issues.map(i=>i.message));
+        const partial= !options.skipProof && !complete && !policyIssues.length && awards.length
+          ? rules.partialAssessment(state,{maxChecks:rules.budgets.review}) : null;
+        if(final)policyIssues.push(...final.issues.map(i=>i.message));
         else if(partial?.completion.status==='impossible')
-          year2027Issues.push('Las adjudicaciones actuales no permiten completar las vacaciones restantes');
+          policyIssues.push('Las adjudicaciones actuales no permiten completar las vacaciones restantes');
         const policyWarnings=final?.warnings??partial?.warnings??[];
         const completionStatus=final?(final.valid?'possible':'impossible')
           :partial?.completion.status??'not-checked';
         return {
-            engineVersion:ENGINE_VERSION,occupancyPolicyVersion:OCCUPANCY_POLICY_2027,
-            cycles:detailed,ordering,issues:[...new Set(year2027Issues)],
+            engineVersion:ENGINE_VERSION,occupancyPolicyVersion:rules.version,
+            cycles:detailed,ordering,issues:[...new Set(policyIssues)],
             warnings:policyWarnings.map(w=>w.message),policyWarnings,completionStatus,
             totals:{members:members.length,requested:requests.length,awarded:awards.length,necessary:neededTotal,
                 base:baseTotal,conventionSummer,conventionWinter,usedSummer,counts}

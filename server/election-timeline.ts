@@ -1,6 +1,6 @@
 import {currentTurn,orderForRound,type ElectionContext,type ElectionState} from '../domain/election.ts';
 import {appliedAudit,auditBefore,auditAfter,type AuditRow} from './audit-context.ts';
-import type {AvailabilityChange, ImpactEvent} from '../domain/availability-2027.ts';
+import type {AvailabilityChange, ImpactEvent} from '../domain/occupancy.ts';
 
 type LoggedChoice={member_id:string;cycle_date:string};
 export type ElectionTimelineItem={

@@ -1,8 +1,8 @@
-import type {AvailabilitySnapshot,CycleAvailability,AvailabilitySlot,AvailabilityImpact} from '../domain/availability-2027';
+import type {AvailabilitySnapshot,CycleAvailability,AvailabilitySlot,AvailabilityImpact} from '../domain/occupancy';
 
-/** Occupied / viable final capacity; uncertain capacity stays explicit. */
-export function cycleOccupancyLabel(cycle:{date:string;occupied:number;max:number},snapshot:AvailabilitySnapshot|null|undefined,year:number):string{
- if(year!==2027)return cycle.occupied+'/'+cycle.max;
+/** Occupied / viable final capacity; uncertain capacity stays explicit. `ruled`: the campaign has an occupancy engine. */
+export function cycleOccupancyLabel(cycle:{date:string;occupied:number;max:number},snapshot:AvailabilitySnapshot|null|undefined,ruled:boolean):string{
+ if(!ruled)return cycle.occupied+'/'+cycle.max;
  const data=snapshot?.cycles?.[cycle.date];
  if(!data||data.status==='invalid')return cycle.occupied+'/?';
  if(data.status==='exact'&&data.additional!==null)
@@ -12,8 +12,8 @@ export function cycleOccupancyLabel(cycle:{date:string;occupied:number;max:numbe
 }
 
 /** The backend, not the visual maximum, determines legal global capacity. */
-export function cycleAvailability(cycle:{date:string;occupied:number;max:number},snapshot:AvailabilitySnapshot|null|undefined,year:number){
- const live=year===2027;
+export function cycleAvailability(cycle:{date:string;occupied:number;max:number},snapshot:AvailabilitySnapshot|null|undefined,ruled:boolean){
+ const live=ruled;
  const data=live?snapshot?.cycles?.[cycle.date]:undefined;
  const local=Math.max(0,cycle.max-cycle.occupied);
  if(!live)return {data:null as CycleAvailability|null,label:String(local),description:local+' plazas libres',className:'vac2-free-'+Math.min(4,local)};

@@ -4,6 +4,7 @@ import type {Principal} from './permissions.ts';
 import type {Repository} from './repository.ts';
 import type {ElectionService} from './election-service.ts';
 import {ApiError} from './errors.ts';
+import {occupancyFor} from '../domain/policy.ts';
 
 type Host={load:(cid:string)=>Promise<any>;election:()=>ElectionService};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
@@ -20,7 +21,7 @@ export class PersonalSimulationService{
   if(this.actor.preview)throw new ApiError('El simulador personal no está disponible en la vista previa',403);
   const d=await this.host.load(cid);
   if(d.campaign.scope_key!=='live')throw new ApiError('El simulador personal solo está disponible en la campaña real',403);
-  if(d.campaign.year!==2027)throw new ApiError('El simulador personal requiere la política 2027',400);
+  if(!occupancyFor(d.campaign.year))throw new ApiError('El simulador personal requiere un motor de ocupación para este ejercicio',400);
   const me=await this.host.election().memberForAccount(d);
   if(!me)throw new ApiError('Tu cuenta no está vinculada a ningún controlador de esta campaña',403);
   const raw=await this.host.election().read(cid);

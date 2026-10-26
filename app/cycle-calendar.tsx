@@ -2,7 +2,7 @@
 import {useEffect,useMemo,useState} from 'react';
 import CycleTable from './cycle-table';
 import {orderMemberAwards,orderMemberIds,type CycleOrder,type MemberOrder} from '../domain/member-display-order';
-import type {AvailabilitySnapshot} from '../domain/availability-2027';
+import type {AvailabilitySnapshot} from '../domain/occupancy';
 import {cycleAvailability,cycleOccupancyLabel} from './cycle-availability-ui';
 
 export const formatDate=(date:string)=>new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
@@ -11,18 +11,18 @@ type Cycle={date:string;end:string;score:number;period:number;occupied:number;ma
 type Award={id:string;member_id:string;cycle_date:string};
 type Member={id:string;code:string};
 type View='map'|'calendar'|'members'|'table';
-type Props={year:number;cycles:Cycle[];selected:string[];onSelect:(cycle:Cycle)=>void;preferenceMode?:boolean;busy?:boolean;highlighted?:string[];awards?:Award[];members?:Member[];order?:string[];points?:{member_id:string;points:number;cycles:number}[];availability?:AvailabilitySnapshot|null;notForMe?:string[];glossary?:boolean};
+type Props={year:number;ruled:boolean;cycles:Cycle[];selected:string[];onSelect:(cycle:Cycle)=>void;preferenceMode?:boolean;busy?:boolean;highlighted?:string[];awards?:Award[];members?:Member[];order?:string[];points?:{member_id:string;points:number;cycles:number}[];availability?:AvailabilitySnapshot|null;notForMe?:string[];glossary?:boolean};
 
 function slots(c:Cycle){return Math.max(0,c.max-c.occupied);}
 function extraAvailable(c:Cycle){return slots(c)===0&&c.available===true;}
 function isSummer(c:Cycle){return c.period===1;}
 function monthIndex(date:string){return Number(date.slice(5,7))-1;}
-function cycleTitle(c:Cycle,year:number,availability?:AvailabilitySnapshot|null){
- const status=cycleAvailability(c,availability,year);
+function cycleTitle(c:Cycle,ruled:boolean,availability?:AvailabilitySnapshot|null){
+ const status=cycleAvailability(c,availability,ruled);
  return formatDate(c.date)+' – '+formatDate(c.end)+' · '+c.score+' puntos · '+status.description;
 }
 
-export default function CycleCalendar({year,cycles,selected,onSelect,preferenceMode=false,busy=false,highlighted=[],awards=[],members=[],order=[],points=[],availability,notForMe,glossary=false}:Props){
+export default function CycleCalendar({year,ruled,cycles,selected,onSelect,preferenceMode=false,busy=false,highlighted=[],awards=[],members=[],order=[],points=[],availability,notForMe,glossary=false}:Props){
  // On one's own turn, cycles one cannot take are marked up front rather than discovered by tapping.
  const blocked=new Set(notForMe??[]);
  const [view,setView]=useState<View>('map');
@@ -77,14 +77,14 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
  }),[year,cycles]);
  const codesFor=(date:string)=>holders.get(date)??[];
  function renderCycle(c:Cycle){
-  const free=slots(c),people=codesFor(c.date),status=cycleAvailability(c,availability,year);
+  const free=slots(c),people=codesFor(c.date),status=cycleAvailability(c,availability,ruled);
   return <button type="button" key={c.date} data-cycle-date={c.date} disabled={busy} onClick={()=>onSelect(c)}
    aria-pressed={selected.includes(c.date)}
-   aria-label={cycleTitle(c,year,availability)+(people.length?' · '+people.join(', '):'')}
-   title={cycleTitle(c,year,availability)}
+   aria-label={cycleTitle(c,ruled,availability)+(people.length?' · '+people.join(', '):'')}
+   title={cycleTitle(c,ruled,availability)}
    className={'vac2-cycle '+status.className+(blocked.has(c.date)?' vac2-not-for-me':'')+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(highlighted.includes(c.date)?' vac2-person':'')}>
-    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{blocked.has(c.date)?'No disponible para ti':year===2027?(status.label==='?'?'? por confirmar':status.label==='1'?'1 libre':status.label+' libres'):extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
-    <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{cycleOccupancyLabel(c,availability,year)} ocupadas{year!==2027&&extraAvailable(c)?' · ampliable':''}</span></span>
+    <span className="vac2-line"><b>{formatDate(c.date)} – {formatDate(c.end)}</b><b>{blocked.has(c.date)?'No disponible para ti':ruled?(status.label==='?'?'? por confirmar':status.label==='1'?'1 libre':status.label+' libres'):extraAvailable(c)?'Cupo adicional posible':free+' libres'}</b></span>
+    <span className="vac2-line vac2-cycle-sub"><span>{c.score} pt</span><span>{cycleOccupancyLabel(c,availability,ruled)} ocupadas{!ruled&&extraAvailable(c)?' · ampliable':''}</span></span>
     {preferenceMode&&selected.includes(c.date)&&<span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date)+1}</span>}
     {people.length>0&&<span className="vac2-names" title={people.join(', ')}>{people.join(' · ')}</span>}
    </button>;
@@ -99,11 +99,11 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
      if(!c)return <span key={'pad-'+i}/>;
      const day=i-((new Date(Date.UTC(year,m,1)).getUTCDay()+6)%7)+1;
      const first=c.date===new Date(Date.UTC(year,m,day)).toISOString().slice(0,10);
-     const status=cycleAvailability(c,availability,year);
+     const status=cycleAvailability(c,availability,ruled);
      return <button type="button" key={i} data-cycle-date={c.date} disabled={busy} onClick={()=>onSelect(c)}
       className={'vac2-day '+status.className+(blocked.has(c.date)?' vac2-not-for-me':'')+(isSummer(c)?' vac2-summer':'')+(selected.includes(c.date)?' vac2-selected':'')+(first?' vac2-cycle-start':'')}
       aria-pressed={selected.includes(c.date)}
-      title={cycleTitle(c,year,availability)} aria-label={day+' '+months[m]+': '+cycleTitle(c,year,availability)}>{day}{year===2027&&first&&<small className="vac2-day-count" aria-hidden="true">{status.label}</small>}</button>;
+      title={cycleTitle(c,ruled,availability)} aria-label={day+' '+months[m]+': '+cycleTitle(c,ruled,availability)}>{day}{ruled&&first&&<small className="vac2-day-count" aria-hidden="true">{status.label}</small>}</button>;
     })}</div>
     <div className="vac2-month-people">{cycles.filter(c=>c.date<=new Date(Date.UTC(year,m+1,0)).toISOString().slice(0,10)&&c.end>=new Date(Date.UTC(year,m,1)).toISOString().slice(0,10)).map(c=>
      <button type="button" className="vac2-occupants" key={c.date} onClick={()=>onSelect(c)} disabled={busy}>
@@ -143,7 +143,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
   </div>;
  }
 
- return <section className={"panel vac2-panel"+(year===2027?" vac2-year-2027":"")} aria-label="Calendario de ciclos">
+ return <section className={"panel vac2-panel"+(ruled?" vac2-ruled":"")} aria-label="Calendario de ciclos">
   <div className="vac2-heading">
    <div><h2>Disponibilidad y baremo</h2>{!preferenceMode&&<p className="muted">Selecciona cualquier ciclo para ver detalles y ocupantes.</p>}</div>
    <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
@@ -158,12 +158,12 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    {view==='table'
     ?<><span><i className="vac3-key vac3-key-free"/>Plaza libre</span><span><i className="vac3-key vac3-key-occupied"/>Ocupada (código)</span><span><i className="vac2-key vac2-free-0"/>Sin plaza</span></>
     :<><b>Plazas libres</b>{[4,3,2,1,0].map(n=><span key={n}><i className={'vac2-key vac2-free-'+n}/>{n}</span>)}</>}
-   {year===2027&&<span><i className="vac2-key vac2-unknown"/>? Por confirmar</span>}
+   {ruled&&<span><i className="vac2-key vac2-unknown"/>? Por confirmar</span>}
    <span className="vac2-legend-summer"><i className="vac2-summer-key"/>Verano</span>
    {glossary&&<a className="vac2-glossary-link" href="#glosario" onClick={()=>{const g=document.getElementById('glosario') as HTMLDetailsElement|null;if(g)g.open=true;}}>ⓘ Qué significa</a>}
    <span><i className="vac2-selection-key"/>{preferenceMode?'Tus preferencias':'Tu selección'}</span>
   </div>
-  {view==='table'&&<CycleTable year={year} cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect} availability={availability} notForMe={notForMe}/>}
+  {view==='table'&&<CycleTable year={year} ruled={ruled} cycles={cycles} awards={awards} members={members} selected={selected} highlighted={highlighted} preferenceMode={preferenceMode} busy={busy} onSelect={onSelect} availability={availability} notForMe={notForMe}/>}
   {view==='map'&&<nav className="vac2-month-jump" aria-label="Ir al mes">{months.map((name,m)=>byMonth[m].length>0&&<button type="button" key={m}
    onClick={()=>document.getElementById('vac2-map-month-'+m)?.scrollIntoView({behavior:'smooth',block:'start'})}>{name.slice(0,3)}</button>)}</nav>}
   {view==='map'&&<div className="vac2-month-grid vac2-map">{months.map((_,m)=>renderMonth(m,false))}</div>}
@@ -172,7 +172,7 @@ export default function CycleCalendar({year,cycles,selected,onSelect,preferenceM
    <div className="vac2-month-grid vac2-calendar">{months.map((_,m)=><div className={m===activeMonth?'vac2-active-mobile':'vac2-hidden-mobile'} key={m}>{renderMonth(m,true)}</div>)}</div>
   </>}
   {view==='members'&&renderMembers()}
-  <p className="vac2-footnote">{year===2027
+  <p className="vac2-footnote">{ruled
    ?'Las plazas libres tienen en cuenta las normas del reparto: si una persona coge un ciclo, puede reducir las de otros. «?» significa que la aplicación no ha podido demostrar si esa plaza respeta las normas: puede estar libre o bloqueada, y esperar no lo resuelve. Al confirmar se vuelve a comprobar y, si sigue sin demostrarse, no se adjudica. Los nombres aparecen por orden de elección. Pulsa un ciclo para ver el detalle.'
    :'Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar.'}</p>
  </section>;

@@ -1,7 +1,6 @@
 import {calculate,type Member,type Request,type Award} from './vacations.ts';
 import type {Config} from './calendar.ts';
-import {policyState2027,cyclesEntitlement2027} from './election-2027.ts';
-import {evaluate2027Candidate, evaluate2027Final} from './policy-2027.ts';
+import {policyFor,occupancyFor} from './policy.ts';
 
 // Criterios Vacaciones 1.1 (10/06/2025), pp. 1-3.
 export const ELECTION_POLICY_VERSION='criterios-vacaciones-1.1-2025';
@@ -90,7 +89,7 @@ const count=(ctx:ElectionContext,id:string)=>ctx.awards.filter(a=>a.member_id===
 export function entitlementFor(ctx:ElectionContext,id:string):number{
  const member=ctx.members.find(m=>m.id===id);
  if(!member)throw new Error('Controlador ajeno a la campaña');
- return ctx.year===2027?cyclesEntitlement2027(ctx.config,member):ctx.config.cyclesPerPerson;
+ return policyFor(ctx.year).entitlement(ctx.config,member);
 }
 export function validateOrder(order:unknown,members:Member[]):asserts order is string[]{
  if(!Array.isArray(order)||order.length!==members.length||!order.length||new Set(order).size!==order.length||order.some(id=>!members.some(m=>m.id===id)))
@@ -144,8 +143,9 @@ export function currentTurn(ctx:ElectionContext,input:ElectionState){
  const round=Math.floor(state.cursor/n)+1;
  if(state.status!=='active')return {state,memberId:null,needed:0,round,participants:[] as string[],requiredByMember:{} as Record<string,number>};
  if(ctx.members.every(m=>count(ctx,m.id)>=entitlementFor(ctx,m.id))){
-  if(ctx.year===2027){
-    const evaluation=evaluate2027Final(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards));
+  const rules=occupancyFor(ctx.year);
+  if(rules){
+    const evaluation=rules.evaluateFinal(rules.state(ctx,ctx.members,ctx.awards));
     if(!evaluation.valid)throw new Error('No se puede finalizar la elección: '+evaluation.issues.map(i=>i.message).join('; '));
   }
   state.status='complete';return {state,memberId:null,needed:0,round,participants:[] as string[],requiredByMember:{} as Record<string,number>};
@@ -221,10 +221,11 @@ export function choiceIssues(ctx:ElectionContext,memberId:string,dates:string[])
  if(!ctx.members.some(m=>m.id===memberId))return ['Controlador ajeno a la campaña'];
  if(new Set(dates).size!==dates.length)return ['No se puede elegir el mismo ciclo dos veces'];
  if(dates.some(d=>ctx.awards.some(a=>a.member_id===memberId&&a.cycle_date===d)))return ['Este controlador ya tiene uno de esos ciclos'];
- if(ctx.year===2027){
-  const state=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+ const rules=occupancyFor(ctx.year);
+ if(rules){
+  const state=rules.state(ctx,ctx.members,ctx.awards);
   // Admission consumes issues only; informative warnings belong to preflight.
-  const check=evaluate2027Candidate(state,dates.map(cycle_date=>({member_id:memberId,cycle_date})),2000,undefined,false,{exact:true});
+  const check=rules.evaluateCandidate(state,dates.map(cycle_date=>({member_id:memberId,cycle_date})),{maxChecks:rules.budgets.commit,warnings:false,exact:true});
   return check.issues.map(i=>i.message);
  }
  const awards=[...ctx.awards,...dates.map((d,i)=>({id:'candidate-'+i,member_id:memberId,cycle_date:d}))];
@@ -249,10 +250,11 @@ export function chooseJoint(ctx:ElectionContext,input:ElectionState,entries:Join
   const entry=entries.find(e=>e.member_id===person)!;
   return entry.dates.map(date=>({member_id:person,cycle_date:date}));
  });
- if(ctx.year===2027){
+ const rules=occupancyFor(ctx.year);
+ if(rules){
   // Validate the whole proposed batch, not its members sequentially.
-  const check=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),
-   choices.map(c=>({member_id:c.member_id,cycle_date:c.cycle_date})),2000,undefined,false,{exact:true});
+  const check=rules.evaluateCandidate(rules.state(ctx,ctx.members,ctx.awards),
+   choices.map(c=>({member_id:c.member_id,cycle_date:c.cycle_date})),{maxChecks:rules.budgets.commit,warnings:false,exact:true});
   if(!check.allowed)throw new Error(check.issues.map(i=>i.message).join('; '));
  }else{
   const incremental:Choice[]=[];

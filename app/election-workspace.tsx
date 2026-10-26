@@ -124,6 +124,8 @@ function PendingTieDialog({data,busy,act,onClose}:any){
 export default function ElectionWorkspace({data,busy,act,legacy,identity,superuser,signinUrl,navigationGuard,onPreferenceEdit,onConfigureElection}:any){
  const confirm=useConfirmation();
  const election=data.election,turn=election.turn,state=election.state,manage=election.canManage,mine=election.myMemberId,open=data.campaign.status==='open',current=data.members.find((m:any)=>m.id===turn?.memberId),frozen=!!election.reconstruction?.active;
+ // Proof-based occupancy rules apply; never infer them from the year.
+ const ruled=!!election.occupancyPolicyVersion;
  const visibleAwards=orderAwardsBySelection(data.awards as {id:string;member_id:string;cycle_date:string}[],election.timeline);
  const previewReadOnly=!!data.preview&&!data.preview.writable;
  const simulation=data.campaign.scope_key!=='live';
@@ -236,7 +238,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{
     const body:any=await response.json();if(!response.ok)throw new Error(body.error);
     if(!active)return;
-    const currentPolicy=data.campaign.year===2027?election.occupancyPolicyVersion:null;
+    const currentPolicy=election.occupancyPolicyVersion??null;
     if(body.version!==data.campaign.version||(currentPolicy&&body.policyVersion!==currentPolicy)){
      setPairOptions([]);setMessage('Los cupos se han recalculado con otra versión del reparto. Actualiza la vista antes de confirmar.');return;
     }
@@ -245,8 +247,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   return ()=>{active=false;setLoadingOptions(false);};
  },[selected.join(','),turn?.needed,data.campaign.version,election.occupancyPolicyVersion]);
  const canChoose=open&&!frozen&&state?.status==='active'&&!!turn?.memberId&&(manage||(turn?.participants?.length===1&&mine===turn?.memberId)),canPreferences=open&&!frozen&&preferenceMemberIds.length>0;
- // Only the linked controller, on the real 2027 election while it runs.
- const canSimulate=!!mine&&!data.preview&&!simulation&&data.campaign.year===2027&&open&&!frozen&&state?.status==='active';
+ // Only the linked controller, on a real election with occupancy rules while it runs.
+ const canSimulate=!!mine&&!data.preview&&!simulation&&ruled&&open&&!frozen&&state?.status==='active';
  useEffect(()=>{if(!canSimulate&&mode==='simulate')setMode('choose');},[canSimulate,mode]);
  const reconstructionCandidates:any[]=election.reconstruction?.candidates??[];
  const candidatesById=new Map<string,any>(reconstructionCandidates.filter((candidate:any)=>!candidate.archived).map((candidate:any)=>[candidate.id,candidate]));
@@ -283,7 +285,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    const names=turn.participants?.length>1?turn.participants.map(codeFor).join(' + '):current?.code??'';
    let impactLines:string[]=[];
    let warningLines:string[]=[];
-   if(data.campaign.year===2027){
+   if(ruled){
     setChoicePhase('checking');
     const query=new URLSearchParams({version:String(data.campaign.version),choices:JSON.stringify(choices)});
     const preview=new URLSearchParams(location.search).get('verComo');
@@ -360,7 +362,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   if(simulation&&quickMode&&!busy&&next.length===turn.needed&&turn?.participants?.length===1)
    void submitChoice(next.map(date=>({member_id:turn.memberId,cycle_date:date})));
  }
- const rules2027=data.campaign.year===2027&&<details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
+ const rules2027=election.occupancyPolicyVersion?.startsWith('lecs-2027-')&&<details className="panel" aria-label="Interpretación normativa aplicada a vacaciones 2027">
   <summary>Cómo se aplican los cupos de 2027</summary>
     <p>En preverano hay tres extracupos: dos ampliaciones a tres plazas y una a cuatro, o tres ampliaciones a tres. Como máximo, un ciclo con cuatro y tres ciclos con una sola persona.</p>
     <p>En verano hay dos extracupos, de tres o de cuatro plazas; como máximo, dos ciclos con cuatro y dos con una sola persona. En postverano hay dos: una ampliación a tres y una a cuatro, o dos a tres; como máximo, un ciclo con cuatro y dos con una sola persona. La ampliación a cuatro puede usarse como ampliación a tres, nunca al revés. Ningún ciclo puede quedar vacío y los extracupos no pasan de un periodo a otro.</p>
@@ -378,7 +380,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  // Outside one's turn the cycle card offers to edit one's own list instead of a dead end.
  const ownPreferences=!!mine&&canPreferences&&preferenceMemberIds.includes(mine)&&memberId===mine;
  const plainAvailability=(cycle:any)=>{
-  const label=cycleAvailability(cycle,election.cycleAvailability,data.campaign.year).label;
+  const label=cycleAvailability(cycle,election.cycleAvailability,ruled).label;
   if(label==='?')return 'plazas libres por confirmar';
   if(label==='—')return 'pendiente de revisión';
   const n=Number(label);
@@ -410,9 +412,9 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    <p className="muted">Algunas elecciones, especialmente al ocupar una cuarta plaza, necesitan verificar que todos los controladores puedan completar sus vacaciones. No se ha confirmado ninguna adjudicación hasta que termine la comprobación.</p>
   </section></div>}
   {manage&&rules2027}
-  {data.campaign.year===2027&&(data.result.policyWarnings??[]).length>0&&
-   <section className="panel" aria-label="Avisos de las normas de vacaciones 2027">
-    <h3>Avisos de reparto 2027</h3>
+  {ruled&&(data.result.policyWarnings??[]).length>0&&
+   <section className="panel" aria-label={"Avisos de las normas de vacaciones "+data.campaign.year}>
+    <h3>Avisos de reparto {data.campaign.year}</h3>
     <p>Estos avisos no bloquean la elección; deben revisarse expresamente al cerrar el ejercicio.</p>
     {(data.result.policyWarnings??[]).map((w:any,i:number)=>
      <p key={w.code+'-'+i} role="status" className="alert warning">
@@ -500,7 +502,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   <div hidden={mode==='simulate'&&canSimulate} className={"election-layout"+(detail&&!frozen?" has-active-detail":"")+(mode==='preferences'&&canPreferences?" is-preparing-preferences":"")+(frozen&&manage&&open?" is-reconstructing":"")}>
    {manage&&open&&frozen&&<ReconstructionPanel data={data} busy={busy} act={act}/>}
    <div className="election-calendar-wrap">
-    <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} cycles={data.result.cycles}
+    <CycleCalendar preferenceMode={mode==='preferences'} year={data.campaign.year} ruled={ruled} cycles={data.result.cycles}
      selected={mode==='preferences'&&canPreferences&&preferenceMemberIds.includes(memberId)?dates:turn?.participants?.length>1?Object.values(jointSelected).flat():selected} onSelect={clickCycle}
      busy={busy||loadingOptions||choiceSubmitting} highlighted={data.awards.filter((a:any)=>a.member_id===filterMember).map((a:any)=>a.cycle_date)}
      awards={visibleAwards} members={data.members} order={roundOrder} points={election.points} availability={election.cycleAvailability} glossary={!manage||!!mine}
@@ -513,13 +515,13 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
     {mode==='choose'&&detail&&<section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
      <div className="election-choice-heading"><span className="eyebrow">CICLO SELECCIONADO</span><button type="button" className="icon-button" aria-label="Cerrar detalle del ciclo" onClick={()=>{setDetail(null);setSelected([]);setJointSelected({});setMessage('');}}>×</button></div>
      <h2>{formatDate(detail.date)} – {formatDate(detail.end)}{detail.period===1?' · Verano':''}</h2>
-     <p><strong>{detail.score} puntos</strong> · {cycleOccupancyLabel(detail,election.cycleAvailability,data.campaign.year)} plazas ocupadas{data.campaign.year===2027
+     <p><strong>{detail.score} puntos</strong> · {cycleOccupancyLabel(detail,election.cycleAvailability,ruled)} plazas ocupadas{ruled
       ?(manage?'':' · '+plainAvailability(detail))
       :' · '+Math.max(0,detail.max-detail.occupied)+' libres'+(detail.available&&detail.occupied>=detail.max?' · Cupo adicional posible (pendiente de confirmar)':'')}</p>
-     {data.campaign.year===2027&&<>
-      {manage&&<p><strong>Disponibilidad global:</strong> {cycleAvailability(detail,election.cycleAvailability,2027).description}</p>}
+     {ruled&&<>
+      {manage&&<p><strong>Disponibilidad global:</strong> {cycleAvailability(detail,election.cycleAvailability,true).description}</p>}
       {election.cycleAvailability?.cycles?.[detail.date]&&<details className="election-cycle-rules"><summary>{manage?'Detalle de las cuatro plazas y motivos de bloqueo':'Por qué hay estas plazas'}</summary>
-       {!manage&&<p>{cycleAvailability(detail,election.cycleAvailability,2027).description}.</p>}
+       {!manage&&<p>{cycleAvailability(detail,election.cycleAvailability,true).description}.</p>}
        <ul>{election.cycleAvailability.cycles[detail.date].slots.map((slot:any)=><li key={slot.position}><strong>{slot.position}ª plaza:</strong> {slotExplanation(slot)}</li>)}</ul>
       </details>}
      </>}
@@ -534,11 +536,11 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
         }}>{dates.includes(detail.date)?'Quitar de mis preferencias (posición '+(dates.indexOf(detail.date)+1)+')':'Añadir a mis preferencias (posición '+(dates.length+1)+')'}</button>}
      </div>}
      {/* Not a problem: after undo/redo availability is shown without rerunning the solver. In fast mode the award is verified at once. */}
-     {data.campaign.year===2027&&mode==='choose'&&canChoose&&election.availabilityPending?.includes(detail.date)&&
+     {ruled&&mode==='choose'&&canChoose&&election.availabilityPending?.includes(detail.date)&&
       !choiceSubmitting&&!(simulation&&quickMode)&&
       <p className="election-auto-notice" role="status">Disponibilidad aún sin comprobar del todo (por ejemplo, tras deshacer o rehacer): la elección se comprobará por completo al confirmar.</p>}
      <div className="button-row">{visibleAwards.filter((a:any)=>a.cycle_date===detail.date).map((a:any)=><span className="person-chip" key={a.id}>{data.members.find((m:any)=>m.id===a.member_id)?.code}</span>)}</div>
-     {(message||(data.campaign.year===2027&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)
+     {(message||(ruled&&canChoose&&turn?.participants?.length===1&&!election.available.includes(detail.date)
        ?election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.'
        :''))&&<p role="status" className="alert warning">{message||(election.availabilityReasons?.[detail.date]??'Este ciclo no es viable para la persona que elige en este turno.')}</p>}
      {mode==='choose'&&canChoose&&<>
@@ -652,7 +654,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
   {!manage&&rules2027}
   <details className="panel"><summary>Vacaciones confirmadas · {data.awards.length} ciclos</summary><div className="table-wrap"><table><thead><tr><th>Controlador</th><th>Ciclo</th><th>Baremo</th>{manage&&<th>Corrección</th>}</tr></thead><tbody>{visibleAwards.map((a:any)=>{const c=data.result.cycles.find((c:any)=>c.date===a.cycle_date);return <tr key={a.id}><td>{data.members.find((m:any)=>m.id===a.member_id)?.code}</td><td>{formatDate(a.cycle_date)}</td><td>{c?.score}</td>{manage&&<td><button className="secondary" disabled={busy||state?.status==='active'||!open} onClick={async()=>{if(await confirm('¿Eliminar este ciclo confirmado?'))legacy({action:'delete_award',id:a.id},'Ciclo eliminado');}}>Eliminar ciclo</button></td>}</tr>;})}</tbody></table></div></details>
   {manage&&data.requests.some((r:any)=>!data.awards.some((a:any)=>a.member_id===r.member_id&&a.cycle_date===r.cycle_date))&&<details className="panel"><summary>Peticiones anteriores sin ciclo confirmado</summary><p className="muted">Registros creados antes del flujo de elección. Puedes eliminarlos para corregir datos anteriores; no son las nuevas listas de preferencias.</p>{data.requests.filter((r:any)=>!data.awards.some((a:any)=>a.member_id===r.member_id&&a.cycle_date===r.cycle_date)).map((r:any)=><p key={r.id}>{data.members.find((m:any)=>m.id===r.member_id)?.code} · {formatDate(r.cycle_date)} <button className="secondary" disabled={busy||!open||state?.status==="active"} onClick={async()=>{if(await confirm("¿Eliminar esta petición anterior sin elección confirmada?"))legacy({action:"delete_request",id:r.id},"Petición anterior eliminada");}}>Eliminar petición anterior</button></p>)}</details>}
-  {manage&&<details className="panel"><summary>Revisiones y cierre del ejercicio</summary>{data.result.issues.length>0&&<p className="alert error">{data.result.issues.join(' · ')}</p>}{data.result.warnings.length>0&&<p className="alert warning">{data.result.warnings.join(' · ')}</p>}<button className="secondary" disabled={busy||!open||state?.status==='active'} onClick={()=>legacy({action:'calculate'},'Revisión calculada')}>Calcular revisión</button>{data.runs.map((run:any)=><p key={run.id}>{new Date(run.created_at).toLocaleDateString('es-ES')} · {run.id.slice(0,8)} {superuser&&run.source_version===data.campaign.version&&<button className="secondary" disabled={busy||state?.status==='active'} onClick={async()=>{if(await confirm('¿Guardar esta revisión como resultado final y cerrar el ejercicio?'+(data.campaign.year===2027&&(data.result.policyWarnings??[]).length?'\n\nAvisos de RR. HH. que quedarán revisados y registrados a tu nombre:\n'+data.result.policyWarnings.map((w:any)=>'— '+w.message).join('\n'):'')))legacy({action:'publish',runId:run.id,reviewedWarnings:(data.result.policyWarnings??[]).map((w:any)=>w.code)},'Revisión final publicada');}}>Guardar resultado final</button>}</p>)}</details>}
+  {manage&&<details className="panel"><summary>Revisiones y cierre del ejercicio</summary>{data.result.issues.length>0&&<p className="alert error">{data.result.issues.join(' · ')}</p>}{data.result.warnings.length>0&&<p className="alert warning">{data.result.warnings.join(' · ')}</p>}<button className="secondary" disabled={busy||!open||state?.status==='active'} onClick={()=>legacy({action:'calculate'},'Revisión calculada')}>Calcular revisión</button>{data.runs.map((run:any)=><p key={run.id}>{new Date(run.created_at).toLocaleDateString('es-ES')} · {run.id.slice(0,8)} {superuser&&run.source_version===data.campaign.version&&<button className="secondary" disabled={busy||state?.status==='active'} onClick={async()=>{if(await confirm('¿Guardar esta revisión como resultado final y cerrar el ejercicio?'+(ruled&&(data.result.policyWarnings??[]).length?'\n\nAvisos de RR. HH. que quedarán revisados y registrados a tu nombre:\n'+data.result.policyWarnings.map((w:any)=>'— '+w.message).join('\n'):'')))legacy({action:'publish',runId:run.id,reviewedWarnings:(data.result.policyWarnings??[]).map((w:any)=>w.code)},'Revisión final publicada');}}>Guardar resultado final</button>}</p>)}</details>}
  </>;
 }
 

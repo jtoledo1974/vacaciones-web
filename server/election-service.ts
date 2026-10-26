@@ -1,8 +1,7 @@
 import {advanceAutomatic,choose,chooseJoint,currentTurn,defer,consumePreferences,choiceIssues,preferredChoice,validateOrder,validateElectionState,entitlementFor,resolveTie,drawTie,registerJointAgreement,cancelJointAgreement,ELECTION_POLICY_VERSION,PREFERENCE_COLUMNS,PREFERENCE_MODES,MAX_WAIT_MINUTES,preferenceRow,preferenceFromRow,cleanLabels,MAX_LABEL_LENGTH,stampTurn,automaticAt,automaticChain,listChoice,activeList,roundQueue,type ElectionState,type Preference,type PreferenceMode,type ElectionContext} from '../domain/election.ts';
 import {calculate} from '../domain/vacations.ts';
-import {policyState2027} from '../domain/election-2027.ts';
-import {canComplete2027,evaluate2027Candidate,evaluate2027Final,partialAssessment2027,immediate2027Issues,OCCUPANCY_POLICY_2027,type PolicyAward} from '../domain/policy-2027.ts';
-import {availabilityByCycle,compactAvailability,recordedAvailabilityByCycle2027,restoredAvailabilityByCycle2027,availabilityImpact,previewChoiceImpact,type AvailabilitySnapshot,type CompactAvailabilitySnapshot} from '../domain/availability-2027.ts';
+import type {AvailabilitySnapshot,CompactAvailabilitySnapshot} from '../domain/occupancy.ts';
+import {occupancyFor,type OccupancyRules,type PolicyAward} from '../domain/policy.ts';
 import {canWrite,requireSuper,type Principal} from './permissions.ts';
 import {cas,insertRows,type Repository,type Statement} from './repository.ts';
 import {ApiError} from './errors.ts';
@@ -79,29 +78,29 @@ export class ElectionService{
   if(reconstruction&&reconstruction.status!=='completed')throw new ApiError('Las elecciones están congeladas durante la reconstrucción',409);
   if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
   if(!raw.state||d.campaign.status!=='open')throw new ApiError('No hay un turno activo');
-  const ctx=context(d),turn=currentTurn(ctx,raw.state);
+  const ctx=context(d),turn=currentTurn(ctx,raw.state),rules=occupancyFor(ctx.year);
   if(!turn.memberId||(!canWrite(this.actor,d.campaign.team_id)&&turn.memberId!==mine))throw new ApiError('No es tu turno',403);
   if(jointEntries!==undefined){
-   if(ctx.year!==2027||!canWrite(this.actor,d.campaign.team_id)||turn.participants.length<2)
+   if(!rules||!canWrite(this.actor,d.campaign.team_id)||turn.participants.length<2)
     throw new ApiError('Este turno conjunto no admite previsualización',403);
    if(!Array.isArray(jointEntries)||jointEntries.length!==turn.participants.length||
      new Set(jointEntries.map(e=>e.member_id)).size!==jointEntries.length||
      jointEntries.some(e=>!turn.participants.includes(e.member_id)||!Array.isArray(e.dates)||e.dates.length!==turn.requiredByMember[e.member_id]||e.dates.some(x=>typeof x!=='string')))
       throw new ApiError('Turno conjunto incompleto');
    const choices=jointEntries.flatMap(e=>e.dates.map(cycle_date=>({member_id:e.member_id,cycle_date})));
-   const check=evaluate2027Candidate(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),choices);
-   return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,allowed:check.allowed,
+   const check=rules.evaluateCandidate(rules.state(ctx,ctx.members,ctx.awards),choices);
+   return {version:d.campaign.version,policyVersion:rules.version,allowed:check.allowed,
      available:[],issues:check.issues,warnings:check.warnings};
   }
 
   if(!Array.isArray(selected)||selected.length>turn.needed||new Set(selected).size!==selected.length||selected.some(x=>typeof x!=='string'))
    throw new ApiError('Selección inicial no válida');
-  if(ctx.year===2027){
-   const policyState=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
-   const inspect=(dates:string[])=>evaluate2027Candidate(policyState,dates.map(cycle_date=>({member_id:turn.memberId!,cycle_date})));
+  if(rules){
+   const policyState=rules.state(ctx,ctx.members,ctx.awards);
+   const inspect=(dates:string[])=>rules.evaluateCandidate(policyState,dates.map(cycle_date=>({member_id:turn.memberId!,cycle_date})));
    const chosen=inspect(selected);
    if(selected.length===turn.needed){
-    return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,allowed:chosen.allowed,
+    return {version:d.campaign.version,policyVersion:rules.version,allowed:chosen.allowed,
       available:[],reasons:{},warnings:chosen.warnings};
    }
    if(!chosen.allowed)throw new ApiError(chosen.issues.map(i=>i.message).join('; '));
@@ -111,11 +110,11 @@ export class ElectionService{
    const partialState={...policyState,awards:[...policyState.awards,
      ...selected.map(cycle_date=>({member_id:turn.memberId!,cycle_date}))]};
    const reasons:Record<string,unknown>={},warnings:Record<string,unknown>={},available:string[]=[],pending:string[]=[];
-   let remainingChecks=256;
+   let remainingChecks=rules.budgets.options.total;
    for(const date of resultDates(ctx)){
-    const budget=Math.min(32,remainingChecks);
-    const candidate=evaluate2027Candidate(partialState,
-      [{member_id:turn.memberId!,cycle_date:date}],budget,chosen.completion.witness,false);
+    const budget=Math.min(rules.budgets.options.perCandidate,remainingChecks);
+    const candidate=rules.evaluateCandidate(partialState,
+      [{member_id:turn.memberId!,cycle_date:date}],{maxChecks:budget,witness:chosen.completion.witness,warnings:false});
     remainingChecks=Math.max(0,remainingChecks-candidate.completion.checked);
     if(candidate.allowed)available.push(date);
     else if(candidate.completion.status==='indeterminate'){
@@ -124,7 +123,7 @@ export class ElectionService{
      available.push(date);pending.push(date);
     }else reasons[date]=candidate.issues;
    }
-   return {version:d.campaign.version,policyVersion:OCCUPANCY_POLICY_2027,
+   return {version:d.campaign.version,policyVersion:rules.version,
       allowed:true,available,pending,reasons,warnings};
   }
   if(selected.length>=turn.needed||choiceIssues(ctx,turn.memberId,selected).length)throw new ApiError('Selección inicial no válida');
@@ -135,13 +134,13 @@ export class ElectionService{
   const d=await this.host.load(cid);
   if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)
    throw new ApiError('Simulación reservada a administradores',403);
-  if(d.campaign.year!==2027)throw new ApiError('Disponibilidad global solo disponible con política 2027',400);
-  const ctx=context(d);
-  const state=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+  const ctx=context(d),rules=occupancyFor(ctx.year);
+  if(!rules)throw new ApiError('Disponibilidad global solo disponible con un motor de ocupación',400);
+  const state=rules.state(ctx,ctx.members,ctx.awards);
   const history=await historicalAvailability(this.repo,cid,d.campaign.version);
   const availability=history.restored
-   ?recordedAvailabilityByCycle2027(state,history.recordedAvailability)??restoredAvailabilityByCycle2027(state)
-   :availabilityByCycle(state);
+   ?rules.recordedAvailability(state,history.recordedAvailability)??rules.restoredAvailability(state)
+   :rules.availability(state);
   return {version:d.campaign.version,...availability};
  }
  /**
@@ -151,7 +150,8 @@ export class ElectionService{
   */
  async previewImpact(cid:string,choices:PolicyAward[],version:number){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
-  if(d.campaign.year!==2027)throw new ApiError('El informe de impacto está disponible para la política 2027',400);
+  const rules=occupancyFor(d.campaign.year);
+  if(!rules)throw new ApiError('El informe de impacto requiere un motor de ocupación',400);
   if(d.campaign.scope_key!=='live'&&!canWrite(this.actor,d.campaign.team_id)&&this.actor.preview?.campaignId!==cid)throw new ApiError('Simulación reservada a administradores',403);
   if(d.campaign.version!==version)throw new ApiError('La campaña cambió. Recarga antes de confirmar.',409);
   if(d.campaign.status!=='open'||!raw.state)throw new ApiError('La elección no está activa',409);
@@ -172,14 +172,14 @@ export class ElectionService{
   }else if(!turn.memberId||(!manage&&turn.memberId!==mine)||
    choices.length!==turn.needed||choices.some(a=>a.member_id!==turn.memberId))
    throw new ApiError('La previsualización no corresponde al turno completo',403);
-  const allocation=policyState2027(contextState.year,contextState.team,contextState.config,contextState.members,contextState.awards);
-  return {version,...previewChoiceImpact(allocation,choices)};
+  const allocation=rules.state(contextState,contextState.members,contextState.awards);
+  return {version,...rules.previewChoiceImpact(allocation,choices)};
  }
  async view(d:any,options:{restored?:boolean;result?:ReturnType<typeof calculate>;recordedAvailability?:AvailabilitySnapshot|CompactAvailabilitySnapshot|null;skipAvailabilityForPendingAutomatic?:boolean;auditContext?:AuditContext}={}){
   const cid=d.campaign.id,manage=canWrite(this.actor,d.campaign.team_id),mine=await this.memberForAccount(d),raw=await this.read(cid),ctx=context(d),preferenceMemberIds=await this.preferenceMemberIds(d,mine);
   let turn:any=null;if(raw.state){try{turn=currentTurn(ctx,raw.state);}catch{turn=null;}}
   const focus=manage?turn?.memberId:mine;
-  const result=options.result??calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards,{skip2027Proof:options.restored});
+  const result=options.result??calculate(ctx.year,ctx.team,ctx.config,ctx.members,ctx.requests,ctx.awards,{skipProof:options.restored});
   const reconstruction=await this.reconstruction().view(d,raw,options.restored===true,options.auditContext);
   // Determine whether the next automatic turn can be resolved by its stored
   // preferences BEFORE starting the table-wide global availability searches.
@@ -188,22 +188,23 @@ export class ElectionService{
   const pendingAutomatic=!options.restored&&!reconstruction.active&&!!(raw.state&&turn&&preferredChoice(ctx,turn.state,raw.preferences,Date.now()));
   const skipFullAvailability=!!options.skipAvailabilityForPendingAutomatic&&pendingAutomatic;
   // A single source of truth per snapshot. Previous code evaluated rejected
-  // 2027 choices twice and reconstructed the full HR calendar for every date.
+  // policy choices twice and reconstructed the full HR calendar for every date.
   const availabilityReasons:Record<string,string>={};
   const availabilityWarnings:Record<string,unknown>={};
   const availabilityPending:string[]=[];
   let available:string[]=[];
-  if(focus&&ctx.year===2027&&!skipFullAvailability){
-   const allocation=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards);
+  const rules=occupancyFor(ctx.year);
+  if(focus&&rules&&!skipFullAvailability){
+   const allocation=rules.state(ctx,ctx.members,ctx.awards);
    if(options.restored){
     for(const cycle of result.cycles){
-     const issues=immediate2027Issues(allocation,[{member_id:focus,cycle_date:cycle.date}]);
+     const issues=rules.immediateIssues(allocation,[{member_id:focus,cycle_date:cycle.date}]);
      if(issues.length)availabilityReasons[cycle.date]=issues.map(i=>i.message).join('; ');
      else {available.push(cycle.date);availabilityPending.push(cycle.date);}
     }
    }else{
-   const baseline=canComplete2027(allocation,{maxChecks:2000});
-   let remainingChecks=256;
+   const baseline=rules.canComplete(allocation,{maxChecks:rules.budgets.commit});
+   let remainingChecks=rules.budgets.options.total;
    // The empty campaign is invariant under controller permutations: each
    // final cycle must have an occupant, so every CTA can choose every cycle.
    // After one choice, relabel any other witness occupant to the next CTA;
@@ -222,9 +223,9 @@ export class ElectionService{
      available.push(cycle.date);
      continue;
     }
-    const budget=Math.min(32,remainingChecks);
-    const diagnostic=evaluate2027Candidate(allocation,
-      [{member_id:focus,cycle_date:cycle.date}],budget,baseline.witness,false);
+    const budget=Math.min(rules.budgets.options.perCandidate,remainingChecks);
+    const diagnostic=rules.evaluateCandidate(allocation,
+      [{member_id:focus,cycle_date:cycle.date}],{maxChecks:budget,witness:baseline.witness,warnings:false});
     remainingChecks=Math.max(0,remainingChecks-diagnostic.completion.checked);
     if(diagnostic.allowed)available.push(cycle.date);
     else if(diagnostic.completion.status==='indeterminate'){
@@ -254,7 +255,7 @@ export class ElectionService{
    timeline=manage?events:publicElectionTimeline(events,rows as any);
   }
 
-  const cycleAvailability=ctx.year===2027&&!skipFullAvailability?(options.restored?(recordedAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),options.recordedAvailability)??restoredAvailabilityByCycle2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):availabilityByCycle(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards))):null;
+  const cycleAvailability=rules&&!skipFullAvailability?(options.restored?(rules.recordedAvailability(rules.state(ctx,ctx.members,ctx.awards),options.recordedAvailability)??rules.restoredAvailability(rules.state(ctx,ctx.members,ctx.awards))):rules.availability(rules.state(ctx,ctx.members,ctx.awards))):null;
   const accounts=canWrite(this.actor,d.campaign.team_id)?await this.repo.all('SELECT a.*,m.id AS member_id FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]):[];
   // Only a count, for the controller's own forecast; never whose lists are active.
   const ahead=mine&&raw.state?.status==='active'&&!raw.state.automaticPaused&&!turn?.pendingTie?peopleAhead(raw.state,ctx.awards,ctx.config.cyclesPerPerson,mine):null;
@@ -264,7 +265,7 @@ export class ElectionService{
   const queue=manage&&raw.state&&raw.state.status!=='complete'?roundQueue(ctx,raw.state,raw.preferences):null;
   let chain:ReturnType<typeof automaticChain>|null=null;
   if(manage&&queue&&!skipFullAvailability&&!reconstruction.active&&!turn?.pendingTie){try{chain=automaticChain(ctx,raw.state!,raw.preferences,6);}catch{chain=null;}}
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,undoSummary:history?.undo?undoSummary(history.undo):null,redo:history?.redo?.id??null,pendingAutomatic,automaticAhead,listPlan,queue,chain,timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:rules?.version??null,points,accounts,undo:history?.undo?.id??null,undoSummary:history?.undo?undoSummary(history.undo):null,redo:history?.redo?.id??null,pendingAutomatic,automaticAhead,listPlan,queue,chain,timeline,reconstruction};
  }
  /**
   * Scheduled: apply the lists whose wait has run out, nobody having the page open.
@@ -346,9 +347,10 @@ export class ElectionService{
     const groups=new Map<number,string[]>();
     for(const id of order){const m=d.members.find((candidate:any)=>candidate.id===id),score=scores[m.code];groups.set(score,[...(groups.get(score)??[]),id]);}
     const tieGroups=[...groups.values()].filter(group=>group.length>1);
-    if(ctx.year===2027){
-    const feasibility=canComplete2027(policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards));
-    if(feasibility.status!=='possible')throw new ApiError('La campaña no tiene completación validada conforme a RRHH 2027: '+(feasibility.reason??feasibility.status));
+    const rules=occupancyFor(ctx.year);
+    if(rules){
+    const feasibility=rules.canComplete(rules.state(ctx,ctx.members,ctx.awards));
+    if(feasibility.status!=='possible')throw new ApiError('La campaña no tiene completación validada conforme a '+rules.authority+': '+(feasibility.reason??feasibility.status));
    }
    state={status:'active',order,cursor:0,credits:{},source:source.trim(),allowDeferral:body.allowDeferral,policyVersion:ELECTION_POLICY_VERSION,tieGroups,pendingTieGroups:structuredClone(tieGroups),tieResolutions:[],jointGroups:[],jointAgreements:[]};validateElectionState(state,d.members);
    }else if(action==='resolve_tie'){
@@ -450,24 +452,25 @@ export class ElectionService{
   // Snapshot the causal impact BEFORE committing the atomic batch. Undo/redo
   // retain the original immutable report in audit but the timeline replays only
   // currently effective decisions. An indeterminate solver proof stays explicit.
-  const impact=ctx.year===2027&&choices.length
-   ?availabilityImpact(
-      policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,ctx.awards),
-      policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,[...ctx.awards,...choices])
+  const rules=occupancyFor(ctx.year);
+  const impact=rules&&choices.length
+   ?rules.impact(
+      rules.state(ctx,ctx.members,ctx.awards),
+      rules.state(ctx,ctx.members,[...ctx.awards,...choices])
     ):null;
-  const auditImpact=impact?{
+  const auditImpact=impact&&rules?{
    policyVersion:impact.policyVersion, status:impact.status,
    campaignVersionBefore:c.version,campaignVersionAfter:c.version+1,
    changes:impact.changes,events:impact.events,
-   availabilityBefore:compactAvailability(impact.before),availabilityAfter:compactAvailability(impact.after)
+   availabilityBefore:rules.compact(impact.before),availabilityAfter:rules.compact(impact.after)
   }:null;
   // Persist the policy warnings of the resulting allocation with the decision,
   // so the history keeps them after undo/redo or a later fast simulation.
   let warnings:{code:string;message:string;period?:number}[]|undefined;
-  if(ctx.year===2027&&choices.length){
-   const next=policyState2027(ctx.year,ctx.team,ctx.config,ctx.members,[...ctx.awards,...choices]);
+  if(rules&&choices.length){
+   const next=rules.state(ctx,ctx.members,[...ctx.awards,...choices]);
    const complete=next.members.every(m=>next.awards.filter(a=>a.member_id===m.id).length===m.entitlement);
-   warnings=(complete?evaluate2027Final(next).warnings:partialAssessment2027(next,500).warnings)
+   warnings=(complete?rules.evaluateFinal(next).warnings:rules.partialAssessment(next,{maxChecks:rules.budgets.review}).warnings)
     .map(w=>({code:w.code,message:w.message,...(w.period!==undefined?{period:w.period}:{})}));
   }
   ops.push(this.host.audit(action,c,recordUndo?snapshot:null,{impact:auditImpact,...(warnings?{warnings}:{}),version:c.version+1,choices,memberId:body.memberId??null,...(action==='election_undo'?{undoTargetId:body.historyId}:action==='election_redo'?{redoTargetId:body.historyId}:{}),...(action==='resolve_tie'?{resolution:state?.tieResolutions?.at(-1)}:{}),...(['register_joint','cancel_joint'].includes(action)?{joint:{round:body.round,members:body.members,actor:this.actor.id,at:new Date().toISOString()}}:{})}));

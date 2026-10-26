@@ -5,27 +5,14 @@
  * A witness contains all additional person/cycle assignments. A failed
  * bounded search is INDETERMINATE, never silently treated as impossible.
  */
+import type {
+  Period,PolicyCycle,PolicyMember,PolicyAward,PolicyState,RuleProblem,FinalAssessment,Completion,CandidateAssessment,PermitCount
+} from './occupancy.ts';
+export type {PolicyCycle,PolicyMember,PolicyAward,PolicyState,RuleProblem,FinalAssessment,Completion,CandidateAssessment,PermitCount};
+export type Period2027 = Period;
 export const OCCUPANCY_POLICY_2027 = 'lecs-2027-occupancy-v6' as const;
-export type Period2027 = 0 | 1 | 2;
-export type PolicyCycle = { date: string; period: Period2027; fourthExcluded?: boolean; maximum?: number };
-export type PolicyMember = { id: string; entitlement: number };
-export type PolicyAward = { member_id: string; cycle_date: string };
-/** summerTotal: HR fixes the summer allocation (two per CTA, "Info.Cupos RRHH");
- * the rest of the year receives the remainder. Absent only in synthetic fixtures. */
-export type PolicyState = { cycles: PolicyCycle[]; members: PolicyMember[]; awards: PolicyAward[]; summerTotal?: number };
 /** HR summer allocation: two cycles per CTA, fewer for a smaller individual right. */
 export const summerTarget2027=(members:PolicyMember[])=>members.reduce((total,m)=>total+Math.min(2,m.entitlement),0);
-export type RuleProblem = {
-  code: string;
-  message: string;
-  period?: Period2027;
-  cycle?: string;
-  actual?: number;
-  limit?: number;
-  /** 'proven' holds in every admissible completion; never set from one witness. */
-  certainty?: 'proven' | 'indeterminate';
-  evidence?: string;
-};
 /** Extraordinary third-place permits per period (preverano 2, posverano 1), an
  * optional cap on all EC3+EC4 of a period (preverano 3, posverano 2) and the
  * shared summer EC3/EC4 pool (2). Overridden only to test, by relaxation or
@@ -36,19 +23,6 @@ const PERIOD_NAMES_2027=['preverano','verano','posverano'];
 /** "2027-09-30" -> "30 sep", for messages shown to people. */
 export const day2027=(date:string)=>Number(date.slice(8,10))+' '+(MONTHS_2027[Number(date.slice(5,7))-1]??date.slice(5,7));
 const cycleList=(dates:string[])=>dates.map(day2027).join(', ');
-export type FinalAssessment = { valid: boolean; issues: RuleProblem[]; warnings: RuleProblem[] };
-export type Completion = {
-  status: 'possible' | 'impossible' | 'indeterminate';
-  witness?: PolicyAward[];
-  checked: number;
-  reason?: string;
-};
-export type CandidateAssessment = {
-  allowed: boolean;
-  completion: Completion;
-  issues: RuleProblem[];
-  warnings: RuleProblem[];
-};
 
 const problem = (code: string, message: string, other: Partial<RuleProblem> = {}): RuleProblem => ({ code, message, ...other });
 const range = (size: number): number[] => Array.from({ length: size }, (_, i) => i);
@@ -703,3 +677,35 @@ export function evaluate2027Candidate(
   const warnings:RuleProblem[]=[];
   return {allowed:completion.status==='possible',completion,issues,warnings};
 }
+
+/**
+ * Smallest number of permits of one kind the state still needs: the count that
+ * every legal completion consumes. Independent of the order of the awards, so
+ * it never pretends that a given choice "spent" a specific permit.
+ */
+function minimumPermits(state:PolicyState,key:keyof Permits2027,limit:number,maxChecks:number,floor=0):number|null{
+ // Below `floor` the count is impossible by arithmetic alone; no search is spent proving it.
+ for(let k=floor;k<=limit;k++){
+  const check=canComplete2027(state,{maxChecks,permits:{[key]:k}});
+  if(check.status==='possible')return k;
+  if(check.status==='indeterminate')return null;
+ }
+ return null;
+}
+
+export function permitCounts2027(state:PolicyState,maxChecks=300):PermitCount[]{
+ const fours=[0,0,0];
+ const count=new Map<string,number>();
+ for(const a of state.awards)count.set(a.cycle_date,(count.get(a.cycle_date)??0)+1);
+ for(const c of state.cycles)if((count.get(c.date)??0)===4)fours[c.period]++;
+ return [
+  // Every cycle with four people spends one extracupo of its period.
+  {period:0,kind:'extras',used:minimumPermits(state,'preExtras',3,maxChecks,fours[0]),limit:3},
+  {period:0,kind:'fourths',used:fours[0],limit:1},
+  {period:1,kind:'extras',used:minimumPermits(state,'summerShared',2,maxChecks,fours[1]),limit:2},
+  {period:1,kind:'fourths',used:fours[1],limit:2},
+  {period:2,kind:'extras',used:minimumPermits(state,'postExtras',2,maxChecks,fours[2]),limit:2},
+  {period:2,kind:'fourths',used:fours[2],limit:1}
+ ];
+}
+

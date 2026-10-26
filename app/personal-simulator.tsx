@@ -101,7 +101,7 @@ export default function PersonalSimulator({data,onExit}:{data:any;onExit:()=>voi
   </section>
   <div className="election-layout">
    <div className="election-calendar-wrap">
-    <CycleCalendar year={data.campaign.year} cycles={cycles} selected={picked} onSelect={clickCycle} busy={busy}
+    <CycleCalendar year={data.campaign.year} ruled cycles={cycles} selected={picked} onSelect={clickCycle} busy={busy}
      awards={simAwards as any} members={data.members} order={[]} availability={sim.availability} glossary
      highlighted={simAwards.filter(a=>a.simulated).map(a=>a.cycle_date)}
      notForMe={blocked.map(b=>b.cycle)}/>

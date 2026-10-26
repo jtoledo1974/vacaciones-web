@@ -4,7 +4,7 @@ import {Service} from '../server/service.ts';
 import {SQLiteRepo} from './sqlite-repo.ts';
 import {canComplete2027} from '../domain/policy-2027.ts';
 import {policyState2027} from '../domain/election-2027.ts';
-import {permitCounts} from '../domain/personal-simulation.ts';
+import {permitCounts2027 as permitCounts} from '../domain/policy-2027.ts';
 
 const owner={id:'chatgpt:owner',role:'superadmin' as const,teams:[]};
 const visitor={id:'chatgpt:person',emailKey:'chatgpt-email:person@example.test',role:'viewer' as const,teams:[]};
