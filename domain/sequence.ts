@@ -19,8 +19,10 @@ export type TurnSlot = {
   participants: string[];
   requiredByMember: Record<string, number>;
   pendingTie?: string[];
+  /** Members whose credits were used up by slots skipped on the way here (see earlyChoices). */
+  spentCredits?: string[];
 };
-export type SequenceEnd = { complete: true };
+export type SequenceEnd = { complete: true; spentCredits?: string[] };
 
 export function orderForRound(state: ElectionState, round: number): string[] {
   const result = [...state.order];
@@ -42,10 +44,20 @@ function slotFrom(
   seq: SequenceInput,
   cursor: number,
   counts: Map<string, number>,
-  credits: Record<string, number>,
+  input: Record<string, number>,
 ): TurnSlot | SequenceEnd {
   const { state } = seq,
-    n = state.order.length;
+    n = state.order.length,
+    credits = { ...input },
+    spent: string[] = [];
+  const done = <T extends TurnSlot | SequenceEnd>(result: T): T =>
+    spent.length ? { ...result, spentCredits: spent } : result;
+  // A slot played entirely ahead of time is a turn taken: it spends the deferred credits.
+  const spend = (id: string) => {
+    if (!credits[id]) return;
+    credits[id] = 0;
+    spent.push(id);
+  };
   const remaining = (id: string) => seq.entitlement(id) - (counts.get(id) ?? 0);
   if (state.order.every((id) => remaining(id) <= 0)) return { complete: true };
   // Cycles already chosen ahead of time for a given slot count as played there.
@@ -59,7 +71,8 @@ function slotFrom(
       id = inRound[cursor % n];
     if (remaining(id) <= 0) continue;
     const pendingTie = (state.pendingTieGroups ?? []).find((group) => group.includes(id));
-    if (pendingTie) return { cursor, round: currentRound + 1, participants: [], requiredByMember: {}, pendingTie };
+    if (pendingTie)
+      return done({ cursor, round: currentRound + 1, participants: [], requiredByMember: {}, pendingTie });
     const joint = [
       ...(state.jointGroups ?? []),
       ...(state.jointAgreements ?? [])
@@ -71,9 +84,10 @@ function slotFrom(
     // A joint turn sits on its last member's slot, so that is where early choices count;
     // whoever chose everything they owed there ahead of time drops out of it.
     const participants = members.filter((person) => owed(person, cursor) > 0);
+    members.filter((person) => !participants.includes(person)).forEach(spend);
     if (!participants.length) continue;
     const requiredByMember = Object.fromEntries(participants.map((person) => [person, owed(person, cursor)]));
-    return { cursor, round: currentRound + 1, participants, requiredByMember };
+    return done({ cursor, round: currentRound + 1, participants, requiredByMember });
   }
   throw new Error('No se ha podido avanzar la elección');
 }
@@ -96,6 +110,7 @@ export function turnsBefore(seq: SequenceInput, me: string): TurnSlot[] | null {
   const slots: TurnSlot[] = [];
   for (let cursor = seq.state.cursor; ; ) {
     const slot = slotFrom(seq, cursor, counts, credits);
+    for (const person of slot.spentCredits ?? []) credits[person] = 0;
     if ('complete' in slot) return null;
     if (slot.participants.includes(me)) return slots;
     slots.push(slot);

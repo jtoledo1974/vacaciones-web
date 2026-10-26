@@ -357,6 +357,7 @@ export function currentTurn(ctx: ElectionContext, input: ElectionState) {
       requiredByMember: {} as Record<string, number>,
     };
   const slot = nextSlot(sequenceFor(ctx, state));
+  for (const id of slot.spentCredits ?? []) state.credits[id] = 0;
   if ('complete' in slot) {
     const rules = occupancyFor(ctx.year);
     if (rules) {

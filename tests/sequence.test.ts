@@ -485,3 +485,33 @@ test('currentTurn equivale al escaneo anterior en estados aleatorios', () => {
   assert.equal(compared, 3000);
   assert.ok(slots > 500 && ties > 50 && joints > 50, JSON.stringify({ slots, ties, joints }));
 });
+
+test('earlyChoices que consume un turno aplazado entero gasta el crédito', () => {
+  const entitlements = { A: 5, B: 5, C: 5 };
+  // B aplazó una vez y adelantó los dos ciclos de su hueco del cursor 1.
+  const state = base({ cursor: 1, credits: { B: 1 }, earlyChoices: [early('B', 1, 'x'), early('B', 1, 'y')] });
+  const slot = nextSlot(seq(state, entitlements, { A: 1, B: 2 })) as any;
+  assert.deepEqual(slot, {
+    cursor: 2,
+    round: 1,
+    participants: ['C'],
+    requiredByMember: { C: 1 },
+    spentCredits: ['B'],
+  });
+  // Como hace currentTurn: el crédito gastado se borra del estado y no vuelve en la ronda 2.
+  const credits = Object.fromEntries(Object.entries(state.credits).filter(([id]) => !slot.spentCredits.includes(id)));
+  assert.deepEqual(nextSlot(seq({ ...state, cursor: 4, credits }, entitlements, { A: 2, B: 2, C: 1 })), {
+    cursor: 4,
+    round: 2,
+    participants: ['B'],
+    requiredByMember: { B: 1 },
+  });
+  // turnsBefore tampoco lo arrastra: C adelantó su hueco de la ronda 1, así que la simulación
+  // pasa por el turno de B en la ronda 2, donde le toca un ciclo, no dos.
+  const both = { ...state, earlyChoices: [...state.earlyChoices!, early('C', 2, 'z')] };
+  const toC = turnsBefore(seq(both, entitlements, { A: 1, B: 2, C: 1 }), 'C')!;
+  assert.deepEqual(
+    toC.map((t) => t.requiredByMember),
+    [{ A: 1 }, { B: 1 }],
+  );
+});
