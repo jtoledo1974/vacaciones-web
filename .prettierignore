@@ -1,0 +1,16 @@
+components/ui
+drizzle
+vendor
+dist
+.next
+.wrangler
+node_modules
+pnpm-lock.yaml
+*.json
+*.css
+*.md
+*.py
+*.sh
+*.toml
+build
+public

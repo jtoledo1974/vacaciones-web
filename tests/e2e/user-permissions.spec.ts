@@ -1,37 +1,55 @@
-import {test,expect} from '@playwright/test';
-test('editar permisos, revocar y eliminar desde el listado',{tag:'@both'},async({page})=>{
- // A separate fixture client avoids consuming the security test's shared login budget.
- // This reserved test IP is only sent to the isolated loopback server.
- const api=page.request,headers={Origin:'http://127.0.0.1:5199','CF-Connecting-IP':'192.0.2.50'};
- const login=await api.post('/api/local-admin/login',{headers,data:{username:'qa-superadmin',password:'Only-for-isolated-e2e-testing-12345'}});
- expect(login.ok(),await login.text()).toBeTruthy();
- await api.post('/api/initialize',{headers,data:{}});
- const email='permissions-'+test.info().project.name+'@example.test';
- // Grant permanent backups before testing revocation: an empty team is forbidden.
- const backup=await api.post('/api/users',{headers,data:{subject:'permissions-backup-'+test.info().project.name+'@example.test',role:'team_admin',teams:['A','B'],version:0}});
- expect(backup.ok(),await backup.text()).toBeTruthy();
- const created=await api.post('/api/users',{headers,data:{subject:email,role:'team_admin',teams:['B'],version:0}});
- expect(created.ok(),await created.text()).toBeTruthy();
- await page.goto('/?equipo=B&year=2026');
- await expect(page.getByText('Acceso mediante Administrador local',{exact:true})).toBeAttached();
- if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
- await page.getByRole('button',{name:'Administración',exact:true}).click();
- const row=page.getByRole('row').filter({hasText:email});
- await row.getByRole('button',{name:'Editar',exact:false}).click();
- await expect(page.getByLabel('Correo electrónico de ChatGPT')).toHaveValue(email);
- await expect(page.getByLabel('Equipo B',{exact:true})).toBeChecked();
- await page.getByLabel('Equipo A',{exact:true}).check();
- await page.getByRole('button',{name:'Guardar permisos',exact:true}).click();
- await expect(row.getByRole('cell').nth(2)).toHaveText(/^(A, B|B, A)$/);
- await page.getByRole('heading',{name:'Responsables y permisos'}).scrollIntoViewIfNeeded();
- await page.screenshot({path:'test-results/permissions-'+test.info().project.name+'.png'});
- await row.getByRole('button',{name:'Editar',exact:false}).click();
- await page.getByRole('combobox',{name:'Rol',exact:true}).selectOption('viewer');
- await page.getByRole('button',{name:'Guardar permisos',exact:true}).click();
- await expect(row).toContainText('Solo lectura');await expect(row).toContainText('Sin equipos');
- await row.getByRole('button',{name:'Eliminar',exact:false}).click();
- await page.getByRole('button',{name:'Cancelar',exact:true}).click();await expect(row).toHaveCount(1);
- await row.getByRole('button',{name:'Eliminar',exact:false}).click();
- await page.getByRole('button',{name:'Confirmar',exact:true}).click();await expect(row).toHaveCount(0);
+import { test, expect } from '@playwright/test';
+test('editar permisos, revocar y eliminar desde el listado', { tag: '@both' }, async ({ page }) => {
+  // A separate fixture client avoids consuming the security test's shared login budget.
+  // This reserved test IP is only sent to the isolated loopback server.
+  const api = page.request,
+    headers = { Origin: 'http://127.0.0.1:5199', 'CF-Connecting-IP': '192.0.2.50' };
+  const login = await api.post('/api/local-admin/login', {
+    headers,
+    data: { username: 'qa-superadmin', password: 'Only-for-isolated-e2e-testing-12345' },
+  });
+  expect(login.ok(), await login.text()).toBeTruthy();
+  await api.post('/api/initialize', { headers, data: {} });
+  const email = 'permissions-' + test.info().project.name + '@example.test';
+  // Grant permanent backups before testing revocation: an empty team is forbidden.
+  const backup = await api.post('/api/users', {
+    headers,
+    data: {
+      subject: 'permissions-backup-' + test.info().project.name + '@example.test',
+      role: 'team_admin',
+      teams: ['A', 'B'],
+      version: 0,
+    },
+  });
+  expect(backup.ok(), await backup.text()).toBeTruthy();
+  const created = await api.post('/api/users', {
+    headers,
+    data: { subject: email, role: 'team_admin', teams: ['B'], version: 0 },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  await page.goto('/?equipo=B&year=2026');
+  await expect(page.getByText('Acceso mediante Administrador local', { exact: true })).toBeAttached();
+  if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
+    await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+  await page.getByRole('button', { name: 'Administración', exact: true }).click();
+  const row = page.getByRole('row').filter({ hasText: email });
+  await row.getByRole('button', { name: 'Editar', exact: false }).click();
+  await expect(page.getByLabel('Correo electrónico de ChatGPT')).toHaveValue(email);
+  await expect(page.getByLabel('Equipo B', { exact: true })).toBeChecked();
+  await page.getByLabel('Equipo A', { exact: true }).check();
+  await page.getByRole('button', { name: 'Guardar permisos', exact: true }).click();
+  await expect(row.getByRole('cell').nth(2)).toHaveText(/^(A, B|B, A)$/);
+  await page.getByRole('heading', { name: 'Responsables y permisos' }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: 'test-results/permissions-' + test.info().project.name + '.png' });
+  await row.getByRole('button', { name: 'Editar', exact: false }).click();
+  await page.getByRole('combobox', { name: 'Rol', exact: true }).selectOption('viewer');
+  await page.getByRole('button', { name: 'Guardar permisos', exact: true }).click();
+  await expect(row).toContainText('Solo lectura');
+  await expect(row).toContainText('Sin equipos');
+  await row.getByRole('button', { name: 'Eliminar', exact: false }).click();
+  await page.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await expect(row).toHaveCount(1);
+  await row.getByRole('button', { name: 'Eliminar', exact: false }).click();
+  await page.getByRole('button', { name: 'Confirmar', exact: true }).click();
+  await expect(row).toHaveCount(0);
 });
-
