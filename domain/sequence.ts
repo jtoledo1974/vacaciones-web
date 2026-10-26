@@ -48,12 +48,16 @@ function slotFrom(
     n = state.order.length;
   const remaining = (id: string) => seq.entitlement(id) - (counts.get(id) ?? 0);
   if (state.order.every((id) => remaining(id) <= 0)) return { complete: true };
+  // Cycles already chosen ahead of time for a given slot count as played there.
+  const early = (id: string, at: number) =>
+    (state.earlyChoices ?? []).filter((e) => e.memberId === id && e.cursor === at).length;
+  const owed = (id: string, at: number) => Math.max(0, Math.min(1 + (credits[id] ?? 0) - early(id, at), remaining(id)));
   // Every completed or joint-deferred slot still consumes one turn in the round.
   for (let scanned = 0; scanned < n * seq.maxRounds; scanned++, cursor++) {
     const currentRound = Math.floor(cursor / n);
     const inRound = orderForRound(state, currentRound),
       id = inRound[cursor % n];
-    if (remaining(id) === 0) continue;
+    if (remaining(id) <= 0) continue;
     const pendingTie = (state.pendingTieGroups ?? []).find((group) => group.includes(id));
     if (pendingTie) return { cursor, round: currentRound + 1, participants: [], requiredByMember: {}, pendingTie };
     const joint = [
@@ -62,11 +66,13 @@ function slotFrom(
         .filter((a) => !a.cancelledAt && a.round === currentRound + 1)
         .map((a) => a.members),
     ].find((g) => g.includes(id));
-    const participants = joint ? inRound.filter((person) => joint.includes(person) && remaining(person) > 0) : [id];
-    if (participants[participants.length - 1] !== id) continue;
-    const requiredByMember = Object.fromEntries(
-      participants.map((person) => [person, Math.min(1 + (credits[person] ?? 0), remaining(person))]),
-    );
+    const members = joint ? inRound.filter((person) => joint.includes(person) && remaining(person) > 0) : [id];
+    if (members[members.length - 1] !== id) continue;
+    // A joint turn sits on its last member's slot, so that is where early choices count;
+    // whoever chose everything they owed there ahead of time drops out of it.
+    const participants = members.filter((person) => owed(person, cursor) > 0);
+    if (!participants.length) continue;
+    const requiredByMember = Object.fromEntries(participants.map((person) => [person, owed(person, cursor)]));
     return { cursor, round: currentRound + 1, participants, requiredByMember };
   }
   throw new Error('No se ha podido avanzar la elección');
@@ -102,32 +108,14 @@ export function turnsBefore(seq: SequenceInput, me: string): TurnSlot[] | null {
   }
 }
 
-/** People with cycles still to choose before `me`, from the current cursor.
- * null when `me` never comes up. Shared with the server's Push alerts. */
-export function turnsUntil(
-  state: ElectionState,
-  awards: { member_id: string }[],
-  entitlement: number,
-  me: string,
-): number | null {
-  return peopleAhead(state, awards, entitlement, me)?.length ?? null;
+/** Effective turns before `me`'s (see turnsBefore): a joint turn counts once, and so
+ * does a pending tie, where the count stops. null when `me` never comes up.
+ * Shared with the server's Push alerts. */
+export function turnsUntil(seq: SequenceInput, me: string): number | null {
+  return turnsBefore(seq, me)?.length ?? null;
 }
 
-/** The members counted by turnsUntil, in order. An estimate: one uniform entitlement,
- * and neither credits, joint turns nor pending ties are taken into account. */
-export function peopleAhead(
-  state: ElectionState,
-  awards: { member_id: string }[],
-  entitlement: number,
-  me: string,
-): string[] | null {
-  const counts = awardCounts(awards);
-  const n = state.order.length;
-  const ahead: string[] = [];
-  for (let cursor = state.cursor; cursor < state.cursor + n * (entitlement + 1); cursor++) {
-    const id = orderForRound(state, Math.floor(cursor / n))[cursor % n];
-    if (id === me) return ahead;
-    if ((counts.get(id) ?? 0) < entitlement) ahead.push(id);
-  }
-  return null;
+/** Who chooses in the turns counted by turnsUntil, in order; a pending tie lists its members. */
+export function peopleAhead(seq: SequenceInput, me: string): string[] | null {
+  return turnsBefore(seq, me)?.flatMap((slot) => slot.pendingTie ?? slot.participants) ?? null;
 }

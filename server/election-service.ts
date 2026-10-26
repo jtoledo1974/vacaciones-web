@@ -9,6 +9,9 @@ import {
   preferredChoice,
   validateOrder,
   validateElectionState,
+  upgradeElectionState,
+  withLiveEarlyChoices,
+  sequenceFor,
   entitlementFor,
   resolveTie,
   drawTie,
@@ -43,7 +46,7 @@ import { buildElectionTimeline, publicElectionTimeline, type PublicElectionTimel
 import { ReconstructionService, appliedAudit } from './reconstruction.ts';
 import { historicalAvailability } from './availability-history.ts';
 import { AuditContext, auditAfter } from './audit-context.ts';
-import { peopleAhead } from '../domain/sequence.ts';
+import { turnsBefore } from '../domain/sequence.ts';
 
 type Host = {
   load: (cid: string) => Promise<any>;
@@ -62,7 +65,8 @@ export function electionStateStatement(cid: string, state: ElectionState | null)
   return state
     ? {
         sql: 'INSERT INTO election_states(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',
-        args: [cid, JSON.stringify(state)],
+        // Written in the current format, so the stored version is always explicit.
+        args: [cid, JSON.stringify(upgradeElectionState(state))],
       }
     : { sql: 'DELETE FROM election_states WHERE campaign_id=?', args: [cid] };
 }
@@ -117,7 +121,9 @@ export class ElectionService {
       { sql: 'SELECT * FROM preferences WHERE campaign_id=?', args: [cid] },
     ]);
     return {
-      state: result[0].results[0] ? (JSON.parse(result[0].results[0].json) as ElectionState) : null,
+      state: result[0].results[0] ? upgradeElectionState(JSON.parse(result[0].results[0].json)) : null,
+      // As stored, for compare-and-set: the upgraded state may differ from it.
+      stateJson: (result[0].results[0]?.json as string | undefined) ?? null,
       preferences: result[1].results.map(preferenceFromRow),
     };
   }
@@ -508,15 +514,21 @@ export class ElectionService {
           [cid],
         )
       : [];
-    // Only a count, for the controller's own forecast; never whose lists are active.
+    // Only counts, for the controller's own forecast; never whose lists are active.
     const ahead =
       mine && raw.state?.status === 'active' && !raw.state.automaticPaused && !turn?.pendingTie
-        ? peopleAhead(raw.state, ctx.awards, ctx.config.cyclesPerPerson, mine)
+        ? turnsBefore(sequenceFor(ctx, raw.state), mine)
         : null;
-    // A list that waits, or is only a note, does not shorten anybody's wait.
+    const turnsAhead = ahead?.length ?? null;
+    // Only an individual turn resolves on its own, and a list that waits, or is only a
+    // note, does not shorten anybody's wait.
     const automaticAhead = ahead
-      ? ahead.filter((id) =>
-          raw.preferences.some((p) => p.member_id === id && activeList(p) && (p.mode ?? 'immediate') === 'immediate'),
+      ? ahead.filter(
+          (slot) =>
+            slot.participants.length === 1 &&
+            raw.preferences.some(
+              (p) => p.member_id === slot.participants[0] && activeList(p) && (p.mode ?? 'immediate') === 'immediate',
+            ),
         ).length
       : null;
     const listPlan = !skipFullAvailability ? this.listPlan(ctx, raw, turn, manage, mine) : null;
@@ -574,6 +586,7 @@ export class ElectionService {
       undoSummary: history?.undo ? undoSummary(history.undo) : null,
       redo: history?.redo?.id ?? null,
       pendingAutomatic,
+      turnsAhead,
       automaticAhead,
       listPlan,
       queue,
@@ -604,7 +617,7 @@ export class ElectionService {
         await this.repo.batch([
           {
             sql: 'UPDATE election_states SET json=? WHERE campaign_id=? AND json=?',
-            args: [JSON.stringify(stamped), cid, JSON.stringify(raw.state)],
+            args: [JSON.stringify(stamped), cid, raw.stateJson],
           },
           { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" },
         ]);
@@ -921,7 +934,8 @@ export class ElectionService {
           if (linked.some((m: any) => m.id !== mine && listContent(next, m.id) !== listContent(preferences, m.id)))
             throw new ApiError(privateDenied, 403);
         }
-        state = prior.state;
+        // The undone awards take their early-choice entries with them.
+        state = prior.state ? withLiveEarlyChoices(upgradeElectionState(prior.state)!, prior.awards) : null;
         preferences = next;
         // Undo must leave the recovered turn editable, never automatically re-award it.
         // Redo restores the prior snapshot exactly (including the old pause state).

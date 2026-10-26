@@ -21,6 +21,9 @@ export type MyElectionInput = {
   cycles: Cycle[];
   awards: Award[];
   preferences: Preference[];
+  /** Effective turns before mine, computed by the server with each member's own entitlement,
+   * credits, joint turns and ties. Without it, an estimate with a uniform entitlement. */
+  turnsAhead?: number | null;
   /** How many of the people ahead have an active list; the server sends only this count. */
   automaticAhead?: number | null;
   state: ElectionState | null | undefined;
@@ -60,8 +63,8 @@ export type MyElection = {
 /**
  * Everything a controller needs to answer "when is my turn, what do I have and
  * what will my list do", derived from the campaign view already in the client.
- * turnsAhead counts people who still have cycles to choose before me; joint
- * agreements and deferrals can shift it, so the UI presents it as an estimate.
+ * turnsAhead counts the turns before mine (a joint turn is one); deferrals and
+ * new joint agreements can shift it, so the UI presents it as an estimate.
  */
 export function myElection(input: MyElectionInput): MyElection | null {
   const me = input.myMemberId;
@@ -128,7 +131,9 @@ export function myElection(input: MyElectionInput): MyElection | null {
   if (turn?.memberId && (turn.participants ?? [turn.memberId]).includes(me))
     return { ...base, phase: 'my-turn', needed: turn.needed ?? 1, turnsAhead: 0 };
 
-  return { ...base, phase: 'waiting', turnsAhead: turnsUntil(state, input.awards, entitlement, me) };
+  const estimate = () =>
+    turnsUntil({ state, awards: input.awards, entitlement: () => entitlement, maxRounds: entitlement + 4 }, me);
+  return { ...base, phase: 'waiting', turnsAhead: input.turnsAhead !== undefined ? input.turnsAhead : estimate() };
 }
 
 /** When lists ahead resolve instantly, the wait depends only on those who

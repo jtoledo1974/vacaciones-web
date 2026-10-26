@@ -1,10 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { nextSlot, turnsBefore, peopleAhead, orderForRound, type SequenceInput } from '../domain/sequence.ts';
+import {
+  nextSlot,
+  turnsBefore,
+  peopleAhead,
+  turnsUntil,
+  orderForRound,
+  type SequenceInput,
+} from '../domain/sequence.ts';
 import {
   currentTurn,
   entitlementFor,
   validateElectionState,
+  upgradeElectionState,
+  withLiveEarlyChoices,
+  ELECTION_STATE_FORMAT,
   type ElectionContext,
   type ElectionState,
 } from '../domain/election.ts';
@@ -165,19 +175,130 @@ test('miembros terminados: elección completa, o quien ya no vuelve a elegir', (
   assert.throws(() => nextSlot({ ...seq(base(), entitlements), maxRounds: 0 }), /No se ha podido avanzar/);
 });
 
-test('peopleAhead conserva su semántica: derecho uniforme, sin créditos, conjuntos ni empates', () => {
-  // Las imprecisiones conocidas quedan fijadas aquí hasta su fix: aparte.
+test('peopleAhead y turnsUntil siguen a turnsBefore: derechos, créditos, conjuntos y empates', () => {
   const state = base({
     order: ['A', 'B', 'C', 'D'],
     jointGroups: [['A', 'B']],
     tieGroups: [['C', 'D']],
     pendingTieGroups: [['C', 'D']],
   });
-  assert.deepEqual(peopleAhead(state, [], 2, 'D'), ['A', 'B', 'C']);
-  assert.deepEqual(who(turnsBefore(seq(state, { A: 2, B: 2, C: 2, D: 2 }), 'D')), ['A+B', '?CD']);
-  assert.deepEqual(peopleAhead(base({ cursor: 3 }), awards({ A: 1, B: 1, C: 1 }), 2, 'C'), ['A', 'B']);
-  assert.deepEqual(who(turnsBefore(seq(base({ cursor: 3 }), { A: 1, B: 2, C: 2 }, { A: 1, B: 1, C: 1 }), 'C')), ['B']);
-  assert.equal(peopleAhead(base(), [], 2, 'Z'), null);
+  const four = { A: 2, B: 2, C: 2, D: 2 };
+  // El turno conjunto es uno con dos personas, y el empate pendiente corta la cuenta.
+  assert.deepEqual(peopleAhead(seq(state, four), 'D'), ['A', 'B', 'C', 'D']);
+  assert.equal(turnsUntil(seq(state, four), 'D'), 2);
+  // Derecho individual: A tenía uno solo y ya lo eligió, así que no ocupa hueco en la ronda 2.
+  assert.deepEqual(peopleAhead(seq(base({ cursor: 3 }), { A: 1, B: 2, C: 2 }, { A: 1, B: 1, C: 1 }), 'C'), ['B']);
+  assert.equal(turnsUntil(seq(base({ cursor: 3 }), { A: 1, B: 2, C: 2 }, { A: 1, B: 1, C: 1 }), 'C'), 1);
+  // Créditos doble y triple: A recupera de una vez sus turnos aplazados y deja de aparecer antes.
+  for (const credit of [1, 2]) {
+    const entitlements = { A: 3, B: 3, C: 3 };
+    const ahead = peopleAhead(seq(base({ cursor: 0, credits: { A: credit } }), entitlements), 'A');
+    assert.deepEqual(ahead, []);
+    const later = peopleAhead(seq(base({ cursor: 1, credits: { A: credit } }), entitlements), 'A');
+    assert.deepEqual(later, ['B', 'C']);
+    // Si A elige 1 + crédito ciclos en la ronda 2, en la ronda 3 solo le queda lo que falte.
+    const third = peopleAhead(seq(base({ cursor: 4 }), entitlements, { A: 1 + credit, B: 1, C: 1 }), 'A');
+    assert.deepEqual(third, credit === 2 ? null : ['B', 'C']);
+  }
+  assert.equal(peopleAhead(seq(base(), { A: 2, B: 2, C: 2 }), 'Z'), null);
+  assert.equal(turnsUntil(seq(base(), { A: 2, B: 2, C: 2 }, { C: 2 }), 'C'), null);
+});
+
+const early = (memberId: string, cursor: number, awardId = 'early-' + memberId + cursor, n = 3) => ({
+  memberId,
+  round: Math.floor(cursor / n) + 1,
+  cursor,
+  awardId,
+  at: '2027-01-10T10:00:00Z',
+});
+
+test('earlyChoices: el hueco elegido por adelantado cuenta como jugado', () => {
+  const entitlements = { A: 2, B: 2, C: 2 };
+  // B eligió por adelantado el ciclo de su hueco de la ronda 1 (cursor 1): ese hueco se salta.
+  const state = base({ earlyChoices: [early('B', 1)] });
+  assert.deepEqual(nextSlot(seq({ ...state, cursor: 1 }, entitlements, { A: 1, B: 1 })), {
+    cursor: 2,
+    round: 1,
+    participants: ['C'],
+    requiredByMember: { C: 1 },
+  });
+  // Sin la entrada, se le volvería a pedir esa elección en su posición.
+  assert.deepEqual(nextSlot(seq(base({ cursor: 1 }), entitlements, { A: 1, B: 1 })).participants, ['B']);
+  // En la ronda 2 B vuelve a elegir con normalidad.
+  assert.deepEqual(nextSlot(seq({ ...state, cursor: 4 }, entitlements, { A: 2, B: 1, C: 1 })).participants, ['B']);
+  assert.deepEqual(who(turnsBefore(seq(state, entitlements, { B: 1 }), 'C')), ['A']);
+});
+
+test('earlyChoices con créditos descuenta needed en lugar de saltar el hueco', () => {
+  const entitlements = { A: 3, B: 3, C: 3 };
+  // B aplazó una vez (crédito 1) y adelantó uno de los dos ciclos que le tocan en el cursor 4.
+  const state = base({ cursor: 4, credits: { B: 1 }, earlyChoices: [early('B', 4)] });
+  assert.deepEqual(nextSlot(seq(state, entitlements, { A: 2, B: 1, C: 1 })), {
+    cursor: 4,
+    round: 2,
+    participants: ['B'],
+    requiredByMember: { B: 1 },
+  });
+  // Con dos adelantados no queda nada que pedirle en ese hueco.
+  const both = { ...state, earlyChoices: [early('B', 4, 'x'), early('B', 4, 'y')] };
+  assert.deepEqual(nextSlot(seq(both, entitlements, { A: 2, B: 2, C: 1 })).participants, ['C']);
+});
+
+test('earlyChoices en un turno conjunto: quien ya eligió sale del grupo', () => {
+  const entitlements = { A: 2, B: 2, C: 2 },
+    state = base({ jointGroups: [['A', 'B']], earlyChoices: [early('A', 1)] });
+  // El turno conjunto se juega en el hueco de B (cursor 1), donde cuenta lo adelantado por A.
+  assert.deepEqual(nextSlot(seq(state, entitlements, { A: 1 })), {
+    cursor: 1,
+    round: 1,
+    participants: ['B'],
+    requiredByMember: { B: 1 },
+  });
+});
+
+test('validateElectionState revisa earlyChoices y el formato', () => {
+  const members = ['A', 'B', 'C'].map((id) => ({ id })) as any;
+  validateElectionState(base({ earlyChoices: [early('B', 4)], format: 1 }), members);
+  for (const bad of [
+    [early('Z', 1)],
+    [{ ...early('B', 4), round: 1 }],
+    [{ ...early('B', 4), awardId: '' }],
+    [{ ...early('B', 4), at: 'ayer' }],
+    [early('B', 1, 'x'), early('C', 2, 'x')],
+    {},
+  ])
+    assert.throws(
+      () => validateElectionState(base({ earlyChoices: bad as any }), members),
+      /Elecciones anticipadas no válidas/,
+    );
+  assert.throws(() => validateElectionState(base({ format: 2 }), members), /Formato/);
+});
+
+test('upgradeElectionState lee como versión 1 los estados guardados sin formato', () => {
+  // Un estado de election_states anterior a esta versión, tal cual se guardaba.
+  const legacy = JSON.parse(
+    '{"status":"active","order":["A","B","C"],"cursor":4,"credits":{"B":1},"source":"sorteo","allowDeferral":true,' +
+      '"tieGroups":[["B","C"]],"turnSince":{"cursor":4,"at":"2027-01-10T10:00:00.000Z"}}',
+  );
+  const upgraded = upgradeElectionState(legacy)!;
+  assert.equal(upgraded.format, ELECTION_STATE_FORMAT);
+  assert.deepEqual({ ...upgraded, format: undefined }, { ...legacy, format: undefined });
+  assert.equal(upgradeElectionState(null), null);
+  assert.equal(upgradeElectionState(undefined), null);
+  assert.deepEqual(upgradeElectionState(upgraded), upgraded);
+  assert.throws(() => upgradeElectionState({ ...legacy, format: 99 }), /no admitido/);
+  // Un snapshot de audit (election-undo-v1) guarda el estado con la misma forma.
+  const members = ['A', 'B', 'C'].map((id) => ({ id })) as any;
+  validateElectionState(upgraded, members);
+});
+
+test('withLiveEarlyChoices quita las entradas cuya adjudicación ya no existe', () => {
+  const state = base({ earlyChoices: [early('B', 1, 'a1'), early('C', 2, 'a2')] });
+  assert.deepEqual(
+    withLiveEarlyChoices(state, [{ id: 'a2' }]).earlyChoices!.map((e) => e.awardId),
+    ['a2'],
+  );
+  assert.equal(withLiveEarlyChoices(base(), []).earlyChoices, undefined);
 });
 
 // The scan of currentTurn as it was before domain/sequence.ts, verbatim.

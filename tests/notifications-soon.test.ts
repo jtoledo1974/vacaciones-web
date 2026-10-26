@@ -26,31 +26,53 @@ async function fixture(linked = true) {
   ]);
   return repo;
 }
-const input = (over: any = {}) => ({
-  campaignId: 'c1',
-  members,
-  state: { ...state, cursor: 1 },
-  awards: [],
-  entitlement: 6,
-  round: 1,
-  turnMemberIds: ['m-b'],
-  preferences: [],
-  now,
-  ...over,
+const uniform = (s: any, awards: { member_id: string }[], entitlement: number) => ({
+  state: s,
+  awards,
+  entitlement: () => entitlement,
+  maxRounds: entitlement + 4,
 });
+const input = (over: any = {}) => {
+  const { state: s = { ...state, cursor: 1 }, awards = [], entitlement = 6, ...rest } = over;
+  return {
+    campaignId: 'c1',
+    members,
+    sequence: uniform(s, awards, entitlement),
+    round: 1,
+    turnMemberIds: ['m-b'],
+    preferences: [],
+    now,
+    ...rest,
+  };
+};
 
 test('turnsUntil cuenta solo a quien aún tiene ciclos por elegir', () => {
-  assert.equal(turnsUntil(state, [], 6, 'm-fran'), 4);
+  assert.equal(turnsUntil(uniform(state, [], 6), 'm-fran'), 4);
   assert.equal(
     turnsUntil(
-      state,
-      Array.from({ length: 6 }, (_, i) => ({ member_id: 'm-c', cycle_date: 'd' + i })),
-      6,
+      uniform(
+        state,
+        Array.from({ length: 6 }, (_, i) => ({ member_id: 'm-c', cycle_date: 'd' + i })),
+        6,
+      ),
       'm-fran',
     ),
     3,
   );
-  assert.equal(turnsUntil(state, [], 6, 'm-a'), 0);
+  assert.equal(turnsUntil(uniform(state, [], 6), 'm-a'), 0);
+});
+
+test('turnsUntil usa el derecho de cada uno y cuenta un turno conjunto como uno', () => {
+  // C tiene un solo ciclo por excepción y ya lo eligió en la ronda 1.
+  const awards = [{ member_id: 'm-c' }];
+  const sequence = (s: any) => ({
+    state: s,
+    awards,
+    entitlement: (id: string) => (id === 'm-c' ? 1 : 6),
+    maxRounds: 10,
+  });
+  assert.equal(turnsUntil(sequence({ ...state, cursor: 6 }), 'm-fran'), 3);
+  assert.equal(turnsUntil(sequence({ ...state, cursor: 6, jointGroups: [['m-a', 'm-b']] }), 'm-fran'), 2);
 });
 
 test('avisa a quien le toca pronto sin preferencias activas, una vez por ronda', async () => {

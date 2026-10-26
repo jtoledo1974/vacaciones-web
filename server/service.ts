@@ -13,7 +13,20 @@ import { ElectionService, electionStateStatement } from './election-service.ts';
 import { PersonalSimulationService } from './personal-simulation.ts';
 import { cloneSimulation } from './simulations.ts';
 import { projectAdminCampaignView, projectPublicCampaignView, projectPublishedCampaignView } from './projections.ts';
-import { validateElectionState, PREFERENCE_COLUMNS, preferenceRow } from '../domain/election.ts';
+import {
+  validateElectionState,
+  upgradeElectionState,
+  withLiveEarlyChoices,
+  PREFERENCE_COLUMNS,
+  preferenceRow,
+  type ElectionState,
+} from '../domain/election.ts';
+
+// A state from an undo snapshot: current format, and early choices only with their awards.
+const restoredState = (state: unknown, awards: unknown): ElectionState | null => {
+  const upgraded = upgradeElectionState(state);
+  return upgraded && Array.isArray(awards) ? withLiveEarlyChoices(upgraded, awards) : upgraded;
+};
 export { ApiError } from './errors.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
@@ -961,7 +974,7 @@ export class Service {
       if (old?.election) {
         ops.push(
           { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
-          electionStateStatement(cid, old.election.state),
+          electionStateStatement(cid, restoredState(old.election.state, old.awards)),
         );
         ops.push(
           ...insertRows(
@@ -1271,7 +1284,7 @@ export class Service {
     try {
       for (const row of tables.election_states)
         validateElectionState(
-          JSON.parse(row.json),
+          upgradeElectionState(JSON.parse(row.json))!,
           tables.campaign_members.filter((m: any) => m.campaign_id === row.campaign_id),
         );
       for (const pref of tables.preferences) {
