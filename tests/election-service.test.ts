@@ -246,6 +246,8 @@ test('el delegado deshace la última adjudicación aunque después un titular ha
  // The superadministrator may still undo the list edit; the delegate skips it.
  assert.notEqual(owned.election.undo,chosen.election.undo);
  assert.equal(edited.election.undo,chosen.election.undo);
+ assert.deepEqual({...edited.election.undoSummary,at:undefined},{action:'choose',memberId:a.id,at:undefined,choices:[{memberId:a.id,date:dates[0]}]});
+ assert.equal(owned.election.undoSummary.action,'preferences');
  let current=await act(delegate,cid,{action:'election_undo',historyId:edited.election.undo});
  assert.equal(current.awards.length,0);
  assert.equal(current.election.turn.memberId,a.id);

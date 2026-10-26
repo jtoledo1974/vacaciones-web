@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
+import {undoQuestion} from './undo-summary';
 import {useConfirmation} from './confirmation';
 import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
@@ -370,7 +371,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  const canUndo=!!(election.undo||data.undo)&&open;
  async function undoLast(){
   setUndoOffer(null);
-  if((!simulation||!quickMode)&&!await confirm('¿Deshacer el último cambio de elección, incluyendo cola y ocupación?'))return;
+  if((!simulation||!quickMode)&&!await confirm(data.undo?'¿Deshacer el último cambio de elección, incluyendo cola y ocupación?':undoQuestion(election.undoSummary,codeFor,formatDate)))return;
   if(data.undo)await legacy({action:'undo_vacations',undoId:data.undo.id},'Cambio deshecho');
   else await act({action:'election_undo',historyId:election.undo},'Cambio de elección deshecho');
  }

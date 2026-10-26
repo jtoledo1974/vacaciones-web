@@ -15,6 +15,12 @@ import {peopleAhead} from '../app/my-election-state.ts';
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
 export function electionStateStatement(cid:string,state:ElectionState|null):Statement{return state?{sql:'INSERT INTO election_states(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',args:[cid,JSON.stringify(state)]}:{sql:'DELETE FROM election_states WHERE campaign_id=?',args:[cid]};}
+// What «Deshacer» would revert, so the manager confirms knowingly.
+function undoSummary(row:any){
+ const after=auditAfter(row)??{};
+ return {action:row.action as string,memberId:(after.memberId??null) as string|null,at:(row.created_at??null) as string|null,
+  choices:(after.choices??[]).map((c:any)=>({memberId:c.member_id as string,date:c.cycle_date as string}))};
+}
 // A list's content as its owner saved it, ignoring the active flag that awards consume.
 function listContent(items:Preference[],id:string){
  const p=items.find(item=>item.member_id===id);
@@ -57,7 +63,7 @@ export class ElectionService{
   if(audit)return audit.replay();
   // Replay the append-only audit to recover independent undo and redo stacks.
   // A new decision after an undo creates a new branch and clears only the redo stack.
-  const rows=await this.repo.all('SELECT id,action,before_json,after_json FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
+  const rows=await this.repo.all('SELECT id,action,before_json,after_json,created_at FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
   return appliedAudit(rows);
  }
  // Edits to lists this actor may not touch stay out of their undo: «Deshacer»
@@ -258,7 +264,7 @@ export class ElectionService{
   const queue=manage&&raw.state&&raw.state.status!=='complete'?roundQueue(ctx,raw.state,raw.preferences):null;
   let chain:ReturnType<typeof automaticChain>|null=null;
   if(manage&&queue&&!skipFullAvailability&&!reconstruction.active&&!turn?.pendingTie){try{chain=automaticChain(ctx,raw.state!,raw.preferences,6);}catch{chain=null;}}
-  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,redo:history?.redo?.id??null,pendingAutomatic,automaticAhead,listPlan,queue,chain,timeline,reconstruction};
+  return {state:raw.state?{...raw.state,source:manage?raw.state.source:undefined,tieResolutions:raw.state.tieResolutions?.map(r=>({...r,actor:manage?r.actor:undefined}))}:null,turn:turn?{memberId:turn.memberId,needed:turn.needed,round:turn.round,pendingTie:turn.pendingTie,participants:turn.participants,requiredByMember:turn.requiredByMember,canDefer:!!(turn.memberId&&turn.participants.length===1&&raw.state?.allowDeferral&&(raw.state.credits[turn.memberId]??0)<2&&ctx.awards.filter(a=>a.member_id===turn.memberId).length+2+(raw.state.credits[turn.memberId]??0)<=entitlementFor(ctx,turn.memberId))}:null,preferences:raw.preferences.filter(p=>preferenceMemberIds.includes(p.member_id)),preferenceMemberIds,myMemberId:mine,canManage:manage,available,availabilityPending,availabilityReasons,availabilityWarnings,cycleAvailability,occupancyPolicyVersion:ctx.year===2027?OCCUPANCY_POLICY_2027:null,points,accounts,undo:history?.undo?.id??null,undoSummary:history?.undo?undoSummary(history.undo):null,redo:history?.redo?.id??null,pendingAutomatic,automaticAhead,listPlan,queue,chain,timeline,reconstruction};
  }
  /**
   * Scheduled: apply the lists whose wait has run out, nobody having the page open.
