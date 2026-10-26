@@ -105,40 +105,6 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'member') {
-    const code = String(body.code ?? '')
-      .trim()
-      .toUpperCase();
-    if (!/^[A-Z0-9_-]{2,12}$/.test(code)) throw new ApiError('Usa un código de 2 a 12 letras, números o guiones');
-    checkedDate(body.seniority);
-    const m = d.members.find((m) => m.id === body.memberId);
-    if (d.members.some((other) => other.code === code && other.id !== m?.id))
-      throw new ApiError('Ese código ya existe en esta campaña');
-    if (m) {
-      const renamed = renameConfigCodes(d.config, [[m.code, code]]);
-      if (renamed)
-        ops.push({
-          sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
-          args: [JSON.stringify(renamed), cid],
-        });
-      before = m;
-      ops.push({
-        sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',
-        args: [code, body.seniority, m.id, cid],
-      });
-    } else {
-      service.assertCompletable(
-        c,
-        d.config,
-        [...d.members, { id: 'new-member-prospective', code, seniority: body.seniority }],
-        d.awards,
-        'Añadir controlador',
-      );
-      const pid = id();
-      ops.push(
-        ...rowStatements(cid, c.team_id, { code, label: '', seniority: body.seniority }, d.members.length, pid, id()),
-      );
-    }
   }
   return { before, after };
 }
@@ -671,6 +637,46 @@ async function executeRetireMember(ctx: CommandContext): Promise<CommandResult> 
   return { before, after };
 }
 
+async function executeMember(ctx: CommandContext): Promise<CommandResult> {
+  const { service, cid, body, d, c, ops } = ctx;
+  let before: any = null;
+  const after: any = body;
+  const code = String(body.code ?? '')
+    .trim()
+    .toUpperCase();
+  if (!/^[A-Z0-9_-]{2,12}$/.test(code)) throw new ApiError('Usa un código de 2 a 12 letras, números o guiones');
+  checkedDate(body.seniority);
+  const m = d.members.find((m) => m.id === body.memberId);
+  if (d.members.some((other) => other.code === code && other.id !== m?.id))
+    throw new ApiError('Ese código ya existe en esta campaña');
+  if (m) {
+    const renamed = renameConfigCodes(d.config, [[m.code, code]]);
+    if (renamed)
+      ops.push({
+        sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
+        args: [JSON.stringify(renamed), cid],
+      });
+    before = m;
+    ops.push({
+      sql: 'UPDATE campaign_members SET code=?,seniority=?,version=version+1 WHERE id=? AND campaign_id=?',
+      args: [code, body.seniority, m.id, cid],
+    });
+  } else {
+    service.assertCompletable(
+      c,
+      d.config,
+      [...d.members, { id: 'new-member-prospective', code, seniority: body.seniority }],
+      d.awards,
+      'Añadir controlador',
+    );
+    const pid = id();
+    ops.push(
+      ...rowStatements(cid, c.team_id, { code, label: '', seniority: body.seniority }, d.members.length, pid, id()),
+    );
+  }
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -784,7 +790,7 @@ export const COMMANDS: Record<string, Command> = {
   member: {
     preconditions: { ...editing, renameOnly: (body, d) => sameSeniority(d, body) },
     election: 'reset',
-    execute: legacy('member'),
+    execute: executeMember,
   },
 };
 
