@@ -196,3 +196,21 @@ test('reconstruir y deshacer con más de 11 listas de preferencias respeta el l�
  v=await act(s,cid,{action:'election_undo',historyId:v.election.undo});
  assert.equal(v.awards.length,0);
 });
+test('la sesión de reconstrucción guarda solo lo necesario de cada decisión original',async()=>{
+ const {repo,s,cid,ids,dates}=await fixture();
+ for(const [i,id] of ids.entries())await act(s,cid,{action:'preferences',memberId:id,dates:[dates[i+4]]});
+ await act(s,cid,start(ids,{automaticPaused:true}));
+ for(let i=0;i<3;i++)await act(s,cid,{action:'choose',memberId:ids[i],dates:[dates[i]]});
+ let v=await s.view(cid);
+ const target=v.election.reconstruction.candidates.find((e:any)=>e.action==='choose'&&e.memberIds.includes(ids[0]));
+ v=await act(s,cid,{action:'reconstruction_start',historyId:target.id});
+ const session=JSON.parse((await repo.all('SELECT json FROM reconstruction_sessions WHERE campaign_id=?',[cid]))[0].json);
+ assert.equal(session.originalEvents.length,3);
+ for(const event of session.originalEvents){
+  assert.equal(event.after.impact,undefined,'El informe de impacto queda en la auditoría');
+  assert.deepEqual(event.before.awards,[]);
+  assert.deepEqual(event.before.preferences.map((p:any)=>p.member_id),event.participants);
+ }
+ // The historical preference of the turn being rebuilt is still offered.
+ assert.deepEqual(v.election.reconstruction.current.historicalPreference,[dates[4]]);
+});

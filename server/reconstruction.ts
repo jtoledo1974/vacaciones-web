@@ -38,6 +38,14 @@ function historical(d:any,row:any):Historical|null{
  const after=auditAfter(row)??{};
  return {id:row.id,action:row.action,before,after,round:after?.joint?.round??turn.round,participants:after?.joint?.members??turn.pendingTie??turn.participants,memberId:['register_joint','cancel_joint'].includes(row.action)?null:turn.memberId};
 }
+// The session keeps only what replaying a decision reads: the cursor state, the
+// participants' own lists and the decision itself. Awards, requests, other lists
+// and the availability report stay in the audit row (they made sessions ~1.7 MB).
+function sessionEvent(e:Historical):Historical{
+ const {impact:_impact,...after}=e.after??{};
+ return {...e,after,before:{format:e.before.format,state:e.before.state,awards:[],requests:[],
+  preferences:e.before.preferences.filter(p=>e.participants.includes(p.member_id))}};
+}
 export class ReconstructionService{
  constructor(private repo:Repository,private actor:Principal,private host:Host){}
  async read(cid:string):Promise<Session|null>{
@@ -142,7 +150,7 @@ export class ReconstructionService{
    // recovery must still find them, even though normal redo has been invalidated.
    const breakpoint=audit.findIndex((row,i)=>i>pos&&['election_undo','election_redo','reconstruction_start','reconstruction_cancel','reconstruction_back'].includes(row.action));
    const records=index>=0?applied.done.slice(index):audit.slice(pos,breakpoint<0?undefined:breakpoint);
-   const originalEvents=records.map(row=>historical(d,row)).filter((e):e is Historical=>!!e);
+   const originalEvents=records.map(row=>historical(d,row)).filter((e):e is Historical=>!!e).map(sessionEvent);
    let keepCount=index;
    if(keepCount<0)keepCount=applied.done.findIndex(row=>{
     if(!row.before_json)return false;
