@@ -105,14 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'close' || action === 'reopen') {
-    ops.push({
-      sql: 'UPDATE campaigns SET status=? WHERE id=?',
-      args: [action === 'close' ? 'closed' : 'open', cid],
-    });
-    before = { status: c.status };
-    after = { status: action === 'close' ? 'closed' : 'open' };
-  } else if (action === 'import_roster') {
+  if (action === 'import_roster') {
     if (
       c.scope_key === 'live' &&
       actor.role !== 'superadmin' &&
@@ -642,6 +635,21 @@ async function executePublish(ctx: CommandContext): Promise<CommandResult> {
   return { before, after };
 }
 
+const executeCloseClose =
+  (action: string) =>
+  async (ctx: CommandContext): Promise<CommandResult> => {
+    const { cid, c, ops, body } = ctx;
+    let before: any = null;
+    let after: any = body;
+    ops.push({
+      sql: 'UPDATE campaigns SET status=? WHERE id=?',
+      args: [action === 'close' ? 'closed' : 'open', cid],
+    });
+    before = { status: c.status };
+    after = { status: action === 'close' ? 'closed' : 'open' };
+    return { before, after };
+  };
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -731,12 +739,12 @@ export const COMMANDS: Record<string, Command> = {
     election: ({ election, cid, ops }) => {
       if (election.state) ops.push(electionStateStatement(cid, { ...election.state, status: 'paused' }));
     },
-    execute: legacy('close'),
+    execute: executeCloseClose('close'),
   },
   reopen: {
     preconditions: { activeElection: 'blocked', closedCampaign: true },
     election: 'keep',
-    execute: legacy('reopen'),
+    execute: executeCloseClose('reopen'),
   },
   import_roster: { preconditions: editing, election: 'reset', execute: legacy('import_roster') },
   bulk_members: {
