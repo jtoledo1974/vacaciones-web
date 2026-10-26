@@ -43,15 +43,13 @@ test('existing 2027 campaign and simulation use the same policy without losing s
       previousScoresSource: 'Listado de puntuaciones de ensayo verificadas para 2027',
     },
   });
-  await service
-    .election()
-    .mutate(cid, {
-      action: 'preferences',
-      version: d.campaign.version,
-      memberId: user,
-      dates: preferred,
-      persistent: true,
-    });
+  await service.election().mutate(cid, {
+    action: 'preferences',
+    version: d.campaign.version,
+    memberId: user,
+    dates: preferred,
+    persistent: true,
+  });
   d = await service.view(cid);
   assert.deepEqual(d.election.preferences.find((p: any) => p.member_id === user)?.dates, preferred);
   const simulation = await service.createSimulation(cid, { version: d.campaign.version, name: 'Test normativa 2027' });
@@ -308,13 +306,11 @@ test('2027 guided reconstruction previews and replays a joint award through the 
     .mutate(cid, { action: 'register_joint', round: 1, members: ids, version: d.campaign.version });
   d = await service.view(cid);
   assert.deepEqual(d.election.turn.participants, ids);
-  await service
-    .election()
-    .mutate(cid, {
-      action: 'choose_joint',
-      version: d.campaign.version,
-      entries: ids.map((member_id: string, i: number) => ({ member_id, dates: [dates[i]] })),
-    });
+  await service.election().mutate(cid, {
+    action: 'choose_joint',
+    version: d.campaign.version,
+    entries: ids.map((member_id: string, i: number) => ({ member_id, dates: [dates[i]] })),
+  });
   d = await service.view(cid);
   assert.equal(d.awards.length, 2);
   const originalJoint = d.election.timeline.find((item: any) => item.kind === 'choice' && item.choices.length === 2);
@@ -330,14 +326,12 @@ test('2027 guided reconstruction previews and replays a joint award through the 
   assert.equal(d.election.reconstruction.current.originalAction, 'choose_joint');
   assert.equal(d.election.reconstruction.current.originalPossible, true);
   const unassignedAvailability = d.election.cycleAvailability;
-  await service
-    .election()
-    .mutate(cid, {
-      action: 'reconstruction_step',
-      kind: 'choose_joint',
-      mode: 'original',
-      version: d.campaign.version,
-    });
+  await service.election().mutate(cid, {
+    action: 'reconstruction_step',
+    kind: 'choose_joint',
+    mode: 'original',
+    version: d.campaign.version,
+  });
   d = await service.view(cid);
   assert.equal(d.awards.length, 2);
   assert.equal(d.election.reconstruction.status, 'review');
@@ -556,14 +550,12 @@ test('2027 joint turn of three, each recovering two deferrals, previews and comm
     if (trio.includes(member))
       await service.election().mutate(cid, { action: 'defer', version: d.campaign.version, memberId: member });
     else
-      await service
-        .election()
-        .mutate(cid, {
-          action: 'choose',
-          version: d.campaign.version,
-          memberId: member,
-          dates: [dates[(step * 7) % dates.length]],
-        });
+      await service.election().mutate(cid, {
+        action: 'choose',
+        version: d.campaign.version,
+        memberId: member,
+        dates: [dates[(step * 7) % dates.length]],
+      });
   }
   assert.deepEqual(d.election.turn.participants, trio);
   assert.deepEqual(
@@ -579,13 +571,11 @@ test('2027 joint turn of three, each recovering two deferrals, previews and comm
   const preview = await service.election().previewImpact(cid, choices, d.campaign.version);
   assert.equal(preview.allowed, true);
   const before = d.awards.length;
-  await service
-    .election()
-    .mutate(cid, {
-      action: 'choose_joint',
-      version: d.campaign.version,
-      entries: trio.map((id: string, i: number) => ({ member_id: id, dates: free.slice(i * 3, i * 3 + 3) })),
-    });
+  await service.election().mutate(cid, {
+    action: 'choose_joint',
+    version: d.campaign.version,
+    entries: trio.map((id: string, i: number) => ({ member_id: id, dates: free.slice(i * 3, i * 3 + 3) })),
+  });
   assert.equal((await service.view(cid)).awards.length, before + 9);
 });
 
@@ -625,16 +615,14 @@ test('renombrar un nick con la elección 2027 activa traslada su excepción de R
       previousScoresSource: 'Listado de puntuaciones de ensayo verificadas para 2027',
     },
   });
-  await service
-    .election()
-    .mutate(cid, {
-      action: 'start',
-      version: d.campaign.version,
-      order: d.members.map((m: any) => m.id),
-      source: 'Orden de ensayo verificado para 2027',
-      rulesConfirmed: true,
-      allowDeferral: true,
-    });
+  await service.election().mutate(cid, {
+    action: 'start',
+    version: d.campaign.version,
+    order: d.members.map((m: any) => m.id),
+    source: 'Orden de ensayo verificado para 2027',
+    rulesConfirmed: true,
+    allowDeferral: true,
+  });
   d = await service.view(cid);
   const p01 = d.members.find((m: any) => m.code === 'P01');
   d = await service.mutate(cid, {

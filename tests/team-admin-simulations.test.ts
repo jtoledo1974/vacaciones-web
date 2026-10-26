@@ -45,15 +45,13 @@ test('simulation preferences never copy real private lists, but all simulated me
   const real = await global.view(live.id),
     [a, b] = real.members,
     date = real.result.cycles[0].date;
-  await global
-    .election()
-    .mutate(live.id, {
-      action: 'link_account',
-      memberId: a.id,
-      subject: 'private@example.test',
-      accountVersion: 0,
-      version: real.campaign.version,
-    });
+  await global.election().mutate(live.id, {
+    action: 'link_account',
+    memberId: a.id,
+    subject: 'private@example.test',
+    accountVersion: 0,
+    version: real.campaign.version,
+  });
   const v = await global.view(live.id);
   await global
     .election()
@@ -97,16 +95,14 @@ test('team admins may activate real elections, and a team always retains a perma
       previousScoresSource: 'Puntuaciones de prueba del responsable',
     },
   });
-  await team
-    .election()
-    .mutate(live.id, {
-      action: 'start',
-      order: d.members.map((m: any) => m.id),
-      source: 'Orden de prueba confirmado de 2025',
-      rulesConfirmed: true,
-      allowDeferral: true,
-      version: d.campaign.version,
-    });
+  await team.election().mutate(live.id, {
+    action: 'start',
+    order: d.members.map((m: any) => m.id),
+    source: 'Orden de prueba confirmado de 2025',
+    rulesConfirmed: true,
+    allowDeferral: true,
+    version: d.campaign.version,
+  });
   d = await team.view(live.id);
   assert.equal(d.election.state.status, 'active');
   await team.election().mutate(live.id, { action: 'pause', version: d.campaign.version });
@@ -162,15 +158,13 @@ test('a team administrator cannot erase private real preferences through reset o
   let d = await global.view(live.id),
     member = d.members[0],
     date = d.result.cycles[0].date;
-  await global
-    .election()
-    .mutate(live.id, {
-      action: 'link_account',
-      memberId: member.id,
-      subject: 'owner@example.test',
-      accountVersion: 0,
-      version: d.campaign.version,
-    });
+  await global.election().mutate(live.id, {
+    action: 'link_account',
+    memberId: member.id,
+    subject: 'owner@example.test',
+    accountVersion: 0,
+    version: d.campaign.version,
+  });
   d = await global.view(live.id);
   await global
     .election()
