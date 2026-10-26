@@ -13,7 +13,7 @@ export async function runDispatch(env, http = fetch) {
   const response = await http(target.toString(), {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + env.NOTIFICATIONS_DISPATCH_SECRET },
-    signal: AbortSignal.timeout(25_000)
+    signal: AbortSignal.timeout(25_000),
   });
   if (!response.ok) throw new Error('Notification dispatch returned HTTP ' + response.status);
   return response.status;
@@ -25,5 +25,5 @@ export default {
   },
   fetch() {
     return new Response('Not found', { status: 404 });
-  }
+  },
 };

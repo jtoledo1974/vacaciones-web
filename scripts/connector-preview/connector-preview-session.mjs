@@ -1,22 +1,11 @@
-import { randomUUID } from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
-import path from "node:path";
-import { createInterface } from "node:readline";
-import { parseArgs } from "node:util";
-import { JSONRPCClient } from "json-rpc-2.0";
-import { createPreviewBinding } from "./host-binding.mjs";
-import {
-  driverMessageSchema,
-  grantsSchema,
-  sessionOptionsSchema,
-} from "./protocol.mjs";
+import { randomUUID } from 'node:crypto';
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { createInterface } from 'node:readline';
+import { parseArgs } from 'node:util';
+import { JSONRPCClient } from 'json-rpc-2.0';
+import { createPreviewBinding } from './host-binding.mjs';
+import { driverMessageSchema, grantsSchema, sessionOptionsSchema } from './protocol.mjs';
 
 // The agent starts this script through its terminal tool after creating a local
 // Site and selecting connector read actions, following references/app-integrations.md#local-preview:
@@ -29,44 +18,40 @@ import {
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
-    concurrency: { type: "string" },
-    "timeout-ms": { type: "string" },
-    "lifetime-ms": { type: "string" },
-    "max-calls": { type: "string" },
+    concurrency: { type: 'string' },
+    'timeout-ms': { type: 'string' },
+    'lifetime-ms': { type: 'string' },
+    'max-calls': { type: 'string' },
   },
 });
 const [project, grantsFile] = positionals;
 if (positionals.length !== 2 || !path.isAbsolute(project)) {
   throw new Error(
-    "Usage: node connector-preview-session.mjs <absolute-site-directory> <grants.json> [--concurrency 64] [--timeout-ms 120000] [--lifetime-ms N] [--max-calls N]",
+    'Usage: node connector-preview-session.mjs <absolute-site-directory> <grants.json> [--concurrency 64] [--timeout-ms 120000] [--lifetime-ms N] [--max-calls N]',
   );
 }
 const limits = sessionOptionsSchema.parse(
   Object.fromEntries(
     [
-      ["maxConcurrent", values.concurrency],
-      ["timeoutMs", values["timeout-ms"]],
-      ["lifetimeMs", values["lifetime-ms"]],
-      ["maxCalls", values["max-calls"]],
+      ['maxConcurrent', values.concurrency],
+      ['timeoutMs', values['timeout-ms']],
+      ['lifetimeMs', values['lifetime-ms']],
+      ['maxCalls', values['max-calls']],
     ]
       .filter(([, value]) => value !== undefined)
       .map(([key, value]) => [key, Number(value)]),
   ),
 );
-const grants = grantsSchema.parse(
-  JSON.parse(await readFile(grantsFile, "utf8")),
-);
-const root = path.join(project, ".sites-runtime", "connector-preview");
+const grants = grantsSchema.parse(JSON.parse(await readFile(grantsFile, 'utf8')));
+const root = path.join(project, '.sites-runtime', 'connector-preview');
 const id = randomUUID();
 const directory = path.join(root, id);
-const descriptor = path.join(root, "session.json");
+const descriptor = path.join(root, 'session.json');
 const active = new Set();
 const rpc = new JSONRPCClient(
   (message) =>
     new Promise((resolve, reject) => {
-      process.stdout.write(`${JSON.stringify(message)}\n`, (error) =>
-        error ? reject(error) : resolve(),
-      );
+      process.stdout.write(`${JSON.stringify(message)}\n`, (error) => (error ? reject(error) : resolve()));
     }),
 );
 const emit = (method, params) => rpc.notify(method, params);
@@ -80,19 +65,17 @@ const binding = createPreviewBinding({
       // JSON-RPC owns response matching and pending-call cleanup. Do not put an
       // RPC timeout here: uncertain calls occupy their slot until they settle.
       const response = await rpc.requestAdvanced({
-        jsonrpc: "2.0",
+        jsonrpc: '2.0',
         id: requestId,
-        method: "invoke",
+        method: 'invoke',
         params: {
           connectorId: grant.connectorId,
           actionName: grant.actionName,
           arguments: args,
         },
       });
-      if (!closing)
-        emit("receipt", { id: requestId, at: new Date().toISOString() });
-      if (response.error)
-        throw new Error("The agent did not confirm a connector result.");
+      if (!closing) emit('receipt', { id: requestId, at: new Date().toISOString() });
+      if (response.error) throw new Error('The agent did not confirm a connector result.');
       return response.result;
     },
   })),
@@ -105,12 +88,11 @@ try {
     descriptor,
     JSON.stringify({
       id,
-      expiresAt:
-        limits.lifetimeMs === undefined ? null : Date.now() + limits.lifetimeMs,
+      expiresAt: limits.lifetimeMs === undefined ? null : Date.now() + limits.lifetimeMs,
       timeoutMs: limits.timeoutMs,
       connectorIds: [...new Set(grants.map((grant) => grant.connectorId))],
     }),
-    { flag: "wx", mode: 0o600 },
+    { flag: 'wx', mode: 0o600 },
   );
 } catch (error) {
   binding.close();
@@ -120,15 +102,10 @@ try {
 async function serve(name) {
   active.add(name);
   try {
-    const body = await readFile(path.join(directory, name), "utf8");
-    const response = await binding.fetch(
-      new Request("http://preview/invoke", { method: "POST", body }),
-    );
+    const body = await readFile(path.join(directory, name), 'utf8');
+    const response = await binding.fetch(new Request('http://preview/invoke', { method: 'POST', body }));
     if (!closing) {
-      const output = path.join(
-        directory,
-        name.replace(".request", ".response"),
-      );
+      const output = path.join(directory, name.replace('.request', '.response'));
       await writeFile(`${output}.tmp`, await response.text(), { mode: 0o600 });
       await rename(`${output}.tmp`, output);
     }
@@ -147,12 +124,11 @@ const poller = setInterval(async () => {
   scanning = true;
   try {
     for (const name of await readdir(directory)) {
-      if (/^[0-9a-f-]{36}\.request$/.test(name) && !active.has(name))
-        void serve(name);
+      if (/^[0-9a-f-]{36}\.request$/.test(name) && !active.has(name)) void serve(name);
     }
   } catch (error) {
     if (!closing) {
-      emit("session_error", { code: error.code });
+      emit('session_error', { code: error.code });
       void close();
     }
   } finally {
@@ -167,16 +143,16 @@ const expiry =
       }, limits.lifetimeMs);
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 const input = createInterface({ input: process.stdin, terminal: false });
-input.on("line", (line) => {
+input.on('line', (line) => {
   try {
     const message = driverMessageSchema.parse(JSON.parse(line));
-    if (message.method === "stop") {
+    if (message.method === 'stop') {
       void close();
       return;
     }
     rpc.receive(message);
   } catch {
-    emit("invalid_driver_message");
+    emit('invalid_driver_message');
   }
 });
 async function close() {
@@ -185,29 +161,28 @@ async function close() {
   clearInterval(poller);
   clearTimeout(expiry);
   binding.close();
-  rpc.rejectAllPendingRequests("The connector preview session ended.");
+  rpc.rejectAllPendingRequests('The connector preview session ended.');
   await rm(descriptor, { force: true });
   await rm(directory, { recursive: true, force: true });
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
   input.close();
   process.stdin.pause();
-  emit("closed");
+  emit('closed');
 }
-input.on("close", () => {
+input.on('close', () => {
   void close();
 });
-process.stdin.on("data", (chunk) => {
+process.stdin.on('data', (chunk) => {
   if (chunk.includes(3)) void close();
 });
-process.on("SIGTERM", () => {
+process.on('SIGTERM', () => {
   void close();
 });
-process.on("SIGINT", () => {
+process.on('SIGINT', () => {
   void close();
 });
-emit("ready", {
-  expiresInSeconds:
-    limits.lifetimeMs === undefined ? null : limits.lifetimeMs / 1000,
+emit('ready', {
+  expiresInSeconds: limits.lifetimeMs === undefined ? null : limits.lifetimeMs / 1000,
   maxCalls: limits.maxCalls ?? null,
   maxConcurrent: limits.maxConcurrent,
   timeoutMs: limits.timeoutMs,

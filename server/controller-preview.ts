@@ -4,27 +4,33 @@ import type { Repository } from './repository.ts';
 
 /** Resolve a controller by code. Real campaigns require a superadmin; simulations accept the team's administrators. */
 export async function resolveControllerPreview(
-  repo: Repository, realActor: Principal, campaignId: string, requestedCode: string,
+  repo: Repository,
+  realActor: Principal,
+  campaignId: string,
+  requestedCode: string,
 ): Promise<{ actor: Principal; code: string; writable: boolean }> {
   const code = requestedCode.trim();
   if (!code || code.length > 80 || /[\x00-\x1f/?#&]/.test(code))
     throw new ApiError('Código de controlador no válido', 400);
   const campaign = (await repo.all('SELECT id, team_id, scope_key FROM campaigns WHERE id=?', [campaignId]))[0];
   if (!campaign) throw new ApiError('Campaña no encontrada', 404);
-  if(campaign.scope_key==='live')requireSuper(realActor);
-  else if(!canWrite(realActor,campaign.team_id))throw new ApiError('Simulación fuera de tus equipos',403);
-  const matches = await repo.all(
-    'SELECT id,code FROM campaign_members WHERE campaign_id=? AND UPPER(code)=UPPER(?)',
-    [campaignId, code],
-  );
+  if (campaign.scope_key === 'live') requireSuper(realActor);
+  else if (!canWrite(realActor, campaign.team_id)) throw new ApiError('Simulación fuera de tus equipos', 403);
+  const matches = await repo.all('SELECT id,code FROM campaign_members WHERE campaign_id=? AND UPPER(code)=UPPER(?)', [
+    campaignId,
+    code,
+  ]);
   if (matches.length !== 1) throw new ApiError('Controlador no encontrado o ambiguo en esta campaña', 404);
   const writable = campaign.scope_key !== 'live';
   const member = matches[0];
   return {
     actor: {
-      id: realActor.id, role: 'viewer', teams: [],
+      id: realActor.id,
+      role: 'viewer',
+      teams: [],
       preview: { campaignId, memberId: member.id, code: member.code, writable },
     },
-    code: member.code, writable,
+    code: member.code,
+    writable,
   };
 }
