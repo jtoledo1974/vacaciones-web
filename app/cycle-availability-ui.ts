@@ -3,6 +3,7 @@ import type {
   CycleAvailability,
   AvailabilitySlot,
   AvailabilityImpact,
+  PolicyPresentation,
 } from '../domain/occupancy';
 
 /** Occupied / viable final capacity; uncertain capacity stays explicit. `ruled`: the campaign has an occupancy engine. */
@@ -82,10 +83,24 @@ export function slotExplanation(slot: AvailabilitySlot | undefined): string {
   return slot.reasons.map((r) => r.message).join('; ') || 'Bloqueo global demostrado';
 }
 
-const PERIOD_NAMES = ['preverano', 'verano', 'postverano'];
-const STATIC_LIMITS = new Set(['FOURTH_EXCLUDED', 'FOURTH_EXCLUDED_RED', 'CYCLE_MAXIMUM']);
 const shortDate = (date: string) =>
   new Date(date + 'T12:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+
+/** A presentation template filled with an impact event's facts. */
+function fill(
+  template: string,
+  presentation: PolicyPresentation,
+  event: AvailabilityImpact['events'][number],
+  cycles: string[],
+) {
+  const values: Record<string, string> = {
+    period: (event.period !== undefined ? presentation.periodNames[event.period] : undefined) ?? 'periodo',
+    ratio: event.actual !== undefined && event.limit !== undefined ? ' (' + event.actual + '/' + event.limit + ')' : '',
+    count: String(cycles.length),
+    cycles: cycles.map(shortDate).join(', '),
+  };
+  return template.replace(/\{(\w+)\}/g, (all, key) => values[key] ?? all);
+}
 
 /**
  * What a decision changed beyond its own cycle, for people reviewing it.
@@ -93,54 +108,30 @@ const shortDate = (date: string) =>
  * unproved bounds are not consequences worth showing; period-wide events are
  * highlighted and proven losses in other cycles are listed as details.
  */
-export function summarizeImpact(impact: AvailabilityImpact): { highlights: string[]; details: string[] } {
+export function summarizeImpact(
+  impact: AvailabilityImpact,
+  presentation: PolicyPresentation,
+): { highlights: string[]; details: string[] } {
   const highlights: string[] = [],
     covered = new Set<string>();
   // Fixed per-cycle limits are always present; they are never what a decision caused.
-  const caused = (c: AvailabilityImpact['changes'][number]) => c.reasons.filter((r) => !STATIC_LIMITS.has(r.code));
+  const caused = (c: AvailabilityImpact['changes'][number]) =>
+    c.reasons.filter((r) => !presentation.staticReasons.includes(r.code));
   const ownRightsOnly = new Set(
     impact.changes
       .filter((c) => {
         const r = caused(c);
-        return r.length > 0 && r.every((x) => x.code === 'INDIVIDUAL_RIGHTS_EXHAUSTED');
+        return r.length > 0 && r.every((x) => x.code === presentation.ownRightsReason);
       })
       .map((c) => c.cycle),
   );
   for (const event of impact.events) {
-    const period = PERIOD_NAMES[event.period ?? -1] ?? 'periodo';
-    if (event.code === 'FOURTH_PERIOD_LIMIT_REACHED' || event.code === 'SUMMER_FOURTH_LIMIT_REACHED') {
-      highlights.push(
-        'Agota el cupo de cuartas plazas del ' +
-          period +
-          (event.actual !== undefined && event.limit !== undefined
-            ? ' (' + event.actual + '/' + event.limit + ')'
-            : '') +
-          ': el resto de ciclos del periodo queda como máximo en 3.',
-      );
-      event.cycles.forEach((c) => covered.add(c));
-    } else if (event.code === 'THIRD_POSITION_CLOSED') {
-      const closed = event.cycles.filter((c) => !ownRightsOnly.has(c));
-      if (closed.length)
-        highlights.push(
-          'Cierra la tercera plaza en ' +
-            closed.length +
-            ' ciclo(s) del ' +
-            period +
-            ': ' +
-            closed.map(shortDate).join(', ') +
-            '.',
-        );
-      event.cycles.forEach((c) => covered.add(c));
-    } else if (event.code === 'EXTRA_THIRD_MARGIN_LOST') {
-      highlights.push(
-        'Consume el margen de ampliaciones extraordinarias a tercera plaza del ' +
-          period +
-          ': ya no se puede llegar a 3 en ' +
-          event.cycles.map(shortDate).join(', ') +
-          '.',
-      );
-      event.cycles.forEach((c) => covered.add(c));
-    }
+    const text = presentation.impactEvents[event.code];
+    if (!text?.highlight) continue;
+    const cycles = text.cycles === 'exceptOwnRights' ? event.cycles.filter((c) => !ownRightsOnly.has(c)) : event.cycles;
+    if (text.cycles !== 'exceptOwnRights' || cycles.length)
+      highlights.push(fill(text.highlight, presentation, event, cycles));
+    event.cycles.forEach((c) => covered.add(c));
   }
   const details: string[] = [];
   for (const change of impact.changes) {
@@ -155,7 +146,7 @@ export function summarizeImpact(impact: AvailabilityImpact): { highlights: strin
 }
 
 /** Only describe proven losses: an interval is explicitly uncertain. */
-export function describeImpact(impact: AvailabilityImpact): string[] {
+export function describeImpact(impact: AvailabilityImpact, presentation: PolicyPresentation): string[] {
   const lines: string[] = [];
   for (const change of impact.changes) {
     const old = change.before.additional,
@@ -188,21 +179,10 @@ export function describeImpact(impact: AvailabilityImpact): string[] {
       );
     }
   }
-  const fourth = impact.events.filter(
-    (e) => e.code === 'SUMMER_FOURTH_LIMIT_REACHED' || e.code === 'FOURTH_PERIOD_LIMIT_REACHED',
-  );
-  for (const event of fourth) {
-    lines.push(
-      event.period === 1
-        ? 'Alcanzado el límite de ciclos con cuarta plaza en verano; las terceras plazas siguen sujetas a sus propias reglas.'
-        : 'Alcanzado el límite de ciclos con cuarta plaza de este periodo.',
-    );
+  for (const event of impact.events) {
+    const text = presentation.impactEvents[event.code],
+      line = (event.period !== undefined ? text?.lineByPeriod?.[event.period] : undefined) ?? text?.line;
+    if (line) lines.push(fill(line, presentation, event, event.cycles));
   }
-  for (const event of impact.events.filter((e) => e.code === 'EXTRA_THIRD_MARGIN_LOST'))
-    lines.push(
-      'Se ha reducido el margen para ampliaciones extraordinarias a tercera plaza' +
-        (event.period === 0 ? ' en preverano' : event.period === 2 ? ' en postverano' : '') +
-        '.',
-    );
   return [...new Set(lines)];
 }
