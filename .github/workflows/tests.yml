@@ -4,6 +4,15 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner pool or laptop runner for manual validation
+        type: choice
+        default: vacaciones-ci-v2
+        options:
+          - vacaciones-ci-v2
+          - portatil-playwright-01
+          - portatil-playwright-02
 
 # Cancel outdated jobs on new commits to the same PR.
 concurrency:
@@ -31,7 +40,8 @@ jobs:
 
   browser:
     name: Playwright desktop and mobile
-    # This runner is separate from GitHub-hosted checks, so both jobs run concurrently.
+    # The v2 pool includes the server and isolated laptop runners.
+    # Keep the old label on the server for workflows already queued before this change.
     # One Playwright process and one worker keep RAM and isolated D1 within tested limits.
     # Conditions reduce exposure; repository writers can still change workflows.
     if: >-
@@ -41,7 +51,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.event.pull_request.head.repo.fork == false) ||
       (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974')
-    runs-on: [self-hosted, Linux, X64, vacaciones-ci]
+    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
     timeout-minutes: 30
     env:
       CI: '1'
@@ -56,7 +66,10 @@ jobs:
       - name: Verify local runner and installed tools
         shell: bash
         run: |
-          test "$RUNNER_NAME" = pve-playwright-01
+          case "$RUNNER_NAME" in
+            pve-playwright-01|portatil-playwright-01|portatil-playwright-02) ;;
+            *) echo "Unexpected runner: $RUNNER_NAME" >&2; exit 1 ;;
+          esac
           node --version
           test "$(pnpm --version)" = 11.25.0
           test -d /ms-playwright
