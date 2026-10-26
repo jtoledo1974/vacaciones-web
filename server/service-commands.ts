@@ -105,30 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'calculate') {
-    const result = calculate(c.year, c.team_id, d.config, d.members, d.requests, d.awards);
-    const runId = id();
-    ops.push({
-      sql: 'INSERT INTO runs(id,campaign_id,source_version,engine_version,result_json,created_by,created_at) VALUES(?,?,?,?,?,?,?)',
-      args: [
-        runId,
-        cid,
-        c.version + 1,
-        ENGINE_VERSION,
-        JSON.stringify({
-          result,
-          config: d.config,
-          members: d.members,
-          requests: d.requests,
-          awards: d.awards,
-          election,
-        }),
-        actor.id,
-        now(),
-      ],
-    });
-    after = { runId, issues: result.issues };
-  } else if (action === 'publish') {
+  if (action === 'publish') {
     const run = d.runs.find((r) => r.id === body.runId);
     if (!run || run.source_version !== c.version)
       throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
@@ -631,6 +608,35 @@ async function executeAward(ctx: CommandContext): Promise<CommandResult> {
   return { before, after };
 }
 
+async function executeCalculate(ctx: CommandContext): Promise<CommandResult> {
+  const { actor, cid, d, c, election, ops, body } = ctx;
+  const before: any = null;
+  let after: any = body;
+  const result = calculate(c.year, c.team_id, d.config, d.members, d.requests, d.awards);
+  const runId = id();
+  ops.push({
+    sql: 'INSERT INTO runs(id,campaign_id,source_version,engine_version,result_json,created_by,created_at) VALUES(?,?,?,?,?,?,?)',
+    args: [
+      runId,
+      cid,
+      c.version + 1,
+      ENGINE_VERSION,
+      JSON.stringify({
+        result,
+        config: d.config,
+        members: d.members,
+        requests: d.requests,
+        awards: d.awards,
+        election,
+      }),
+      actor.id,
+      now(),
+    ],
+  });
+  after = { runId, issues: result.issues };
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -708,7 +714,7 @@ export const COMMANDS: Record<string, Command> = {
   calculate: {
     preconditions: { activeElection: 'allowed', closedCampaign: false },
     election: 'keep',
-    execute: legacy('calculate'),
+    execute: executeCalculate,
   },
   publish: {
     preconditions: { activeElection: 'blocked', closedCampaign: true },
