@@ -20,6 +20,10 @@ function assertNo2027(label: string, value: unknown) {
   assert.ok(!text.includes(version), label + ': aparece la versión ' + version);
   assert.ok(!/lecs-2027/i.test(text), label + ': aparece una versión lecs-2027');
   assert.ok(!/RRHH 2027|normas 2027/.test(text), label + ': aparece un texto de las normas 2027');
+  assert.ok(
+    !/preverano|postverano|Extracupos|tercera plaza|cuarta plaza|cuartas plazas/i.test(text),
+    label + ': aparece la presentación de 2027',
+  );
 }
 
 test('registerPolicy plugs a year and its undo restores the previous resolution', () => {
@@ -77,6 +81,8 @@ test('a fictitious 2099 policy runs the whole generic election flow without 2027
   assertNo2027('vista', d);
   assert.equal(d.election.occupancyPolicyVersion, POLICY_2099_VERSION);
   assert.equal(d.election.cycleAvailability.policyVersion, POLICY_2099_VERSION);
+  assert.deepEqual(d.election.policyPresentation, POLICY_2099.occupancy!.presentation);
+  assert.equal(d.election.policyPresentation.explanationId, null);
   const user = d.election.turn.memberId;
   assert.ok(user);
 
@@ -143,4 +149,5 @@ test('a fictitious 2099 policy runs the whole generic election flow without 2027
   assert.equal(publicView.config, null);
   assert.equal(publicView.result.occupancyPolicyVersion, POLICY_2099_VERSION);
   assert.equal(publicView.election.cycleAvailability.cycles[date].occupied, 1);
+  assert.deepEqual(publicView.election.policyPresentation, POLICY_2099.occupancy!.presentation);
 });
