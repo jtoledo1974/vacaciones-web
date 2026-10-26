@@ -568,6 +568,7 @@ export class ElectionService {
       availabilityWarnings,
       cycleAvailability,
       occupancyPolicyVersion: rules?.version ?? null,
+      policyPresentation: rules?.presentation ?? null,
       points,
       accounts,
       undo: history?.undo?.id ?? null,
