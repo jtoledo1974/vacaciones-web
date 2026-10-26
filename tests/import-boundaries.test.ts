@@ -33,11 +33,11 @@ const policyTestImports:Record<string,string>={
 };
 const exceptions={...legacyImports,...policyTestImports};
 
-function runtimeDependencies(source:string,file:string):string[]{
+function runtimeDependencies(source:string,file:string):{specifier:string;typeOnly:boolean}[]{
  const parsed=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,file.endsWith('.tsx')?ts.ScriptKind.TSX:ts.ScriptKind.TS);
- const result:string[]=[];
+ const result:{specifier:string;typeOnly:boolean}[]=[];
  function record(specifier:ts.Expression|undefined,typeOnly:boolean):void{
-  if(!typeOnly&&specifier&&ts.isStringLiteralLike(specifier))result.push(specifier.text);
+  if(specifier&&ts.isStringLiteralLike(specifier))result.push({specifier:specifier.text,typeOnly});
  }
  for(const statement of parsed.statements){
   if(ts.isImportDeclaration(statement)){
@@ -68,7 +68,14 @@ test('se distinguen los imports de ejecución de los import type (incluidos los 
   "export {actual} from '../server/x.ts';",
   "async function load(){return import('../app/dynamic.ts')}"
  ].join('\n');
- assert.deepEqual(runtimeDependencies(source,'example.ts'),['../app/shared.ts','../server/x.ts','../app/dynamic.ts']);
+ assert.deepEqual(runtimeDependencies(source,'example.ts'),[
+  {specifier:'../domain/policy-2027.ts',typeOnly:true},
+  {specifier:'../domain/availability-2027.ts',typeOnly:true},
+  {specifier:'../domain/election-2027.ts',typeOnly:true},
+  {specifier:'../app/shared.ts',typeOnly:false},
+  {specifier:'../server/x.ts',typeOnly:false},
+  {specifier:'../app/dynamic.ts',typeOnly:false}
+ ]);
 });
 
 test('fronteras de import: dominio aislado, servidor sin UI y política anual encapsulada',()=>{
@@ -79,7 +86,7 @@ test('fronteras de import: dominio aislado, servidor sin UI y política anual en
  for(const file of files){
   const from=file.replaceAll('\\','/');
   const text=readFileSync(path.join(root,file),'utf8');
-  for(const specifier of runtimeDependencies(text,from)){
+  for(const {specifier,typeOnly} of runtimeDependencies(text,from)){
    if(!specifier.startsWith('.'))continue;
    const to=path.relative(root,path.resolve(root,path.dirname(file),specifier)).replaceAll('\\','/').replace(/\.(?:tsx?|jsx?)$/,'');
    const key=`${from} -> ${to}`;
@@ -88,7 +95,7 @@ test('fronteras de import: dominio aislado, servidor sin UI y política anual en
     violation='domain no puede importar app ni server';
    else if(from.startsWith('server/')&&to.startsWith('app/'))
     violation='server no puede importar app';
-   else if(/^domain\/[^/]+-2027$/.test(to) &&
+   else if(!typeOnly && /^domain\/[^/]+-2027$/.test(to) &&
     !(/^domain\/[^/]+-2027\.ts$/.test(from)||from==='domain/policy.ts'||from==='domain/hr-calendars.ts'))
     violation='los módulos anuales solo se importan en ejecución desde el registro y el propio motor 2027';
    if(violation){
