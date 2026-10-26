@@ -44,8 +44,9 @@ export type CandidateAssessment = {
   issues: RuleProblem[];
   warnings: RuleProblem[];
 };
-/** Extra-quota and fourth-place permits a state still needs, per period. */
-export type PermitCount = { period: Period; kind: 'extras' | 'fourths'; used: number | null; limit: number };
+/** A permit a state still needs, per period. Each policy names its kinds in
+ * `PolicyPresentation.permits` (2027: extra quotas and fourth places). */
+export type PermitCount = { period: Period; kind: string; used: number | null; limit: number };
 
 export type AvailabilitySlot = {
   position: number;
@@ -157,6 +158,39 @@ export type Budgets = {
   review: number;
 };
 
+/**
+ * How an impact event reads. Templates replace {period} (the period name),
+ * {ratio} (" (actual/limit)" when both are known), {count} and {cycles}.
+ */
+export type ImpactEventText = {
+  /** Highlighted consequence of a decision; its cycles leave the details. */
+  highlight?: string;
+  /** exceptOwnRights: drop cycles closed only by a person exhausting their own
+   * rights, and say nothing when none is left. */
+  cycles?: 'all' | 'exceptOwnRights';
+  /** Line of the full description, by period when it differs. */
+  line?: string;
+  lineByPeriod?: Partial<Record<Period, string>>;
+};
+
+/**
+ * What the interface says about a policy. Public, with no personal data: it
+ * travels in the election view so that `app/` never assumes a year's rules.
+ */
+export type PolicyPresentation = {
+  /** Lower case, as in «del preverano». */
+  periodNames: [string, string, string];
+  /** Permit report labels by `PermitCount.kind`; `suffix` follows «used de limit». */
+  permits: Record<string, { name: string; suffix?: string }>;
+  impactEvents: Record<string, ImpactEventText>;
+  /** Fixed per-cycle limits: never what a decision caused. */
+  staticReasons: string[];
+  /** The reason code of a person exhausting their own rights. */
+  ownRightsReason?: string;
+  /** The rules panel the interface shows (`app/policy-explanations.tsx`), or null. */
+  explanationId: string | null;
+};
+
 /** The campaign facts every year's rules are evaluated against. */
 export type PolicyCampaign = { year: number; team: string; config: Config };
 
@@ -173,6 +207,7 @@ export type OccupancyRules = {
   /** Human-readable name of the rule set ("normas 2027"). */
   name: string;
   budgets: Budgets;
+  presentation: PolicyPresentation;
   state(
     campaign: PolicyCampaign,
     members: Member[],
