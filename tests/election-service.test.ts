@@ -473,7 +473,7 @@ test('deshacer un reinicio no permite a un administrador delegado restaurar pref
  const {repo,s,cid,d}=await setup(),member=d.members[0],date=d.result.cycles[0].date;
  const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
  await act(s,cid,{action:'link_account',memberId:member.id,provider:'chatgpt',subject:'person@example.test',accountVersion:0});
- await act(s,cid,{action:'preferences',memberId:member.id,dates:[date],automatic:false});
+ await act(s,cid,{action:'preferences',memberId:member.id,dates:[date],automatic:false,mode:'wait',waitMinutes:30,labels:{[date]:'Verano 1'}});
  const reset=await s.mutate(cid,{action:'reset_vacations',version:(await s.load(cid)).campaign.version,confirmation:'C-2026'});
  assert.deepEqual(reset.election.preferences,[]);
  const view=await delegate.view(cid);
@@ -481,6 +481,8 @@ test('deshacer un reinicio no permite a un administrador delegado restaurar pref
  assert.deepEqual((await delegate.view(cid)).election.preferences,[]);
  const restored=await s.mutate(cid,{action:'undo_vacations',version:reset.campaign.version,undoId:reset.undo.id});
  assert.deepEqual(restored.election.preferences.map((p:any)=>p.member_id),[member.id]);
+ const list=restored.election.preferences[0];
+ assert.deepEqual([list.mode,list.waitMinutes,list.labels],['wait',30,{[date]:'Verano 1'}],'Deshacer el reinicio conserva plazo y nombres de la lista');
 });
 
 

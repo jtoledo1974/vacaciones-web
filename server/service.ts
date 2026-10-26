@@ -7,13 +7,13 @@ import {historicalAvailability} from './availability-history.ts';
 import {AuditContext} from './audit-context.ts';
 import {evaluate2027Candidate,evaluate2027Final,canComplete2027,immediate2027Issues,OCCUPANCY_POLICY_2027} from '../domain/policy-2027.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
-import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
+import { cas, insertRows, tableColumns, type Repository, type Statement } from './repository.ts';
 import {validateRoster,rowStatements} from './roster.ts';
 import {ApiError} from './errors.ts';
 import {ElectionService,electionStateStatement} from './election-service.ts';
 import {PersonalSimulationService} from './personal-simulation.ts';
 import {cloneSimulation} from './simulations.ts';
-import {validateElectionState} from '../domain/election.ts';
+import {validateElectionState,PREFERENCE_COLUMNS,preferenceRow} from '../domain/election.ts';
 export {ApiError} from './errors.ts';
 const id = () => crypto.randomUUID(), now = () => new Date().toISOString();
 /** SQL assertion: the affected team retains a permanent administrator after this transaction. */
@@ -442,7 +442,7 @@ export class Service {
         }
         if(action==='close'&&election.state)ops.push(electionStateStatement(cid,{...election.state,status:'paused'}));
         if(action==='reset_vacations'){ops.push({sql:c.scope_key==='live'&&this.actor.role!=='superadmin'?'DELETE FROM preferences WHERE campaign_id=? AND member_id NOT IN (SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?)':'DELETE FROM preferences WHERE campaign_id=?',args:c.scope_key==='live'&&this.actor.role!=='superadmin'?[cid,cid]:[cid]},electionStateStatement(cid,null));}
-        else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));for(const p of old.election.preferences)ops.push({sql:'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic,persistent,active) VALUES(?,?,?,?,?,?)',args:[p.member_id,cid,JSON.stringify(p.dates),p.automatic?1:0,p.persistent?1:0,p.active!==false?1:0]});}}
+        else if(action==='undo_vacations'||action==='redo_vacations'){const entry=await this.vacationUndo(cid,c.version);const old=entry?JSON.parse(entry.before_json):null;if(old?.election){ops.push({sql:'DELETE FROM preferences WHERE campaign_id=?',args:[cid]},electionStateStatement(cid,old.election.state));ops.push(...insertRows('preferences',PREFERENCE_COLUMNS,old.election.preferences.map((p:any)=>preferenceRow(p,cid))));}}
         else if(election.state&& !['calculate','publish','close','reopen'].includes(action))ops.push(electionStateStatement(cid,null));
         if(c.year===2027&&['award','delete_award'].includes(action)){
             const updated=action==='award'?[...d.awards,after]:
