@@ -45,17 +45,19 @@ node node_modules/playwright/cli.js test tests/e2e/preferences.spec.ts
 
 ## Integración continua
 
-GitHub Actions no necesita credenciales del Site ni de producción. En cada push a una pull request y a `main` ejecuta, en runners de GitHub:
+GitHub Actions no necesita credenciales del Site ni de producción. En cada push a una pull request propia del mismo repositorio y a `main` ejecuta, en el grupo de runners propios `vacaciones-ci-v2` (servidor y dos runners del portátil):
 
 - `pnpm test` y la comprobación de tipos.
 - `pnpm build`, para que un verde garantice que se puede desplegar.
 - `pnpm lint`, solo informativo (`continue-on-error`) mientras queden los errores heredados, en su mayoría `no-explicit-any`.
 
-Playwright corre en los runners propios con dos niveles:
+Todos los jobs (`checks`, `build` y `browser`) usan ese grupo, sin alternativa alojada en GitHub. Cada runner atiende un job a la vez, con su propio workspace y caché persistente de pnpm en `/pnpm/store`. Se usan Node 24 y pnpm 11.25.0 ya instalados en la imagen; no se reinstalan globalmente en cada job. El selector manual de runner se aplica a los tres jobs. Las PR externas y de otros autores no ejecutan código en estos runners.
+
+Playwright conserva dos niveles:
 
 - **Smoke** en cada push de una pull request: los tests etiquetados `@smoke`, que cubren acceso, consulta de la campaña, elección en un turno y preferencias. `pnpm exec playwright test --list --grep @smoke` muestra el subconjunto.
 - **Suite completa** en cada push a `main`, al lanzar el workflow a mano (`workflow_dispatch`) y en las pull requests con la etiqueta `e2e-full`.
 
 Para pedir la suite completa en una pull request, añade la etiqueta `e2e-full` (`gh pr edit <número> --add-label e2e-full`). Al añadirla se lanza la suite completa sin necesidad de un push nuevo, y los pushes siguientes también la ejecutan mientras la etiqueta siga puesta. Otras etiquetas no relanzan nada. No se suben capturas, vídeos ni trazas: los resultados quedan en la consola del job.
 
-Para marcar un test como smoke se añade `@smoke` a su `tag`, sin cambiar lo que comprueba. El subconjunto debe seguir siendo pequeño: cada test añadido se paga en cada push de cada pull request.
+Para marcar un test como smoke se añade `@smoke` a su `tag`, sin cambiar lo que comprueba. El subconjunto debe seguir siendo pequeño: cada test añadido se ejecuta en cada push de cada pull request.

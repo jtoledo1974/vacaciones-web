@@ -28,32 +28,76 @@ permissions:
 jobs:
   checks:
     name: Unit tests and types
-    if: github.event.action != 'labeled'
-    runs-on: ubuntu-latest
+    if: >-
+      github.event.action != 'labeled' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.user.login == 'jtoledo1974' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.repo.fork == false) ||
+       (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974'))
+    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
     timeout-minutes: 8
+    env:
+      CI: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      WRANGLER_SEND_METRICS: 'false'
+      CLOUDFLARE_CF_FETCH_ENABLED: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: '24'
-      - run: npm install --global pnpm@11.25.0
-      - run: pnpm install --frozen-lockfile
+          persist-credentials: false
+          clean: true
+      - name: Verify local runner and installed tools
+        shell: bash
+        run: |
+          case "$RUNNER_NAME" in
+            pve-playwright-01|portatil-playwright-01|portatil-playwright-02) ;;
+            *) echo "Unexpected runner: $RUNNER_NAME" >&2; exit 1 ;;
+          esac
+          node --version
+          test "$(pnpm --version)" = 11.25.0
+      - name: Install locked dependencies using the local store
+        run: pnpm install --frozen-lockfile --store-dir /pnpm/store
       - run: pnpm test
       - name: TypeScript typecheck
         run: pnpm exec tsc --noEmit -p tsconfig.app.json
 
   build:
     name: Build and informative lint
-    if: github.event.action != 'labeled'
-    runs-on: ubuntu-latest
+    if: >-
+      github.event.action != 'labeled' &&
+      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.user.login == 'jtoledo1974' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.repo.fork == false) ||
+       (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974'))
+    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
     timeout-minutes: 10
+    env:
+      CI: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      WRANGLER_SEND_METRICS: 'false'
+      CLOUDFLARE_CF_FETCH_ENABLED: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          node-version: '24'
-      - run: npm install --global pnpm@11.25.0
-      - run: pnpm install --frozen-lockfile
+          persist-credentials: false
+          clean: true
+      - name: Verify local runner and installed tools
+        shell: bash
+        run: |
+          case "$RUNNER_NAME" in
+            pve-playwright-01|portatil-playwright-01|portatil-playwright-02) ;;
+            *) echo "Unexpected runner: $RUNNER_NAME" >&2; exit 1 ;;
+          esac
+          node --version
+          test "$(pnpm --version)" = 11.25.0
+      - name: Install locked dependencies using the local store
+        run: pnpm install --frozen-lockfile --store-dir /pnpm/store
       # The build needs no secrets or Site variables.
       - run: pnpm build
       # Informative until the existing errors are fixed; see docs/PRUEBAS.md.
@@ -109,4 +153,4 @@ jobs:
           pnpm exec playwright test --workers=1 --retries=0 --reporter=list,json "${grep[@]}"
 
 # No default upload of screenshots, videos or traces: artifacts stay local.
-# There is no GitHub-hosted fallback for the browser job.
+# All jobs use the self-hosted pool; there is no GitHub-hosted fallback.
