@@ -1,6 +1,7 @@
 'use client';
 import {useState,type FormEvent} from 'react';
 import {firebaseSignOut,firebaseUser} from './firebase-client';
+import {apiFetch} from './api-client';
 
 export default function LocalAdminLogin({enabled,loggedIn}:{enabled:boolean;loggedIn:boolean}){
  const [username,setUsername]=useState('');
@@ -14,11 +15,7 @@ export default function LocalAdminLogin({enabled,loggedIn}:{enabled:boolean;logg
   try{
    // Firebase bearer tokens have priority over the local session.
    if(firebaseUser())await firebaseSignOut();
-   const response=await fetch('/api/local-admin/login',{
-    method:'POST',credentials:'same-origin',cache:'no-store',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({username,password})
-   });
+   const response=await apiFetch('local-admin/login',{auth:false,body:{username,password}});
    const result=await response.json() as {error?:string};
    if(!response.ok)throw new Error(result.error??'No se pudo iniciar sesión');
    setPassword('');
@@ -29,9 +26,7 @@ export default function LocalAdminLogin({enabled,loggedIn}:{enabled:boolean;logg
  async function logout(){
   setError('');setBusy(true);
   try{
-   const response=await fetch('/api/local-admin/logout',{
-    method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:'{}'
-   });
+   const response=await apiFetch('local-admin/logout',{auth:false,body:{}});
    if(!response.ok)throw new Error('No se pudo cerrar la sesión');
    window.location.reload();
   }catch(e){setError(e instanceof Error?e.message:'Error de sesión');setBusy(false);}

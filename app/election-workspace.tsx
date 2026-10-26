@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {undoQuestion} from './undo-summary';
 import {useConfirmation} from './confirmation';
+import {apiFetch} from './api-client';
 import {orderForRound,togglePreferenceDate} from '../domain/election';
 import {numberTimelineCycles} from '../domain/timeline-numbering';
 import {orderAwardsBySelection} from '../domain/award-display-order';
@@ -234,8 +235,8 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
  useEffect(()=>{
   setPairOptions(null);if(turn?.participants?.length!==1||turn?.needed<2||!selected.length||selected.length>=turn.needed)return;
   let active=true;setLoadingOptions(true);
-  const query=new URLSearchParams();selected.forEach(date=>query.append('selected',date));const preview=new URLSearchParams(location.search).get('verComo');if(preview)query.set('verComo',preview);
-  fetch('/api/election/'+data.campaign.id+'/options?'+query,{cache:'no-store'}).then(async response=>{
+  const query=new URLSearchParams();selected.forEach(date=>query.append('selected',date));
+  apiFetch('election/'+data.campaign.id+'/options?'+query).then(async response=>{
     const body:any=await response.json();if(!response.ok)throw new Error(body.error);
     if(!active)return;
     const currentPolicy=election.occupancyPolicyVersion??null;
@@ -288,9 +289,7 @@ export default function ElectionWorkspace({data,busy,act,legacy,identity,superus
    if(ruled){
     setChoicePhase('checking');
     const query=new URLSearchParams({version:String(data.campaign.version),choices:JSON.stringify(choices)});
-    const preview=new URLSearchParams(location.search).get('verComo');
-    if(preview)query.set('verComo',preview);
-    const response=await fetch('/api/election/'+data.campaign.id+'/impact?'+query,{cache:'no-store'});
+    const response=await apiFetch('election/'+data.campaign.id+'/impact?'+query);
     const report:any=await response.json();
     if(!response.ok)throw new Error(report.error??'No se pudo previsualizar la elección');
     if(report.version!==data.campaign.version||report.policyVersion!==election.occupancyPolicyVersion)

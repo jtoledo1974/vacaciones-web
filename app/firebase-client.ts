@@ -16,6 +16,8 @@ type FirebaseCompat={
   GoogleAuthProvider:new()=>unknown;
  };
 };
+import {apiFetch} from './api-client.ts';
+
 declare global {interface Window{firebase?:FirebaseCompat}}
 
 const SDK='11.10.0';
@@ -39,7 +41,7 @@ function loadScript(url:string):Promise<void>{
 export function initialiseFirebase():Promise<boolean>{
  if(loaded)return loaded;
  loaded=(async()=>{
-  const response=await fetch('/api/auth-config',{cache:'no-store'});
+  const response=await apiFetch('auth-config',{auth:false});
   if(!response.ok)return false;
   const config=(await response.json() as {firebase:FirebaseConfiguration|null}).firebase;
   if(!config)return false;

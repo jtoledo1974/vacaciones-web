@@ -1,6 +1,7 @@
 'use client';
 import {useEffect,useState,Fragment} from 'react';
-import {firebaseBearerToken,firebaseUser,subscribeFirebaseSession} from './firebase-client';
+import {firebaseUser,subscribeFirebaseSession} from './firebase-client';
+import {api,apiFetch} from './api-client';
 type Doc={id:string;title:string;audience:string;filename:string;content:string};
 function Inline({text,documents,select}:{text:string;documents:Doc[];select:(id:string)=>void}){
  return <>{text.split(/(\[[^\]]+\]\([^)]+\)|\*\*[^*]+\*\*|`[^`]+`)/g).map((part,i)=>{
@@ -30,9 +31,7 @@ export default function Help(){
   let active=true;
   const reload=async()=>{
    try{
-    const token=await firebaseBearerToken();
-    const r=await fetch('/api/help',{cache:'no-store',headers:token?{Authorization:'Bearer '+token}:{}});
-    const d:any=await r.json();if(!r.ok)throw new Error(d.error);
+    const d:any=await api('help',{},'No se pudo cargar la documentación');
     if(active){setDocuments(d);setError('');}
    }catch(e:any){if(active)setError(e.message);}
   };
@@ -43,8 +42,7 @@ export default function Help(){
  const doc=documents.find(d=>d.id===selected)??documents[0];
  return <section className="panel help-panel"><div className="section-head"><div><h2>Ayuda y documentación</h2><p>Guías de consulta y, según tus permisos, instrucciones de gestión y documentación del proyecto.</p></div></div>{error?<div role="alert" className="alert error">{error}</div>:!doc?<p>Cargando documentación…</p>:<><nav className="button-row" aria-label="Documentos de ayuda">{documents.map(d=><button key={d.id} className={d.id===doc.id?'primary':'secondary'} aria-pressed={d.id===doc.id} onClick={()=>setSelected(d.id)}>{d.title}</button>)}</nav><article className="help-document"><div className="section-head"><span className="tag">{doc.audience==='public'?'Consulta pública':'Administración'}</span>{firebaseUser()?<button className="secondary" onClick={async()=>{
   try{
-   const token=await firebaseBearerToken();
-   const r=await fetch('/api/help/'+doc.id,{headers:token?{Authorization:'Bearer '+token}:{}});
+   const r=await apiFetch('help/'+doc.id);
    if(!r.ok)throw new Error('No se pudo descargar el documento');
    const blob=new Blob([await r.text()],{type:'text/markdown'});
    const uri=URL.createObjectURL(blob),a=document.createElement('a');

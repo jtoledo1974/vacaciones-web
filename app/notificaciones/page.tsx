@@ -2,7 +2,7 @@
 
 import {useCallback,useEffect,useState} from 'react';
 import {Bell,BellOff,CheckCircle2,HelpCircle,RefreshCw,ShieldAlert,Smartphone} from 'lucide-react';
-import {firebaseBearerToken} from '../firebase-client';
+import {apiFetch} from '../api-client';
 import {isAppleMobile,notificationView} from './notification-view';
 import {activeRegistration} from './service-worker';
 
@@ -19,12 +19,7 @@ const decode=(value:string):Uint8Array<ArrayBuffer>=>{
  return Uint8Array.from(raw,c=>c.charCodeAt(0));
 };
 async function api(method:'GET'|'POST',body?:unknown):Promise<NotificationSettings>{
- const token=await firebaseBearerToken();
- const response=await fetch('/api/notifications',{
-  method,cache:'no-store',
-  headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},
-  body:body?JSON.stringify(body):undefined
- });
+ const response=await apiFetch('notifications',{method,body:body||undefined});
  const json=await response.json() as {error?:string};
  if(!response.ok){
   if(response.status===401)throw Error('Inicia sesión con la cuenta vinculada a tu controlador para configurar los avisos.');

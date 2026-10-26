@@ -2,19 +2,11 @@
 import {useEffect,useRef,useState} from 'react';
 import CycleCalendar,{formatDate} from './cycle-calendar';
 import {orderAwardsBySelection} from '../domain/award-display-order';
-import {firebaseBearerToken} from './firebase-client';
+import {api} from './api-client';
 
 const PERIODS=['Preverano','Verano','Postverano'];
 
-async function call(cid:string,body?:any){
- const token=await firebaseBearerToken();
- const r=await fetch('/api/personal-simulation/'+cid,{cache:'no-store',
-  headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},
-  ...(body?{method:'POST',body:JSON.stringify(body)}:{})});
- const d:any=await r.json();
- if(!r.ok)throw new Error(d.error??'No se pudo actualizar la simulación');
- return d;
-}
+const call=(cid:string,body?:any)=>api('personal-simulation/'+cid,body===undefined?{}:{body},'No se pudo actualizar la simulación');
 
 /** Plain-language counter: how many extracupos every legal completion already needs. */
 function permitLine(p:any){
