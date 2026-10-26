@@ -2,6 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Service} from '../server/service.ts';
 import {SQLiteRepo} from './sqlite-repo.ts';
+import {createHash} from 'node:crypto';
 const owner={id:'chatgpt:owner',role:'superadmin' as const,teams:[]},visitor={id:'chatgpt:person',emailKey:'chatgpt-email:person@example.test',role:'viewer' as const,teams:[]};
 async function setup(){const repo=new SQLiteRepo(),s=new Service(repo,owner);await s.init();const cid=(await s.list()).campaigns.find(c=>c.team_id==='C').id;let d=await s.view(cid);d=await s.mutate(cid,{action:'import_roster',version:d.campaign.version,source:{format:'vacaciones-roster-v1',team:'C',year:2026,copySelections:false,rows:[{code:'AA',label:'Nombre privado A',seniority:''},{code:'BB',label:'Nombre privado B',seniority:''},{code:'CC',label:'Nombre privado C',seniority:''}]}});d=await s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:{AA:10,BB:20,CC:30},previousScoresSource:'Puntuaciones de ensayo verificadas'}});return {repo,s,cid,d,person:new Service(repo,visitor)};}
 async function setScores(s:Service,cid:string,scores:Record<string,number>){const d=await s.view(cid);return s.mutate(cid,{action:'config',version:d.campaign.version,config:{...d.config,previousScores:scores,previousScoresSource:'Clasificación ficticia verificada para tests'}});}
@@ -552,6 +553,23 @@ test('el controlador sabe cuántos de los que van delante tienen preferencias ac
  await act(s,cid,{action:'pause'});
  assert.equal((await person.view(cid)).election.automaticAhead,null);
  assert.equal((await s.view(cid)).election.automaticAhead,null);
+});
+test('restaurar una copia conserva el orden del historial de deshacer, también en copias antiguas',async()=>{
+ const {s,cid,d}=await setup(),dates=d.result.cycles.map((c:any)=>c.date);
+ await act(s,cid,start(d));
+ // Several undoable entries so that an id-ordered audit almost surely breaks the stack.
+ for(const [i,m] of d.members.entries())await act(s,cid,{action:'preferences',memberId:m.id,dates:[dates[i+3]],persistent:true});
+ const last=await act(s,cid,{action:'choose',memberId:d.members[0].id,dates:[dates[0]]});
+ const backup=await s.backup();
+ assert.equal(backup.payload.auditOrder,'insertion');
+ await s.restore(backup,(await s.admin()).revision);
+ assert.equal((await s.view(cid)).election.undo,last.election.undo);
+ // Backups made before this change listed audit by id and had no auditOrder.
+ const legacy=structuredClone(backup);delete legacy.payload.auditOrder;
+ legacy.payload.tables.audit.sort((x:any,y:any)=>x.id.localeCompare(y.id));
+ legacy.sha256=createHash('sha256').update(JSON.stringify(legacy.payload)).digest('hex');
+ await s.restore(legacy,(await s.admin()).revision);
+ assert.equal((await s.view(cid)).election.undo,last.election.undo);
 });
 test('con la elección activa se pueden cambiar nicks y nombres; la puntuación acompaña al nick',async()=>{
  const {s,cid,d}=await setup();

@@ -577,7 +577,7 @@ export class Service {
             return {users,grants,revision:0,audit:[]};
         }
         requireSuper(this.actor); const r = await this.repo.batch([{ sql: 'SELECT * FROM users' }, { sql: 'SELECT * FROM grants' }, { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT 100' }, { sql: "SELECT revision FROM app_state WHERE id='main'" }]); return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 }; }
-    async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }
+    async backup() { requireSuper(this.actor); const names = Object.keys(tableColumns), r = await this.repo.batch([...names.map(n => ({ sql: `SELECT * FROM ${n} ORDER BY ${n === 'audit' ? 'rowid' : tableColumns[n][0]}` })), { sql: "SELECT revision FROM app_state WHERE id='main'" }]); const payload = { format: 'vacaciones-backup-v1', auditOrder: 'insertion', createdAt: now(), revision: r.at(-1)!.results[0]?.revision ?? 0, tables: Object.fromEntries(names.map((n, i) => [n, r[i].results])) }; return { payload, sha256: await digest(JSON.stringify(payload)) }; }
     async restore(b: any, expectedRevision: number) {
         requireSuper(this.actor);
         if (!b?.payload || b.payload.format !== 'vacaciones-backup-v1' || b.sha256 !== await digest(JSON.stringify(b.payload)))
@@ -585,6 +585,9 @@ export class Service {
         const tables={...b.payload.tables}; for(const key of ['preferences','election_states','controller_accounts','reconstruction_sessions'])if(tables[key]===undefined)tables[key]=[];
         // Restoring a backup must never resurrect a previously revoked session.
         if(Array.isArray(tables.audit))tables.audit=tables.audit.map((r:any)=>r.action==='local_admin_session'?{...r,action:'local_admin_session_revoked'}:r);
+        // Undo history replays audit in insertion order. Older backups listed it by id:
+        // recover chronological order from created_at (stable for equal times).
+        if(b.payload.auditOrder!=='insertion'&&Array.isArray(tables.audit))tables.audit=[...tables.audit].sort((x:any,y:any)=>String(x.created_at).localeCompare(String(y.created_at)));
         const names = Object.keys(tableColumns);
         if (names.some(n => !Array.isArray(tables[n])) || Object.keys(tables).some(n => !names.includes(n)))
             throw new ApiError('Tablas no válidas');
