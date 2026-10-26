@@ -105,15 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'reset_vacations') {
-    if (body.confirmation !== `${c.team_id}-${c.year}`)
-      throw new ApiError('Confirma el equipo y ejercicio antes de empezar de cero');
-    ops.push(
-      { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-      { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-    );
-    after = { requests: 0, awards: 0 };
-  } else if (action === 'undo_vacations' || action === 'redo_vacations') {
+  if (action === 'undo_vacations' || action === 'redo_vacations') {
     const entry = await service.vacationUndo(cid, c.version);
     if (!entry || entry.id !== body.undoId || (action === 'redo_vacations') !== (entry.action === 'undo_vacations'))
       throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.', 409);
@@ -591,6 +583,20 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   return { before, after };
 }
 
+async function executeResetVacations(ctx: CommandContext): Promise<CommandResult> {
+  const { cid, body, c, ops } = ctx;
+  const before: any = null;
+  let after: any = body;
+  if (body.confirmation !== `${c.team_id}-${c.year}`)
+    throw new ApiError('Confirma el equipo y ejercicio antes de empezar de cero');
+  ops.push(
+    { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
+    { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
+  );
+  after = { requests: 0, awards: 0 };
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -652,7 +658,7 @@ export const COMMANDS: Record<string, Command> = {
     preconditions: { activeElection: 'simulation', closedCampaign: false },
     vacationsUndo: true,
     election: resetVacationsElection,
-    execute: legacy('reset_vacations'),
+    execute: executeResetVacations,
   },
   undo_vacations: { ...vacations, election: restoreElection, execute: legacy('undo_vacations') },
   redo_vacations: { ...vacations, election: restoreElection, execute: legacy('redo_vacations') },
