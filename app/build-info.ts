@@ -8,8 +8,11 @@ declare const __VACACIONES_BUILD_TIME__: string;
 
 const formatter = new Intl.DateTimeFormat('es-ES', {
   timeZone: 'Europe/Madrid',
-  day: '2-digit', month: '2-digit', year: 'numeric',
-  hour: '2-digit', minute: '2-digit',
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
   hour12: false,
 });
 function formatted(iso: string): string {

@@ -22,7 +22,10 @@ test('el controlador vinculado entra directamente en las vacaciones de su equipo
 test('un enlace compartido a otro equipo tiene prioridad y deja cambiar de equipo', () => {
   assert.deepEqual(resolveLandingCampaign(index, '?equipo=A&year=2027'), { campaignId: 'a27', year: 2027 });
   assert.deepEqual(resolveLandingCampaign(index, '?equipo=A'), { campaignId: 'a27', year: 2027 });
-  assert.deepEqual(resolveLandingCampaign(index, '?equipo=B&year=2027&escenario=sim27'), { campaignId: 'sim27', year: 2027 });
+  assert.deepEqual(resolveLandingCampaign(index, '?equipo=B&year=2027&escenario=sim27'), {
+    campaignId: 'sim27',
+    year: 2027,
+  });
 });
 
 test('no se fuerza ningún equipo si no hay vinculación o no existe para el ejercicio solicitado', () => {
@@ -32,11 +35,20 @@ test('no se fuerza ningún equipo si no hay vinculación o no existe para el eje
 });
 
 test('se evita elegir arbitrariamente si el usuario figura en dos equipos el mismo año', () => {
-  assert.deepEqual(resolveLandingCampaign({ ...index, myCampaignIds: ['a27', 'b27'] }, ''), { campaignId: null, year: 2027 });
-  assert.deepEqual(resolveLandingCampaign({ ...index, myCampaignIds: ['b26', 'c27'] }, ''), { campaignId: 'c27', year: 2027 });
+  assert.deepEqual(resolveLandingCampaign({ ...index, myCampaignIds: ['a27', 'b27'] }, ''), {
+    campaignId: null,
+    year: 2027,
+  });
+  assert.deepEqual(resolveLandingCampaign({ ...index, myCampaignIds: ['b26', 'c27'] }, ''), {
+    campaignId: 'c27',
+    year: 2027,
+  });
 });
 
 test('las simulaciones no se usan como destino automático', () => {
-  assert.deepEqual(resolveLandingCampaign({ ...index, myCampaignIds: ['sim27'] }, ''), { campaignId: null, year: 2027 });
+  assert.deepEqual(resolveLandingCampaign({ ...index, myCampaignIds: ['sim27'] }, ''), {
+    campaignId: null,
+    year: 2027,
+  });
   assert.deepEqual(resolveLandingCampaign(index, '?escenario=sim27'), { campaignId: null, year: 2027 });
 });
