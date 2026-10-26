@@ -105,27 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'award') {
-    const m = d.members.find((m) => m.id === body.memberId);
-    if (!m) throw new ApiError('Identificador ajeno al equipo');
-    if (d.awards.some((a) => a.member_id === m.id && a.cycle_date === body.date))
-      throw new ApiError('Adjudicación duplicada');
-    const candidate = { id: id(), member_id: m.id, cycle_date: body.date };
-    if (rules) {
-      const check = rules.evaluateCandidate(rules.state(campaignOf(c, d.config), d.members, d.awards), [
-        { member_id: m.id, cycle_date: body.date },
-      ]);
-      if (!check.allowed) throw new ApiError(check.issues.map((issue) => issue.message).join('; '));
-    } else {
-      const check = calculate(c.year, c.team_id, d.config, d.members, d.requests, [...d.awards, candidate]);
-      if (check.issues.length) throw new ApiError(check.issues.join('; '));
-    }
-    ops.push({
-      sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
-      args: [candidate.id, cid, m.id, body.date],
-    });
-    after = candidate;
-  } else if (action === 'calculate') {
+  if (action === 'calculate') {
     const result = calculate(c.year, c.team_id, d.config, d.members, d.requests, d.awards);
     const runId = id();
     ops.push({
@@ -625,6 +605,32 @@ const executeDeleteRequest =
     return { before, after };
   };
 
+async function executeAward(ctx: CommandContext): Promise<CommandResult> {
+  const { cid, body, d, c, rules, ops } = ctx;
+  const before: any = null;
+  let after: any = body;
+  const m = d.members.find((m) => m.id === body.memberId);
+  if (!m) throw new ApiError('Identificador ajeno al equipo');
+  if (d.awards.some((a) => a.member_id === m.id && a.cycle_date === body.date))
+    throw new ApiError('Adjudicación duplicada');
+  const candidate = { id: id(), member_id: m.id, cycle_date: body.date };
+  if (rules) {
+    const check = rules.evaluateCandidate(rules.state(campaignOf(c, d.config), d.members, d.awards), [
+      { member_id: m.id, cycle_date: body.date },
+    ]);
+    if (!check.allowed) throw new ApiError(check.issues.map((issue) => issue.message).join('; '));
+  } else {
+    const check = calculate(c.year, c.team_id, d.config, d.members, d.requests, [...d.awards, candidate]);
+    if (check.issues.length) throw new ApiError(check.issues.join('; '));
+  }
+  ops.push({
+    sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+    args: [candidate.id, cid, m.id, body.date],
+  });
+  after = candidate;
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -693,7 +699,7 @@ export const COMMANDS: Record<string, Command> = {
   config: { preconditions: editing, election: 'reset', execute: executeConfig },
   request: { ...vacations, execute: executeRequest },
   delete_request: { ...vacations, execute: executeDeleteRequest('delete_request') },
-  award: { ...vacations, execute: legacy('award'), audited: availabilityImpact('award') },
+  award: { ...vacations, execute: executeAward, audited: availabilityImpact('award') },
   delete_award: {
     ...vacations,
     execute: executeDeleteRequest('delete_award'),
