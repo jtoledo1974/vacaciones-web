@@ -23,13 +23,17 @@ export function auditAfter(row:AuditRow):any{
 
 /** The canonical undo/redo replay, shared by history, reconstruction and timeline. */
 export function appliedAudit(rows:any[]){
- const done:any[]=[],redo:{original:any;undo:any}[]=[];
+ const done:any[]=[],redo:{original:any;undo:any;index:number}[]=[];
  const byId=new Map(rows.map(row=>[row.id,row]));
  for(const row of rows){
   if(row.action==='election_undo'){
-   const original=done.pop();if(original)redo.push({original,undo:row});
+   // A manager's undo may skip newer private-list edits, so remove the entry it
+   // targeted; rows without a recorded target always undid the newest entry.
+   const target=auditAfter(row)?.undoTargetId,found=target?done.findIndex(e=>e.id===target):-1;
+   const index=found>=0?found:done.length-1;
+   if(index>=0)redo.push({original:done.splice(index,1)[0],undo:row,index});
   }else if(row.action==='election_redo'){
-   const item=redo.pop();if(item)done.push(item.original);
+   const item=redo.pop();if(item)done.splice(Math.min(item.index,done.length),0,item.original);
   }else if(row.action==='reconstruction_start'){
    const after=auditAfter(row)??{},index=done.findIndex(e=>e.id===after.targetId);
    const keep=index>=0?index:after.keepCount;
@@ -44,12 +48,13 @@ export function appliedAudit(rows:any[]){
    for(const id of after.originalIds??[]){const original=byId.get(id);if(original)done.push(original);}
    redo.length=0;
   }else if(row.before_json&&auditBefore(row).format==='election-undo-v1'){
-   done.push(row);redo.length=0;
+   // Editing a list does not discard redo: undo and redo keep current lists.
+   done.push(row);if(row.action!=='preferences')redo.length=0;
   }else if(row.action==='resolve_tie'){
    redo.length=0;
   }
  }
- return {done,undo:done.at(-1)??null,redo:redo.at(-1)?.undo??null};
+ return {done,undo:done.at(-1)??null,redo:redo.at(-1)?.undo??null,redoOriginal:redo.at(-1)?.original??null};
 }
 
 /** One immutable read snapshot per Service.view, never a cross-request cache. */

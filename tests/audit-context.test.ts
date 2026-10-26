@@ -47,3 +47,18 @@ test('audit campaign index supports ordered replay in a newly migrated database'
  assert.ok(!plans.some(row=>String(row.detail).includes('USE TEMP B-TREE')));
  repo.db.close();
 });
+test('deshacer una entrada concreta la retira de su sitio y rehacer la devuelve al mismo',()=>{
+ const row=(id:string,action:string,after:any={})=>({id,action,before_json:JSON.stringify({format:'election-undo-v1'}),after_json:JSON.stringify(after)});
+ const choose=row('choose','choose'),list=row('list','preferences',{memberId:'A'});
+ const undo={id:'undo',action:'election_undo',before_json:null,after_json:JSON.stringify({undoTargetId:'choose'})};
+ const undone=appliedAudit([choose,list,undo]);
+ assert.deepEqual(undone.done.map(e=>e.id),['list']);
+ assert.equal(undone.redo,undo);
+ assert.equal(undone.redoOriginal,choose);
+ // A later list edit keeps redo available; redo puts the decision back in order.
+ const relist=row('relist','preferences',{memberId:'A'});
+ const redone=appliedAudit([choose,list,undo,relist,{id:'redo',action:'election_redo',before_json:null,after_json:'{}'}]);
+ assert.deepEqual(redone.done.map(e=>e.id),['choose','list','relist']);
+ // Rows without a recorded target keep undoing the newest entry.
+ assert.deepEqual(appliedAudit([choose,list,{...undo,after_json:'{}'}]).done.map(e=>e.id),['choose']);
+});

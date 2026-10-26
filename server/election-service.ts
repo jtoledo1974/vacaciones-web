@@ -9,12 +9,26 @@ import {ApiError} from './errors.ts';
 import {buildElectionTimeline,publicElectionTimeline,type PublicElectionTimelineItem} from './election-timeline.ts';
 import {ReconstructionService,appliedAudit} from './reconstruction.ts';
 import {historicalAvailability} from './availability-history.ts';
-import {AuditContext} from './audit-context.ts';
+import {AuditContext,auditAfter} from './audit-context.ts';
 import {peopleAhead} from '../app/my-election-state.ts';
 
 type Host={load:(cid:string)=>Promise<any>;commit:(ops:Statement[])=>Promise<any>;audit:(action:string,c:any,before:any,after:any)=>Statement};
 const context=(d:any):ElectionContext=>({year:d.campaign.year,team:d.campaign.team_id,config:d.config,members:d.members,requests:d.requests,awards:d.awards});
 export function electionStateStatement(cid:string,state:ElectionState|null):Statement{return state?{sql:'INSERT INTO election_states(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',args:[cid,JSON.stringify(state)]}:{sql:'DELETE FROM election_states WHERE campaign_id=?',args:[cid]};}
+// A list's content as its owner saved it, ignoring the active flag that awards consume.
+function listContent(items:Preference[],id:string){
+ const p=items.find(item=>item.member_id===id);
+ return p?JSON.stringify({dates:p.dates,automatic:p.automatic!==false,persistent:p.persistent===true,mode:p.mode??'immediate',waitMinutes:p.waitMinutes??0,labels:p.labels??{}}):null;
+}
+// Lists for an undo/redo snapshot: the snapshot's copy when the content is unchanged
+// (or it is the list being restored), otherwise the current list.
+function restoredPreferences(prior:Preference[],current:Preference[],restoredMember:string|null):Preference[]{
+ const ids=new Set([...prior,...current].map(p=>p.member_id));
+ return [...ids].flatMap(id=>{
+  const keep=id===restoredMember||listContent(prior,id)===listContent(current,id)?prior.find(p=>p.member_id===id):current.find(p=>p.member_id===id);
+  return keep?[keep]:[];
+ });
+}
 export class ElectionService{
  constructor(private repo:Repository,private actor:Principal,private host:Host){}
  reconstruction(){return new ReconstructionService(this.repo,this.actor,this.host);}
@@ -45,6 +59,13 @@ export class ElectionService{
   // A new decision after an undo creates a new branch and clears only the redo stack.
   const rows=await this.repo.all('SELECT id,action,before_json,after_json FROM audit WHERE campaign_id=? ORDER BY rowid ASC',[cid]);
   return appliedAudit(rows);
+ }
+ // Edits to lists this actor may not touch stay out of their undo: «Deshacer»
+ // reaches the newest decision below them instead of being blocked by them.
+ async managerHistory(cid:string,d:any,mine:string|null,audit?:AuditContext){
+  const history=await this.history(cid,audit),editable=new Set(await this.preferenceMemberIds(d,mine));
+  const isPrivate=(entry:any)=>entry.action==='preferences'&&!editable.has(auditAfter(entry)?.memberId);
+  return {...history,undo:history.done.findLast(entry=>!isPrivate(entry))??null,isPrivate};
  }
  async options(cid:string,selected:string[],jointEntries?:{member_id:string;dates:string[]}[]){
   const d=await this.host.load(cid),raw=await this.read(cid),mine=await this.memberForAccount(d);
@@ -217,7 +238,7 @@ export class ElectionService{
    return {member_id:m.id,cycles:awarded.length,
     points:awarded.reduce((sum:number,a:any)=>sum+(cycleScores.get(a.cycle_date)??0),0)};
   });
-  const history=manage?await this.history(cid,options.auditContext):null;
+  const history=manage?await this.managerHistory(cid,d,mine,options.auditContext):null;
   // Replay persisted actions, then expose only an allowlisted compact projection
   // to public viewers. Managers retain the complete existing timeline.
   let timeline:ReturnType<typeof buildElectionTimeline>|PublicElectionTimelineItem[]=[];
@@ -376,22 +397,23 @@ export class ElectionService{
     else ops.push({sql:'DELETE FROM controller_accounts WHERE person_id=?',args:[member.person_id]});
    }else if(action==='election_undo'||action==='election_redo'){
     if(!manage)throw new ApiError('Solo el responsable del equipo puede deshacer o rehacer elecciones',403);
-    const history=await this.history(cid);
+    const history=await this.managerHistory(cid,d,mine);
     const entry=action==='election_undo'?history.undo:history.redo;
+    const privateDenied='Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas';
+    if(action==='election_undo'&&entry?.id!==body.historyId&&history.done.some(e=>e.id===body.historyId&&history.isPrivate(e)))throw new ApiError(privateDenied,403);
     if(!entry||entry.id!==body.historyId)throw new ApiError('El cambio ya no está disponible para deshacer o rehacer',409);
     const prior=JSON.parse(entry.before_json);
-    // Linked accounts' private lists are protected. Undoing an award may
-    // restore only the active flag automatically consumed by that award.
+    // Restore the undone list edit itself and list flags (active) consumed by an
+    // undone award; every other list keeps what its owner has saved since.
+    const original=action==='election_undo'?entry:history.redoOriginal;
+    const next=restoredPreferences(prior.preferences??[],preferences,original?.action==='preferences'?auditAfter(original)?.memberId:null);
+    // Linked accounts' private lists are protected.
     if(c.scope_key==='live'&&this.actor.role!=='superadmin'){
      const linked=await this.repo.all('SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',[cid]);
-     const privateList=(items:Preference[],id:string)=>{
-      const p=items.find(item=>item.member_id===id);
-      return p?JSON.stringify({dates:p.dates,automatic:p.automatic!==false,persistent:p.persistent===true,mode:p.mode??'immediate',waitMinutes:p.waitMinutes??0,labels:p.labels??{}}):null;
-     };
-     if(linked.some((m:any)=>m.id!==mine&&privateList(prior.preferences??[],m.id)!==privateList(preferences,m.id)))
-      throw new ApiError('Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas',403);
+     if(linked.some((m:any)=>m.id!==mine&&listContent(next,m.id)!==listContent(preferences,m.id)))
+      throw new ApiError(privateDenied,403);
     }
-    state=prior.state;preferences=prior.preferences;
+    state=prior.state;preferences=next;
     // Undo must leave the recovered turn editable, never automatically re-award it.
     // Redo restores the prior snapshot exactly (including the old pause state).
     if(action==='election_undo'&&state)state={...state,automaticPaused:true};

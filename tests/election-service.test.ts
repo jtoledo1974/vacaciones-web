@@ -235,6 +235,41 @@ test('el administrador de equipo no puede deshacer preferencias privadas vincula
  const undone=await act(s,cid,{action:'election_undo',historyId:next.election.undo});
  assert.equal(undone.election.preferences.length,0);
 });
+test('el delegado deshace la última adjudicación aunque después un titular haya editado su lista',async()=>{
+ const {repo,s,cid,d,person}=await setup(),a=d.members[0],dates=d.result.cycles.map((c:any)=>c.date);
+ const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
+ await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});
+ await act(s,cid,start(d));
+ const chosen=await act(s,cid,{action:'choose',memberId:a.id,dates:[dates[0]]});
+ await actOne(person,cid,{action:'preferences',memberId:a.id,dates:[dates[2]],persistent:false});
+ const edited=await delegate.view(cid),owned=await s.view(cid);
+ // The superadministrator may still undo the list edit; the delegate skips it.
+ assert.notEqual(owned.election.undo,chosen.election.undo);
+ assert.equal(edited.election.undo,chosen.election.undo);
+ let current=await act(delegate,cid,{action:'election_undo',historyId:edited.election.undo});
+ assert.equal(current.awards.length,0);
+ assert.equal(current.election.turn.memberId,a.id);
+ const list=async()=>(await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id);
+ assert.deepEqual((await list()).dates,[dates[2]],'Deshacer conserva la lista guardada después por su titular');
+ current=await act(delegate,cid,{action:'election_redo',historyId:current.election.redo});
+ assert.equal(current.awards.length,1);
+ assert.deepEqual((await list()).dates,[dates[2]],'Rehacer tampoco la sustituye');
+});
+test('deshacer una adjudicación que consumió una lista ya editada conserva la versión nueva',async()=>{
+ const {repo,s,cid,d,person}=await setup(),a=d.members[0],dates=d.result.cycles.map((c:any)=>c.date);
+ const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
+ await act(s,cid,{action:'link_account',memberId:a.id,subject:'person@example.test',accountVersion:0});
+ await actOne(person,cid,{action:'preferences',memberId:a.id,dates:[dates[0]],persistent:false});
+ let current=await act(s,cid,start(d));
+ assert.equal(current.awards.filter((x:any)=>x.member_id===a.id).length,1);
+ await actOne(person,cid,{action:'preferences',memberId:a.id,dates:[dates[1],dates[2]],persistent:false});
+ current=await delegate.view(cid);
+ current=await act(delegate,cid,{action:'election_undo',historyId:current.election.undo});
+ assert.equal(current.awards.filter((x:any)=>x.member_id===a.id).length,0);
+ const list=(await s.view(cid)).election.preferences.find((p:any)=>p.member_id===a.id);
+ assert.deepEqual(list.dates,[dates[1],dates[2]]);
+ assert.equal(list.active,true);
+});
 test('el delegado puede deshacer y rehacer una elección que consume preferencias ajenas sin cambiar su lista',async()=>{
  const {repo,s,cid,d}=await setup(),a=d.members[0],date=d.result.cycles[0].date;
  const delegate=new Service(repo,{id:'chatgpt:delegate',role:'team_admin',teams:['C']});
