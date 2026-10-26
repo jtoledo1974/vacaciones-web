@@ -105,29 +105,7 @@ export async function legacyExecute(ctx: CommandContext, action: string): Promis
   const { service, repo, actor, cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null,
     after: any = body;
-  if (action === 'retire_member') {
-    const member = d.members.find((m) => m.id === body.memberId);
-    if (!member) throw new ApiError('Identificador no encontrado', 404);
-    if (grantsIndividualEntitlements(c.year) && d.config.individualEntitlements?.[member.code])
-      throw new ApiError('Retira primero la excepción individual de RRHH antes de dar de baja al controlador');
-    service.assertCompletable(
-      c,
-      d.config,
-      d.members.filter((m) => m.id !== member.id),
-      d.awards,
-      'Dar de baja controlador',
-    );
-    if (election.preferences.some((p) => p.member_id === member.id && p.dates.length))
-      throw new ApiError('Vacía sus preferencias antes de dar la baja');
-    if ([...d.requests, ...d.awards].some((r) => r.member_id === member.id))
-      throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
-    ops.push(
-      { sql: 'DELETE FROM preferences WHERE member_id=? AND campaign_id=?', args: [member.id, cid] },
-      { sql: 'DELETE FROM campaign_members WHERE id=? AND campaign_id=?', args: [member.id, cid] },
-    );
-    before = member;
-    after = { retired: member.code };
-  } else if (action === 'member') {
+  if (action === 'member') {
     const code = String(body.code ?? '')
       .trim()
       .toUpperCase();
@@ -665,6 +643,34 @@ async function executeTransferMember(ctx: CommandContext): Promise<CommandResult
   return { before, after };
 }
 
+async function executeRetireMember(ctx: CommandContext): Promise<CommandResult> {
+  const { service, cid, body, d, c, election, ops } = ctx;
+  let before: any = null;
+  let after: any = body;
+  const member = d.members.find((m) => m.id === body.memberId);
+  if (!member) throw new ApiError('Identificador no encontrado', 404);
+  if (grantsIndividualEntitlements(c.year) && d.config.individualEntitlements?.[member.code])
+    throw new ApiError('Retira primero la excepción individual de RRHH antes de dar de baja al controlador');
+  service.assertCompletable(
+    c,
+    d.config,
+    d.members.filter((m) => m.id !== member.id),
+    d.awards,
+    'Dar de baja controlador',
+  );
+  if (election.preferences.some((p) => p.member_id === member.id && p.dates.length))
+    throw new ApiError('Vacía sus preferencias antes de dar la baja');
+  if ([...d.requests, ...d.awards].some((r) => r.member_id === member.id))
+    throw new ApiError('Retira sus solicitudes y adjudicaciones del borrador antes de retirar el identificador');
+  ops.push(
+    { sql: 'DELETE FROM preferences WHERE member_id=? AND campaign_id=?', args: [member.id, cid] },
+    { sql: 'DELETE FROM campaign_members WHERE id=? AND campaign_id=?', args: [member.id, cid] },
+  );
+  before = member;
+  after = { retired: member.code };
+  return { before, after };
+}
+
 const legacy =
   (action: string) =>
   (ctx: CommandContext): Promise<CommandResult> =>
@@ -774,7 +780,7 @@ export const COMMANDS: Record<string, Command> = {
     execute: executeBulkMembers,
   },
   transfer_member: { preconditions: editing, election: 'reset', execute: executeTransferMember },
-  retire_member: { preconditions: editing, election: 'reset', execute: legacy('retire_member') },
+  retire_member: { preconditions: editing, election: 'reset', execute: executeRetireMember },
   member: {
     preconditions: { ...editing, renameOnly: (body, d) => sameSeniority(d, body) },
     election: 'reset',
