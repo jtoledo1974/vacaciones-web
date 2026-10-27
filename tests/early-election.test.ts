@@ -14,6 +14,7 @@ import { earlyProof, earlyWindow } from '../domain/early-election.ts';
 import { earlyListChoice } from '../server/election-commands.ts';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
+import { dispatchNotifications } from '../server/notifications.ts';
 
 // Real 2027 rules on a 16-person team: the order is M0, M1, ..., M15.
 const members = Array.from({ length: 16 }, (_, i) => ({ id: 'M' + i, code: 'M' + i, seniority: '' }));
@@ -138,7 +139,7 @@ async function election(order = 3) {
   await run(s, { action: 'start', rulesConfirmed: true, allowDeferral: true });
   const [a, b, c] = d.members;
   await run(s, { action: 'link_account', memberId: b.id, subject: 'person@example.test', accountVersion: 0 });
-  return { s, person: new Service(repo, visitor), cid, a, b, c, run, dates: d.result.cycles.map((x) => x.date) };
+  return { repo, s, person: new Service(repo, visitor), cid, a, b, c, run, dates: d.result.cycles.map((x) => x.date) };
 }
 
 test('elegir por adelantado: comprobación en servidor, vista propia y turno saltado', async () => {
@@ -209,4 +210,29 @@ test('lista inmediata del siguiente: se adjudica por adelantado con advance; en 
   assert.equal(view.election.preferences.find((p) => p.member_id === b.id).active, false);
   const automatic = view.election.timeline.find((item) => item.anticipated);
   assert.ok(automatic, 'la línea de tiempo marca la adjudicación como anticipada');
+});
+
+const push = { VAPID_PUBLIC_KEY: 'k', VAPID_PRIVATE_JWK: 'k', VAPID_SUBJECT: 'mailto:admin@example.test' };
+const earlyNotices = async (repo: SQLiteRepo) =>
+  repo.all("SELECT id,push_status FROM turn_notifications WHERE id LIKE 'early:%'");
+test('aviso de oportunidad: uno por ronda, y obsoleto si la ventana se cierra antes de enviarse', async () => {
+  const { repo, s, run, a, b, dates } = await election();
+  const noSend = async () => ({ ok: false, status: 503 }) as never;
+  await dispatchNotifications(repo, push, undefined, noSend);
+  await dispatchNotifications(repo, push, undefined, noSend);
+  let rows = await earlyNotices(repo);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].id, new RegExp(':' + b.id + ':1$'));
+  // A chooses: B's own turn arrives, so the pending opportunity is no longer true.
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  await dispatchNotifications(repo, push, undefined, noSend);
+  rows = await earlyNotices(repo);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].push_status, 'obsolete');
+});
+test('sin aviso de oportunidad cuando la lista inmediata va a adjudicar por sí sola', async () => {
+  const { repo, s, run, b, dates } = await election();
+  await run(s, { action: 'preferences', memberId: b.id, dates: [dates[6]] });
+  await dispatchNotifications(repo, push, undefined, async () => ({ ok: false, status: 503 }) as never);
+  assert.equal((await earlyNotices(repo)).length, 0);
 });
