@@ -17,8 +17,6 @@ pnpm test:e2e
 
 `pnpm test:e2e:ui` abre el explorador interactivo de las pruebas. `pnpm exec playwright show-report` muestra el informe HTML. Los fallos conservan captura y traza en `test-results`; el informe queda en `playwright-report`. Ambos directorios se excluyen de Git.
 
-GitHub Actions ejecuta las pruebas de negocio y Playwright en cada push a `main`, en las pull requests y bajo petición manual. Conserva informes y trazas durante siete días. No necesita credenciales del Site ni de producción.
-
 El servidor de pruebas arranca automáticamente en `127.0.0.1:5199` y se detiene al terminar. No se reutiliza un servidor existente ni se admite una URL remota. Las migraciones se aplican a una carpeta nueva `.sites-runtime/e2e-state/run-<uuid>` en cada ejecución, separada de `.wrangler/state` y de producción. Así no se reutilizan sesiones ni límites de intentos de login. La ruta de la última ejecución queda en `.sites-runtime/e2e-latest-state.txt`. La sesión ficticia local es `seedy@sites.test`; no valida el acceso real a ChatGPT.
 
 Cada prueba crea una simulación con cuatro controladores ficticios. No modifica la campaña real, incluso dentro de la base de pruebas. Las restauraciones afectan exclusivamente a esta base aislada. Los escenarios se ejecutan secuencialmente porque la restauración es global; cada ejecución crea escenarios nuevos y admite repetirse.
@@ -44,3 +42,42 @@ Las capturas quedan en `test-results/`, excluido de Git. Con `CI` no se generan 
 $env:PLAYWRIGHT_CHANNEL='chrome'
 node node_modules/playwright/cli.js test tests/e2e/preferences.spec.ts
 ```
+
+## Integración continua
+
+GitHub Actions no necesita credenciales del Site ni de producción. En cada push a una pull request propia del mismo repositorio y a `main` ejecuta dos jobs en runners propios, sin alternativa alojada en GitHub:
+
+1. **Checks rápidos** (`checks`), en el runner con la etiqueta `vacaciones-rapidos` (el servidor, `pve-playwright-01`, reservado para esto). Una sola instalación y, en este orden: Prettier, tipos, `pnpm test`, `pnpm build` y `pnpm lint:ratchet`, obligatorio: bloquea cualquier incremento de errores ESLint por archivo y regla respecto a `lint-baseline.json`.
+2. **Playwright** (`browser`), solo si los checks rápidos pasan, en los runners del portátil (etiqueta `vacaciones-portatil`). Un check rojo no ocupa nunca un runner de Playwright, y Playwright no deja en cola a los checks rápidos.
+
+Cada runner atiende un job a la vez, con su propio workspace y caché persistente de pnpm en `/pnpm/store`. Se usan Node 24 y pnpm 11.25.0 ya instalados en la imagen; no se reinstalan globalmente en cada job. El selector manual de runner, si se elige uno, se aplica a los dos jobs. Las PR externas y de otros autores no ejecutan código en estos runners. Si el portátil está apagado, Playwright espera en cola, pero los checks rápidos siguen respondiendo.
+
+Playwright tiene dos niveles:
+
+- **Smoke** en cada push de una pull request: los tests etiquetados `@smoke`, que cubren acceso, consulta de la campaña, elección en un turno y preferencias. `pnpm exec playwright test --list --grep @smoke` muestra el subconjunto.
+- **Suite completa** solo en cada push a `main` y al lanzar el workflow a mano (`workflow_dispatch`, que sirve para validar una rama concreta antes del merge si hace falta). Si falla en `main`, se corrige con una pull request nueva. No se suben capturas, vídeos ni trazas: los resultados quedan en la consola del job.
+
+`pnpm install` activa un hook `pre-push` (`.githooks/pre-push`) que ejecuta `pnpm format:check` y bloquea el push si hay errores de formato; se corrige con `pnpm format`. `git push --no-verify` lo omite una vez.
+
+Para marcar un test como smoke se añade `@smoke` a su `tag`, sin cambiar lo que comprueba. El subconjunto debe seguir siendo pequeño: cada test añadido se ejecuta en cada push de cada pull request.
+
+### Trinquete de ESLint
+
+La deuda existente queda registrada en `lint-baseline.json`, con un contador de errores por archivo y por regla. El estado inicial (commit `7de875c`) contiene **752 errores en 64 archivos** (715 de `@typescript-eslint/no-explicit-any`) y 46 advertencias, que no bloquean. El contador se genera mediante la salida JSON de ESLint usando las mismas opciones que `pnpm lint` (ignorando `dist` y `.next`).
+
+- `pnpm lint`: informe normal de ESLint, puede terminar con código 1 por la deuda heredada.
+- `pnpm lint:ratchet`: permite mantener o reducir cada contador, pero falla si crece uno cualquiera, aunque baje el total.
+- `pnpm lint:ratchet:update`: **regenera** la línea base a partir del código actual. Debe utilizarse **solo tras corregir deuda existente**; revisa su diff y versiona el JSON junto a las correcciones. No se ejecuta en CI.
+
+Si se corrigen errores, la comprobación muestra los contadores reducidos y sugiere actualizar el JSON. Una regla nueva o un error en un archivo nuevo parte de cero y bloquea el PR. Una avería de ESLint o un JSON inválido no puede superar la comprobación.
+
+Todos los jobs (`checks`, `build` y `browser`) usan ese grupo, sin alternativa alojada en GitHub. Cada runner atiende un job a la vez, con su propio workspace y caché persistente de pnpm en `/pnpm/store`. Se usan Node 24 y pnpm 11.25.0 ya instalados en la imagen; no se reinstalan globalmente en cada job. El selector manual de runner se aplica a los tres jobs. Las PR externas y de otros autores no ejecutan código en estos runners.
+
+Playwright conserva dos niveles:
+
+- **Smoke** en cada push de una pull request: los tests etiquetados `@smoke`, que cubren acceso, consulta de la campaña, elección en un turno y preferencias. `pnpm exec playwright test --list --grep @smoke` muestra el subconjunto.
+- **Suite completa** en cada push a `main`, al lanzar el workflow a mano (`workflow_dispatch`) y en las pull requests con la etiqueta `e2e-full`.
+
+Para pedir la suite completa en una pull request, añade la etiqueta `e2e-full` (`gh pr edit <número> --add-label e2e-full`). Al añadirla se lanza la suite completa sin necesidad de un push nuevo, y los pushes siguientes también la ejecutan mientras la etiqueta siga puesta. Otras etiquetas no relanzan nada. No se suben capturas, vídeos ni trazas: los resultados quedan en la consola del job.
+
+Para marcar un test como smoke se añade `@smoke` a su `tag`, sin cambiar lo que comprueba. El subconjunto debe seguir siendo pequeño: cada test añadido se ejecuta en cada push de cada pull request.

@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "errors": {
+    "app/api/[...path]/route.ts": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "app/confirmation.tsx": {
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/cycle-calendar.tsx": {
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/dashboard.tsx": {
+      "@next/next/no-html-link-for-pages": 2,
+      "@typescript-eslint/no-explicit-any": 59,
+      "react-hooks/set-state-in-effect": 5
+    },
+    "app/election-workspace.tsx": {
+      "@typescript-eslint/no-explicit-any": 90,
+      "react-hooks/immutability": 1,
+      "react-hooks/set-state-in-effect": 11
+    },
+    "app/help.tsx": {
+      "@typescript-eslint/no-explicit-any": 4
+    },
+    "app/my-election-card.tsx": {
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/my-election-state.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "app/notificaciones/diagnostico/page.tsx": {
+      "@next/next/no-html-link-for-pages": 1
+    },
+    "app/notificaciones/page.tsx": {
+      "@next/next/no-html-link-for-pages": 1,
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/personal-simulator.tsx": {
+      "@typescript-eslint/no-explicit-any": 14,
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/preferences-editor.tsx": {
+      "@typescript-eslint/no-explicit-any": 5
+    },
+    "app/reconstruction-panel.tsx": {
+      "@typescript-eslint/no-explicit-any": 8,
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/roster-editor.tsx": {
+      "@typescript-eslint/no-explicit-any": 9,
+      "react-hooks/refs": 1
+    },
+    "app/round-queue-panel.tsx": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "app/simulation-tools.tsx": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "app/user-permissions.tsx": {
+      "@typescript-eslint/no-explicit-any": 11
+    },
+    "domain/election.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "domain/events.ts": {
+      "@typescript-eslint/no-explicit-any": 7
+    },
+    "domain/personal-simulation.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "server/audit-context.ts": {
+      "@typescript-eslint/no-explicit-any": 15
+    },
+    "server/availability-history.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "server/election-commands.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "server/election-service.ts": {
+      "@typescript-eslint/no-explicit-any": 32
+    },
+    "server/election-timeline.ts": {
+      "@typescript-eslint/no-explicit-any": 4
+    },
+    "server/notifications.ts": {
+      "@typescript-eslint/no-explicit-any": 4
+    },
+    "server/personal-simulation.ts": {
+      "@typescript-eslint/no-explicit-any": 6
+    },
+    "server/reconstruction.ts": {
+      "@typescript-eslint/no-explicit-any": 33
+    },
+    "server/repository.ts": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "server/roster.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "server/service-commands.ts": {
+      "@typescript-eslint/no-explicit-any": 47
+    },
+    "server/service.ts": {
+      "@typescript-eslint/no-explicit-any": 28
+    },
+    "server/simulations.ts": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "tests/administration.test.ts": {
+      "@typescript-eslint/no-explicit-any": 4,
+      "prefer-const": 2
+    },
+    "tests/audit-context.test.ts": {
+      "@typescript-eslint/no-explicit-any": 4
+    },
+    "tests/audit-events.test.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "tests/availability-2027.test.ts": {
+      "@typescript-eslint/no-explicit-any": 2
+    },
+    "tests/cycle-availability-ui.test.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "tests/e2e/access-gate.spec.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "tests/e2e/admin-personal-vacations.spec.ts": {
+      "@typescript-eslint/no-explicit-any": 12
+    },
+    "tests/e2e/policy-2027.spec.ts": {
+      "@typescript-eslint/no-explicit-any": 14
+    },
+    "tests/e2e/preferences.spec.ts": {
+      "@typescript-eslint/no-explicit-any": 9,
+      "prefer-const": 1
+    },
+    "tests/e2e/roster-autosave.spec.ts": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "tests/e2e/vacations.spec.ts": {
+      "@typescript-eslint/no-explicit-any": 41
+    },
+    "tests/election-service.test.ts": {
+      "@typescript-eslint/no-explicit-any": 105,
+      "prefer-const": 1
+    },
+    "tests/election-timeline.test.ts": {
+      "@typescript-eslint/no-explicit-any": 5
+    },
+    "tests/joint-rounds.test.ts": {
+      "prefer-const": 1
+    },
+    "tests/linked-account-landing.test.ts": {
+      "@typescript-eslint/no-explicit-any": 2
+    },
+    "tests/my-election-state.test.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "tests/notification-install.test.ts": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "tests/notifications-automatic.test.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "tests/notifications-low-list.test.ts": {
+      "@typescript-eslint/no-explicit-any": 5
+    },
+    "tests/notifications-soon.test.ts": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "tests/notifications-superadmin.test.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
+    "tests/personal-simulation.test.ts": {
+      "@typescript-eslint/no-explicit-any": 15
+    },
+    "tests/policy-2027-service.test.ts": {
+      "@typescript-eslint/no-explicit-any": 32
+    },
+    "tests/policy-2027.test.ts": {
+      "@typescript-eslint/no-explicit-any": 2
+    },
+    "tests/policy-pluggable.test.ts": {
+      "@typescript-eslint/no-explicit-any": 7
+    },
+    "tests/preference-wait-service.test.ts": {
+      "@typescript-eslint/no-explicit-any": 17
+    },
+    "tests/projections.test.ts": {
+      "@typescript-eslint/no-explicit-any": 5
+    },
+    "tests/quotas.test.ts": {
+      "prefer-const": 1
+    },
+    "tests/reconstruction.test.ts": {
+      "@typescript-eslint/no-explicit-any": 23
+    },
+    "tests/service-commands.test.ts": {
+      "@typescript-eslint/no-explicit-any": 7
+    },
+    "tests/service.test.ts": {
+      "@typescript-eslint/no-explicit-any": 8,
+      "prefer-const": 1
+    },
+    "tests/sqlite-repo.ts": {
+      "@typescript-eslint/no-explicit-any": 3
+    },
+    "tests/team-admin-simulations.test.ts": {
+      "@typescript-eslint/no-explicit-any": 13,
+      "prefer-const": 2
+    }
+  }
+}

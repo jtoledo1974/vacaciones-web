@@ -80,6 +80,10 @@
 .vac2-occupants span{overflow-wrap:anywhere}
 .vac2-month-nav{display:none}
 .vac2-members-wrap{padding:10px 0 0}
+.vac2-member-controls{display:flex;flex-wrap:wrap;gap:8px 12px;margin:0 0 10px}
+.vac2-member-controls label{display:flex;flex:1 1 185px;flex-direction:column;gap:5px;min-width:0;color:#445e52;font-size:12px;font-weight:650}
+.vac2-member-controls select{width:100%;min-width:0;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:#204d3e;font:inherit;font-size:13px;font-weight:500}
+.vac2-member-controls select:focus-visible{outline:2px solid #235f4e;outline-offset:2px}
 .vac2-members-wrap .muted{font-size:11px;margin:2px 0 12px}
 .vac2-members-desktop{overflow-x:auto}
 .vac2-members-wrap table{min-width:610px}
@@ -130,6 +134,7 @@
  .vac2-calendar>.vac2-active-mobile{display:block}
  .vac2-calendar .vac2-month{padding:13px}
  .vac2-calendar .vac2-day{font-size:12px;min-height:31px}
+ .vac2-member-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
  .vac2-members-desktop{display:none}
  .vac2-members-mobile{display:grid;gap:7px}
  .vac2-member-card{margin:0;border:1px solid var(--line);border-radius:7px;padding:0}
@@ -590,31 +595,31 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 @media(max-width:580px){.election-score-source-editor{padding:13px}}
 
 /* Disponibilidad GLOBAL 2027: contraste inequívoco 4 → 0; no confundir timeout con bloqueo. */
-.vac2-year-2027 .vac2-free-4{--vac2-status:#16844b;--vac2-foreground:#fff}
-.vac2-year-2027 .vac2-free-3{--vac2-status:#80c65a;--vac2-foreground:#162a1c}
-.vac2-year-2027 .vac2-free-2{--vac2-status:#f1d65d;--vac2-foreground:#302600}
-.vac2-year-2027 .vac2-free-1{--vac2-status:#e88d43;--vac2-foreground:#2b1b0c}
-.vac2-year-2027 .vac2-free-0{--vac2-status:#662033;--vac2-foreground:#fff}
-.vac2-year-2027 .vac2-unknown{--vac2-status:#6c7480;--vac2-foreground:#fff}
-.vac2-year-2027 .vac2-key.vac2-free-4{background:#16844b}
-.vac2-year-2027 .vac2-key.vac2-free-3{background:#80c65a}
-.vac2-year-2027 .vac2-key.vac2-free-2{background:#f1d65d}
-.vac2-year-2027 .vac2-key.vac2-free-1{background:#e88d43}
-.vac2-year-2027 .vac2-key.vac2-free-0{background:#662033}
-.vac2-year-2027 .vac2-key.vac2-unknown{background:repeating-linear-gradient(135deg,#69727f 0 4px,#c4c9ce 4px 8px)}
-.vac2-year-2027 .vac2-cycle{border-left-width:5px;background:var(--vac2-status);color:var(--vac2-foreground)}
-.vac2-year-2027 .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
-.vac2-year-2027 .vac2-cycle-sub,.vac2-year-2027 .vac2-names{color:inherit;opacity:.9}
-.vac2-year-2027 .vac2-day{background:var(--vac2-status);color:var(--vac2-foreground);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px}
-.vac2-year-2027 .vac2-day-count{display:block;font-size:9px;font-weight:900;line-height:1}
-.vac2-year-2027 .vac2-cycle.vac2-selected,.vac2-year-2027 .vac2-day.vac2-selected{outline:3px solid #1836a6;outline-offset:1px}
-.vac3-2027 .vac3-table td.vac3-slot{background:#fff;color:#1e2f26}
-.vac3-2027 .vac3-table td.vac3-slot.vac3-occupied{background:#e4ece8;color:#26372d}
-.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled{background:#292e33;color:#fff}
-.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled .vac3-slot-code{color:#fff}
-.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown{background:repeating-linear-gradient(135deg,#f0f1f2 0 6px,#d8dddf 6px 12px);color:#303741}
-.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown .vac3-slot-code{color:#303741}
-.vac3-2027 .vac3-table .vac3-selected td.vac3-slot{border-top:2px solid #237a4f;border-bottom:2px solid #237a4f}
+.vac2-ruled .vac2-free-4{--vac2-status:#16844b;--vac2-foreground:#fff}
+.vac2-ruled .vac2-free-3{--vac2-status:#80c65a;--vac2-foreground:#162a1c}
+.vac2-ruled .vac2-free-2{--vac2-status:#f1d65d;--vac2-foreground:#302600}
+.vac2-ruled .vac2-free-1{--vac2-status:#e88d43;--vac2-foreground:#2b1b0c}
+.vac2-ruled .vac2-free-0{--vac2-status:#662033;--vac2-foreground:#fff}
+.vac2-ruled .vac2-unknown{--vac2-status:#6c7480;--vac2-foreground:#fff}
+.vac2-ruled .vac2-key.vac2-free-4{background:#16844b}
+.vac2-ruled .vac2-key.vac2-free-3{background:#80c65a}
+.vac2-ruled .vac2-key.vac2-free-2{background:#f1d65d}
+.vac2-ruled .vac2-key.vac2-free-1{background:#e88d43}
+.vac2-ruled .vac2-key.vac2-free-0{background:#662033}
+.vac2-ruled .vac2-key.vac2-unknown{background:repeating-linear-gradient(135deg,#69727f 0 4px,#c4c9ce 4px 8px)}
+.vac2-ruled .vac2-cycle{border-left-width:5px;background:var(--vac2-status);color:var(--vac2-foreground)}
+.vac2-ruled .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
+.vac2-ruled .vac2-cycle-sub,.vac2-ruled .vac2-names{color:inherit;opacity:.9}
+.vac2-ruled .vac2-day{background:var(--vac2-status);color:var(--vac2-foreground);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1px}
+.vac2-ruled .vac2-day-count{display:block;font-size:9px;font-weight:900;line-height:1}
+.vac2-ruled .vac2-cycle.vac2-selected,.vac2-ruled .vac2-day.vac2-selected{outline:3px solid #1836a6;outline-offset:1px}
+.vac3-ruled .vac3-table td.vac3-slot{background:#fff;color:#1e2f26}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-occupied{background:#e4ece8;color:#26372d}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-disabled{background:#292e33;color:#fff}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-disabled .vac3-slot-code{color:#fff}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-unknown{background:repeating-linear-gradient(135deg,#f0f1f2 0 6px,#d8dddf 6px 12px);color:#303741}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-unknown .vac3-slot-code{color:#303741}
+.vac3-ruled .vac3-table .vac3-selected td.vac3-slot{border-top:2px solid #237a4f;border-bottom:2px solid #237a4f}
 .election-fast-mode{display:flex;align-items:center;gap:8px;padding:7px;border-radius:6px;background:#fff8e7;color:#4b360d;font-size:11px}
 .election-fast-indicator{font-size:10px;font-weight:750;border:1px solid #c58527;background:#fff5d7;border-radius:5px;padding:5px 8px}
 .election-log-impact{margin:7px 0 0;padding:6px 8px;border-left:3px solid #879b9e;background:#f4f6f6}
@@ -701,7 +706,7 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .election-pending-count,.election-fast-mode,.election-fast-indicator,
  .election-log-impact summary,.election-log-warning,.election-log-highlight,
  .election-thinking-dialog .muted,.election-auto-notice,
- .vac2-year-2027 .vac2-day-count,
+ .vac2-ruled .vac2-day-count,
  .preference-dock .preference-feedback,
  .vac2-member-card summary,.vac2-members-mobile small
 ){font-size:12px}
@@ -774,18 +779,18 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .confirm-impact-title{display:block;font-weight:650;color:#2d4441;margin-bottom:2px}
 /* #64 escala única y apta para daltónicos: un solo tono, de oscuro (muchas plazas) a claro,
    y el 0 se distingue por textura. Contraste del texto ≥ 4,5:1 en todos los niveles. */
-.vac2-year-2027 .vac2-free-4{--vac2-status:#0b4f40;--vac2-foreground:#fff}
-.vac2-year-2027 .vac2-free-3{--vac2-status:#1f7a60;--vac2-foreground:#fff}
-.vac2-year-2027 .vac2-free-2{--vac2-status:#9fd3bd;--vac2-foreground:#0d2b23}
-.vac2-year-2027 .vac2-free-1{--vac2-status:#dcefe6;--vac2-foreground:#0d2b23}
-.vac2-year-2027 .vac2-free-0{--vac2-status:#eceeed;--vac2-foreground:#3d4744}
-.vac2-year-2027 .vac2-unknown{--vac2-status:#fff;--vac2-foreground:#2a3330}
-.vac2-year-2027 .vac2-cycle.vac2-free-0,.vac2-year-2027 .vac2-day.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px)}
-.vac2-year-2027 .vac2-cycle.vac2-unknown,.vac2-year-2027 .vac2-day.vac2-unknown{border:2px dashed #6c7480}
-.vac2-year-2027 .vac2-cycle{border:1px solid #c9d6d0;border-left:6px solid transparent}
-.vac2-year-2027 .vac2-cycle.vac2-summer{border-left-color:#e0a526;box-shadow:none}
-.vac2-year-2027 .vac2-day.vac2-summer{box-shadow:inset 0 -4px 0 #e0a526}
-.vac2-year-2027 .vac2-cycle-sub,.vac2-year-2027 .vac2-names{opacity:1}
+.vac2-ruled .vac2-free-4{--vac2-status:#0b4f40;--vac2-foreground:#fff}
+.vac2-ruled .vac2-free-3{--vac2-status:#1f7a60;--vac2-foreground:#fff}
+.vac2-ruled .vac2-free-2{--vac2-status:#9fd3bd;--vac2-foreground:#0d2b23}
+.vac2-ruled .vac2-free-1{--vac2-status:#dcefe6;--vac2-foreground:#0d2b23}
+.vac2-ruled .vac2-free-0{--vac2-status:#eceeed;--vac2-foreground:#3d4744}
+.vac2-ruled .vac2-unknown{--vac2-status:#fff;--vac2-foreground:#2a3330}
+.vac2-ruled .vac2-cycle.vac2-free-0,.vac2-ruled .vac2-day.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px)}
+.vac2-ruled .vac2-cycle.vac2-unknown,.vac2-ruled .vac2-day.vac2-unknown{border:2px dashed #6c7480}
+.vac2-ruled .vac2-cycle{border:1px solid #c9d6d0;border-left:6px solid transparent}
+.vac2-ruled .vac2-cycle.vac2-summer{border-left-color:#e0a526;box-shadow:none}
+.vac2-ruled .vac2-day.vac2-summer{box-shadow:inset 0 -4px 0 #e0a526}
+.vac2-ruled .vac2-cycle-sub,.vac2-ruled .vac2-names{opacity:1}
 .vac2-key{width:14px;height:14px;border:1px solid #9aa9a3;vertical-align:-2px}
 .vac2-key.vac2-free-4{background:#0b4f40}.vac2-key.vac2-free-3{background:#1f7a60}.vac2-key.vac2-free-2{background:#9fd3bd}.vac2-key.vac2-free-1{background:#dcefe6}
 .vac2-key.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px)}
@@ -794,13 +799,13 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac2-selection-key{display:inline-block;width:14px;height:14px;border-radius:3px;outline:3px solid #b0136b;outline-offset:-3px;vertical-align:-2px}
 .vac2-legend span{display:inline-flex;align-items:center;gap:6px}
 /* Selección y preferencias: magenta, distinto de verdes y dorado. */
-.vac2-selected,.vac2-year-2027 .vac2-cycle.vac2-selected,.vac2-year-2027 .vac2-day.vac2-selected{outline:3px solid #b0136b;outline-offset:2px}
+.vac2-selected,.vac2-ruled .vac2-cycle.vac2-selected,.vac2-ruled .vac2-day.vac2-selected{outline:3px solid #b0136b;outline-offset:2px}
 .vac2-preference-rank,.app.controller-ux .vac2-preference-rank{display:inline-block;align-self:flex-start;margin-top:6px;padding:2px 9px;border-radius:999px;background:#fff;color:#7a0d4a;border:2px solid #b0136b;font-size:12px;font-weight:800}
 /* Tabla: misma semántica. */
-.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px);color:#3d4744}
-.vac3-2027 .vac3-table td.vac3-slot.vac3-disabled .vac3-slot-code{color:#3d4744}
-.vac3-2027 .vac3-table td.vac3-slot.vac3-unknown{background:#fff;outline:2px dashed #6c7480;outline-offset:-3px}
-.vac3-2027 .vac3-table .vac3-selected td,.vac3-2027 .vac3-table .vac3-selected td.vac3-slot{border-top:3px solid #b0136b;border-bottom:3px solid #b0136b}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-disabled{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px);color:#3d4744}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-disabled .vac3-slot-code{color:#3d4744}
+.vac3-ruled .vac3-table td.vac3-slot.vac3-unknown{background:#fff;outline:2px dashed #6c7480;outline-offset:-3px}
+.vac3-ruled .vac3-table .vac3-selected td,.vac3-ruled .vac3-table .vac3-selected td.vac3-slot{border-top:3px solid #b0136b;border-bottom:3px solid #b0136b}
 .vac3-table .vac3-choice-indicator{background:#fff;color:#7a0d4a;border:2px solid #b0136b;border-radius:999px;font-weight:800}
 .vac3-key{display:inline-block;width:14px;height:14px;border:1px solid #9aa9a3;border-radius:3px;vertical-align:-2px}
 .vac3-key-free{background:#fff}.vac3-key-occupied{background:#e4ece8}
@@ -814,14 +819,14 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac2-month{scroll-margin-top:64px}
 @media(min-width:901px){.vac2-month-jump{display:none}}
 .vac2-month-jump{flex-direction:row}
-.vac2-year-2027 .vac2-key.vac2-free-4{background:#0b4f40}.vac2-year-2027 .vac2-key.vac2-free-3{background:#1f7a60}.vac2-year-2027 .vac2-key.vac2-free-2{background:#9fd3bd}.vac2-year-2027 .vac2-key.vac2-free-1{background:#dcefe6}
-.vac2-year-2027 .vac2-key.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px)}
-.vac2-year-2027 .vac2-key.vac2-unknown{background:#fff;border:2px dashed #6c7480}
+.vac2-ruled .vac2-key.vac2-free-4{background:#0b4f40}.vac2-ruled .vac2-key.vac2-free-3{background:#1f7a60}.vac2-ruled .vac2-key.vac2-free-2{background:#9fd3bd}.vac2-ruled .vac2-key.vac2-free-1{background:#dcefe6}
+.vac2-ruled .vac2-key.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px)}
+.vac2-ruled .vac2-key.vac2-unknown{background:#fff;border:2px dashed #6c7480}
 @media(max-width:900px){.vac2-panel{overflow:clip}}
 /* #64 «Para mí»: en tu turno, lo que no puedes coger se ve atenuado de entrada. */
 .vac2-cycle.vac2-not-for-me,.vac2-day.vac2-not-for-me{filter:saturate(.15);opacity:.55}
-.vac2-year-2027 .vac2-cycle.vac2-not-for-me{background:#eceeed;color:#3d4744;border-left-color:#c9cfcc}
-.vac2-year-2027 .vac2-cycle.vac2-not-for-me{opacity:1;filter:none}
+.vac2-ruled .vac2-cycle.vac2-not-for-me{background:#eceeed;color:#3d4744;border-left-color:#c9cfcc}
+.vac2-ruled .vac2-cycle.vac2-not-for-me{opacity:1;filter:none}
 /* #64 reordenar: el número de posición es un selector nativo. */
 .preference-list{list-style:none;padding-left:0}
 .preference-list li::marker{content:none}
@@ -834,18 +839,18 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac3-table tr.vac3-selected:hover td:last-child{box-shadow:inset -3px 0 #b0136b,inset 0 -1px #8db8a9}
 .vac3-table tr.vac3-not-for-me td{background:#f1f3f2;color:#5b6663}.vac3-table tr.vac3-not-for-me .vac3-date button::after{content:" · no para ti";font-weight:500;color:#5b6663}
 /* #64 la misma escala para cualquier ejercicio, no solo 2027. */
-.vac2-panel:not(.vac2-year-2027) .vac2-free-4{--vac2-status:#0b4f40;--vac2-foreground:#fff}
-.vac2-panel:not(.vac2-year-2027) .vac2-free-3{--vac2-status:#1f7a60;--vac2-foreground:#fff}
-.vac2-panel:not(.vac2-year-2027) .vac2-free-2{--vac2-status:#9fd3bd;--vac2-foreground:#0d2b23}
-.vac2-panel:not(.vac2-year-2027) .vac2-free-1{--vac2-status:#dcefe6;--vac2-foreground:#0d2b23}
-.vac2-panel:not(.vac2-year-2027) .vac2-free-0{--vac2-status:#eceeed;--vac2-foreground:#3d4744}
-.vac2-panel:not(.vac2-year-2027) .vac2-cycle{background:var(--vac2-status);color:var(--vac2-foreground);border:1px solid #c9d6d0;border-left:6px solid transparent}
-.vac2-panel:not(.vac2-year-2027) .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
-.vac2-panel:not(.vac2-year-2027) .vac2-day{background:var(--vac2-status);color:var(--vac2-foreground)}
-.vac2-panel:not(.vac2-year-2027) .vac2-cycle.vac2-free-0,.vac2-panel:not(.vac2-year-2027) .vac2-day.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px)}
-.vac2-panel:not(.vac2-year-2027) .vac2-cycle.vac2-summer{border-left-color:#e0a526;box-shadow:none}
-.vac2-panel:not(.vac2-year-2027) .vac2-day.vac2-summer{box-shadow:inset 0 -4px 0 #e0a526}
-.vac2-panel:not(.vac2-year-2027) .vac2-cycle-sub,.vac2-panel:not(.vac2-year-2027) .vac2-names{color:inherit}
+.vac2-panel:not(.vac2-ruled) .vac2-free-4{--vac2-status:#0b4f40;--vac2-foreground:#fff}
+.vac2-panel:not(.vac2-ruled) .vac2-free-3{--vac2-status:#1f7a60;--vac2-foreground:#fff}
+.vac2-panel:not(.vac2-ruled) .vac2-free-2{--vac2-status:#9fd3bd;--vac2-foreground:#0d2b23}
+.vac2-panel:not(.vac2-ruled) .vac2-free-1{--vac2-status:#dcefe6;--vac2-foreground:#0d2b23}
+.vac2-panel:not(.vac2-ruled) .vac2-free-0{--vac2-status:#eceeed;--vac2-foreground:#3d4744}
+.vac2-panel:not(.vac2-ruled) .vac2-cycle{background:var(--vac2-status);color:var(--vac2-foreground);border:1px solid #c9d6d0;border-left:6px solid transparent}
+.vac2-panel:not(.vac2-ruled) .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
+.vac2-panel:not(.vac2-ruled) .vac2-day{background:var(--vac2-status);color:var(--vac2-foreground)}
+.vac2-panel:not(.vac2-ruled) .vac2-cycle.vac2-free-0,.vac2-panel:not(.vac2-ruled) .vac2-day.vac2-free-0{background:repeating-linear-gradient(135deg,#eceeed 0 6px,#dde1df 6px 12px)}
+.vac2-panel:not(.vac2-ruled) .vac2-cycle.vac2-summer{border-left-color:#e0a526;box-shadow:none}
+.vac2-panel:not(.vac2-ruled) .vac2-day.vac2-summer{box-shadow:inset 0 -4px 0 #e0a526}
+.vac2-panel:not(.vac2-ruled) .vac2-cycle-sub,.vac2-panel:not(.vac2-ruled) .vac2-names{color:inherit}
 /* #64 glosario en lenguaje llano. */
 .glossary summary{font-size:15px;font-weight:650;color:#1f5a4b;min-height:44px;display:flex;align-items:center}
 .glossary dl{display:grid;gap:12px;margin:10px 0 0}

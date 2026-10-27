@@ -1,52 +1,67 @@
-import {test,expect} from '@playwright/test';
-const origin='http://127.0.0.1:5199';
-const credentials={username:'qa-superadmin',password:'Only-for-isolated-e2e-testing-12345'};
-test('password administration, invalid login, CSRF, bearer precedence, isolation and logout replay',async({page,playwright})=>{
- const pageErrors:string[]=[];page.on('pageerror',error=>pageErrors.push(error.message));
- await page.goto('/');
- // auth-config is loaded by an effect: wait for hydration before opening the mobile menu.
- await expect(page.getByText('Acceso administrador con contraseña',{exact:true})).toBeAttached();
- if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
- await page.getByText('Acceso administrador con contraseña',{exact:true}).click();
- await page.getByLabel('Usuario',{exact:true}).fill(credentials.username);
- await page.getByLabel('Contraseña',{exact:true}).fill('incorrect');
- await page.getByRole('button',{name:'Entrar como administrador',exact:true}).click();
- await expect(page.getByRole('alert')).toContainText('Credenciales no válidas');
- await page.getByLabel('Contraseña',{exact:true}).fill(credentials.password);
- await page.getByRole('button',{name:'Entrar como administrador',exact:true}).click();
- const api=page.request;
- await expect.poll(async()=> (await (await api.get('/api/session')).json()).principal.role).toBe('superadmin');
- const index=await (await api.get('/api/index')).json();
- if(!index.teams.length)expect((await api.post('/api/initialize',{data:{},headers:{Origin:origin}})).status()).toBe(200);
- await page.reload();
- await expect(page.getByText('Acceso mediante Administrador local',{exact:true})).toBeAttached();
- // Main no longer selects team C implicitly; the admin panel needs an active campaign.
- await page.getByLabel('Equipo',{exact:true}).selectOption('C');
- const session=await (await api.get('/api/session')).json();expect(session.identity.provider).toBe('local_admin');
- expect((await api.get('/api/admin')).status()).toBe(200);
- expect((await api.get('/api/admin',{headers:{Authorization:'Bearer invalid'}})).status()).toBe(401);
- const anonymous=await playwright.request.newContext({baseURL:origin});
- expect((await anonymous.get('/api/admin')).status()).toBe(403);
- expect((await anonymous.post('/api/campaigns',{data:{year:2027},headers:{Origin:origin}})).status()).toBe(401);
- const replay=await playwright.request.newContext({baseURL:origin,storageState:await page.context().storageState()});
- expect((await api.post('/api/local-admin/logout',{data:{},headers:{Origin:'https://evil.test'}})).status()).toBe(403);
- await test.step('Abrir panel de administración local',async()=>{
-  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())
-   await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
-  const administration=page.getByRole('button',{name:'Administración',exact:true});
-  await expect(administration).toBeVisible({timeout:8_000});
-  await administration.click({timeout:8_000});
-  await expect(page.getByRole('heading',{name:'Campañas anuales'})).toBeVisible({timeout:8_000});
- });
- await test.step('Cerrar sesión local y rechazar reutilización de cookie',async()=>{
-  if(await page.getByRole('button',{name:'Abrir menú',exact:true}).isVisible())
-   await page.getByRole('button',{name:'Abrir menú',exact:true}).click();
-  const logout=page.getByRole('button',{name:'Cerrar sesión de administrador local',exact:true});
-  await expect(logout).toBeVisible({timeout:8_000});
-  await logout.click({timeout:8_000});
-  await expect.poll(async()=>(await (await api.get('/api/session')).json()).principal.role).toBe('viewer');
-  expect((await replay.get('/api/admin')).status()).toBe(403);
- });
- expect(pageErrors).toEqual([]);
- await anonymous.dispose();await replay.dispose();
+import { test, expect } from '@playwright/test';
+const origin = 'http://127.0.0.1:5199';
+const credentials = { username: 'qa-superadmin', password: 'Only-for-isolated-e2e-testing-12345' };
+test('password administration, invalid login, CSRF, bearer precedence, isolation and logout replay', async ({
+  page,
+  playwright,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.goto('/');
+  // auth-config is loaded by an effect: wait for hydration before opening the mobile menu.
+  await expect(page.getByText('Acceso administrador con contraseña', { exact: true })).toBeAttached();
+  if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
+    await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+  await page.getByText('Acceso administrador con contraseña', { exact: true }).click();
+  await page.getByLabel('Usuario', { exact: true }).fill(credentials.username);
+  await page.getByLabel('Contraseña', { exact: true }).fill('incorrect');
+  await page.getByRole('button', { name: 'Entrar como administrador', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Credenciales no válidas');
+  await page.getByLabel('Contraseña', { exact: true }).fill(credentials.password);
+  await page.getByRole('button', { name: 'Entrar como administrador', exact: true }).click();
+  const api = page.request;
+  await expect.poll(async () => (await (await api.get('/api/session')).json()).principal.role).toBe('superadmin');
+  const index = await (await api.get('/api/index')).json();
+  if (!index.teams.length)
+    expect((await api.post('/api/initialize', { data: {}, headers: { Origin: origin } })).status()).toBe(200);
+  await page.reload();
+  await expect(page.getByText('Acceso mediante Administrador local', { exact: true })).toBeAttached();
+  // Main no longer selects team C implicitly; the admin panel needs an active campaign.
+  await page.getByLabel('Equipo', { exact: true }).selectOption('C');
+  const session = await (await api.get('/api/session')).json();
+  expect(session.identity.provider).toBe('local_admin');
+  expect((await api.get('/api/admin')).status()).toBe(200);
+  expect((await api.get('/api/admin', { headers: { Authorization: 'Bearer invalid' } })).status()).toBe(401);
+  const anonymous = await playwright.request.newContext({ baseURL: origin });
+  expect((await anonymous.get('/api/admin')).status()).toBe(403);
+  expect((await anonymous.post('/api/campaigns', { data: { year: 2027 }, headers: { Origin: origin } })).status()).toBe(
+    401,
+  );
+  const replay = await playwright.request.newContext({
+    baseURL: origin,
+    storageState: await page.context().storageState(),
+  });
+  expect(
+    (await api.post('/api/local-admin/logout', { data: {}, headers: { Origin: 'https://evil.test' } })).status(),
+  ).toBe(403);
+  await test.step('Abrir panel de administración local', async () => {
+    if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
+      await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+    const administration = page.getByRole('button', { name: 'Administración', exact: true });
+    await expect(administration).toBeVisible({ timeout: 8_000 });
+    await administration.click({ timeout: 8_000 });
+    await expect(page.getByRole('heading', { name: 'Campañas anuales' })).toBeVisible({ timeout: 8_000 });
+  });
+  await test.step('Cerrar sesión local y rechazar reutilización de cookie', async () => {
+    if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
+      await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+    const logout = page.getByRole('button', { name: 'Cerrar sesión de administrador local', exact: true });
+    await expect(logout).toBeVisible({ timeout: 8_000 });
+    await logout.click({ timeout: 8_000 });
+    await expect.poll(async () => (await (await api.get('/api/session')).json()).principal.role).toBe('viewer');
+    expect((await replay.get('/api/admin')).status()).toBe(403);
+  });
+  expect(pageErrors).toEqual([]);
+  await anonymous.dispose();
+  await replay.dispose();
 });
