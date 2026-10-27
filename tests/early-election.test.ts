@@ -14,7 +14,7 @@ import { earlyProof, earlyWindow } from '../domain/early-election.ts';
 import { earlyListChoice } from '../server/election-commands.ts';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
-import { dispatchNotifications } from '../server/notifications.ts';
+import { dispatchNotifications, notificationSettings, flushTurnNotifications } from '../server/notifications.ts';
 
 // Real 2027 rules on a 16-person team: the order is M0, M1, ..., M15.
 const members = Array.from({ length: 16 }, (_, i) => ({ id: 'M' + i, code: 'M' + i, seniority: '' }));
@@ -235,4 +235,253 @@ test('sin aviso de oportunidad cuando la lista inmediata va a adjudicar por sí 
   await run(s, { action: 'preferences', memberId: b.id, dates: [dates[6]] });
   await dispatchNotifications(repo, push, undefined, async () => ({ ok: false, status: 503 }) as never);
   assert.equal((await earlyNotices(repo)).length, 0);
+});
+
+test('elección anticipada manual consume una lista no persistente', async () => {
+  const { s, person, run, cid, b, dates } = await election();
+  await run(s, { action: 'preferences', memberId: b.id, dates: [dates[6]], mode: 'wait', waitMinutes: 30 });
+  const view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  assert.equal(view.election.preferences.find((p) => p.member_id === b.id).active, false);
+});
+
+test('cancelar y repetir una anticipada no duplica su historial', async () => {
+  const { s, person, run, b, dates } = await election();
+  let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  await run(person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
+  view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  assert.equal(view.election.timeline.filter((e) => e.choices.some((c) => c.member_id === b.id)).length, 1);
+});
+
+test('anulación administrativa tras completar reabre el derecho sin detener automatismos', async () => {
+  const { s, person, run, b, dates } = await election();
+  let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  const awardId = view.election.early.choices[0].awardId;
+  // Complete every ordinary turn without draining lists.
+  for (let i = 0; i < 30 && view.election.state.status !== 'complete'; i++) {
+    const turn = view.election.turn;
+    const owned = new Set(view.awards.filter((w) => w.member_id === turn.memberId).map((w) => w.cycle_date));
+    const available = view.election.available.filter((d) => !owned.has(d));
+    view = await run(s, { action: 'choose', memberId: turn.memberId, dates: available.slice(0, turn.needed) });
+  }
+  assert.equal(view.election.state.status, 'complete');
+  view = await run(s, { action: 'early_cancel', awardId });
+  assert.equal(view.election.state.status, 'active');
+  assert.notEqual(view.election.state.automaticPaused, true);
+  assert.equal(view.election.turn.memberId, b.id);
+});
+
+test('anticipada de la próxima ronda conserva ronda lógica en historial y aviso', async () => {
+  const { s, run, cid, a, b, c, dates } = await election();
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  await run(s, { action: 'choose', memberId: b.id, dates: [dates[1]] });
+  const view = await run(s, { action: 'early_choose', memberId: a.id, date: dates[4] });
+  const entry = view.election.timeline.find((e) => e.anticipated);
+  assert.equal(entry.round, 2);
+  assert.equal(entry.selectionCursor, 3);
+});
+
+test('aviso automático anticipado usa la ronda adjudicada', async () => {
+  const { repo, s, run, cid, a, b, dates } = await election();
+  await run(s, { action: 'link_account', memberId: a.id, subject: 'first@example.test', accountVersion: 0 });
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  await run(s, { action: 'choose', memberId: b.id, dates: [dates[1]] });
+  await run(s, { action: 'preferences', memberId: a.id, dates: [dates[4]] });
+  await run(s, { action: 'advance' });
+  await dispatchNotifications(repo, push, cid, async () => ({ ok: false, status: 503 }) as never);
+  const notices = await repo.all("SELECT round FROM turn_notifications WHERE member_id=? AND id LIKE 'auto:%'", [a.id]);
+  assert.deepEqual(
+    notices.map((n) => n.round),
+    [2],
+  );
+});
+
+test('anular antes del turno conserva el reloj del predecesor y no pausa sus listas', async () => {
+  const { person, run, b, dates } = await election();
+  let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  const clock = view.election.state.turnSince;
+  view = await run(person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
+  assert.deepEqual(view.election.state.turnSince, clock);
+  assert.notEqual(view.election.state.automaticPaused, true);
+});
+
+test('anular tras su turno con la elección en marcha: el derecho vuelve, su lista pasa a manual y se le avisa', async () => {
+  const { repo, s, person, run, a, b, c, dates } = await election();
+  await run(s, {
+    action: 'preferences',
+    memberId: b.id,
+    dates: [dates[6], dates[7]],
+    persistent: true,
+    mode: 'wait',
+    waitMinutes: 30,
+  });
+  await run(s, { action: 'preferences', memberId: c.id, dates: [dates[8]], mode: 'wait', waitMinutes: 30 });
+  let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  const awardId = view.election.early.choices[0].awardId;
+  view = await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  assert.equal(view.election.turn.memberId, c.id, 'el turno de B ya se saltó');
+  view = await run(s, { action: 'early_cancel', awardId });
+  assert.ok(!view.awards.some((w) => w.member_id === b.id));
+  assert.notEqual(view.election.state.automaticPaused, true, 'las listas de los demás siguen activas');
+  const prefs = view.election.preferences;
+  assert.equal(prefs.find((p) => p.member_id === b.id).mode, 'manual');
+  assert.equal(prefs.find((p) => p.member_id === c.id).mode, 'wait');
+  const notices = await repo.all("SELECT round FROM turn_notifications WHERE member_id=? AND id LIKE 'manual:%'", [
+    b.id,
+  ]);
+  assert.deepEqual(
+    notices.map((n) => n.round),
+    [1],
+  );
+  // The recovered right is not lost: B gets a turn that covers it.
+  const seen: string[] = [];
+  for (let i = 0; i < 30 && view.election.state.status !== 'complete'; i++) {
+    const turn = view.election.turn;
+    seen.push(turn.memberId);
+    const owned = new Set(view.awards.filter((w) => w.member_id === turn.memberId).map((w) => w.cycle_date));
+    const available = view.election.available.filter((d) => !owned.has(d));
+    view = await run(s, { action: 'choose', memberId: turn.memberId, dates: available.slice(0, turn.needed) });
+  }
+  assert.ok(seen.includes(b.id));
+  const perMember = (id: string) => view.awards.filter((w) => w.member_id === id).length;
+  assert.equal(perMember(b.id), perMember(a.id));
+});
+
+async function cancelledPersistentList() {
+  const f = await election();
+  await f.run(f.s, {
+    action: 'preferences',
+    memberId: f.b.id,
+    dates: [f.dates[6]],
+    persistent: true,
+    mode: 'wait',
+    waitMinutes: 30,
+  });
+  let view = await f.run(f.person, { action: 'early_choose', memberId: f.b.id, date: f.dates[4] });
+  const awardId = view.election.early.choices[0].awardId;
+  await f.run(f.s, { action: 'choose', memberId: f.a.id, dates: [f.dates[0]] });
+  view = await f.run(f.s, { action: 'early_cancel', awardId });
+  return { ...f, view, awardId };
+}
+
+test('deshacer/rehacer la anulación restaura solo el cambio automático de modo', async () => {
+  const f = await cancelledPersistentList();
+  let view = await f.run(f.s, { action: 'election_undo', historyId: f.view.election.undo });
+  let pref = view.election.preferences.find((p) => p.member_id === f.b.id);
+  assert.equal(pref.mode, 'wait');
+  assert.equal(pref.waitMinutes, 30);
+  view = await f.run(f.s, { action: 'election_redo', historyId: view.election.redo });
+  pref = view.election.preferences.find((p) => p.member_id === f.b.id);
+  assert.equal(pref.mode, 'manual');
+  assert.equal(pref.waitMinutes, 0);
+});
+
+test('la anulación registra en su auditoría qué lista pasó a manual', async () => {
+  const f = await cancelledPersistentList();
+  const audits = await f.repo.all("SELECT after_json FROM audit WHERE action='early_cancel' ORDER BY rowid");
+  assert.equal(JSON.parse(audits.at(-1).after_json).manualized, f.b.id);
+  // Withdrawn before its slot: no list changes, so undo leaves every mode alone.
+  const g = await election();
+  await g.run(g.s, { action: 'preferences', memberId: g.b.id, dates: [g.dates[6]], mode: 'wait', waitMinutes: 30 });
+  let view = await g.run(g.person, { action: 'early_choose', memberId: g.b.id, date: g.dates[4] });
+  view = await g.run(g.person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
+  const own = await g.repo.all("SELECT after_json FROM audit WHERE action='early_cancel' ORDER BY rowid");
+  assert.equal(JSON.parse(own.at(-1).after_json).manualized, null);
+  view = await g.run(g.s, { action: 'election_undo', historyId: (await g.s.view(g.cid)).election.undo });
+  assert.equal(view.election.preferences.find((p) => p.member_id === g.b.id).mode, 'wait');
+});
+
+test('deshacer la anulación conserva una edición posterior de la lista', async () => {
+  const f = await cancelledPersistentList();
+  await f.run(f.person, {
+    action: 'preferences',
+    memberId: f.b.id,
+    dates: [f.dates[8]],
+    persistent: true,
+    mode: 'wait',
+    waitMinutes: 50,
+  });
+  const admin = new Service(f.repo, { id: 'chatgpt:team-manager', role: 'team_admin', teams: ['C'] });
+  let view = await admin.view(f.cid);
+  view = await f.run(admin, { action: 'election_undo', historyId: view.election.undo });
+  const pref = (await f.person.view(f.cid)).election.preferences.find((p) => p.member_id === f.b.id);
+  assert.deepEqual(pref.dates, [f.dates[8]]);
+  assert.equal(pref.waitMinutes, 50);
+});
+
+test('aviso manual: deshacer lo invalida y rehacer lo recupera sin duplicarlo', async () => {
+  const f = await cancelledPersistentList();
+  let view = await f.run(f.s, { action: 'election_undo', historyId: f.view.election.undo });
+  await dispatchNotifications(f.repo, push, f.cid, async () => ({ status: 503 }) as never);
+  let rows = await f.repo.all("SELECT push_status FROM turn_notifications WHERE id LIKE 'manual:%'");
+  assert.deepEqual(
+    rows.map((n) => n.push_status),
+    ['obsolete'],
+  );
+  view = await f.run(f.s, { action: 'election_redo', historyId: view.election.redo });
+  if (view.election.state.automaticPaused) await f.run(f.s, { action: 'resume_automatic' });
+  await dispatchNotifications(f.repo, push, f.cid, async () => ({ status: 503 }) as never);
+  rows = await f.repo.all("SELECT push_status FROM turn_notifications WHERE id LIKE 'manual:%'");
+  assert.deepEqual(
+    rows.map((n) => n.push_status),
+    ['pending'],
+  );
+});
+
+test('reactivar preferencias antes del envío invalida el aviso manual', async () => {
+  const f = await cancelledPersistentList();
+  await f.run(f.person, {
+    action: 'preferences',
+    memberId: f.b.id,
+    dates: [f.dates[6]],
+    persistent: true,
+    mode: 'wait',
+    waitMinutes: 30,
+  });
+  await dispatchNotifications(f.repo, push, f.cid, async () => ({ status: 503 }) as never);
+  const rows = await f.repo.all("SELECT push_status FROM turn_notifications WHERE id LIKE 'manual:%'");
+  assert.deepEqual(
+    rows.map((n) => n.push_status),
+    ['obsolete'],
+  );
+});
+
+test('anular en simulación no encola avisos para cuentas vinculadas', async () => {
+  const f = await cancelledPersistentList();
+  await f.run(f.s, { action: 'election_undo', historyId: f.view.election.undo });
+  await f.repo.batch([
+    { sql: "UPDATE campaigns SET scope_key='simulation-test' WHERE id=?", args: [f.cid] },
+    { sql: 'DELETE FROM turn_notifications WHERE campaign_id=?', args: [f.cid] },
+  ]);
+  await f.run(f.s, { action: 'early_cancel', awardId: f.awardId });
+  assert.equal((await f.repo.all('SELECT id FROM turn_notifications WHERE campaign_id=?', [f.cid])).length, 0);
+});
+
+test('el responsable puede deshacer/rehacer el cambio de modo sin editar preferencias privadas', async () => {
+  const f = await cancelledPersistentList();
+  const admin = new Service(f.repo, { id: 'chatgpt:team-manager', role: 'team_admin', teams: ['C'] });
+  let view = await admin.view(f.cid);
+  view = await f.run(admin, { action: 'election_undo', historyId: view.election.undo });
+  assert.equal((await f.person.view(f.cid)).election.preferences.find((p) => p.member_id === f.b.id).mode, 'wait');
+  await f.run(admin, { action: 'election_redo', historyId: view.election.redo });
+  assert.equal((await f.person.view(f.cid)).election.preferences.find((p) => p.member_id === f.b.id).mode, 'manual');
+});
+
+test('avisos antiguos de simulación no se muestran ni se envían', async () => {
+  const f = await cancelledPersistentList();
+  await f.repo.batch([{ sql: "UPDATE campaigns SET scope_key='simulation-test' WHERE id=?", args: [f.cid] }]);
+  const settings = await notificationSettings(f.repo, visitor, push);
+  assert.equal(settings.notifications.length, 0);
+  const notice = (await f.repo.all("SELECT owner_key FROM turn_notifications WHERE id LIKE 'manual:%'"))[0];
+  await f.repo.batch([
+    {
+      sql: 'INSERT INTO push_subscriptions(endpoint,owner_key,p256dh,auth,created_at) VALUES(?,?,?,?,?)',
+      args: ['https://local-test.invalid/push', notice.owner_key, 'dummy', 'dummy', new Date().toISOString()],
+    },
+  ]);
+  let sends = 0;
+  await flushTurnNotifications(f.repo, push, f.cid, { remaining: 10 }, async () => {
+    sends++;
+    return { status: 200 } as never;
+  });
+  assert.equal(sends, 0);
 });

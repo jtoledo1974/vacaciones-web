@@ -66,12 +66,6 @@
     "app/tie-resolver.tsx": {
       "@typescript-eslint/no-explicit-any": 5
     },
-    "app/use-pair-options.ts": {
-      "react-hooks/set-state-in-effect": 1
-    },
-    "app/use-preference-draft.ts": {
-      "react-hooks/immutability": 1
-    },
     "app/user-permissions.tsx": {
       "@typescript-eslint/no-explicit-any": 11
     },
@@ -226,6 +220,12 @@
     "tests/team-admin-simulations.test.ts": {
       "@typescript-eslint/no-explicit-any": 13,
       "prefer-const": 2
+    },
+    "app/use-pair-options.ts": {
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/use-preference-draft.ts": {
+      "react-hooks/immutability": 1
     }
   }
 }

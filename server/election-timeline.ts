@@ -91,12 +91,18 @@ export function buildElectionTimeline(
       }
       const reconstructed = row.action === 'reconstruction_step';
       const kind = reconstructed ? after?.kind : row.action;
-      const round = roundAt(row, ctx);
+      const earlyEntry =
+        row.action === 'early_choose' || after?.early === true
+          ? state.earlyChoices?.find((e) => after?.choices?.some((c: { id?: string }) => c.id === e.awardId))
+          : undefined;
+      const selectionCursor = after?.selectionCursor ?? earlyEntry?.cursor ?? previous.cursor;
+      const round = after?.round ?? earlyEntry?.round ?? roundAt(row, ctx);
       const choices: ElectionTimelineItem['choices'] = (Array.isArray(after?.choices) ? after.choices : []).filter(
         (choice: any) =>
           typeof choice?.member_id === 'string' &&
           typeof choice?.cycle_date === 'string' &&
-          awardKeys.has(choice.member_id + '|' + choice.cycle_date),
+          awardKeys.has(choice.member_id + '|' + choice.cycle_date) &&
+          (!choice.id || ctx.awards.some((a) => a.id === choice.id)),
       );
       for (const choice of choices) accounted.add(choice.member_id + '|' + choice.cycle_date);
       let turn: ReturnType<typeof currentTurn> | null = null;
@@ -153,6 +159,7 @@ export function buildElectionTimeline(
         item: {
           id: row.id,
           kind: kind === 'defer' ? 'defer' : 'choice',
+          selectionCursor,
           round,
           createdAt: row.created_at,
           memberIds,
@@ -234,7 +241,16 @@ export function buildElectionTimeline(
  */
 export type PublicElectionTimelineItem = Pick<
   ElectionTimelineItem,
-  'id' | 'kind' | 'round' | 'memberIds' | 'choices' | 'deferredTurns' | 'method' | 'order' | 'anticipated'
+  | 'id'
+  | 'kind'
+  | 'round'
+  | 'memberIds'
+  | 'choices'
+  | 'deferredTurns'
+  | 'method'
+  | 'order'
+  | 'anticipated'
+  | 'selectionCursor'
 > & { automatic?: true };
 
 export function publicElectionTimeline(
@@ -249,6 +265,7 @@ export function publicElectionTimeline(
     memberIds: [...item.memberIds],
     choices: item.choices.map(({ member_id, cycle_date }) => ({ member_id, cycle_date })),
     deferredTurns: item.deferredTurns,
+    ...(item.selectionCursor !== undefined ? { selectionCursor: item.selectionCursor } : {}),
     ...(item.kind === 'tie' && item.method ? { method: item.method } : {}),
     ...(item.kind === 'tie' && item.order ? { order: [...item.order] } : {}),
     ...(item.kind === 'choice' && automaticallyChosen.has(item.id) ? { automatic: true as const } : {}),

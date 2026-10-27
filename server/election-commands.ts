@@ -365,18 +365,52 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   // Restore the undone list edit itself and list flags (active) consumed by an
   // undone award; every other list keeps what its owner has saved since.
   const original = action === 'election_undo' ? entry : history.redoOriginal;
-  const next = restoredPreferences(
+  let next = restoredPreferences(
     prior.preferences ?? [],
     preferences,
     original?.action === 'preferences' ? auditAfter(original)?.memberId : null,
   );
+  // An early cancellation changes mode as a system side effect, not an owner edit.
+  // Reverse only that exact postimage; later owner edits retain their content.
+  let systemRestored: string | null = null;
+  if (original?.action === 'early_cancel') {
+    const before = validateSnapshot(JSON.parse(original.before_json), 'election-undo-v1');
+    const { cancelled, manualized } = auditAfter(original) ?? {};
+    const early = before?.state?.earlyChoices?.find((e) => e.awardId === cancelled);
+    // The cancellation recorded whose list it turned manual; never re-derive that decision.
+    const saved = manualized ? before?.preferences?.find((p) => p.member_id === manualized) : undefined;
+    if (saved && activeList(saved) && saved.mode !== 'manual') {
+      const manual = { ...saved, mode: 'manual' as const, waitMinutes: 0 };
+      const expected = action === 'election_undo' ? manual : saved;
+      const target = action === 'election_undo' ? saved : manual;
+      if (listContent([expected], saved.member_id) === listContent(preferences, saved.member_id)) {
+        systemRestored = saved.member_id;
+        next = next.map((p) =>
+          p.member_id === saved.member_id ? { ...p, mode: target.mode, waitMinutes: target.waitMinutes } : p,
+        );
+      }
+    }
+    // Reuse an unsent notice on redo; delivery still checks the effective audit branch.
+    if (cancelled && early)
+      x.ops.push({
+        sql: 'UPDATE turn_notifications SET push_status=? WHERE id=? AND push_status=?',
+        args:
+          action === 'election_undo'
+            ? ['obsolete', ['manual:' + cid, early.memberId, cancelled].join(':'), 'pending']
+            : ['pending', ['manual:' + cid, early.memberId, cancelled].join(':'), 'obsolete'],
+      });
+  }
   // Linked accounts' private lists are protected.
   if (c.scope_key === 'live' && actor.role !== 'superadmin') {
     const linked = await x.repo.all(
       'SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',
       [cid],
     );
-    if (linked.some((m) => m.id !== mine && listContent(next, m.id) !== listContent(preferences, m.id)))
+    if (
+      linked.some(
+        (m) => m.id !== mine && m.id !== systemRestored && listContent(next, m.id) !== listContent(preferences, m.id),
+      )
+    )
       throw new ApiError(privateDenied, 403);
   }
   // The undone awards take their early-choice entries with them.
@@ -407,6 +441,7 @@ function executeEarlyChoose(x: ElectionCommandContext) {
       409,
     );
   awardEarly(x, proof.window, body.date);
+  if (proof.window.owed === 1) x.preferences = consumePreferences(x.preferences, [body.memberId]);
 }
 function awardEarly(x: ElectionCommandContext, window: Parameters<typeof earlyEntry>[0], date: string) {
   const id = crypto.randomUUID();
@@ -449,9 +484,40 @@ function executeEarlyCancel(x: ElectionCommandContext) {
   if (!entry || !award) throw new ApiError('Esa elección anticipada ya no existe', 404);
   x.authorizeMember(entry.memberId);
   // Its owner may withdraw it until their slot arrives; afterwards only a manager.
-  if (!manage && currentTurn(ctx, x.state).state.cursor >= entry.cursor)
-    throw new ApiError('Tu turno ya ha llegado: pide al responsable que anule la elección', 403);
-  x.state = { ...x.state, earlyChoices: x.state.earlyChoices!.filter((e) => e !== entry) };
+  const passed = x.state.status === 'complete' || currentTurn(ctx, x.state).state.cursor >= entry.cursor;
+  if (!manage && passed) throw new ApiError('Tu turno ya ha llegado: pide al responsable que anule la elección', 403);
+  const reopened = x.state.status === 'complete';
+  x.state = {
+    ...x.state,
+    status: reopened ? 'active' : x.state.status,
+    earlyChoices: x.state.earlyChoices!.filter((e) => e !== entry),
+  };
+  // A finished election hands the recovered right out now: its turn starts afresh.
+  if (reopened) delete x.state.turnSince;
+  // Once its slot has passed, the owner's list must not re-award the recovered right
+  // unattended: it turns manual (everyone else's lists keep running) and they are told.
+  const pref = x.preferences.find((p) => p.member_id === entry.memberId);
+  if (passed && activeList(pref) && pref.mode !== 'manual') {
+    x.preferences = x.preferences.map((p) => (p === pref ? { ...p, mode: 'manual', waitMinutes: 0 } : p));
+    x.ops.push(
+      {
+        sql: "UPDATE preferences SET mode='manual',wait_minutes=0 WHERE member_id=? AND campaign_id=?",
+        args: [entry.memberId, cid],
+      },
+      // manual:<campaign>:<member>:<award>, read by server/notifications.ts.
+      {
+        sql: `INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at)
+     SELECT ?,ca.principal_key,?,m.id,?,? FROM campaign_members m JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE m.id=? AND EXISTS(SELECT 1 FROM campaigns c WHERE c.id=m.campaign_id AND c.scope_key='live')`,
+        args: [
+          ['manual:' + cid, entry.memberId, award.id].join(':'),
+          cid,
+          entry.round,
+          new Date(x.now).toISOString(),
+          entry.memberId,
+        ],
+      },
+    );
+  }
   x.ops.push(
     { sql: 'DELETE FROM awards WHERE id=? AND campaign_id=?', args: [award.id, cid] },
     {
@@ -459,6 +525,11 @@ function executeEarlyCancel(x: ElectionCommandContext) {
       args: [cid, award.member_id, award.cycle_date],
     },
   );
+}
+
+function earlyAudit(x: ElectionCommandContext) {
+  const entry = x.state?.earlyChoices?.find((e) => e.awardId === x.choices[0]?.id);
+  return entry ? { early: true, memberId: entry.memberId, selectionCursor: entry.cursor, round: entry.round } : {};
 }
 
 const manager = (message: string, state?: string) => ({ manager: message, ...(state ? { state } : {}) });
@@ -518,7 +589,7 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
   advance: {
     preconditions: { state: 'No hay una elección configurada' },
     execute: executeAdvance,
-    audited: (x) => (x.choices.some((c) => c.id) ? { early: true, memberId: x.choices[0].member_id } : {}),
+    audited: earlyAudit,
   },
   link_account: {
     preconditions: {
@@ -527,12 +598,19 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
     },
     execute: executeLinkAccount,
   },
-  early_choose: { execute: executeEarlyChoose },
+  early_choose: { execute: executeEarlyChoose, audited: earlyAudit },
   early_cancel: {
     execute: executeEarlyCancel,
     audited: (x) => ({
       cancelled: x.body.awardId,
       memberId: x.d.awards.find((a: { id: string }) => a.id === x.body.awardId)?.member_id ?? null,
+      // The member whose list this cancellation turned manual, read back by undo and redo.
+      manualized:
+        x.preferences.find(
+          (p) =>
+            p.mode === 'manual' &&
+            x.raw.preferences.some((prior) => prior.member_id === p.member_id && prior.mode !== 'manual'),
+        )?.member_id ?? null,
     }),
   },
   election_undo: {

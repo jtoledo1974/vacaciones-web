@@ -151,6 +151,7 @@ test('consulta anónima ve también adjudicaciones automáticas sin exponer pref
     'kind',
     'memberIds',
     'round',
+    'selectionCursor',
   ]);
   assert.ok(!JSON.stringify(publicEvents).includes('before_json'));
   assert.ok(!JSON.stringify(publicEvents).includes('impact'));
