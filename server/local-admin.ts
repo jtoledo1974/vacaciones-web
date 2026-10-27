@@ -193,6 +193,8 @@ export async function localAdminLogin(request: Request, config: LocalAdminConfig
   const actor = 'local_admin:' + config.LOCAL_ADMIN_USERNAME,
     at = new Date().toISOString();
   await repo.batch([
+    // Expired sessions can never validate again: drop them as new ones start.
+    { sql: 'DELETE FROM local_admin_sessions WHERE expires_at<?', args: [Math.floor(Date.now() / 1000)] },
     {
       sql: 'INSERT INTO local_admin_sessions(id,actor,created_at,expires_at) VALUES(?,?,?,?)',
       args: [nonce, actor, at, expires],
