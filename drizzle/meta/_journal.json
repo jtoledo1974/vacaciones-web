@@ -85,6 +85,13 @@
       "when": 1793433600000,
       "tag": "0011_local_admin_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1793520000000,
+      "tag": "0012_hr_export",
+      "breakpoints": true
     }
   ]
 }

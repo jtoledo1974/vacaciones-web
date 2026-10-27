@@ -11,6 +11,7 @@ import { Service, principal, ApiError, advanceExpiredTurns } from '../../../serv
 import { resolveControllerPreview } from '../../../server/controller-preview';
 import { documentation } from '../../../server/documentation';
 import { liteSummary, renderLitePdf } from '../../../server/lite';
+import { XLSM_TYPE } from '../../../server/hr-xlsx';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) =>
@@ -137,6 +138,30 @@ async function serve(request: Request) {
             ? await effectiveService.publishedView(path[1])
             : await effectiveService.view(path[1]),
         );
+      if (path[0] === 'hr' && path[1] === 'global' && path[3] === 'xlsm') {
+        const { name, bytes, open } = await service.exportHrGlobal(Number(path[2]));
+        return new Response(bytes, {
+          headers: {
+            'Content-Type': XLSM_TYPE,
+            'Content-Disposition': `attachment; filename="${name}"`,
+            'X-Equipos-Abiertos': open.join(','),
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
+      }
+      if (path[0] === 'hr' && path[1] && path[2] === 'xlsm') {
+        const { name, bytes } = await service.exportHrTeam(path[1]);
+        return new Response(bytes, {
+          headers: {
+            'Content-Type': XLSM_TYPE,
+            'Content-Disposition': `attachment; filename="${name}"`,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
+      }
+      if (path[0] === 'hr' && path[1]) return reply(await service.hrStatus(path[1]));
       if (path[0] === 'admin') return reply(await service.admin());
       if (path[0] === 'backup') {
         const backup = await service.backup();
@@ -207,6 +232,8 @@ async function serve(request: Request) {
       return reply(view);
     }
     if (path[0] === 'campaign' && path[1]) return reply(await service.mutate(path[1], b));
+    if (path[0] === 'hr' && b.action === 'template') return reply(await service.uploadHrTemplate(b.year, b.data));
+    if (path[0] === 'hr' && path[1] && b.action === 'names') return reply(await service.saveHrNames(path[1], b.names));
     if (path[0] === 'users')
       return reply(await (b.action === 'delete' ? service.deleteUser(b) : service.configureUser(b)));
     if (path[0] === 'restore') return reply(await service.restore(b.backup, b.revision));

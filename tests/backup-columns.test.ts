@@ -17,6 +17,7 @@ const excludedTables: Record<string, string> = {
   personal_simulations: 'Borradores privados de simulación ajenos a la elección oficial.',
   local_admin_sessions: 'Sesiones del admin local: restaurar una copia las invalida todas.',
   local_admin_attempts: 'Intentos de acceso del admin local: caducan en quince minutos.',
+  hr_templates: 'Plantilla Excel de RRHH: se vuelve a subir; no es dato de la elección.',
 };
 
 const tables = Object.fromEntries(Object.values(schema).map((table) => [getTableName(table), table]));

@@ -64,6 +64,8 @@ export const CAMPAIGN_ACTIONS = [
   'create_campaign',
   'simulation_created',
   'simulation_deleted',
+  'hr_names',
+  'hr_export',
 ] as const;
 export const ADMIN_ACTIONS = [
   'initialize_demo',
@@ -72,6 +74,7 @@ export const ADMIN_ACTIONS = [
   'restore',
   'local_admin_login',
   'local_admin_logout',
+  'hr_template',
 ] as const;
 
 export type ElectionAction = (typeof ELECTION_ACTIONS)[number];

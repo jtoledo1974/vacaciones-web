@@ -87,3 +87,4 @@ tableColumns.preferences = [
   'labels_json',
 ];
 tableColumns.reconstruction_sessions = ['campaign_id', 'json'];
+tableColumns.hr_names = ['year', 'person_id', 'hr_name'];

@@ -22,6 +22,7 @@ import ElectionWorkspace from './election-workspace';
 import { ActivationPanel } from './election-activation';
 import { CampaignForm, ConfigForm } from './campaign-forms';
 import SimulationTools from './simulation-tools';
+import HrExportPanel from './hr-export-panel';
 import Help from './help';
 import { ConfirmationProvider, useConfirmation } from './confirmation';
 import {
@@ -1136,6 +1137,16 @@ function Dashboard() {
                         </div>
                       </section>
                     }
+                    {data.campaign.scope_key === 'live' && (
+                      <HrExportPanel
+                        cid={cid}
+                        team={team}
+                        superuser={superuser}
+                        busy={busy}
+                        closed={data.campaign.status !== 'open'}
+                        perform={perform}
+                      />
+                    )}
                     <SimulationTools
                       data={data}
                       busy={busy}

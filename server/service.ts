@@ -23,6 +23,9 @@ import { cloneSimulation } from './simulations.ts';
 import { projectAdminCampaignView, projectPublicCampaignView, projectPublishedCampaignView } from './projections.ts';
 import { validateElectionState, upgradeElectionState } from '../domain/election.ts';
 import { checkedConfig, runCommand } from './service-commands.ts';
+import { HrExportError, hrTeamCells, suggestHrNames, type HrCell } from '../domain/hr-export.ts';
+import { orderAwardsBySelection } from '../domain/award-display-order.ts';
+import { readHrWorkbook, writeHrWorkbook, type HrWorkbook } from './hr-xlsx.ts';
 export { ApiError } from './errors.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
@@ -696,6 +699,180 @@ export class Service {
       ];
     });
   }
+  /** RRHH's workbook for the year, uploaded once by a superadministrator. */
+  private async hrWorkbook(year: number) {
+    const row = (await this.repo.all('SELECT * FROM hr_templates WHERE year=?', [year]))[0];
+    if (!row) throw new ApiError(`Falta la plantilla de RRHH de ${year}`, 404);
+    const zip = Uint8Array.from(atob(row.data), (c) => c.charCodeAt(0));
+    return { row, zip, book: await readHrWorkbook(zip) };
+  }
+  private async hrCampaign(cid: string) {
+    const d = await this.load(cid);
+    requireWrite(this.actor, d.campaign.team_id);
+    if (d.campaign.scope_key !== 'live') throw new ApiError('Solo se exporta la campaña real, no una simulación');
+    return d;
+  }
+  async uploadHrTemplate(year: number, base64: string) {
+    requireSuper(this.actor);
+    if (!Number.isInteger(year) || typeof base64 !== 'string' || !base64) throw new ApiError('Plantilla no válida');
+    let zip: Uint8Array;
+    try {
+      zip = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    } catch {
+      throw new ApiError('Plantilla no válida');
+    }
+    const book = await readHrWorkbook(zip).catch((e) => {
+      throw new ApiError(e instanceof HrExportError ? e.message : 'El fichero no es la plantilla de RRHH');
+    });
+    if (book.year !== null && book.year !== year) throw new ApiError(`La plantilla es de ${book.year}, no de ${year}`);
+    const sha256 = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', zip as BufferSource)))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const at = now();
+    await this.commit([
+      {
+        sql: 'INSERT INTO hr_templates(year,data,sha256,uploaded_by,uploaded_at) VALUES(?,?,?,?,?) ON CONFLICT(year) DO UPDATE SET data=excluded.data,sha256=excluded.sha256,uploaded_by=excluded.uploaded_by,uploaded_at=excluded.uploaded_at',
+        args: [year, base64, sha256, this.actor.id, at],
+      },
+      this.audit('hr_template', null, null, { year, sha256 }),
+    ]);
+    return { year, sha256, uploadedAt: at };
+  }
+  /** The team's RRHH roster and who is matched to which name. */
+  async hrStatus(cid: string) {
+    const d = await this.hrCampaign(cid);
+    const year = d.campaign.year;
+    const template = (await this.repo.all('SELECT year,sha256,uploaded_at FROM hr_templates WHERE year=?', [year]))[0];
+    if (!template) return { year, template: null, roster: [], members: [], closed: d.campaign.status !== 'open' };
+    const { book } = await this.hrWorkbook(year);
+    const roster = book.sheets.find((s) => s.team === d.campaign.team_id)!.roster;
+    const saved = new Map(
+      (await this.repo.all('SELECT person_id,hr_name FROM hr_names WHERE year=?', [year])).map((r) => [
+        r.person_id,
+        r.hr_name,
+      ]),
+    );
+    const suggested = suggestHrNames(d.members, roster);
+    return {
+      year,
+      template: { sha256: template.sha256, uploadedAt: template.uploaded_at },
+      roster,
+      closed: d.campaign.status !== 'open',
+      members: d.members.map((m) => ({
+        id: m.id,
+        code: m.code,
+        label: m.label,
+        hrName: saved.get(m.person_id) ?? null,
+        suggested: suggested[m.id] ?? null,
+      })),
+    };
+  }
+  async saveHrNames(cid: string, names: Record<string, string | null>) {
+    const d = await this.hrCampaign(cid);
+    const year = d.campaign.year;
+    const { book } = await this.hrWorkbook(year);
+    const roster = new Set(book.sheets.find((s) => s.team === d.campaign.team_id)!.roster);
+    if (!names || typeof names !== 'object') throw new ApiError('Correspondencia no válida');
+    const byId = new Map(d.members.map((m) => [m.id, m]));
+    const ops: Statement[] = [];
+    for (const [memberId, name] of Object.entries(names)) {
+      const m = byId.get(memberId);
+      if (!m) throw new ApiError('Persona desconocida en este equipo');
+      if (name !== null && !roster.has(name)) throw new ApiError(`«${name}» no está en la hoja ${d.campaign.team_id}`);
+      ops.push(
+        name === null
+          ? { sql: 'DELETE FROM hr_names WHERE year=? AND person_id=?', args: [year, m.person_id] }
+          : {
+              sql: 'INSERT INTO hr_names(year,person_id,hr_name) VALUES(?,?,?) ON CONFLICT(year,person_id) DO UPDATE SET hr_name=excluded.hr_name',
+              args: [year, m.person_id, name],
+            },
+      );
+    }
+    await this.commit([...ops, this.audit('hr_names', d.campaign, null, { year, names })]);
+    return this.hrStatus(cid);
+  }
+  /** RRHH's workbook with only this team's sheet filled in; the team must be closed. */
+  private async hrNames(year: number) {
+    return new Map<string, string>(
+      (await this.repo.all('SELECT person_id,hr_name FROM hr_names WHERE year=?', [year])).map((r) => [
+        r.person_id,
+        r.hr_name,
+      ]),
+    );
+  }
+  /** Cells of one team's sheet; throws HrExportError when the data cannot be written. */
+  private async hrCells(cid: string, book: HrWorkbook, saved: Map<string, string>) {
+    const d = await this.load(cid);
+    const view = await this.view(cid);
+    const names: Record<string, string> = {};
+    for (const m of d.members) if (saved.has(m.person_id)) names[m.id] = saved.get(m.person_id)!;
+    return hrTeamCells({
+      sheet: book.sheets.find((s) => s.team === d.campaign.team_id)!,
+      cycles: view.result.cycles,
+      members: d.members,
+      awards: orderAwardsBySelection(view.awards, view.election?.timeline),
+      names,
+    });
+  }
+  /** RRHH's workbook with only this team's sheet filled in; the team must be closed. */
+  async exportHrTeam(cid: string) {
+    const d = await this.hrCampaign(cid);
+    if (d.campaign.status === 'open') throw new ApiError('Cierra el equipo antes de exportarlo a RRHH');
+    const { year, team_id: team } = d.campaign;
+    const { row, zip, book } = await this.hrWorkbook(year);
+    let cells;
+    try {
+      cells = await this.hrCells(cid, book, await this.hrNames(year));
+    } catch (e) {
+      if (e instanceof HrExportError) throw new ApiError(e.message, 409);
+      throw e;
+    }
+    const bytes = await writeHrWorkbook(zip, book, { [team]: cells });
+    await this.commit([
+      this.audit('hr_export', d.campaign, null, { year, version: d.campaign.version, template: row.sha256 }),
+    ]);
+    return { name: `${year}_LECS_Vac_${team}.xlsm`, bytes };
+  }
+  /**
+   * RRHH's workbook with the sheet of every closed or published team filled in (superadministrator).
+   * Open teams are left as in the template and reported, so their sheet is never half-written.
+   */
+  async exportHrGlobal(year: number) {
+    requireSuper(this.actor);
+    const { row, zip, book } = await this.hrWorkbook(year);
+    const campaigns = await this.repo.all(
+      "SELECT id,team_id,status,version FROM campaigns WHERE year=? AND scope_key='live' ORDER BY team_id",
+      [year],
+    );
+    const saved = await this.hrNames(year);
+    const cellsByTeam: Record<string, HrCell[]> = {};
+    const open: string[] = [];
+    const problems: string[] = [];
+    for (const c of campaigns) {
+      if (c.status === 'open') {
+        open.push(c.team_id);
+        continue;
+      }
+      try {
+        cellsByTeam[c.team_id] = await this.hrCells(c.id, book, saved);
+      } catch (e) {
+        if (!(e instanceof HrExportError)) throw e;
+        problems.push(`Equipo ${c.team_id}: ${e.message}`);
+      }
+    }
+    if (problems.length) throw new ApiError(problems.join(' · '), 409);
+    if (!Object.keys(cellsByTeam).length) throw new ApiError('No hay ningún equipo cerrado o publicado que exportar');
+    const bytes = await writeHrWorkbook(zip, book, cellsByTeam);
+    await this.commit([
+      this.audit('hr_export', null, null, {
+        year,
+        teams: campaigns.filter((c) => cellsByTeam[c.team_id]).map((c) => ({ team: c.team_id, version: c.version })),
+        open,
+        template: row.sha256,
+      }),
+    ]);
+    return { name: `${year}_LECS_Vac_global.xlsm`, bytes, open };
+  }
   async backup() {
     requireSuper(this.actor);
     const names = Object.keys(tableColumns),
@@ -721,7 +898,7 @@ export class Service {
     )
       throw new ApiError('Copia inválida o integridad incorrecta');
     const tables = { ...b.payload.tables };
-    for (const key of ['preferences', 'election_states', 'controller_accounts', 'reconstruction_sessions'])
+    for (const key of ['preferences', 'election_states', 'controller_accounts', 'reconstruction_sessions', 'hr_names'])
       if (tables[key] === undefined) tables[key] = [];
     // Local admin sessions are not backed up. Older backups kept them (and login
     // attempts) in audit: drop those rows so a restore never resurrects a session.

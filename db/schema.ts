@@ -35,3 +35,8 @@ export const reconstructionSessions=sqliteTable('reconstruction_sessions',{campa
 // Local admin sessions and throttled login attempts: expiring security state, never backed up.
 export const localAdminSessions=sqliteTable('local_admin_sessions',{id:text('id').primaryKey(),actor:text('actor').notNull(),createdAt:text('created_at').notNull(),expiresAt:integer('expires_at').notNull(),revokedAt:text('revoked_at')});
 export const localAdminAttempts=sqliteTable('local_admin_attempts',{id:text('id').primaryKey(),attemptKey:text('attempt_key').notNull(),createdAt:text('created_at').notNull()},t=>[index('local_admin_attempt_key').on(t.attemptKey,t.createdAt)]);
+
+// RRHH's yearly workbook, kept out of the repository (it lists real employees); see server/hr-xlsx.ts.
+export const hrTemplates=sqliteTable('hr_templates',{year:integer('year').primaryKey(),data:text('data').notNull(),sha256:text('sha256').notNull(),uploadedBy:text('uploaded_by').notNull(),uploadedAt:text('uploaded_at').notNull()});
+// Each person's name exactly as column J of their team sheet spells it.
+export const hrNames=sqliteTable('hr_names',{year:integer('year').notNull(),personId:text('person_id').notNull().references(()=>people.id),hrName:text('hr_name').notNull()},t=>[primaryKey({columns:[t.year,t.personId]})]);

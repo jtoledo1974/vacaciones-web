@@ -1134,3 +1134,10 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  /* hidden would make the panel the sticky header's scroll container; clip crops the same without that. */
  .vac2-panel:has(.vac3-fits){overflow:clip}
 }
+
+.hr-export .hr-upload { display: grid; gap: 6px; margin-bottom: 12px; }
+.hr-export .hr-names { display: grid; gap: 8px; margin: 8px 0 12px; }
+.hr-export .hr-names label { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 8px; align-items: center; }
+.hr-export .hr-names select { min-width: 0; width: 100%; }
+@media (max-width: 480px) { .hr-export .hr-names label { grid-template-columns: 1fr; gap: 2px; } }
+.hr-export h3 { margin: 20px 0 4px; }
