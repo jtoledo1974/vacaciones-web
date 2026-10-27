@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { myElection, type MyElectionInput } from '../app/my-election-state.ts';
+import type { CycleAvailability } from '../domain/occupancy.ts';
 
 const cycles = [
   { date: '2027-07-04', end: '2027-07-11', score: 80, occupied: 1, max: 4 },
@@ -43,11 +44,11 @@ test('la lista usada no figura como activa y marca lo ya adjudicado y lo copado'
   })!;
   assert.equal(r.list.state, 'used');
   assert.deepEqual(
-    r.list.entries.map((e) => [e.mine, e.free]),
+    r.list.entries.map((e) => [e.mine, e.full]),
     [
-      [true, 1],
-      [false, 0],
-      [false, 3],
+      [true, false],
+      [false, true],
+      [false, false],
     ],
   );
   assert.equal(r.list.unavailable, 1);
@@ -96,4 +97,35 @@ test('quienes van delante con preferencias activas: cuándo puede llegar tu turn
   assert.equal(aheadNote(waiting(0)), null);
   assert.equal(aheadNote(waiting(null)), null);
   assert.equal(aheadNote({ ...waiting(2), phase: 'my-turn' }), null);
+});
+
+test('con motor de ocupación, la plaza local libre que las reglas excluyen no cuenta como disponible', () => {
+  const engine = (date: string, additional: number) => ({
+    cycle: date,
+    period: 0 as CycleAvailability['period'],
+    occupied: 1,
+    localMaximum: 4,
+    status: 'exact' as const,
+    additional,
+    provenAdditional: additional,
+    possibleAdditionalUpperBound: additional,
+    slots: [],
+  });
+  const r = myElection({
+    ...base,
+    preferences: [{ member_id: 'd', dates: ['2027-07-04', '2027-07-12'] }],
+    ruled: true,
+    availability: {
+      policyVersion: 'p',
+      status: 'exact',
+      checked: 0,
+      cycles: { '2027-07-04': engine('2027-07-04', 0), '2027-07-12': engine('2027-07-12', 1) },
+    },
+  })!;
+  assert.deepEqual(
+    r.list.entries.map((e) => e.full),
+    [true, false],
+  );
+  assert.equal(r.list.unavailable, 1);
+  assert.equal(r.list.firstViable, '2027-07-12');
 });

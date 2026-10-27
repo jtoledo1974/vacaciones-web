@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import CycleTable from './cycle-table';
 import { orderMemberAwards, orderMemberIds, type CycleOrder, type MemberOrder } from '../domain/member-display-order';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
+import { splitPreferences } from './own-cycles';
 import { cycleAvailability, cycleOccupancyLabel } from './cycle-availability-ui';
 
 export const formatDate = (date: string) =>
@@ -51,8 +52,43 @@ type Props = {
   /** Cycles the viewer may take now, ahead of their turn (proved safe by the server). */
   secured?: string[];
   glossary?: boolean;
+  /** Member whose marks are shown (see `ownCycles`): the viewer, or whoever's list is being edited. */
+  owner?: string;
+  /** That member's code, when it is not the viewer: marks then name them instead of saying «Tuyo». */
+  ownerCode?: string;
+  /** Cycles already awarded to the owner: marked in every view and mode. */
+  mine?: string[];
+  /** The owner's saved preference list, in order; outside preference mode it is shown, not edited. */
+  preferences?: string[];
 };
 
+/** The viewer's own marks, identical in every view so «mine» and «my order» read the same everywhere. */
+function OwnMarks({ owned, rank, who }: { owned: boolean; rank: number; who?: string }) {
+  if (!owned && rank < 1) return null;
+  return (
+    <span className="vac2-own-marks">
+      {owned && (
+        <span className="vac2-mine-badge" title={who ? 'Adjudicado a ' + who : 'Adjudicado a ti'}>
+          ✓ {who ?? 'Tuyo'}
+        </span>
+      )}
+      {rank > 0 && (
+        <span className="vac2-rank-chip" title={(who ? 'Preferencia de ' + who + ' ' : 'Tu preferencia ') + rank}>
+          P{rank}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function rememberView(next: View) {
+  try {
+    document.cookie = 'vacaciones_cycle_view=' + encodeURIComponent(next) + '; Max-Age=31536000; Path=/; SameSite=Lax';
+    localStorage.setItem('vacaciones_cycle_view', next);
+  } catch {
+    /* La vista funciona sin cookies. */
+  }
+}
 function slots(c: Cycle) {
   return Math.max(0, c.max - c.occupied);
 }
@@ -87,10 +123,22 @@ export default function CycleCalendar({
   notForMe,
   secured,
   glossary = false,
+  owner,
+  ownerCode,
+  mine: mineDates = [],
+  preferences = [],
 }: Props) {
   // On one's own turn, cycles one cannot take are marked up front rather than discovered by tapping.
   const blocked = new Set(notForMe ?? []),
-    safe = new Set(secured ?? []);
+    safe = new Set(secured ?? []),
+    owned = new Set(mineDates);
+  // In preference mode the selection is the list being edited; otherwise the saved list is shown read-only.
+  // Pn counts only usable preferences, as the editor numbers them; owned or full ones are skipped.
+  const ranked = splitPreferences(preferenceMode ? selected : preferences, owned, cycles, availability, ruled).active;
+  const rankOf = (date: string) => ranked.indexOf(date) + 1;
+  const ownLabel = (date: string) =>
+    (owned.has(date) ? (ownerCode ? ' · adjudicado a ' + ownerCode : ' · adjudicado a ti') : '') +
+    (rankOf(date) ? (ownerCode ? ' · preferencia de ' + ownerCode + ' ' : ' · tu preferencia ') + rankOf(date) : '');
   const [view, setView] = useState<View>('map');
   useEffect(() => {
     try {
@@ -108,13 +156,30 @@ export default function CycleCalendar({
   }, []);
   function changeView(next: View) {
     setView(next);
-    try {
-      document.cookie =
-        'vacaciones_cycle_view=' + encodeURIComponent(next) + '; Max-Age=31536000; Path=/; SameSite=Lax';
-      localStorage.setItem('vacaciones_cycle_view', next);
-    } catch {
-      /* La vista funciona sin cookies. */
-    }
+    rememberView(next);
+  }
+  /** Only shows the cycle on the map: onSelect would add or remove it from a list being edited. */
+  function showCycle(date: string) {
+    changeView('map');
+    requestAnimationFrame(() => {
+      const card = document.querySelector<HTMLElement>('.vac2-map [data-cycle-date="' + date + '"]');
+      card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card?.focus({ preventScroll: true });
+    });
+  }
+  function prefChips() {
+    return (
+      <span className="vac2-own-marks">
+        {ranked.map((date, i) => {
+          const c = cycles.find((x) => x.date === date);
+          return (
+            <button type="button" className="vac2-pref-link" key={date} onClick={() => showCycle(date)} disabled={!c}>
+              <span className="vac2-rank-chip">P{i + 1}</span> {formatDate(date)}
+            </button>
+          );
+        })}
+      </span>
+    );
   }
   const [activeMonth, setActiveMonth] = useState(0);
   const [memberOrder, setMemberOrder] = useState<MemberOrder>('request');
@@ -184,6 +249,7 @@ export default function CycleCalendar({
         aria-label={
           cycleTitle(c, ruled, availability) +
           (safe.has(c.date) ? ' · asegurado para ti' : '') +
+          ownLabel(c.date) +
           (people.length ? ' · ' + people.join(', ') : '')
         }
         title={cycleTitle(c, ruled, availability)}
@@ -194,7 +260,8 @@ export default function CycleCalendar({
           (safe.has(c.date) ? ' vac2-secured' : '') +
           (isSummer(c) ? ' vac2-summer' : '') +
           (selected.includes(c.date) ? ' vac2-selected' : '') +
-          (highlighted.includes(c.date) ? ' vac2-person' : '')
+          (highlighted.includes(c.date) ? ' vac2-person' : '') +
+          (owned.has(c.date) ? ' vac2-mine' : '')
         }
       >
         <span className="vac2-line">
@@ -222,9 +289,7 @@ export default function CycleCalendar({
           </span>
         </span>
         {safe.has(c.date) && <span className="vac2-secured-badge">Asegurado para ti</span>}
-        {preferenceMode && selected.includes(c.date) && (
-          <span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date) + 1}</span>
-        )}
+        <OwnMarks owned={owned.has(c.date)} rank={rankOf(c.date)} who={ownerCode} />
         {people.length > 0 && (
           <span className="vac2-names" title={people.join(', ')}>
             {people.join(' · ')}
@@ -264,13 +329,19 @@ export default function CycleCalendar({
                       (blocked.has(c.date) ? ' vac2-not-for-me' : '') +
                       (isSummer(c) ? ' vac2-summer' : '') +
                       (selected.includes(c.date) ? ' vac2-selected' : '') +
+                      (owned.has(c.date) ? ' vac2-mine' : '') +
                       (first ? ' vac2-cycle-start' : '')
                     }
                     aria-pressed={selected.includes(c.date)}
                     title={cycleTitle(c, ruled, availability)}
-                    aria-label={day + ' ' + months[m] + ': ' + cycleTitle(c, ruled, availability)}
+                    aria-label={day + ' ' + months[m] + ': ' + cycleTitle(c, ruled, availability) + ownLabel(c.date)}
                   >
                     {day}
+                    {first && rankOf(c.date) > 0 && (
+                      <small className="vac2-day-rank" aria-hidden="true">
+                        P{rankOf(c.date)}
+                      </small>
+                    )}
                     {ruled && first && (
                       <small className="vac2-day-count" aria-hidden="true">
                         {status.label}
@@ -297,6 +368,7 @@ export default function CycleCalendar({
                   >
                     <b>{formatDate(c.date)}</b>
                     <span>{codesFor(c.date).join(' · ') || 'Sin adjudicar'}</span>
+                    <OwnMarks owned={owned.has(c.date)} rank={rankOf(c.date)} who={ownerCode} />
                   </button>
                 ))}
             </div>
@@ -355,7 +427,7 @@ export default function CycleCalendar({
               {displayedMembers.map((id) => {
                 const entries = memberEntries(id);
                 return (
-                  <tr key={id}>
+                  <tr key={id} className={id === owner ? 'vac2-mine-row' : undefined}>
                     <th scope="row">{byId.get(id)}</th>
                     {Array.from({ length: 6 }, (_, i) => (
                       <td key={i}>
@@ -374,12 +446,17 @@ export default function CycleCalendar({
               })}
             </tbody>
           </table>
+          {owner && ranked.length > 0 && (
+            <div className="vac2-pref-row">
+              <b>{ownerCode ? 'Preferencias de ' + ownerCode : 'Tus preferencias'}:</b> {prefChips()}
+            </div>
+          )}
         </div>
         <div className="vac2-members-mobile">
           {displayedMembers.map((id) => {
             const entries = memberEntries(id);
             return (
-              <details key={id} className="vac2-member-card">
+              <details key={id} className={'vac2-member-card' + (id === owner ? ' vac2-mine-row' : '')}>
                 <summary>
                   <b>{byId.get(id)}</b>
                   <span>
@@ -396,6 +473,11 @@ export default function CycleCalendar({
                   ) : (
                     <p className="muted">Sin ciclos adjudicados</p>
                   )}
+                  {id === owner && ranked.length > 0 && (
+                    <div className="vac2-pref-row">
+                      <b>{ownerCode ? 'Preferencias de ' + ownerCode : 'Tus preferencias'}:</b> {prefChips()}
+                    </div>
+                  )}
                 </div>
               </details>
             );
@@ -406,10 +488,14 @@ export default function CycleCalendar({
   }
 
   return (
-    <section className={'panel vac2-panel' + (ruled ? ' vac2-ruled' : '')} aria-label="Calendario de ciclos">
+    <section
+      className={'panel vac2-panel' + (ruled ? ' vac2-ruled' : '') + (preferenceMode ? ' vac2-mode-preferences' : '')}
+      aria-label="Calendario de ciclos"
+    >
+      {/* The mode is told by the frame and heading (plus the workspace notice), never by the marks. */}
       <div className="vac2-heading">
         <div>
-          <h2>Disponibilidad y baremo</h2>
+          <h2>{preferenceMode ? 'Elige tus preferencias' : 'Disponibilidad y baremo'}</h2>
           {!preferenceMode && <p className="muted">Selecciona cualquier ciclo para ver detalles y ocupantes.</p>}
         </div>
         <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
@@ -502,10 +588,24 @@ export default function CycleCalendar({
             ⓘ Qué significa
           </a>
         )}
-        <span>
-          <i className="vac2-selection-key" />
-          {preferenceMode ? 'Tus preferencias' : 'Tu selección'}
-        </span>
+        {!preferenceMode && (
+          <span>
+            <i className="vac2-selection-key" />
+            Tu selección
+          </span>
+        )}
+        {(owned.size > 0 || ranked.length > 0) && (
+          <span className="vac2-legend-own">
+            {owned.size > 0 && <span className="vac2-mine-badge">✓ {ownerCode ?? 'Tuyo'}</span>}
+            {ranked.length > 0 && <span className="vac2-rank-chip">P1</span>}
+            {[
+              owned.size > 0 && (ownerCode ? 'Adjudicado a ' + ownerCode : 'Adjudicado a ti'),
+              ranked.length > 0 && (ownerCode ? 'Orden de preferencia de ' + ownerCode : 'Tu orden de preferencia'),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </span>
+        )}
       </div>
       {view === 'table' && (
         <CycleTable
@@ -522,6 +622,9 @@ export default function CycleCalendar({
           availability={availability}
           notForMe={notForMe}
           secured={secured}
+          mine={mineDates}
+          preferences={ranked}
+          ownerCode={ownerCode}
         />
       )}
       {view === 'map' && (

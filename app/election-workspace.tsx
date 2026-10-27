@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import CycleCalendar, { formatDate } from './cycle-calendar';
+import { ownCycles } from './own-cycles';
 import { undoQuestion } from './undo-summary';
 import { useConfirmation } from './confirmation';
 import { apiFetch } from './api-client';
@@ -483,6 +484,8 @@ export default function ElectionWorkspace({
         automaticAhead: election.automaticAhead,
         state,
         turn,
+        availability: election.cycleAvailability,
+        ruled,
       })
     : null;
   const canChooseHere = canChoose;
@@ -514,6 +517,9 @@ export default function ElectionWorkspace({
     else await act({ action: 'election_undo', historyId: election.undo }, 'Cambio de elección deshecho');
   }
   // Outside one's turn the cycle card offers to edit one's own list instead of a dead end.
+  // While someone's list is edited, the marks are theirs: «Tuyo» must not mix two people.
+  const marksOwner =
+    mode === 'preferences' && canPreferences && preferenceMemberIds.includes(memberId) ? memberId : mine;
   const ownPreferences = !!mine && canPreferences && preferenceMemberIds.includes(mine) && memberId === mine;
   const plainAvailability = (cycle: any) => {
     const label = cycleAvailability(cycle, election.cycleAvailability, ruled).label;
@@ -565,6 +571,8 @@ export default function ElectionWorkspace({
           autoPick={autoPick}
           plan={election.listPlan?.memberId === mine ? election.listPlan : null}
           cycles={data.result.cycles}
+          availability={election.cycleAvailability}
+          ruled={ruled}
           available={me.phase === 'my-turn' && canChoose && !previewReadOnly ? election.available : undefined}
           onPick={pickFromList}
           early={election.early}
@@ -1210,6 +1218,12 @@ export default function ElectionWorkspace({
             availability={election.cycleAvailability}
             glossary={!manage || !!mine}
             secured={earlySecured}
+            {...ownCycles(marksOwner, data.awards, election.preferences)}
+            ownerCode={
+              marksOwner && marksOwner !== mine
+                ? data.members.find((m: { id: string }) => m.id === marksOwner)?.code
+                : undefined
+            }
             notForMe={
               !!mine &&
               turn?.memberId === mine &&

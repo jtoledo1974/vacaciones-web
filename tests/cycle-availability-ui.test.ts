@@ -181,3 +181,10 @@ test('el historial solo resume consecuencias sobre otros ciclos', () => {
   assert.equal(fourth.details.length, 1);
   assert.match(fourth.details[0], /1 → 0/);
 });
+
+test('an indeterminate cycle with no possible extra seat reads as full, as preferences treat it', () => {
+  const status = cycleAvailability(cycle, snapshot('indeterminate', null, 0, 0), true);
+  assert.equal(status.label, '0');
+  assert.equal(status.className, 'vac2-free-0');
+  assert.equal(cycleAvailability(cycle, snapshot('indeterminate', null, 0, 2), true).label, '?');
+});

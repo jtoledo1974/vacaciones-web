@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import CycleCalendar, { formatDate } from './cycle-calendar';
+import { ownCycles } from './own-cycles';
 import { orderAwardsBySelection } from '../domain/award-display-order';
 import { api } from './api-client';
 
@@ -221,6 +222,7 @@ export default function PersonalSimulator({ data, onExit }: { data: any; onExit:
             glossary
             highlighted={simAwards.filter((a) => a.simulated).map((a) => a.cycle_date)}
             notForMe={blocked.map((b) => b.cycle)}
+            {...ownCycles(sim.memberId, simAwards, data.election?.preferences)}
           />
         </div>
         <aside className="election-side">

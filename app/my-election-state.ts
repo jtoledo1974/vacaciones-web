@@ -1,8 +1,10 @@
 import type { ElectionState } from '../domain/election.ts';
 import { turnsUntil } from '../domain/sequence.ts';
+import type { AvailabilitySnapshot } from '../domain/occupancy.ts';
+import { splitPreferences } from './own-cycles.ts';
 export { peopleAhead, turnsUntil } from '../domain/sequence.ts';
 
-type Cycle = { date: string; end: string; score: number; occupied: number; max: number };
+type Cycle = { date: string; end: string; score: number; occupied: number; max: number; available?: boolean };
 type Award = { member_id: string; cycle_date: string };
 type Preference = {
   member_id: string;
@@ -28,6 +30,9 @@ export type MyElectionInput = {
   automaticAhead?: number | null;
   state: ElectionState | null | undefined;
   turn: Turn | null | undefined;
+  /** Occupancy engine output: with `ruled`, which preferences still have a seat. */
+  availability?: AvailabilitySnapshot | null;
+  ruled?: boolean;
 };
 
 export type MyListState = 'none' | 'active-next' | 'active-all' | 'used' | 'paused' | 'manual';
@@ -37,7 +42,8 @@ export type MyListEntry = {
   score: number;
   position: number;
   mine: boolean;
-  free: number;
+  /** No seat left, by the same criterion as the calendar and the editor. */
+  full: boolean;
   label: string;
 };
 
@@ -81,6 +87,13 @@ export function myElection(input: MyElectionInput): MyElection | null {
     turn = input.turn;
 
   const pref = input.preferences.find((p) => p.member_id === me);
+  const split = splitPreferences(
+    pref?.dates ?? [],
+    cycles.map((c) => c.date),
+    input.cycles,
+    input.availability,
+    !!input.ruled,
+  );
   const entries: MyListEntry[] = (pref?.dates ?? []).map((date, i) => {
     const c = byDate.get(date);
     return {
@@ -89,11 +102,11 @@ export function myElection(input: MyElectionInput): MyElection | null {
       score: c?.score ?? 0,
       position: i + 1,
       mine: cycles.some((x) => x.date === date),
-      free: c ? Math.max(0, c.max - c.occupied) : 0,
+      full: !c || split.full.has(date),
       label: pref?.labels?.[date] ?? '',
     };
   });
-  const viable = entries.filter((e) => !e.mine && e.free > 0);
+  const viable = entries.filter((e) => !e.mine && !e.full);
   const listState: MyListState = !entries.length
     ? 'none'
     : pref?.active === false
@@ -108,7 +121,7 @@ export function myElection(input: MyElectionInput): MyElection | null {
   const list = {
     state: listState,
     entries,
-    unavailable: entries.filter((e) => !e.mine && e.free === 0).length,
+    unavailable: entries.filter((e) => !e.mine && e.full).length,
     firstViable: viable[0]?.date ?? null,
     mode: pref?.mode ?? 'immediate',
     waitMinutes: pref?.waitMinutes ?? 0,

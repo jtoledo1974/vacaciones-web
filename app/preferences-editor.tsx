@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { formatDate } from './cycle-calendar';
-import { visiblePreferenceDates } from '../domain/election';
+import { seatsLeft, splitPreferences } from './own-cycles';
 import { formatWait } from './my-election-state';
 
 // One editor moves into a modal on small screens; its draft belongs to the workspace.
@@ -154,9 +154,25 @@ export default function PreferencesEditor({
     review = useRef<HTMLButtonElement>(null);
   const member = data.members.find((m: any) => m.id === memberId);
   const existing = data.election.preferences.find((p: any) => p.member_id === memberId);
-  const unavailableDates = new Set(
-    dates.filter((date: string) => !visiblePreferenceDates([date], data.result.cycles).length),
+  // Owned and full cycles stay in place (a seat may free up) but read as skipped, not as live options.
+  const ruled = !!data.election.occupancyPolicyVersion;
+  // Same availability as the calendar: owned and full cycles step aside (a seat may free up) and keep their slot.
+  const split = splitPreferences(
+    dates,
+    data.awards
+      .filter((a: { member_id: string }) => a.member_id === memberId)
+      .map((a: { cycle_date: string }) => a.cycle_date),
+    data.result.cycles,
+    data.election.cycleAvailability,
+    ruled,
   );
+  const ownedDates = split.owned,
+    unavailableDates = split.full;
+  // Only usable preferences are ranked and reordered; skipped ones keep their slot in the saved list.
+  const active = split.active,
+    skipped = dates.filter((date: string) => ownedDates.has(date) || unavailableDates.has(date));
+  const usable = active.length;
+  const cycleOf = (date: string) => data.result.cycles.find((c: { date: string }) => c.date === date);
   useEffect(() => {
     const query = window.matchMedia('(max-width: 900px)');
     const update = () => {
@@ -208,21 +224,24 @@ export default function PreferencesEditor({
         : 'Sin preferencias guardadas';
   const stateClass = 'preference-state ' + (dirty ? 'pending' : used ? 'used' : 'saved');
   // A native picker on the position number: jumping 12 → 2 is one tap on a phone, not ten.
+  // Indices are positions among the usable preferences; skipped ones stay where they were.
+  function reorder(next: string[]) {
+    let k = 0;
+    setDates(dates.map((date: string) => (skipped.includes(date) ? date : next[k++])));
+  }
   function moveTo(index: number, target: number) {
-    if (target === index || target < 0 || target >= dates.length) return;
-    const next = [...dates],
+    if (target === index || target < 0 || target >= active.length) return;
+    const next = [...active],
       [moved] = next.splice(index, 1);
     next.splice(target, 0, moved);
-    setDates(next);
+    reorder(next);
   }
   function swap(index: number, direction: -1 | 1) {
-    const other = dates[index + direction];
-    if (!other) return;
-    const next = [...dates],
-      first = next.indexOf(dates[index]),
-      second = next.indexOf(other);
-    [next[first], next[second]] = [next[second], next[first]];
-    setDates(next);
+    const other = index + direction;
+    if (other < 0 || other >= active.length) return;
+    const next = [...active];
+    [next[index], next[other]] = [next[other], next[index]];
+    reorder(next);
   }
   const editor = (
     <section
@@ -288,11 +307,11 @@ export default function PreferencesEditor({
             próximo turno.
           </p>
         )}
-        {!!dates.length && (
+        {!!active.length && (
           <ol className="preference-list" aria-label="Preferencias en orden de prioridad">
-            {dates.map((date: string, i: number) => {
-              const cycle = data.result.cycles.find((c: any) => c.date === date),
-                position = dates.indexOf(date) + 1;
+            {active.map((date: string, i: number) => {
+              const cycle = cycleOf(date),
+                position = i + 1;
               return (
                 <li key={date} value={position}>
                   <select
@@ -302,7 +321,7 @@ export default function PreferencesEditor({
                     disabled={busy}
                     onChange={(e) => moveTo(i, Number(e.target.value) - 1)}
                   >
-                    {dates.map((_: string, k: number) => (
+                    {active.map((_: string, k: number) => (
                       <option key={k} value={k + 1}>
                         {k + 1}
                       </option>
@@ -314,15 +333,7 @@ export default function PreferencesEditor({
                     </strong>
                     <small>
                       {cycle?.score} puntos
-                      {data.awards.some((a: any) => a.member_id === memberId && a.cycle_date === date)
-                        ? ' · Ya es tuyo'
-                        : unavailableDates.has(date)
-                          ? ' · Sin cupo actualmente'
-                          : cycle
-                            ? ((n) => ' · ' + (n === 1 ? 'queda 1 plaza' : `quedan ${n} plazas`))(
-                                Math.max(0, cycle.max - cycle.occupied),
-                              )
-                            : ''}
+                      {cycle ? ' · ' + seatsLeft(cycle, data.election.cycleAvailability, ruled) : ''}
                     </small>
                   </div>
                   <div className="preference-row-actions">
@@ -339,7 +350,7 @@ export default function PreferencesEditor({
                       type="button"
                       className="secondary"
                       aria-label={`Bajar preferencia ${position}`}
-                      disabled={i === dates.length - 1 || busy}
+                      disabled={i === active.length - 1 || busy}
                       onClick={() => swap(i, 1)}
                     >
                       ↓
@@ -370,12 +381,38 @@ export default function PreferencesEditor({
             })}
           </ol>
         )}
-        {unavailableDates.size > 0 && (
-          <p className="preference-hidden">
-            {unavailableDates.size === 1 ? '1 ciclo sin cupo' : unavailableDates.size + ' ciclos sin cupo'} actualmente.
-            Permanecen visibles y en su posición; puedes quitarlos o reordenarlos. Se volverán a considerar si se libera
-            una plaza.
-          </p>
+        {skipped.length > 0 && (
+          <section className="preference-skipped" aria-label="Preferencias que se saltarán">
+            <h3>
+              Se saltarán ({skipped.length}) · {usable === 1 ? '1 utilizable' : usable + ' utilizables'}
+            </h3>
+            <ul>
+              {skipped.map((date: string) => (
+                <li key={date} className={ownedDates.has(date) ? 'is-owned' : 'is-full'}>
+                  <span className="preference-skipped-date">
+                    {formatDate(date)} – {formatDate(cycleOf(date)?.end ?? date)}
+                  </span>
+                  <span className="preference-skip-tag">{ownedDates.has(date) ? '✓ Ya adjudicado' : 'Sin cupo'}</span>
+                  <button
+                    type="button"
+                    className="preference-skipped-remove"
+                    aria-label={'Quitar ' + formatDate(date)}
+                    title="Quitar"
+                    disabled={busy}
+                    onClick={() => setDates(dates.filter((d: string) => d !== date))}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {unavailableDates.size > 0 && (
+              <p className="preference-hidden">
+                {unavailableDates.size === 1 ? '1 ciclo sin cupo' : unavailableDates.size + ' ciclos sin cupo'}{' '}
+                actualmente: se conservan y volverán a tu lista en su posición si se libera una plaza.
+              </p>
+            )}
+          </section>
         )}
         <PreferenceUsage usage={usage} setUsage={setUsage} busy={busy} />
       </div>
@@ -431,6 +468,7 @@ export default function PreferencesEditor({
             <div className="preference-dock-status">
               <strong>
                 {dates.length} {dates.length === 1 ? 'preferencia' : 'preferencias'}
+                {usable < dates.length ? ` (${usable} utilizables)` : ''}
               </strong>
               <span className={dirty ? 'pending' : used ? 'used' : 'saved'}>{status}</span>
             </div>

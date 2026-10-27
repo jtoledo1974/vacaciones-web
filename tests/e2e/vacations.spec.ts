@@ -1315,3 +1315,33 @@ test(
     }
   },
 );
+
+test('vista de controlador: en su turno, «Tu lista ahora» muestra puntos y plazas de cada preferencia', async ({
+  page,
+  request,
+}) => {
+  const s = await setup(request, page);
+  await open(page, s.id);
+  await activate(page);
+  const cycles = s.data.result.cycles,
+    dates = [cycles[3].date, cycles[9].date];
+  await election(request, s.id, {
+    action: 'preferences',
+    memberId: s.data.members[0].id,
+    dates,
+    persistent: false,
+    mode: 'manual',
+    waitMinutes: 0,
+  });
+  const url = new URL(page.url());
+  url.searchParams.set('verComo', 'QA_A');
+  await page.goto(url.toString());
+  const list = page.getByRole('region', { name: 'Mi elección' }).locator('.my-election-now');
+  await expect(list.locator('li')).toHaveCount(2);
+  for (const [i, date] of dates.entries()) {
+    const score = cycles.find((c: { date: string; score: number }) => c.date === date).score;
+    await expect(list.locator('li').nth(i)).toContainText(
+      new RegExp(score + ' pt · Disponible · (quedan? \\d+ plazas?|plazas por confirmar)'),
+    );
+  }
+});

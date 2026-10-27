@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { formatDate } from './cycle-calendar';
 import { aheadNote, formatDeadline, formatWait, remainingText, type MyElection } from './my-election-state';
+import { seatsLeft } from './own-cycles';
+import type { AvailabilitySnapshot } from '../domain/occupancy';
 
 /** How the controller's saved list will act, in one sentence. */
 export function listSentence(list: MyElection['list'], turn = false): string {
@@ -112,10 +114,13 @@ function WaitingPlan({
 function ListNow({
   entries,
   available,
+  seats,
   onPick,
 }: {
   entries: MyElection['list']['entries'];
   available: string[];
+  /** Seats left per cycle, as the calendar counts them. */
+  seats: (date: string) => string;
   onPick?: (date: string) => void;
 }) {
   const can = entries.filter((e) => !e.mine && available.includes(e.date)).length;
@@ -136,7 +141,14 @@ function ListNow({
               <span className="my-election-now-text">
                 {e.label && <span className="preference-name">{e.label}</span>}
                 {formatDate(e.date)} – {formatDate(e.end)}
-                <small>{state === 'ok' ? 'Disponible' : state === 'mine' ? 'Ya es tuyo' : 'Ya no disponible'}</small>
+                <small>
+                  {e.score} pt ·{' '}
+                  {state === 'ok'
+                    ? 'Disponible · ' + seats(e.date)
+                    : state === 'mine'
+                      ? 'Ya es tuyo'
+                      : 'Ya no disponible'}
+                </small>
               </span>
               {state === 'ok' && onPick && (
                 <button
@@ -169,6 +181,8 @@ export default function MyElectionCard({
   autoPick,
   plan,
   cycles = [],
+  availability,
+  ruled = false,
   available,
   onPick,
   onChoose,
@@ -182,7 +196,10 @@ export default function MyElectionCard({
   me: MyElection;
   autoPick?: AutoPick | null;
   plan?: ListPlan | null;
-  cycles?: { date: string; end: string }[];
+  cycles?: { date: string; end: string; occupied: number; max: number }[];
+  /** Occupancy engine output, for seats left; `ruled` when the campaign has one. */
+  availability?: AvailabilitySnapshot | null;
+  ruled?: boolean;
   available?: string[];
   onPick?: (date: string) => void;
   onChoose: () => void;
@@ -231,7 +248,7 @@ export default function MyElectionCard({
       ? 'Estimación: los turnos conjuntos y aplazamientos pueden cambiarla.'
       : '';
   const note = aheadNote(me);
-  const lost = me.list.entries.filter((e) => !e.mine && e.free === 0).length;
+  const lost = me.list.unavailable;
   const body = (
     <>
       <div className="my-election-head">
@@ -288,7 +305,15 @@ export default function MyElectionCard({
       )}
       {turn && plan?.mode === 'wait' && <WaitingPlan plan={plan} list={me.list} cycles={cycles} />}
       {turn && available && me.list.entries.length > 0 && (
-        <ListNow entries={me.list.entries} available={available} onPick={onPick} />
+        <ListNow
+          entries={me.list.entries}
+          available={available}
+          seats={(date) => {
+            const c = cycles.find((x) => x.date === date);
+            return c ? seatsLeft(c, availability, ruled) : '';
+          }}
+          onPick={onPick}
+        />
       )}
       {autoPick && !dismissed && (
         <div className="my-election-auto" role="status">

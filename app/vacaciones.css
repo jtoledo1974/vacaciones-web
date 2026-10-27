@@ -1062,3 +1062,40 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac2-secured-key{display:inline-block;width:11px;height:11px;border-radius:3px;border:3px solid #4656d6;box-sizing:border-box}
 .vac3-table tr.vac3-secured .vac3-date{background:#eef0ff}
 .vac3-secured-badge{margin-left:4px;color:#4656d6;font-weight:700}
+
+/* Own marks: same look in every view and mode. Green ✓ = adjudicado, violet Pn = tu orden. */
+.vac2-own-marks{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.vac2-occupants .vac2-own-marks{margin:0 0 0 auto;flex-shrink:0}
+.vac2-mine-badge{display:inline-block;padding:1px 6px;border-radius:4px;background:#17663f;color:#fff;font-size:11px;font-weight:800;line-height:1.4;white-space:nowrap}
+.vac2-rank-chip{display:inline-block;padding:1px 7px;border-radius:999px;background:#4b2a86;color:#fff;font-size:11px;font-weight:800;line-height:1.4;white-space:nowrap}
+.vac2-date-link .vac2-rank-chip,.vac3-date .vac2-mine-badge,.vac3-date .vac2-rank-chip{margin-left:4px;padding:0 5px;font-size:10px}
+.vac2-cycle.vac2-mine{border-left-color:#17663f;border-left-width:7px}
+.vac2-day.vac2-mine{box-shadow:inset 0 0 0 2px #17663f;font-weight:850}
+.vac2-day{position:relative}
+.vac2-day-rank{position:absolute;top:0;right:1px;font-size:8px;font-weight:800;color:#4b2a86;line-height:1}
+.vac3-table tr.vac3-mine td.vac3-date{box-shadow:inset 4px 0 0 #17663f}
+.vac2-mine-row th{color:#17663f}
+.vac2-mine-row th[scope=row]::before{content:'✓ '}
+.vac2-legend-own{display:inline-flex;align-items:center;gap:4px}
+/* Preference mode is told by the frame, not by the marks. */
+.vac2-panel.vac2-mode-preferences{border:2px solid #4b2a86;box-shadow:0 0 0 4px color-mix(in srgb,#4b2a86 12%,transparent)}
+/* Skipped preferences: a compact list apart, no ordering controls. */
+.preference-skipped{margin:10px 0;padding:8px 10px;border-radius:6px;background:#f4f4f2}
+.preference-skipped h3{margin:0 0 4px;font-size:12px;font-weight:700;color:#5f6b66}
+.preference-skipped ul{list-style:none;margin:0;padding:0}
+.preference-skipped li{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:12px;color:#5f6b66}
+.preference-skipped li.is-full .preference-skipped-date{text-decoration:line-through;text-decoration-thickness:1px}
+.preference-skip-tag{padding:0 6px;border-radius:4px;font-size:11px;font-weight:700;background:#e3e6e4;color:#3f4b46}
+.preference-skipped li.is-owned .preference-skip-tag{background:#dcefe4;color:#17663f}
+.preference-skipped-remove{margin-left:auto;min-width:28px;min-height:28px;padding:0;border:0;background:transparent;color:#5f6b66;font-size:12px}
+.preference-skipped .preference-hidden{margin:4px 0 0;font-size:11px}
+.vac2-pref-row{font-size:12px;color:#3d2a5e;background:#f6f2fb}
+.vac2-pref-row{margin-top:6px;padding:6px 8px;border-radius:6px}
+.vac2-pref-row .vac2-own-marks{display:inline-flex;margin:0 0 0 4px;vertical-align:middle}
+.vac2-pref-link{display:inline-flex;align-items:center;gap:3px;padding:0;border:0;background:transparent;font-size:12px;color:inherit}
+.vac2-member-card.vac2-mine-row summary b::before{content:'✓ ';color:#17663f}
+/* «Tuyo» wins the left edge over summer (whose rules are more specific); summer stays as a bottom stripe. */
+.vac2-panel .vac2-cycles .vac2-cycle.vac2-mine{border-left-color:#17663f;border-left-width:7px}
+.vac2-panel .vac2-cycles .vac2-cycle.vac2-mine.vac2-summer{box-shadow:inset 0 -3px 0 #e0a526}
+.vac2-panel .vac2-days .vac2-day.vac2-mine{box-shadow:inset 0 0 0 2px #17663f}
+.vac2-panel .vac2-days .vac2-day.vac2-mine.vac2-summer{box-shadow:inset 0 0 0 2px #17663f,inset 0 -5px 0 #e0a526}

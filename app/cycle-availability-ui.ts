@@ -52,6 +52,9 @@ export function cycleAvailability(
       description: 'El reparto no admite una completación válida; requiere revisión',
       className: 'vac2-unknown',
     };
+  // Nothing can be added whatever the search proves: that is full, not «por confirmar».
+  if (data.status === 'indeterminate' && data.possibleAdditionalUpperBound === 0)
+    return { data, label: '0', description: 'Sin plazas adicionales posibles', className: 'vac2-free-0' };
   if (data.status === 'indeterminate') {
     const range = data.provenAdditional + '–' + data.possibleAdditionalUpperBound;
     return {

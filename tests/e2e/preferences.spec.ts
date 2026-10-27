@@ -287,7 +287,8 @@ test('preferencias: cuotas agotadas siguen visibles, se conservan al guardar y r
   editor = await review(page);
   await expect(editor).toContainText('sin cupo actualmente');
   await expect(editor.getByRole('listitem')).toHaveCount(1);
-  await expect(editor.getByRole('button', { name: 'Quitar preferencia 1' })).toBeVisible();
+  await expect(editor.getByRole('region', { name: 'Preferencias que se saltarán' })).toContainText('Sin cupo');
+  await expect(editor.getByRole('button', { name: 'Subir preferencia 1' })).toHaveCount(0);
   if (!process.env.CI) await page.screenshot({ path: info.outputPath('08-sin-cupo-conservadas.png') });
   await editor.getByLabel('Mantener esta lista en todas las rondas restantes').check();
   await editor.getByRole('button', { name: 'Guardar preferencias', exact: true }).click();
@@ -407,3 +408,47 @@ test('preferencias: guardar tras undo conserva la pausa de automatismos de main'
   expect(after.election.state.automaticPaused).toBe(true);
   if (!process.env.CI) await page.screenshot({ path: info.outputPath('preferencias-con-automatismos-pausados.png') });
 });
+
+test(
+  'marcas propias: Por CTA identifica al dueño por persona, no por ciclo compartido, y muestra su orden',
+  { tag: '@both' },
+  async ({ page, request }) => {
+    const s = await fixture(request, page),
+      [qaA, qaB] = s.data.members,
+      cycles = s.data.result.cycles,
+      shared = cycles[Math.floor(cycles.length * 0.3)].date,
+      wanted = cycles[Math.floor(cycles.length * 0.6)].date;
+    await command(request, s.id, { action: 'start', rulesConfirmed: true, allowDeferral: true });
+    await command(request, s.id, { action: 'choose', memberId: qaA.id, dates: [shared] });
+    await command(request, s.id, { action: 'choose', memberId: qaB.id, dates: [shared] });
+    await page.reload();
+    await page.getByRole('button', { name: 'Preferencias', exact: true }).click();
+    await expect(page.getByText('Preparando preferencias de QA_A')).toBeVisible();
+    // The cycle QA_A already has is skipped: it is not numbered; the next one is P1.
+    await add(page, shared);
+    await add(page, wanted);
+    const card = page.locator('.vac2-cycle[data-cycle-date="' + wanted + '"]').first();
+    await expect(card.locator('.vac2-rank-chip')).toHaveText('P1');
+    // Editing someone else's list names them instead of «Tuyo».
+    await expect(page.locator('.vac2-cycle[data-cycle-date="' + shared + '"]').first()).toContainText('✓ QA_A');
+    await page.getByRole('group', { name: 'Vista del calendario' }).getByRole('button', { name: 'Por CTA' }).click();
+    const wide = (page.viewportSize()?.width ?? 1280) > 900;
+    if (wide) {
+      await expect(page.locator('.vac2-members-desktop tbody tr.vac2-mine-row')).toHaveCount(1);
+      await expect(page.locator('.vac2-members-desktop tbody tr.vac2-mine-row th')).toHaveText('QA_A');
+      await expect(page.locator('.vac2-members-desktop .vac2-pref-row')).toContainText('Preferencias de QA_A');
+      await expect(page.locator('.vac2-members-desktop .vac2-pref-row .vac2-rank-chip')).toHaveText(['P1']);
+    } else {
+      await expect(page.locator('.vac2-member-card.vac2-mine-row')).toHaveCount(1);
+      await page.locator('.vac2-member-card.vac2-mine-row summary').click();
+      await expect(page.locator('.vac2-member-card.vac2-mine-row .vac2-rank-chip')).toHaveText(['P1']);
+    }
+    // Following a Pn link only shows the cycle: the draft being edited keeps it.
+    await page.locator('.vac2-pref-link:visible').first().click();
+    await expect(
+      page.getByRole('group', { name: 'Vista del calendario' }).getByRole('button', { name: 'Mapa' }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    await expect(card.locator('.vac2-rank-chip')).toHaveText('P1');
+    await expect(card).toHaveAttribute('aria-pressed', 'true');
+  },
+);

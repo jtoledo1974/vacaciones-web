@@ -32,6 +32,11 @@ type Props = {
   notForMe?: string[];
   /** Cycles the viewer may take now, ahead of their turn (proved safe by the server). */
   secured?: string[];
+  mine?: string[];
+  /** The viewer's preference list in order, edited or only shown. */
+  preferences?: string[];
+  /** Code of the member the marks belong to, when it is not the viewer. */
+  ownerCode?: string;
 };
 
 function shortDate(iso: string): string {
@@ -55,6 +60,9 @@ export default function CycleTable({
   availability,
   notForMe,
   secured,
+  mine = [],
+  preferences = [],
+  ownerCode,
 }: Props) {
   const blocked = new Set(notForMe ?? []),
     safe = new Set(secured ?? []);
@@ -68,7 +76,8 @@ export default function CycleTable({
   }, [awards, codes]);
   const columns = Math.max(4, ...cycles.map((c) => Math.max(c.max, c.occupied)));
   const chosen = new Set(selected),
-    marked = new Set(highlighted);
+    marked = new Set(highlighted),
+    owned = new Set(mine);
   const styles = { '--vac3-font-size': fontSize + 'px' } as CSSProperties;
   return (
     <div className={'vac3' + (ruled ? ' vac3-ruled' : '')} style={styles}>
@@ -123,7 +132,8 @@ export default function CycleTable({
           <tbody>
             {cycles.map((c) => {
               const people = occupants.get(c.date) ?? [],
-                selectedIndex = selected.indexOf(c.date);
+                selectedIndex = selected.indexOf(c.date),
+                rank = preferences.indexOf(c.date) + 1;
               const free = Math.max(0, c.max - c.occupied),
                 extra = free === 0 && c.available === true;
               const status = cycleAvailability(c, availability, ruled);
@@ -138,6 +148,8 @@ export default function CycleTable({
                 ' plazas ocupadas, ' +
                 status.description +
                 (safe.has(c.date) ? ', asegurado para ti' : '') +
+                (owned.has(c.date) ? ', adjudicado a ' + (ownerCode ?? 'ti') : '') +
+                (rank ? (ownerCode ? ', preferencia de ' + ownerCode + ' ' : ', tu preferencia ') + rank : '') +
                 (extra && !ruled ? ', posible cupo adicional' : '') +
                 (people.length ? ', ' + people.join(', ') : '');
               return (
@@ -148,7 +160,8 @@ export default function CycleTable({
                     (blocked.has(c.date) ? 'vac3-not-for-me ' : '') +
                     (safe.has(c.date) ? 'vac3-secured ' : '') +
                     (chosen.has(c.date) ? 'vac3-selected ' : '') +
-                    (marked.has(c.date) ? 'vac3-highlight ' : '')
+                    (marked.has(c.date) ? 'vac3-highlight ' : '') +
+                    (owned.has(c.date) ? 'vac3-mine ' : '')
                   }
                   onClick={() => {
                     if (!busy) onSelect(c);
@@ -175,16 +188,27 @@ export default function CycleTable({
                           ★
                         </span>
                       )}
-                      {selectedIndex !== -1 && (
+                      {owned.has(c.date) && (
                         <span
-                          className="vac3-choice-indicator"
-                          aria-label={
-                            preferenceMode
-                              ? 'Preferencia ' + (selectedIndex + 1)
-                              : 'Seleccionado ' + (selectedIndex + 1)
-                          }
+                          className="vac2-mine-badge"
+                          aria-hidden="true"
+                          title={'Adjudicado a ' + (ownerCode ?? 'ti')}
                         >
-                          {preferenceMode ? 'P' + (selectedIndex + 1) : '✓'}
+                          ✓
+                        </span>
+                      )}
+                      {rank > 0 && (
+                        <span
+                          className="vac2-rank-chip"
+                          aria-hidden="true"
+                          title={(ownerCode ? 'Preferencia de ' + ownerCode + ' ' : 'Tu preferencia ') + rank}
+                        >
+                          P{rank}
+                        </span>
+                      )}
+                      {!preferenceMode && selectedIndex !== -1 && (
+                        <span className="vac3-choice-indicator" aria-label={'Seleccionado ' + (selectedIndex + 1)}>
+                          ●
                         </span>
                       )}
                     </button>
