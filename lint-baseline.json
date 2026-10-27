@@ -75,8 +75,11 @@
     "server/availability-history.ts": {
       "@typescript-eslint/no-explicit-any": 1
     },
+    "server/election-commands.ts": {
+      "@typescript-eslint/no-explicit-any": 1
+    },
     "server/election-service.ts": {
-      "@typescript-eslint/no-explicit-any": 44
+      "@typescript-eslint/no-explicit-any": 32
     },
     "server/election-timeline.ts": {
       "@typescript-eslint/no-explicit-any": 4
@@ -97,7 +100,7 @@
       "@typescript-eslint/no-explicit-any": 1
     },
     "server/service-commands.ts": {
-      "@typescript-eslint/no-explicit-any": 48
+      "@typescript-eslint/no-explicit-any": 47
     },
     "server/service.ts": {
       "@typescript-eslint/no-explicit-any": 28
@@ -194,9 +197,6 @@
     },
     "tests/reconstruction.test.ts": {
       "@typescript-eslint/no-explicit-any": 23
-    },
-    "tests/sequence.test.ts": {
-      "@typescript-eslint/no-explicit-any": 1
     },
     "tests/service-commands.test.ts": {
       "@typescript-eslint/no-explicit-any": 7
