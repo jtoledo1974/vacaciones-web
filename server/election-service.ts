@@ -147,7 +147,7 @@ export class ElectionService {
     const session = await this.reconstruction().read(cid),
       frozen = !!session && session.status !== 'completed';
     const timing = raw.state
-      ? timingOf(rows, buildElectionTimeline(rows, ctx, raw.state), raw.state, now, frozen)
+      ? timingOf(rows, buildElectionTimeline(rows, ctx, raw.state), raw.state, now, frozen, firmAwards(ctx, raw.state))
       : null;
     let total = 0;
     for (const m of d.members)
@@ -545,7 +545,7 @@ export class ElectionService {
       const rows = await (options.auditContext?.rows() ?? eventsFor(this.repo, cid));
       const events = buildElectionTimeline(rows as any, ctx, raw.state, history ?? undefined);
       timeline = manage ? events : publicElectionTimeline(events, rows as any);
-      timing = timingOf(rows, events, raw.state, Date.now(), reconstruction.active);
+      timing = timingOf(rows, events, raw.state, Date.now(), reconstruction.active, firmAwards(ctx, raw.state));
     }
 
     const cycleAvailability =
@@ -917,6 +917,16 @@ export class ElectionService {
     await this.host.commit(ops);
     return { changed: true };
   }
+}
+/**
+ * Awards that are firm for turn timing: an early choice counts only once its slot
+ * has come. Before that its turn has not happened, so it stays out of the timing
+ * for everyone, its owner included (who still sees it in their own views).
+ */
+function firmAwards(ctx: ElectionContext, state: ElectionState | null) {
+  if (!state) return ctx.awards;
+  const pending = concealPendingEarly(ctx, state, null, ctx.awards).hidden;
+  return pending.size ? ctx.awards.filter((a) => !pending.has(a.id)) : ctx.awards;
 }
 /** Start the clock of the turn that `state` leaves open (see ElectionState.turnSince). */
 export function stampTurnAfter(

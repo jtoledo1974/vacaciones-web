@@ -86,6 +86,12 @@ type Item = {
  * Turns, in the order they closed, with the time each one stayed open. A turn opens
  * when the previous one closed or, if later, when the clock restarted (start, resume,
  * undo, redo). Every turn counts for the averages, whoever closed it.
+ *
+ * An early choice is a turn of zero wait: when its slot came it passed at once.
+ * It sits at its slot in turn order (`items` arrive newest first, in turn order),
+ * opened and closed when the previous turn closed, so neither its mark nor the
+ * moment it was chosen shows (early choices are discreet), and it does not move
+ * when the next turn opened.
  */
 export function electionTiming(input: {
   items: Item[];
@@ -116,8 +122,36 @@ export function electionTiming(input: {
       activeMs: known ? activeMs(opened, at) : null,
     };
   });
+  // Each early choice follows the closed turn before it in turn order; closed turns keep closing order.
+  const after = new Map<string | null, Item[]>();
+  let before: string | null = null;
+  for (const item of [...input.items].reverse()) {
+    if (turns.some((t) => t.id === item.id)) before = item.id;
+    else if (item.kind === 'choice' && item.anticipated && item.createdAt)
+      after.set(before, [...(after.get(before) ?? []), item]);
+  }
+  const ordered: TimedTurn[] = [];
+  const early = (key: string | null) => {
+    for (const item of after.get(key) ?? []) {
+      const at = ordered.at(-1)?.at ?? item.createdAt;
+      ordered.push({
+        id: item.id,
+        kind: 'choice',
+        round: item.round,
+        memberIds: [...item.memberIds],
+        at,
+        openedAt: at,
+        activeMs: 0,
+      });
+    }
+  };
+  early(null);
+  for (const t of turns) {
+    ordered.push(t);
+    early(t.id);
+  }
   const sums = new Map<string, { turns: number; total: number }>();
-  for (const turn of turns)
+  for (const turn of ordered)
     if (turn.activeMs !== null)
       for (const id of turn.memberIds) {
         const s = sums.get(id) ?? { turns: 0, total: 0 };
@@ -125,7 +159,7 @@ export function electionTiming(input: {
       }
   const since = input.active && input.turnSince?.at ? input.turnSince.at : null;
   return {
-    turns,
+    turns: ordered,
     averages: [...sums].map(([memberId, s]) => ({ memberId, turns: s.turns, meanMs: Math.round(s.total / s.turns) })),
     waiting: since ? { since, activeMs: activeMs(Date.parse(since), input.now) } : null,
   };

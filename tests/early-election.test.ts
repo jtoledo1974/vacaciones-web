@@ -807,3 +807,40 @@ test('la lista que consume una anticipada discreta se muestra como estaba hasta 
   await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
   assert.equal((await s.view(cid)).election.preferences.find((p) => p.member_id === b.id)?.active, false);
 });
+
+test('estadísticas: la anticipada cuenta solo cuando es firme, para todos y también para su titular', async () => {
+  const { s, person, run, cid, a, b, dates } = await election();
+  await run(s, { action: 'link_account', memberId: a.id, subject: 'first@example.test', accountVersion: 0 });
+  const first = new Service(s['repo'], {
+    id: 'chatgpt:first',
+    emailKey: 'chatgpt-email:first@example.test',
+    role: 'viewer' as const,
+    teams: [],
+  });
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[3] });
+  // Its owner included: until A finishes, B's turn has not happened.
+  for (const viewer of [first, s, person]) {
+    const timing = (await viewer.election().summary(cid)).timing!;
+    assert.ok(!timing.turns.some((t) => t.memberIds.includes(b.id)), 'pendiente: no cuenta para nadie');
+    assert.ok(!timing.averages.some((x) => x.memberId === b.id));
+  }
+  // The owner still sees their own early choice in their view.
+  assert.ok((await person.view(cid)).election.timeline.some((item) => item.anticipated));
+  await run(first, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  for (const viewer of [first, s, person]) {
+    const timing = (await viewer.election().summary(cid)).timing!;
+    const [turnA, turnB] = timing.turns;
+    assert.deepEqual(
+      timing.turns.map((t) => t.memberIds[0]),
+      [a.id, b.id],
+      'B ocupa su turno tras A',
+    );
+    assert.equal(turnB.activeMs, 0);
+    assert.equal(turnB.at, turnA.at, 'sin revelar cuándo eligió de verdad');
+    assert.ok(!('anticipated' in turnB));
+    assert.deepEqual(
+      timing.averages.find((x) => x.memberId === b.id),
+      { memberId: b.id, turns: 1, meanMs: 0 },
+    );
+  }
+});

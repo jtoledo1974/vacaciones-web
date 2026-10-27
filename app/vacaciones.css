@@ -1124,3 +1124,13 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-log-title:has(.election-log-when){justify-content:flex-start;flex-wrap:wrap;row-gap:0}
 .election-log-title:has(.election-log-when) b{white-space:nowrap}
 .election-log-title .election-log-when{flex-shrink:1}
+.election-log-old{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px}
+.election-log-clock{display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;padding:0;border:0;background:transparent;color:var(--muted);cursor:pointer}
+.election-log-full{flex-basis:100%;text-align:right;font-size:11px}
+/* Desktop: a table that fits its column follows the page scroll (no nested scroll box) with its
+   header pinned to the viewport; one that does not fit (.vac3-fits absent) keeps its own scroll box. */
+@media(min-width:681px){
+ .vac3-scroll.vac3-fits{max-height:none;overflow:visible;scrollbar-gutter:auto}
+ /* hidden would make the panel the sticky header's scroll container; clip crops the same without that. */
+ .vac2-panel:has(.vac3-fits){overflow:clip}
+}

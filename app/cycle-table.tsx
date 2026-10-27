@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
 import { cycleAvailability, slotExplanation } from './cycle-availability-ui';
@@ -67,6 +67,24 @@ export default function CycleTable({
   const blocked = new Set(notForMe ?? []),
     safe = new Set(secured ?? []);
   const [fontSize, setFontSize] = useState(12);
+  // On desktop the table follows the page scroll (sticky header) only while it fits its
+  // column: a wider one (narrow window, many places, long codes) keeps its own scroll box.
+  const scrollRef = useRef<HTMLDivElement>(null),
+    tableRef = useRef<HTMLTableElement>(null);
+  const [fits, setFits] = useState(false);
+  useEffect(() => {
+    const box = scrollRef.current,
+      table = tableRef.current;
+    if (!box || !table || typeof ResizeObserver === 'undefined') return;
+    // Against the wrapper, not the box: the box's own border and scrollbar gutter change with the mode.
+    const column = box.parentElement ?? box;
+    const measure = () => setFits(table.offsetWidth + 2 <= column.clientWidth);
+    const observer = new ResizeObserver(measure);
+    observer.observe(column);
+    observer.observe(table);
+    measure();
+    return () => observer.disconnect();
+  }, []);
   const codes = useMemo(() => new Map(members.map((m) => [m.id, m.code])), [members]);
   const occupants = useMemo(() => {
     const result = new Map<string, string[]>();
@@ -105,12 +123,13 @@ export default function CycleTable({
         </span>
       </div>
       <div
-        className="vac3-scroll"
+        ref={scrollRef}
+        className={'vac3-scroll' + (fits ? ' vac3-fits' : '')}
         role="region"
         tabIndex={0}
         aria-label="Tabla de ciclos de vacaciones; desplaza para consultar todas las filas y columnas"
       >
-        <table className="vac3-table">
+        <table ref={tableRef} className="vac3-table">
           <caption className="vac3-sr">
             Baremo, inicio de cada ciclo y controladores en orden de elección (primera plaza: primera elección)
           </caption>

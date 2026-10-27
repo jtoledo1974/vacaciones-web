@@ -22,7 +22,7 @@ test('el tiempo de espera no cuenta de 23:00 a 9:00 en Madrid', () => {
   assert.equal(formatActive(26 * H + 5 * 60_000), '26 h');
 });
 
-test('cada turno se abre al cerrarse el anterior o al reiniciarse el reloj, y todo turno promedia', () => {
+test('cada turno se abre al cerrarse el anterior o al reiniciarse el reloj, y todo turno promedia (la anticipada, como 0)', () => {
   const timing = electionTiming({
     items: [
       { id: 'c', kind: 'choice', round: 1, createdAt: '2026-07-01T12:00:00Z', memberIds: ['b'] },
@@ -41,12 +41,19 @@ test('cada turno se abre al cerrarse el anterior o al reiniciarse el reloj, y to
     [
       ['a', H],
       ['b', 2 * H],
+      // The early choice takes its slot with no wait, and «c» still opens when «b» closed.
+      ['x', 0],
       ['c', H],
     ],
   );
+  // No trace of when it was really chosen: it closes with the turn before it.
+  const x = timing.turns.find((t) => t.id === 'x')!;
+  assert.deepEqual([x.openedAt, x.at], ['2026-07-01T10:00:00Z', '2026-07-01T10:00:00Z']);
+  assert.ok(!('anticipated' in x));
   assert.deepEqual(Object.fromEntries(timing.averages.map((a) => [a.memberId, [a.turns, a.meanMs]])), {
     a: [2, 1.5 * H],
     b: [2, H],
+    z: [1, 0],
   });
   assert.deepEqual(timing.waiting, { since: '2026-07-01T12:00:00Z', activeMs: H });
 });

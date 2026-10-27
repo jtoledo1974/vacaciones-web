@@ -1,17 +1,58 @@
 'use client';
 import { useState, type ReactNode } from 'react';
+import { Clock } from 'lucide-react';
 import { formatDate } from './cycle-calendar';
 import { summarizeImpact } from './cycle-availability-ui';
 import { numberTimelineCycles } from '../domain/timeline-numbering';
 import type { ElectionTimelineItem } from '../domain/election-timeline-types';
 import { formatActive, type ElectionTiming } from '../domain/turn-timing';
-import { formatShortWhen } from './waiting-since';
+import { useMinuteClock } from './waiting-since';
+import { formatLogWhen, formatLogWhenFull } from '../domain/log-when';
 
 /** A history entry as either view sends it: the public one omits impact and warnings. */
 type TimelineEvent = Partial<ElectionTimelineItem> &
   Pick<ElectionTimelineItem, 'id' | 'kind' | 'round' | 'memberIds' | 'choices' | 'deferredTurns'> & {
     automatic?: true;
   };
+
+/**
+ * When an entry happened, never written as a date that could be read as a cycle:
+ * recent entries show the time, older ones a clock icon that reveals the full
+ * date on hover or, on phones, on tap.
+ */
+function LogWhen({ at, now, took }: { at: string; now: number | null; took: number | null }) {
+  const [open, setOpen] = useState(false);
+  const full = formatLogWhenFull(at),
+    label = formatLogWhen(at, now ?? Date.parse(at)),
+    duration = took !== null ? formatActive(took) : null;
+  if (label !== null)
+    return (
+      <time dateTime={at} title={full}>
+        {label}
+        {duration && <> · {duration}</>}
+      </time>
+    );
+  return (
+    <span className="election-log-old">
+      <button
+        type="button"
+        className="election-log-clock"
+        title={full}
+        aria-label={'Fecha: ' + full}
+        aria-expanded={open}
+        onClick={() => setOpen((x) => !x)}
+      >
+        <Clock size={13} aria-hidden="true" />
+      </button>
+      {duration && <span>{duration}</span>}
+      {open && (
+        <time dateTime={at} className="election-log-full">
+          {full}
+        </time>
+      )}
+    </span>
+  );
+}
 
 /** The election history, newest first, 40 entries at a time. `rowAction` adds a control to an entry. */
 export default function ElectionTimelineList({
@@ -35,6 +76,8 @@ export default function ElectionTimelineList({
   const timed = new Map((timing?.turns ?? []).map((t) => [t.id, t]));
   const scale = Math.max(1, ...[...timed.values()].map((t) => t.activeMs ?? 0));
   const [historyLimit, setHistoryLimit] = useState(40);
+  // Relative wording needs the clock; until it mounts render the time alone (no hydration mismatch).
+  const now = useMinuteClock();
   const cycleNumbers = numberTimelineCycles(timeline as ElectionTimelineItem[]);
   return (
     <>
@@ -63,10 +106,7 @@ export default function ElectionTimelineList({
                   {event.round && <span>Ronda {event.round}</span>}
                   {at && (
                     <span className="election-log-when">
-                      <time dateTime={at}>
-                        {formatShortWhen(at)}
-                        {took !== null && <> · {formatActive(took)}</>}
-                      </time>
+                      <LogWhen at={at} now={now} took={took} />
                       {took !== null && (
                         <span
                           className="election-log-duration"

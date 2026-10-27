@@ -319,9 +319,15 @@ export function timingOf(
   state: ElectionState | null,
   now = Date.now(),
   frozen = false,
+  /** Firm awards this viewer may see: an early choice whose slot has not come stays out. */
+  visibleAwards?: readonly { member_id: string; cycle_date: string }[],
 ): ElectionTiming {
+  const visible = visibleAwards && new Set(visibleAwards.map((a) => a.member_id + '|' + a.cycle_date));
   return electionTiming({
-    items,
+    items: items.filter(
+      (item) =>
+        !item.anticipated || !visible || item.choices.every((c) => visible.has(c.member_id + '|' + c.cycle_date)),
+    ),
     clockRestarts: rows.filter(restartsClock).map((row) => row.created_at),
     untimed: new Set(rows.filter((row) => row.action === 'reconstruction_step').map((row) => row.id)),
     turnSince: state?.turnSince ?? null,
