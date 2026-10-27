@@ -49,7 +49,18 @@ GitHub Actions no necesita credenciales del Site ni de producción. En cada push
 
 - `pnpm test` y la comprobación de tipos.
 - `pnpm build`, para que un verde garantice que se puede desplegar.
-- `pnpm lint`, solo informativo (`continue-on-error`) mientras queden los errores heredados, en su mayoría `no-explicit-any`.
+- `pnpm lint:ratchet`, obligatorio: bloquea cualquier incremento de errores ESLint por combinación de archivo y regla respecto a `lint-baseline.json`.
+
+
+### Trinquete de ESLint
+
+La deuda existente queda registrada en `lint-baseline.json`, con un contador de errores por archivo y por regla. El estado inicial (commit `7de875c`) contiene **752 errores en 64 archivos** (715 de `@typescript-eslint/no-explicit-any`) y 46 advertencias, que no bloquean. El contador se genera mediante la salida JSON de ESLint usando las mismas opciones que `pnpm lint` (ignorando `dist` y `.next`).
+
+- `pnpm lint`: informe normal de ESLint, puede terminar con código 1 por la deuda heredada.
+- `pnpm lint:ratchet`: permite mantener o reducir cada contador, pero falla si crece uno cualquiera, aunque baje el total.
+- `pnpm lint:ratchet:update`: **regenera** la línea base a partir del código actual. Debe utilizarse **solo tras corregir deuda existente**; revisa su diff y versiona el JSON junto a las correcciones. No se ejecuta en CI.
+
+Si se corrigen errores, la comprobación muestra los contadores reducidos y sugiere actualizar el JSON. Una regla nueva o un error en un archivo nuevo parte de cero y bloquea el PR. Una avería de ESLint o un JSON inválido no puede superar la comprobación.
 
 Todos los jobs (`checks`, `build` y `browser`) usan ese grupo, sin alternativa alojada en GitHub. Cada runner atiende un job a la vez, con su propio workspace y caché persistente de pnpm en `/pnpm/store`. Se usan Node 24 y pnpm 11.25.0 ya instalados en la imagen; no se reinstalan globalmente en cada job. El selector manual de runner se aplica a los tres jobs. Las PR externas y de otros autores no ejecutan código en estos runners.
 
