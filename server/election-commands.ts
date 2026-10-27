@@ -375,12 +375,11 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   let systemRestored: string | null = null;
   if (original?.action === 'early_cancel') {
     const before = validateSnapshot(JSON.parse(original.before_json), 'election-undo-v1');
-    const cancelled = auditAfter(original)?.cancelled;
+    const { cancelled, manualized } = auditAfter(original) ?? {};
     const early = before?.state?.earlyChoices?.find((e) => e.awardId === cancelled);
-    const saved = before?.preferences?.find((p) => p.member_id === early?.memberId);
-    const passed =
-      before?.state && early && (before.state.status === 'complete' || before.state.cursor >= early.cursor);
-    if (passed && saved && activeList(saved) && saved.mode !== 'manual') {
+    // The cancellation recorded whose list it turned manual; never re-derive that decision.
+    const saved = manualized ? before?.preferences?.find((p) => p.member_id === manualized) : undefined;
+    if (saved && activeList(saved) && saved.mode !== 'manual') {
       const manual = { ...saved, mode: 'manual' as const, waitMinutes: 0 };
       const expected = action === 'election_undo' ? manual : saved;
       const target = action === 'election_undo' ? saved : manual;
@@ -605,6 +604,13 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
     audited: (x) => ({
       cancelled: x.body.awardId,
       memberId: x.d.awards.find((a: { id: string }) => a.id === x.body.awardId)?.member_id ?? null,
+      // The member whose list this cancellation turned manual, read back by undo and redo.
+      manualized:
+        x.preferences.find(
+          (p) =>
+            p.mode === 'manual' &&
+            x.raw.preferences.some((prior) => prior.member_id === p.member_id && prior.mode !== 'manual'),
+        )?.member_id ?? null,
     }),
   },
   election_undo: {

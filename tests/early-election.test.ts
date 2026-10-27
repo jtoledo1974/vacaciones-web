@@ -375,6 +375,21 @@ test('deshacer/rehacer la anulación restaura solo el cambio automático de modo
   assert.equal(pref.waitMinutes, 0);
 });
 
+test('la anulación registra en su auditoría qué lista pasó a manual', async () => {
+  const f = await cancelledPersistentList();
+  const audits = await f.repo.all("SELECT after_json FROM audit WHERE action='early_cancel' ORDER BY rowid");
+  assert.equal(JSON.parse(audits.at(-1).after_json).manualized, f.b.id);
+  // Withdrawn before its slot: no list changes, so undo leaves every mode alone.
+  const g = await election();
+  await g.run(g.s, { action: 'preferences', memberId: g.b.id, dates: [g.dates[6]], mode: 'wait', waitMinutes: 30 });
+  let view = await g.run(g.person, { action: 'early_choose', memberId: g.b.id, date: g.dates[4] });
+  view = await g.run(g.person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
+  const own = await g.repo.all("SELECT after_json FROM audit WHERE action='early_cancel' ORDER BY rowid");
+  assert.equal(JSON.parse(own.at(-1).after_json).manualized, null);
+  view = await g.run(g.s, { action: 'election_undo', historyId: (await g.s.view(g.cid)).election.undo });
+  assert.equal(view.election.preferences.find((p) => p.member_id === g.b.id).mode, 'wait');
+});
+
 test('deshacer la anulación conserva una edición posterior de la lista', async () => {
   const f = await cancelledPersistentList();
   await f.run(f.person, {
