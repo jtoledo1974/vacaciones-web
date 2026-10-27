@@ -338,7 +338,10 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
           >
             Exportar parámetros
           </button>
+          {/* Remount whenever the draft changes elsewhere (other fields, remote updates),
+              so blurring this box never writes back a stale copy. */}
           <textarea
+            key={JSON.stringify(c)}
             aria-label="Parámetros completos"
             rows={16}
             disabled={disabled}
