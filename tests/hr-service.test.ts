@@ -170,3 +170,27 @@ test('un equipo publicado cuenta como cerrado: se exporta, también en la global
     assert.match((await zipTexts(bytes)).get(book.paths.C)!, /<c r="E10" s="2" t="inlineStr">/);
   }
 });
+
+test('exporta coincidencias exactas propuestas sin guardar, tanto por equipo como global', async () => {
+  const { repo, s, cid, admin } = await setup();
+  await s.uploadHrTemplate(2027, template.toString('base64'));
+  const roster = (await admin.hrStatus(cid)).roster;
+  const d = await s.view(cid);
+  const member = d.members[0];
+  await repo.batch([{ sql: 'UPDATE campaign_members SET label=? WHERE id=?', args: [roster[0], member.id] }]);
+  await s.mutate(cid, {
+    action: 'award',
+    version: d.campaign.version,
+    memberId: member.id,
+    date: d.result.cycles[2].date,
+  });
+  await s.mutate(cid, { action: 'close', version: (await s.load(cid)).campaign.version });
+  const status = await admin.hrStatus(cid);
+  assert.equal(status.members.find((m) => m.id === member.id)!.suggested, roster[0]);
+  assert.equal(status.members.find((m) => m.id === member.id)!.hrName, null);
+  for (const bytes of [(await admin.exportHrTeam(cid)).bytes, (await s.exportHrGlobal(2027)).bytes]) {
+    const book = await readHrWorkbook(bytes);
+    assert.ok((await zipTexts(bytes)).get(book.paths.C)!.includes(roster[0]));
+  }
+  assert.equal((await repo.all('SELECT * FROM hr_names')).length, 0);
+});

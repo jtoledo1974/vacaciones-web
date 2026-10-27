@@ -804,7 +804,7 @@ export class Service {
   private async hrCells(cid: string, book: HrWorkbook, saved: Map<string, string>) {
     const d = await this.load(cid);
     const view = await this.view(cid);
-    const names: Record<string, string> = {};
+    const names = suggestHrNames(d.members, book.sheets.find((s) => s.team === d.campaign.team_id)!.roster);
     for (const m of d.members) if (saved.has(m.person_id)) names[m.id] = saved.get(m.person_id)!;
     return hrTeamCells({
       sheet: book.sheets.find((s) => s.team === d.campaign.team_id)!,

@@ -67,7 +67,7 @@ export default function HrExportPanel({
   }, [cid, closed]);
 
   const pending = status ? status.members.filter((m) => (names[m.id] || null) !== m.hrName) : [];
-  const unmatched = status ? status.members.filter((m) => !names[m.id]) : [];
+  const unmatched = status ? status.members.filter((m) => !status.roster.includes(names[m.id])) : [];
 
   return (
     <section className="panel hr-export">
@@ -115,7 +115,12 @@ export default function HrExportPanel({
         <>
           <details open={unmatched.length > 0}>
             <summary>
-              Nombres de RRHH {unmatched.length ? `· ${unmatched.length} sin asignar` : '· todos asignados'}
+              Nombres de RRHH{' '}
+              {unmatched.length
+                ? `· ${unmatched.length} sin asignar`
+                : pending.length
+                  ? `· ${pending.length} propuestas sin guardar`
+                  : '· todos guardados'}
             </summary>
             <p className="muted">
               Elige cómo figura cada persona en la columna J de la hoja {team}. Las propuestas automáticas aparecen ya
