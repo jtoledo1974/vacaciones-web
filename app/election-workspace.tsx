@@ -5,7 +5,6 @@ import { undoQuestion } from './undo-summary';
 import { useConfirmation } from './confirmation';
 import { apiFetch } from './api-client';
 import { orderForRound, togglePreferenceDate } from '../domain/election';
-import { numberTimelineCycles } from '../domain/timeline-numbering';
 import { orderAwardsBySelection } from '../domain/award-display-order';
 import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
@@ -17,6 +16,8 @@ import Glossary from './glossary';
 import { myElection } from './my-election-state';
 import RoundQueuePanel from './round-queue-panel';
 import { TieResolver, PendingTieDialog } from './tie-resolver';
+import ElectionTimelineList from './election-timeline-list';
+import { useEarlyElection } from './use-early-election';
 import { usePairOptions } from './use-pair-options';
 import { usePreferenceDraft } from './use-preference-draft';
 
@@ -68,7 +69,6 @@ export default function ElectionWorkspace({
   }
   const preferenceMemberIds: string[] = election.preferenceMemberIds ?? [];
   const preferenceMembers = data.members.filter((m: any) => preferenceMemberIds.includes(m.id));
-  const [historyLimit, setHistoryLimit] = useState(40);
   const choiceLock = useRef(false);
   const [choiceSubmitting, setChoiceSubmitting] = useState(false);
   const [choicePhase, setChoicePhase] = useState<'checking' | 'saving' | null>(null);
@@ -107,7 +107,6 @@ export default function ElectionWorkspace({
     if (frozen || !manage || !open || !pendingGroups.length) setTieDialogOpen(false);
   }, [frozen, manage, open, pendingGroups.length]);
 
-  const cycleNumbers = numberTimelineCycles(election.timeline ?? []);
   const [choosingReconstructionStart, setChoosingReconstructionStart] = useState(false);
   const [archivedTarget, setArchivedTarget] = useState('');
   const [mode, setMode] = useState<'choose' | 'preferences' | 'simulate'>('choose'),
@@ -475,23 +474,18 @@ export default function ElectionWorkspace({
       })
     : null;
   const canChooseHere = canChoose;
-  // Ahead of one's turn, only the cycles the server proved safe may be taken (domain/early-election.ts).
-  const earlySecured: string[] =
-    !canChoose && !!mine && mode === 'choose' && open && !frozen ? (election.early?.guaranteed ?? []) : [];
-  async function chooseEarly(c: { date: string; end: string }) {
-    if (
-      !(await confirm(
-        `¿Elegir ${formatDate(c.date)} – ${formatDate(c.end)} por adelantado? Cuenta como tu elección en tu próximo turno. Podrás anularla hasta que llegue.`,
-      ))
-    )
-      return;
-    await act({ action: 'early_choose', memberId: mine, date: c.date }, 'Ciclo elegido por adelantado');
-  }
-  async function cancelEarly(awardId: string, date: string) {
-    if (!(await confirm(`¿Anular la elección anticipada de ${formatDate(date)}? Volverás a elegir en tu turno.`)))
-      return;
-    await act({ action: 'early_cancel', awardId }, 'Elección anticipada anulada');
-  }
+  // Ahead of one's turn, only the cycles the server proved safe may be taken.
+  const {
+    secured: earlySecured,
+    chooseEarly,
+    cancelEarly,
+  } = useEarlyElection({
+    ahead: !canChoose && mode === 'choose' && open && !frozen,
+    guaranteed: election.early?.guaranteed,
+    memberId: mine,
+    confirm,
+    act,
+  });
   const canUndo = !!(election.undo || data.undo) && open;
   async function undoLast() {
     setUndoOffer(null);
@@ -1572,179 +1566,35 @@ export default function ElectionWorkspace({
                 no se numeran; los cambios deshechos no figuran como vigentes.
               </p>
               {(election.timeline ?? []).length ? (
-                <>
-                  <ol className="election-log">
-                    {(election.timeline ?? []).slice(0, historyLimit).map((event: any) => {
-                      const code = (id: string) => data.members.find((m: any) => m.id === id)?.code ?? '?';
-                      const title =
-                        event.kind === 'tie'
-                          ? 'Sorteo de empate'
-                          : event.kind === 'joint'
-                            ? event.jointAction === 'register_joint'
-                              ? 'Acuerdo de turno conjunto'
-                              : 'Anulación de turno conjunto'
-                            : event.kind === 'defer'
-                              ? code(event.memberIds[0]) + ' — Aplazamiento'
-                              : event.memberIds.map(code).join(' + ');
-                      return (
-                        <li key={event.id}>
-                          <div className="election-log-entry">
-                            <div className="election-log-title">
-                              <b>{title}</b>
-                              {event.round && <span>Ronda {event.round}</span>}
-                            </div>
-                            {event.kind === 'tie' && (
-                              <p className="election-log-note">
-                                {event.method === 'random'
-                                  ? 'Sorteo realizado en la aplicación'
-                                  : 'Sorteo externo registrado'}
-                                {event.anticipated ? ' · Resuelto anticipadamente' : ''} · Orden inicial:{' '}
-                                {(event.order ?? []).map(code).join(' → ')}
-                              </p>
-                            )}
-                            {event.kind === 'defer' && (
-                              <p className="election-log-note">
-                                Turno aplazado, sin adjudicación. Acumula un ciclo para la siguiente ronda.
-                              </p>
-                            )}
-                            {event.kind === 'joint' && (
-                              <p className="election-log-note">
-                                {event.memberIds.map(code).join(' + ')} ·{' '}
-                                {event.jointAction === 'register_joint'
-                                  ? 'Elegirán cuando llegue el último participante de la ronda'
-                                  : 'Acuerdo anulado antes de consumir turnos'}
-                                .
-                              </p>
-                            )}
-                            {(event.kind === 'choice' || event.kind === 'legacy') && (
-                              <>
-                                {event.choices.map((choice: any, index: number) => {
-                                  const cycle = data.result.cycles.find((c: any) => c.date === choice.cycle_date);
-                                  return (
-                                    <div
-                                      className="election-log-cycle"
-                                      key={choice.member_id + '|' + choice.cycle_date}
-                                    >
-                                      {cycleNumbers.get(event.id) && (
-                                        <strong className="election-cycle-number">
-                                          R{event.round} · {cycleNumbers.get(event.id)![index]} —{' '}
-                                        </strong>
-                                      )}
-                                      {event.memberIds.length > 1 ? code(choice.member_id) + ' · ' : ''}
-                                      {formatDate(choice.cycle_date)} · {cycle?.score ?? '—'} puntos
-                                    </div>
-                                  );
-                                })}
-                                {event.kind === 'legacy' && (
-                                  <p className="election-log-note">
-                                    Adjudicación importada o anterior al registro de turnos.
-                                  </p>
-                                )}
-                                {event.automatic && (
-                                  <p className="election-log-note election-log-automatic">
-                                    Elegido automáticamente por su lista de preferencias.
-                                  </p>
-                                )}
-                                {event.kind === 'choice' && event.memberIds.length > 1 && (
-                                  <p className="election-log-note">
-                                    Turno conjunto de {event.memberIds.length} controladores.
-                                  </p>
-                                )}
-                                {event.kind === 'choice' && event.deferredTurns > 0 && (
-                                  <p className="election-log-note">
-                                    Turno {event.deferredTurns === 1 ? 'doble' : 'triple'}: recupera{' '}
-                                    {event.deferredTurns} aplazamiento(s) anterior(es).
-                                  </p>
-                                )}
-                                {(event.warnings ?? []).map((w: any, i: number) => (
-                                  <p
-                                    key={w.code + '-' + i}
-                                    role="status"
-                                    className="alert warning election-log-warning"
-                                  >
-                                    <strong>Aviso normativo:</strong> {w.message}
-                                  </p>
-                                ))}
-                                {event.impact &&
-                                  (() => {
-                                    const { highlights, details } = summarizeImpact(
-                                      event.impact,
-                                      election.policyPresentation,
-                                    );
-                                    return (
-                                      <>
-                                        {highlights.map((line, i) => (
-                                          <p key={i} role="status" className="alert election-log-highlight">
-                                            {line}
-                                          </p>
-                                        ))}
-                                        {details.length > 0 && (
-                                          <details className="election-log-impact">
-                                            <summary>Otros ciclos afectados · {details.length}</summary>
-                                            <ul>
-                                              {details.map((line, i) => (
-                                                <li key={i}>{line}</li>
-                                              ))}
-                                            </ul>
-                                          </details>
-                                        )}
-                                      </>
-                                    );
-                                  })()}
-                                {(event.ties ?? []).map((tie: any) => {
-                                  const memberCode = code(tie.memberId),
-                                    previous = data.config?.previousScores?.[memberCode];
-                                  return (
-                                    <p className="election-log-note election-log-tie" key={tie.memberId}>
-                                      Empate{previous !== undefined ? ' a ' + previous + ' puntos' : ''} · {memberCode}:{' '}
-                                      {tie.position}.º de {tie.total} · Orden de esta ronda:{' '}
-                                      {tie.order.map(code).join(' → ')}
-                                    </p>
-                                  );
-                                })}
-                              </>
-                            )}
-                            {choosingReconstructionStart && canOpenReconstruction && candidatesById.has(event.id) && (
-                              <button
-                                type="button"
-                                className="secondary election-reconstruction-row-action"
-                                disabled={busy}
-                                aria-label={
-                                  'Reconstruir desde ' +
-                                  (event.kind === 'tie' ? 'sorteo de ' : '') +
-                                  event.memberIds.map(codeFor).join(' + ') +
-                                  ' (ronda ' +
-                                  event.round +
-                                  ')'
-                                }
-                                onClick={() => startReconstructionFrom(candidatesById.get(event.id))}
-                              >
-                                Desde aquí <span aria-hidden="true">→</span>
-                              </button>
-                            )}
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                  {(election.timeline ?? []).length > historyLimit && (
-                    <button
-                      type="button"
-                      className="secondary election-show-more"
-                      onClick={() => setHistoryLimit((n) => n + 40)}
-                    >
-                      Mostrar anteriores ({Math.min(40, election.timeline.length - historyLimit)})
-                    </button>
-                  )}
-                  {historyLimit > 40 && (
-                    <button type="button" className="secondary election-show-more" onClick={() => setHistoryLimit(40)}>
-                      Mostrar menos
-                    </button>
-                  )}
-                  {historyLimit >= (election.timeline ?? []).length && (
-                    <p className="muted">Inicio del historial · No hay eventos anteriores.</p>
-                  )}
-                </>
+                <ElectionTimelineList
+                  timeline={election.timeline ?? []}
+                  members={data.members}
+                  cycles={data.result.cycles}
+                  previousScores={data.config?.previousScores}
+                  policyPresentation={election.policyPresentation}
+                  rowAction={(event: any) =>
+                    choosingReconstructionStart &&
+                    canOpenReconstruction &&
+                    candidatesById.has(event.id) && (
+                      <button
+                        type="button"
+                        className="secondary election-reconstruction-row-action"
+                        disabled={busy}
+                        aria-label={
+                          'Reconstruir desde ' +
+                          (event.kind === 'tie' ? 'sorteo de ' : '') +
+                          event.memberIds.map(codeFor).join(' + ') +
+                          ' (ronda ' +
+                          event.round +
+                          ')'
+                        }
+                        onClick={() => startReconstructionFrom(candidatesById.get(event.id))}
+                      >
+                        Desde aquí <span aria-hidden="true">→</span>
+                      </button>
+                    )
+                  }
+                />
               ) : (
                 <p className="muted">Todavía no hay turnos registrados ni ciclos adjudicados.</p>
               )}

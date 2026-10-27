@@ -23,7 +23,7 @@
       "@typescript-eslint/no-explicit-any": 7
     },
     "app/election-workspace.tsx": {
-      "@typescript-eslint/no-explicit-any": 76,
+      "@typescript-eslint/no-explicit-any": 71,
       "react-hooks/set-state-in-effect": 10
     },
     "app/help.tsx": {
