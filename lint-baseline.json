@@ -23,9 +23,8 @@
       "@typescript-eslint/no-explicit-any": 7
     },
     "app/election-workspace.tsx": {
-      "@typescript-eslint/no-explicit-any": 78,
-      "react-hooks/immutability": 1,
-      "react-hooks/set-state-in-effect": 11
+      "@typescript-eslint/no-explicit-any": 76,
+      "react-hooks/set-state-in-effect": 10
     },
     "app/help.tsx": {
       "@typescript-eslint/no-explicit-any": 4
@@ -221,6 +220,12 @@
     "tests/team-admin-simulations.test.ts": {
       "@typescript-eslint/no-explicit-any": 13,
       "prefer-const": 2
+    },
+    "app/use-pair-options.ts": {
+      "react-hooks/set-state-in-effect": 1
+    },
+    "app/use-preference-draft.ts": {
+      "react-hooks/immutability": 1
     }
   }
 }
