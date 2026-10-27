@@ -16,14 +16,14 @@
     },
     "app/dashboard.tsx": {
       "@next/next/no-html-link-for-pages": 2,
-      "@typescript-eslint/no-explicit-any": 48,
+      "@typescript-eslint/no-explicit-any": 44,
       "react-hooks/set-state-in-effect": 4
     },
     "app/election-activation.tsx": {
       "@typescript-eslint/no-explicit-any": 7
     },
     "app/election-workspace.tsx": {
-      "@typescript-eslint/no-explicit-any": 71,
+      "@typescript-eslint/no-explicit-any": 59,
       "react-hooks/set-state-in-effect": 10
     },
     "app/help.tsx": {

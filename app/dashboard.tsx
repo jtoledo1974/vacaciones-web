@@ -946,45 +946,45 @@ function Dashboard() {
                       signinUrl={signinUrl}
                     />
                     <section className="panel">
-                      <h2>Compartir y exportar</h2>
+                      <h2>Situación actual en PDF</h2>
+                      <p className="muted">
+                        {data.campaign.scope_key === 'live'
+                          ? 'Se abre en el navegador; desde ahí puedes guardarlo o compartirlo (por ejemplo, por WhatsApp). Muestra lo mismo que la consulta pública.'
+                          : 'Se abre en el navegador con los datos de esta simulación, para probar cómo quedaría.'}
+                      </p>
                       <div className="button-row">
-                        <button
-                          className="secondary"
-                          onClick={() => {
-                            const url = new URL(location.href);
-                            url.searchParams.set('equipo', team);
-                            url.searchParams.set('year', year);
-                            url.searchParams.delete('verComo');
-                            url.searchParams.delete('escenario');
-                            navigator.clipboard.writeText(url.toString()).then(() => setNotice('Enlace copiado'));
-                          }}
-                        >
-                          Copiar enlace de consulta
-                        </button>
-                        <button
-                          className="secondary"
-                          onClick={() => {
-                            const rows = [
-                              ['identificador', 'fecha', 'baremo'],
-                              ...data.awards.map((a: any) => [
-                                data.members.find((m: any) => m.id === a.member_id)?.code,
-                                a.cycle_date,
-                                result.cycles.find((c: any) => c.date === a.cycle_date)?.score,
-                              ]),
-                            ];
-                            download(
-                              `vacaciones-${team}-${year}.csv`,
-                              rows
-                                .map((r) =>
-                                  r.map((s: any) => '"' + String(s ?? '').replaceAll('"', '""') + '"').join(','),
-                                )
-                                .join('\r\n'),
-                              'text/csv',
-                            );
-                          }}
-                        >
-                          Exportar adjudicaciones CSV
-                        </button>
+                        {data.campaign.scope_key === 'live' ? (
+                          <a
+                            className="secondary"
+                            href={`/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}`}
+                            target="_blank"
+                            rel="noopener"
+                          >
+                            Ver PDF de la situación
+                          </a>
+                        ) : (
+                          <button
+                            className="secondary"
+                            onClick={async () => {
+                              // Simulations are private: fetch with the session, then show the PDF in a new tab.
+                              // The tab opens synchronously so the browser does not block it as a pop-up.
+                              const tab = window.open('', '_blank');
+                              try {
+                                const response = await apiFetch('campaign/' + cid + '/pdf');
+                                if (!response.ok) throw new Error('No se pudo generar el PDF');
+                                const url = URL.createObjectURL(await response.blob());
+                                if (tab) tab.location.href = url;
+                                else location.href = url;
+                                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                              } catch (e: unknown) {
+                                tab?.close();
+                                setError(e instanceof Error ? e.message : 'No se pudo generar el PDF');
+                              }
+                            }}
+                          >
+                            Ver PDF de la situación
+                          </button>
+                        )}
                       </div>
                     </section>
                   </>
@@ -1311,7 +1311,8 @@ function Dashboard() {
           )}
           <footer>
             Vacaciones <span>·</span> Ocho equipos <span>·</span> Consulta pública{' '}
-            <span className="footer-right">{busy ? 'Guardando…' : 'Datos persistentes · Campañas independientes'}</span>
+            <span className="footer-right">{busy ? 'Guardando…' : 'Datos persistentes · Campañas independientes'}</span>{' '}
+            <a href="/lite">Versión sencilla para móviles antiguos</a>
             <small
               className="footer-build"
               aria-label="Versión del código en ejecución"

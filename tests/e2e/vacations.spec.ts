@@ -326,6 +326,10 @@ test(
   async ({ page, request }) => {
     const s = await setup(request, page),
       dates = s.data.result.cycles.map((c: any) => c.date);
+    await open(page, s.id);
+    await activate(page);
+    // Lists saved before activation would be taken early during it; saving them now
+    // leaves both automatic steps to the continuation that follows QA_A's choice.
     for (const person of [1, 2])
       await election(request, s.id, {
         action: 'preferences',
@@ -333,8 +337,8 @@ test(
         dates: [dates[person]],
         persistent: false,
       });
-    await open(page, s.id);
-    await activate(page);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'QA_A elige ahora', exact: true })).toBeVisible();
     let advances = 0,
       release!: () => void;
     const held = new Promise<void>((resolve) => {
@@ -558,7 +562,10 @@ test('integración: administración agrupada y navegación pública en escritori
 }, info) => {
   const s = await setup(request, page);
   await open(page, s.id);
-  await expect(page.getByRole('button', { name: 'Exportar adjudicaciones CSV' })).toBeVisible();
+  // Simulations are private: their PDF comes from the authenticated API.
+  await expect(page.getByRole('button', { name: 'Ver PDF de la situación' })).toBeVisible();
+  const pdf = await page.request.get('/api/campaign/' + s.id + '/pdf');
+  expect(pdf.headers()['content-type']).toBe('application/pdf');
   if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
     await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Configuración', exact: true })).toHaveCount(0);
@@ -682,10 +689,13 @@ test('undo en navegador deshace solo el último turno automático y permite corr
   const s = await setup(request, page),
     dates = s.data.result.cycles.map((x: any) => x.date),
     [a, b, c, d] = s.data.members;
-  await election(request, s.id, { action: 'preferences', memberId: b.id, dates: [dates[1]] });
-  await election(request, s.id, { action: 'preferences', memberId: c.id, dates: [dates[2]] });
   await open(page, s.id);
   await activate(page);
+  // Saved after activation so they run as automatic turns, not as early choices.
+  await election(request, s.id, { action: 'preferences', memberId: b.id, dates: [dates[1]] });
+  await election(request, s.id, { action: 'preferences', memberId: c.id, dates: [dates[2]] });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'QA_A elige ahora', exact: true })).toBeVisible();
   await cycle(page, dates[0]);
   await confirm(page, 'Confirmar ciclo');
   await expect(page.getByRole('heading', { name: 'QA_D elige ahora', exact: true })).toBeVisible();
@@ -942,7 +952,13 @@ test('reconstrucción lateral: deshacer, rehacer y cancelar restaura las adjudic
   expect(after.awards.map((a: any) => [a.member_id, a.cycle_date]).sort()).toEqual(
     before.awards.map((a: any) => [a.member_id, a.cycle_date]).sort(),
   );
-  expect(after.election.state).toEqual(before.election.state);
+  // Everything is restored except the open turn's clock: choosing was frozen during the
+  // reconstruction, so that turn starts waiting again when it ends (server/reconstruction.ts).
+  const { turnSince: restartedClock, ...restored } = after.election.state;
+  const { turnSince: originalClock, ...original } = before.election.state;
+  expect(restored).toEqual(original);
+  expect(restartedClock.cursor).toBe(originalClock.cursor);
+  expect(Date.parse(restartedClock.at)).toBeGreaterThan(Date.parse(originalClock.at));
 });
 test('un administrador puede iniciar reconstrucción desde una rama abandonada del historial', async ({
   page,

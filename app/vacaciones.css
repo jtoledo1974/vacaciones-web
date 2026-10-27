@@ -44,14 +44,6 @@
 .vac2-legend>b{font-size:10px;color:#445e52}
 .vac2-legend>span{display:inline-flex;align-items:center;gap:4px}
 .vac2-key{display:inline-block;width:11px;height:11px;border-radius:3px}
-.vac2-free-0{--vac2-status:#d77b74}
-.vac2-free-1{--vac2-status:#d8a04e}
-.vac2-free-2{--vac2-status:#83b0d5}
-.vac2-free-3{--vac2-status:#72bba9}
-.vac2-free-4{--vac2-status:#6cb47b}
-.vac2-key.vac2-free-0{background:#d77b74}.vac2-key.vac2-free-1{background:#d8a04e}
-.vac2-key.vac2-free-2{background:#83b0d5}.vac2-key.vac2-free-3{background:#72bba9}
-.vac2-key.vac2-free-4{background:#6cb47b}
 .vac2-legend-summer{margin-left:auto}
 .vac2-summer-key{display:inline-block;width:17px;height:12px;border:2px solid #c89b32;border-radius:3px}
 .vac2-month-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:0 0 16px}
@@ -595,18 +587,6 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 @media(max-width:580px){.election-score-source-editor{padding:13px}}
 
 /* Disponibilidad GLOBAL 2027: contraste inequívoco 4 → 0; no confundir timeout con bloqueo. */
-.vac2-ruled .vac2-free-4{--vac2-status:#16844b;--vac2-foreground:#fff}
-.vac2-ruled .vac2-free-3{--vac2-status:#80c65a;--vac2-foreground:#162a1c}
-.vac2-ruled .vac2-free-2{--vac2-status:#f1d65d;--vac2-foreground:#302600}
-.vac2-ruled .vac2-free-1{--vac2-status:#e88d43;--vac2-foreground:#2b1b0c}
-.vac2-ruled .vac2-free-0{--vac2-status:#662033;--vac2-foreground:#fff}
-.vac2-ruled .vac2-unknown{--vac2-status:#6c7480;--vac2-foreground:#fff}
-.vac2-ruled .vac2-key.vac2-free-4{background:#16844b}
-.vac2-ruled .vac2-key.vac2-free-3{background:#80c65a}
-.vac2-ruled .vac2-key.vac2-free-2{background:#f1d65d}
-.vac2-ruled .vac2-key.vac2-free-1{background:#e88d43}
-.vac2-ruled .vac2-key.vac2-free-0{background:#662033}
-.vac2-ruled .vac2-key.vac2-unknown{background:repeating-linear-gradient(135deg,#69727f 0 4px,#c4c9ce 4px 8px)}
 .vac2-ruled .vac2-cycle{border-left-width:5px;background:var(--vac2-status);color:var(--vac2-foreground)}
 .vac2-ruled .vac2-cycle:hover{background:color-mix(in srgb,var(--vac2-status) 90%,white)}
 .vac2-ruled .vac2-cycle-sub,.vac2-ruled .vac2-names{color:inherit;opacity:.9}

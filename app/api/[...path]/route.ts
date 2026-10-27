@@ -10,6 +10,7 @@ import { D1Repository } from '../../../server/repository';
 import { Service, principal, ApiError, advanceExpiredTurns } from '../../../server/service';
 import { resolveControllerPreview } from '../../../server/controller-preview';
 import { documentation } from '../../../server/documentation';
+import { liteSummary, renderLitePdf } from '../../../server/lite';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) =>
@@ -118,6 +119,18 @@ async function serve(request: Request) {
         });
       if (path[0] === 'index') return reply(await service.list());
       if (path[0] === 'stats') return reply(await service.stats());
+      if (path[0] === 'campaign' && path[1] && path[2] === 'pdf') {
+        // Authenticated variant of /lite/pdf: also covers simulations the viewer may read.
+        const summary = liteSummary(await effectiveService.view(path[1]));
+        return new Response(renderLitePdf(summary), {
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': `inline; filename="vacaciones-equipo-${summary.team}-${summary.year}.pdf"`,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
+      }
       if (path[0] === 'campaign' && path[1])
         return reply(
           url.searchParams.get('published') === '1'

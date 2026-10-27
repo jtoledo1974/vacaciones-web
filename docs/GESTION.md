@@ -58,7 +58,7 @@ Administración → **Herramientas avanzadas** → **Empezar de cero las vacacio
 
 **Cerrar equipo** bloquea los cambios de vacaciones y mantiene la consulta. Reabrir no reanuda la cola automáticamente: usa **Reanudar elección** cuando proceda. Cada equipo y cada simulación se cierran por separado.
 
-En **Revisiones y cierre del ejercicio**, calcular y guardar el resultado final conserva una copia independiente. La consulta pública muestra las asignaciones actuales sin necesitar ese cierre final.
+El proceso de finalización del ejercicio está pendiente de definir. La consulta pública muestra las asignaciones actuales.
 
 ## Plantillas por año
 
@@ -68,7 +68,7 @@ La tabla permite editar también las vinculaciones de acceso. Para dar de baja o
 
 ## Copias y restauración
 
-La copia completa y la restauración están en **Administración → Herramientas avanzadas**. El CSV y el enlace público están en **Vacaciones → Compartir y exportar**.
+La copia completa y la restauración están en **Administración → Herramientas avanzadas**. En **Vacaciones → Situación actual en PDF** se abre un PDF (ciclos y plazas libres, adjudicaciones por controlador y turno) para guardar o compartir. Para móviles antiguos hay una versión sencilla de solo lectura en `/lite`; los navegadores sin soporte se redirigen a ella automáticamente.
 
 Descarga una copia completa antes de cambios importantes. Incluye todos los equipos, escenarios, cuentas vinculadas, preferencias, estados de elección, revisiones y auditoría. No incluye secretos del entorno. Guarda el JSON fuera del Site.
 

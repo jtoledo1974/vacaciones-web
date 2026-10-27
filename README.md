@@ -39,7 +39,7 @@ Entidades: equipos, personas, usuarios, asignaciones de permisos, campañas, par
 
 Cada operación comprueba versión de campaña y ejecuta un lote transaccional D1 con compare-and-swap y una aserción SQL. El fallo revierte toda la operación, incluida la auditoría. Las revisiones guardan parámetros, entradas y resultados; una edición invalida su publicación. SHA-256 detecta daños accidentales en el backup, no autentica su origen. La restauración solo está disponible al superadministrador.
 
-Backup JSON incluye todas las tablas de negocio, permisos e historial de cambios; CSV permite exportar adjudicaciones del equipo. No hay una copia automática fuera de Sites: conservar periódicamente el JSON en una ubicación independiente. La copia no contiene secretos de entorno ni credenciales. Restaurar no sustituye las migraciones del esquema.
+Backup JSON incluye todas las tablas de negocio, permisos e historial de cambios; `/lite/pdf?equipo=X&year=AAAA` muestra la situación actual del equipo en PDF y `/lite` es una versión de solo lectura sin JavaScript para móviles antiguos. No hay una copia automática fuera de Sites: conservar periódicamente el JSON en una ubicación independiente. La copia no contiene secretos de entorno ni credenciales. Restaurar no sustituye las migraciones del esquema.
 
 ## Desarrollo local
 
