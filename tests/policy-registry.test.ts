@@ -17,7 +17,12 @@ test('2027 resolves to the LECS occupancy engine and its RRHH calendar', () => {
   const rules = occupancyFor(2027);
   assert.equal(rules?.version, OCCUPANCY_POLICY_2027);
   // Changing a budget changes which proofs finish, so it is a policy decision.
-  assert.deepEqual(rules?.budgets, { commit: 2000, options: { total: 256, perCandidate: 32 }, review: 500 });
+  assert.deepEqual(rules?.budgets, {
+    commit: 2000,
+    options: { total: 256, perCandidate: 32 },
+    review: 500,
+    early: { total: 2000, perCandidate: 32, deadlineMs: 1000 },
+  });
   const config = {
     ...defaultConfig(2027),
     individualEntitlements: { X: { cycles: 4, authorization: 'Resolución RRHH' } },

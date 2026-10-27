@@ -199,7 +199,12 @@ export const OCCUPANCY_2099: OccupancyRules = {
   version: POLICY_2099_VERSION,
   authority: 'Autoridad ficticia 2099',
   name: 'normas ficticias 2099',
-  budgets: { commit: 10, options: { total: 64, perCandidate: 8 }, review: 10 },
+  budgets: {
+    commit: 10,
+    options: { total: 64, perCandidate: 8 },
+    review: 10,
+    early: { total: 64, perCandidate: 8, deadlineMs: 1000 },
+  },
   presentation: {
     periodNames: ['primer tramo', 'tramo central', 'último tramo'],
     permits: {},

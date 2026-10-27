@@ -23,6 +23,8 @@ const policyTestImports: Record<string, string> = {
   'tests/definitive-guide-2027.test.ts -> domain/policy-2027': 'Casos de referencia de la guía 2027.',
   'tests/availability-2027.test.ts -> domain/availability-2027': 'Prueba el cálculo de disponibilidad.',
   'tests/availability-2027.test.ts -> domain/policy-2027': 'Contrasta la disponibilidad con el motor.',
+  'tests/occupancy-properties.test.ts -> domain/availability-2027':
+    'Verifica las claves precalculadas y el aislamiento de las cachés del motor 2027.',
   'tests/policy-2027-service.test.ts -> domain/policy-2027': 'Integración del servicio con el motor.',
   'tests/policy-2027-service.test.ts -> domain/election-2027': 'Prepara los estados de integración.',
   'tests/policy-2027-service.test.ts -> domain/availability-2027': 'Contrasta la disponibilidad integrada.',

@@ -137,7 +137,9 @@ export type PreviewChoiceImpact = {
 export type CheckOptions = { maxChecks?: number };
 /** exact: prove the precise final occupation rather than accept a cached certificate family. */
 export type CompletionOptions = CheckOptions & { exact?: boolean };
-export type AvailabilityOptions = CompletionOptions & { useCache?: boolean };
+/** Trusted fingerprint of this exact state. Recompute after any state change. */
+export type StateKeyOptions = { stateKey?: string };
+export type AvailabilityOptions = CompletionOptions & StateKeyOptions & { useCache?: boolean };
 export type CandidateOptions = CompletionOptions & {
   /** A known completion of the prior state, repaired instead of solving again. */
   witness?: PolicyAward[];
@@ -156,6 +158,8 @@ export type Budgets = {
   options: { total: number; perCandidate: number };
   /** Warnings of the current partial allocation. */
   review: number;
+  /** Future early-election proofs: shared work, per candidate cap and deadline. */
+  early: { total: number; perCandidate: number; deadlineMs: number };
 };
 
 /**
@@ -263,7 +267,7 @@ export type OccupancyRules = {
   /** Violations visible without any completion search. */
   immediateIssues(state: PolicyState, choices: PolicyAward[]): RuleProblem[];
   /** The current partial allocation, cached so one decision pays for its warnings once. */
-  partialAssessment(state: PolicyState, options?: CheckOptions): CandidateAssessment;
+  partialAssessment(state: PolicyState, options?: CheckOptions & StateKeyOptions): CandidateAssessment;
   availability(state: PolicyState, options?: AvailabilityOptions): AvailabilitySnapshot;
   /** A stored snapshot, only when it proves this exact state. */
   recordedAvailability(
