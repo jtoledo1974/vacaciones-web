@@ -445,7 +445,11 @@ export function projectElectionViewForController(data: ElectionProjectionData) {
       memberIds: [...item.memberIds],
       choices: item.choices.map(({ member_id, cycle_date }) => ({ member_id, cycle_date })),
       deferredTurns: item.deferredTurns,
-      ...own(item, ['method', 'order', 'automatic', 'anticipated', 'selectionCursor']),
+      ...own(item, ['method', 'order', 'automatic', 'selectionCursor']),
+      // Only the owner learns that a choice was made ahead of its turn.
+      ...(item.anticipated && data.myMemberId && item.memberIds.includes(data.myMemberId)
+        ? { anticipated: item.anticipated }
+        : {}),
     })),
     reconstruction: { active: data.reconstruction.active },
   };

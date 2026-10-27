@@ -36,14 +36,13 @@ export class PersonalSimulationService {
   private async setup(cid: string) {
     if (!this.actor.id) throw new ApiError('Inicia sesión para usar el simulador', 401);
     if (this.actor.preview) throw new ApiError('El simulador personal no está disponible en la vista previa', 403);
-    const d = await this.host.load(cid);
+    const { d, raw } = await this.host.election().concealedRead(cid);
     if (d.campaign.scope_key !== 'live')
       throw new ApiError('El simulador personal solo está disponible en la campaña real', 403);
     if (!occupancyFor(d.campaign.year))
       throw new ApiError('El simulador personal requiere un motor de ocupación para este ejercicio', 400);
     const me = await this.host.election().memberForAccount(d);
     if (!me) throw new ApiError('Tu cuenta no está vinculada a ningún controlador de esta campaña', 403);
-    const raw = await this.host.election().read(cid);
     const ready = d.campaign.status === 'open' && raw.state?.status === 'active';
     // `state` is only read when `ready`, which implies an active election state.
     return { d, me, state: raw.state!, ready };

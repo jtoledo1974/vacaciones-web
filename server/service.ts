@@ -191,13 +191,16 @@ export class Service {
     };
   }
   async view(cid: string, options: { skipAvailabilityForPendingAutomatic?: boolean } = {}) {
-    const d = await this.load(cid);
+    const loaded = await this.load(cid);
     if (
-      d.campaign.scope_key !== 'live' &&
-      !canWrite(this.actor, d.campaign.team_id) &&
+      loaded.campaign.scope_key !== 'live' &&
+      !canWrite(this.actor, loaded.campaign.team_id) &&
       this.actor.preview?.campaignId !== cid
     )
       throw new ApiError('Simulación reservada a administradores', 403);
+    const { d, state } = await this.election().concealedFor(loaded);
+    const concealing = d !== loaded;
+    // A recorded availability counts the hidden awards: recompute it from the masked view.
     const recovery = occupancyFor(d.campaign.year)
       ? await historicalAvailability(this.repo, cid, d.campaign.version)
       : { restored: false };
@@ -208,8 +211,9 @@ export class Service {
     const election = await this.election().view(d, {
       restored,
       result,
-      recordedAvailability: recovery.recordedAvailability,
+      recordedAvailability: concealing ? null : recovery.recordedAvailability,
       ...options,
+      ...(state !== undefined ? { state } : {}),
       auditContext: new AuditContext(this.repo, cid, d.campaign.version),
     });
     if (canWrite(this.actor, d.campaign.team_id)) {

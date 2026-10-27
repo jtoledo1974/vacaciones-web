@@ -485,3 +485,109 @@ test('avisos antiguos de simulación no se muestran ni se envían', async () => 
   });
   assert.equal(sends, 0);
 });
+
+test('la anticipada pendiente no se ve fuera de la administración y luego ocupa su turno', async () => {
+  const { s, person, run, cid, a, b, dates } = await election();
+  await run(s, { action: 'link_account', memberId: a.id, subject: 'first@example.test', accountVersion: 0 });
+  const first = new Service(s['repo'], {
+    id: 'chatgpt:first',
+    emailKey: 'chatgpt-email:first@example.test',
+    role: 'viewer' as const,
+    teams: [],
+  });
+  const before = (await first.view(cid)).election;
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[3] });
+  let seen = await first.view(cid);
+  assert.equal(seen.election.myMemberId, a.id);
+  assert.deepEqual(seen.awards, [], 'A no ve la adjudicación de B');
+  assert.deepEqual(seen.election.timeline, []);
+  assert.deepEqual(seen.election.available, before.available, 'A elige entre lo mismo');
+  assert.ok(
+    (await person.view(cid)).election.timeline.some((item) => item.anticipated),
+    'B sí la ve',
+  );
+  assert.ok(
+    (await s.view(cid)).election.timeline.some((item) => item.anticipated),
+    'la administración también',
+  );
+  await run(first, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  seen = await first.view(cid);
+  assert.deepEqual(seen.awards.map((x) => x.member_id).sort(), [a.id, b.id].sort());
+  assert.ok(!seen.election.timeline.some((item) => item.anticipated), 'sin marca para los demás');
+  // Newest first, in turn order: B's slot follows A's although B chose earlier.
+  const order = (timeline: { memberIds: string[] }[]) => timeline.map((item) => item.memberIds[0]);
+  assert.deepEqual(order(seen.election.timeline), [b.id, a.id]);
+  assert.deepEqual(order((await s.view(cid)).election.timeline), [b.id, a.id]);
+});
+
+test('la disponibilidad, las opciones y el impacto tampoco revelan la anticipada pendiente', async () => {
+  // The global availability needs an occupancy engine: the 2027 rules.
+  const repo = new SQLiteRepo(),
+    s = new Service(repo, owner);
+  await s.init();
+  await s.createCampaigns(2027, null, null);
+  const cid = (await s.list()).campaigns.find((c) => c.year === 2027 && c.team_id === 'A').id;
+  let d = await s.view(cid);
+  const codes = Array.from({ length: 20 }, (_, i) => 'P' + String(i + 1).padStart(2, '0'));
+  d = await s.mutate(cid, {
+    action: 'import_roster',
+    version: d.campaign.version,
+    source: {
+      format: 'vacaciones-roster-v1',
+      team: 'A',
+      year: 2027,
+      copySelections: false,
+      rows: codes.map((code) => ({ code, label: code, seniority: '' })),
+    },
+  });
+  d = await s.mutate(cid, {
+    action: 'config',
+    version: d.campaign.version,
+    config: {
+      ...d.config,
+      previousScores: Object.fromEntries(codes.map((code, i) => [code, 10 + i])),
+      previousScoresSource: 'Puntuaciones de ensayo',
+    },
+  });
+  const run = async (actor: Service, body: Record<string, unknown>) => {
+    await actor.election().mutate(cid, { ...body, version: (await actor.load(cid)).campaign.version });
+    return actor.view(cid);
+  };
+  const started = await run(s, { action: 'start', rulesConfirmed: true, allowDeferral: true });
+  const [a, b] = started.election.state!.order.map((id: string) => d.members.find((m) => m.id === id)!);
+  await run(s, { action: 'link_account', memberId: a.id, subject: 'first@example.test', accountVersion: 0 });
+  await run(s, { action: 'link_account', memberId: b.id, subject: 'person@example.test', accountVersion: 0 });
+  const person = new Service(repo, visitor),
+    first = new Service(repo, {
+      id: 'chatgpt:first',
+      emailKey: 'chatgpt-email:first@example.test',
+      role: 'viewer' as const,
+      teams: [],
+    });
+  const date = (await person.view(cid)).election.early?.guaranteed[0];
+  assert.ok(date, 'B tiene algún ciclo asegurado');
+  const before = await first.election().availability(cid);
+  const options = await first.election().options(cid, []);
+  await run(person, { action: 'early_choose', memberId: b.id, date: date! });
+  const slots = (view: typeof before) =>
+    Object.values(view.cycles).flatMap((cycle) => cycle.slots.map((slot) => slot.memberId).filter(Boolean));
+  const after = await first.election().availability(cid);
+  assert.ok(!slots(after).includes(b.id), 'A no ve a B ocupando una plaza');
+  assert.deepEqual(after.cycles, before.cycles);
+  assert.deepEqual({ ...(await first.election().options(cid, [])), version: options.version }, options);
+  const version = (await first.load(cid)).campaign.version;
+  const pick = options.available.find((x: string) => x !== date) ?? options.available[0];
+  const impact = await first.election().previewImpact(cid, [{ member_id: a.id, cycle_date: pick }], version);
+  assert.ok(!JSON.stringify(impact).includes(b.id), 'el impacto no menciona a B');
+  assert.ok(slots(await s.election().availability(cid)).includes(b.id), 'la administración sí lo ve');
+});
+
+test('dos anticipadas seguidas se muestran en orden de turno tras el predecesor', async () => {
+  const { s, person, run, cid, a, b, c, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[3] });
+  await run(s, { action: 'early_choose', memberId: c.id, date: dates[4] });
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  const order = (timeline: { memberIds: string[] }[]) => timeline.map((item) => item.memberIds[0]);
+  assert.deepEqual(order((await s.view(cid)).election.timeline), [c.id, b.id, a.id]);
+  assert.deepEqual(order((await person.view(cid)).election.timeline), [c.id, b.id, a.id]);
+});

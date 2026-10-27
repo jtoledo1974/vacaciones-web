@@ -353,7 +353,7 @@ export default function MyElectionCard({
       <details
         className="panel my-election my-election-compact"
         aria-label="Mi elección"
-        open={!!autoPick && !dismissed}
+        open={(!!autoPick && !dismissed) || (!!onEarly && !turn && (early?.guaranteed.length ?? 0) > 0)}
       >
         <summary>
           <span className="my-election-kicker">Tu elección</span>

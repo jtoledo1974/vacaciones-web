@@ -227,9 +227,21 @@ export default function ElectionWorkspace({
         : 'No se ha confirmado el guardado. Revisa el error y vuelve a intentarlo.',
     );
   }
+  // A manager who is also a controller may step out of the turn in play to choose ahead
+  // for themselves: one person at a time, the calendar acting for that person alone.
+  // Remembered as the cursor it started on: once the turn moves on, the mode is over.
+  const [earlyForMe, setEarlyForMe] = useState<number | null>(null);
+  const earlyForMeOpen =
+    earlyForMe !== null &&
+    earlyForMe === state?.cursor &&
+    manage &&
+    !!mine &&
+    turn?.memberId !== mine &&
+    (election.early?.guaranteed?.length ?? 0) > 0;
   const canChoose =
       open &&
       !frozen &&
+      !earlyForMeOpen &&
       state?.status === 'active' &&
       !!turn?.memberId &&
       (manage || (turn?.participants?.length === 1 && mine === turn?.memberId)),
@@ -848,6 +860,21 @@ export default function ElectionWorkspace({
           compact
           me={me}
           autoPick={autoPick}
+          early={election.early}
+          onEarly={
+            open && !previewReadOnly && !earlyForMeOpen && (election.early?.guaranteed?.length ?? 0) > 0
+              ? async () => {
+                  if (mode !== 'choose' && !(await leavePreferences())) return;
+                  setMode('choose');
+                  setSelected([]);
+                  setJointSelected({});
+                  setDetail(null);
+                  setEarlyForMe(state?.cursor ?? null);
+                  showCalendar();
+                }
+              : undefined
+          }
+          onCancelEarly={open && !previewReadOnly ? cancelEarly : undefined}
           onChoose={async () => {
             if (mode !== 'choose' && !(await leavePreferences())) return;
             setMode('choose');
@@ -1124,6 +1151,18 @@ export default function ElectionWorkspace({
             ))}
           </select>
         </label>
+      )}
+      {earlyForMeOpen && mode === 'choose' && (
+        <div className="preference-mode-banner" role="status">
+          <strong>Eligiendo por adelantado para ti ({mine ? codeFor(mine) : ''})</strong>
+          <span>
+            Pulsa uno de tus ciclos asegurados. El turno de{' '}
+            {turn?.participants?.map((id: string) => codeFor(id)).join(' + ') || current?.code} queda en espera.
+          </span>
+          <button type="button" className="secondary" onClick={() => setEarlyForMe(null)}>
+            Volver a elegir para {turn?.participants?.map((id: string) => codeFor(id)).join(' + ') || current?.code}
+          </button>
+        </div>
       )}
       {mode === 'preferences' && canPreferences && (
         <div className="preference-mode-banner" role="status">

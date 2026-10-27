@@ -38,7 +38,7 @@ import {
   type ElectionCommandContext,
 } from './election-commands.ts';
 import { projectElectionViewForManager, projectElectionViewForController, type EarlyView } from './projections.ts';
-import { earlyProof } from '../domain/early-election.ts';
+import { concealPendingEarly, earlyProof } from '../domain/early-election.ts';
 
 type Host = {
   load: (cid: string) => Promise<any>;
@@ -83,6 +83,27 @@ export class ElectionService {
       stateJson: (result[0].results[0]?.json as string | undefined) ?? null,
       preferences: result[1].results.map(preferenceFromRow),
     };
+  }
+  /**
+   * The campaign as a viewer outside the administration may see it: early choices of
+   * others that still wait for their slot are left out (concealPendingEarly).
+   */
+  async concealedFor<D extends { campaign: { id: string; team_id: string }; awards: { id: string }[] }>(
+    d: D,
+    stored?: ElectionState | null,
+  ): Promise<{ d: D; state?: ElectionState | null }> {
+    if (canWrite(this.actor, d.campaign.team_id)) return { d };
+    const state = stored !== undefined ? stored : (await this.read(d.campaign.id)).state;
+    if (!state?.earlyChoices?.length) return { d, state };
+    const masked = concealPendingEarly(context(d), state, await this.memberForAccount(d), d.awards);
+    return masked.hidden.size ? { d: { ...d, awards: masked.awards }, state: masked.state } : { d, state };
+  }
+  /** Load and read for the read-only endpoints, concealed as concealedFor() does. */
+  async concealedRead(cid: string) {
+    const loaded = await this.host.load(cid),
+      raw = await this.read(cid);
+    const { d, state } = await this.concealedFor(loaded, raw.state);
+    return { d, raw: state !== undefined ? { ...raw, state } : raw, concealing: d !== loaded };
   }
   async memberForAccount(d: any) {
     if (this.actor.preview)
@@ -130,8 +151,7 @@ export class ElectionService {
     return { ...history, undo: history.done.findLast((entry) => !isPrivate(entry)) ?? null, isPrivate };
   }
   async options(cid: string, selected: string[], jointEntries?: { member_id: string; dates: string[] }[]) {
-    const d = await this.host.load(cid),
-      raw = await this.read(cid),
+    const { d, raw } = await this.concealedRead(cid),
       mine = await this.memberForAccount(d);
     const reconstruction = await this.reconstruction().read(cid);
     if (reconstruction && reconstruction.status !== 'completed')
@@ -245,7 +265,7 @@ export class ElectionService {
   }
   /** Cycle-wide existential availability, independent of whose turn it is. */
   async availability(cid: string) {
-    const d = await this.host.load(cid);
+    const { d, concealing } = await this.concealedRead(cid);
     if (
       d.campaign.scope_key !== 'live' &&
       !canWrite(this.actor, d.campaign.team_id) &&
@@ -257,8 +277,10 @@ export class ElectionService {
     if (!rules) throw new ApiError('Disponibilidad global solo disponible con un motor de ocupación', 400);
     const state = rules.state(ctx, ctx.members, ctx.awards);
     const history = await historicalAvailability(this.repo, cid, d.campaign.version);
+    // A recorded availability counts the hidden awards: recompute it from the masked view.
     const availability = history.restored
-      ? (rules.recordedAvailability(state, history.recordedAvailability) ?? rules.restoredAvailability(state))
+      ? ((concealing ? null : rules.recordedAvailability(state, history.recordedAvailability)) ??
+        rules.restoredAvailability(state))
       : rules.availability(state);
     return { version: d.campaign.version, ...availability };
   }
@@ -268,8 +290,7 @@ export class ElectionService {
    * the client must supply the campaign version for optimistic concurrency.
    */
   async previewImpact(cid: string, choices: PolicyAward[], version: number) {
-    const d = await this.host.load(cid),
-      raw = await this.read(cid),
+    const { d, raw } = await this.concealedRead(cid),
       mine = await this.memberForAccount(d);
     const rules = occupancyFor(d.campaign.year);
     if (!rules) throw new ApiError('El informe de impacto requiere un motor de ocupación', 400);
@@ -326,12 +347,15 @@ export class ElectionService {
       recordedAvailability?: AvailabilitySnapshot | CompactAvailabilitySnapshot | null;
       skipAvailabilityForPendingAutomatic?: boolean;
       auditContext?: AuditContext;
+      /** The state as concealedFor() left it, instead of the stored one. */
+      state?: ElectionState | null;
     } = {},
   ) {
     const cid = d.campaign.id,
       manage = canWrite(this.actor, d.campaign.team_id),
       mine = await this.memberForAccount(d),
-      raw = await this.read(cid),
+      stored = await this.read(cid),
+      raw = options.state !== undefined ? { ...stored, state: options.state } : stored,
       ctx = context(d),
       preferenceMemberIds = await this.preferenceMemberIds(d, mine);
     let turn: any = null;

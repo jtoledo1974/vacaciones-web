@@ -196,3 +196,34 @@ export function earlyProof(
 export function earlyEntry(window: EarlyWindow, awardId: string, at: string) {
   return { memberId: window.memberId, round: window.round, cursor: window.cursor, awardId, at };
 }
+
+/**
+ * What a viewer who is neither an administrator nor the owner may know of the early
+ * choices still waiting for their slot: nothing. Hiding them keeps anybody ahead from
+ * learning what those behind them chose, and so from waiting to see it. Their awards and
+ * entries leave the view until the turn reaches their slot, when they show as ordinary
+ * choices. The proof guarantees that a pending early cycle never removes an option from
+ * the turn in play, so the masked view offers the same choices as the real one.
+ */
+export function concealPendingEarly<A extends { id: string }>(
+  ctx: ElectionContext,
+  state: ElectionState,
+  viewer: string | null,
+  awards: readonly A[],
+): { awards: A[]; state: ElectionState; hidden: Set<string> } {
+  const entries = state.earlyChoices ?? [];
+  if (!entries.length) return { awards: [...awards], state, hidden: new Set() };
+  let cursor = state.cursor;
+  try {
+    cursor = currentTurn(ctx, state).state.cursor;
+  } catch {
+    /* An unresolvable turn hides nothing more than the stored cursor says. */
+  }
+  const hidden = new Set(entries.filter((e) => e.memberId !== viewer && e.cursor > cursor).map((e) => e.awardId));
+  if (!hidden.size) return { awards: [...awards], state, hidden };
+  return {
+    awards: awards.filter((a) => !hidden.has(a.id)),
+    state: { ...state, earlyChoices: entries.filter((e) => !hidden.has(e.awardId)) },
+    hidden,
+  };
+}

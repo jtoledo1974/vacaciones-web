@@ -231,6 +231,25 @@ export function buildElectionTimeline(
       },
     });
   }
+  // An early choice belongs to its own slot, not to the moment it was made: show it
+  // right after the last decision taken on an earlier slot, once that one exists.
+  // Placed in slot order, so consecutive early choices follow each other: each lands
+  // halfway between the latest earlier slot and the next decision.
+  const early = events
+    .filter((e) => e.item.anticipated && e.item.kind === 'choice' && e.item.selectionCursor !== undefined)
+    .sort((a, b) => a.item.selectionCursor! - b.item.selectionCursor!);
+  for (const entry of early) {
+    const cursor = entry.item.selectionCursor!;
+    const earlier = events.filter(
+      (other) =>
+        other !== entry &&
+        other.item.kind !== 'tie' &&
+        other.item.selectionCursor !== undefined &&
+        other.item.selectionCursor < cursor,
+    );
+    const last = Math.max(entry.sequence, ...earlier.map((other) => other.sequence));
+    if (last > entry.sequence) entry.sequence = last + (Math.floor(last) + 1 - last) / 2;
+  }
   return events.sort((a, b) => b.sequence - a.sequence).map((entry) => entry.item);
 }
 
