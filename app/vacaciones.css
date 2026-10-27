@@ -1139,4 +1139,6 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .election-turn-since { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
 .election-log-when { margin-left: auto; display: inline-flex; flex-direction: column; align-items: flex-end; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .election-log-duration { display: block; height: 3px; margin-top: 2px; border-radius: 2px; background: var(--teal); opacity: .35; }
-.election-log-title:has(.election-log-when){justify-content:flex-start}
+.election-log-title:has(.election-log-when){justify-content:flex-start;flex-wrap:wrap;row-gap:0}
+.election-log-title:has(.election-log-when) b{white-space:nowrap}
+.election-log-title .election-log-when{flex-shrink:1}

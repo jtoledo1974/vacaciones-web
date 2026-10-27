@@ -13,6 +13,15 @@ const when = new Intl.DateTimeFormat('es-ES', {
 });
 /** «jue, 22 oct, 18:57» in Madrid time. */
 export const formatWhen = (iso: string) => when.format(new Date(iso));
+const short = new Intl.DateTimeFormat('es-ES', {
+  timeZone: 'Europe/Madrid',
+  day: 'numeric',
+  month: 'short',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+/** «22 oct, 18:57»: for narrow rows. */
+export const formatShortWhen = (iso: string) => short.format(new Date(iso));
 
 /** The current time, refreshed every minute; null until mounted (no clock during render). */
 export function useMinuteClock() {

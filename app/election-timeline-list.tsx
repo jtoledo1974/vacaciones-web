@@ -5,7 +5,7 @@ import { summarizeImpact } from './cycle-availability-ui';
 import { numberTimelineCycles } from '../domain/timeline-numbering';
 import type { ElectionTimelineItem } from '../domain/election-timeline-types';
 import { formatActive, type ElectionTiming } from '../domain/turn-timing';
-import { formatWhen } from './waiting-since';
+import { formatShortWhen } from './waiting-since';
 
 /** A history entry as either view sends it: the public one omits impact and warnings. */
 type TimelineEvent = Partial<ElectionTimelineItem> &
@@ -52,7 +52,9 @@ export default function ElectionTimelineList({
                   ? code(event.memberIds[0]) + ' — Aplazamiento'
                   : event.memberIds.map(code).join(' + ');
           const turn = timed.get(event.id),
-            at = turn?.at ?? (event.createdAt || null);
+            at = turn?.at ?? (event.createdAt || null),
+            // Under a minute says nothing: no duration and no bar.
+            took = turn?.activeMs != null && turn.activeMs >= 60_000 ? turn.activeMs : null;
           return (
             <li key={event.id}>
               <div className="election-log-entry">
@@ -62,14 +64,14 @@ export default function ElectionTimelineList({
                   {at && (
                     <span className="election-log-when">
                       <time dateTime={at}>
-                        {formatWhen(at)}
-                        {turn?.activeMs != null && <> · {formatActive(turn.activeMs)}</>}
+                        {formatShortWhen(at)}
+                        {took !== null && <> · {formatActive(took)}</>}
                       </time>
-                      {turn?.activeMs != null && (
+                      {took !== null && (
                         <span
                           className="election-log-duration"
-                          title={'Tardó ' + formatActive(turn.activeMs) + ' (sin contar de 23:00 a 9:00)'}
-                          style={{ width: (0.3 + 5.7 * Math.sqrt(turn.activeMs / scale)).toFixed(2) + 'em' }}
+                          title={'Tardó ' + formatActive(took) + ' (sin contar de 23:00 a 9:00)'}
+                          style={{ width: (0.3 + 5.7 * Math.sqrt(took / scale)).toFixed(2) + 'em' }}
                         />
                       )}
                     </span>
