@@ -257,7 +257,7 @@ test('earlyChoices en un turno conjunto: quien ya eligió sale del grupo', () =>
 });
 
 test('validateElectionState revisa earlyChoices y el formato', () => {
-  const members = ['A', 'B', 'C'].map((id) => ({ id })) as any;
+  const members = ['A', 'B', 'C'].map((id) => ({ id })) as never;
   validateElectionState(base({ earlyChoices: [early('B', 4)], format: 1 }), members);
   for (const bad of [
     [early('Z', 1)],
@@ -268,7 +268,7 @@ test('validateElectionState revisa earlyChoices y el formato', () => {
     {},
   ])
     assert.throws(
-      () => validateElectionState(base({ earlyChoices: bad as any }), members),
+      () => validateElectionState(base({ earlyChoices: bad as never }), members),
       /Elecciones anticipadas no válidas/,
     );
   assert.throws(() => validateElectionState(base({ format: 2 }), members), /Formato/);
@@ -288,7 +288,7 @@ test('upgradeElectionState lee como versión 1 los estados guardados sin formato
   assert.deepEqual(upgradeElectionState(upgraded), upgraded);
   assert.throws(() => upgradeElectionState({ ...legacy, format: 99 }), /no admitido/);
   // Un snapshot de audit (election-undo-v1) guarda el estado con la misma forma.
-  const members = ['A', 'B', 'C'].map((id) => ({ id })) as any;
+  const members = ['A', 'B', 'C'].map((id) => ({ id })) as never;
   validateElectionState(upgraded, members);
 });
 
@@ -476,10 +476,10 @@ test('currentTurn equivale al escaneo anterior en estados aleatorios', () => {
       JSON.stringify({ year, config: { cycles, individual }, state, awards: ctx.awards.length }),
     );
     compared++;
-    const value = (before as any).ok;
+    const value = (before as { ok?: { memberId?: string | null; pendingTie?: unknown; participants?: string[] } }).ok;
     if (value?.memberId) slots++;
     if (value?.pendingTie) ties++;
-    if (value?.participants?.length > 1) joints++;
+    if ((value?.participants?.length ?? 0) > 1) joints++;
   }
   // The sample does cover each branch of the scan.
   assert.equal(compared, 3000);
@@ -490,7 +490,7 @@ test('earlyChoices que consume un turno aplazado entero gasta el crédito', () =
   const entitlements = { A: 5, B: 5, C: 5 };
   // B aplazó una vez y adelantó los dos ciclos de su hueco del cursor 1.
   const state = base({ cursor: 1, credits: { B: 1 }, earlyChoices: [early('B', 1, 'x'), early('B', 1, 'y')] });
-  const slot = nextSlot(seq(state, entitlements, { A: 1, B: 2 })) as any;
+  const slot = nextSlot(seq(state, entitlements, { A: 1, B: 2 }));
   assert.deepEqual(slot, {
     cursor: 2,
     round: 1,

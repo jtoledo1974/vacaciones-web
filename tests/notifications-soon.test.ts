@@ -26,13 +26,15 @@ async function fixture(linked = true) {
   ]);
   return repo;
 }
-const uniform = (s: any, awards: { member_id: string }[], entitlement: number) => ({
+const uniform = (s: typeof state, awards: { member_id: string }[], entitlement: number) => ({
   state: s,
   awards,
   entitlement: () => entitlement,
   maxRounds: entitlement + 4,
 });
-const input = (over: any = {}) => {
+const input = (
+  over: { state?: typeof state; awards?: { member_id: string }[]; entitlement?: number; [key: string]: unknown } = {},
+) => {
   const { state: s = { ...state, cursor: 1 }, awards = [], entitlement = 6, ...rest } = over;
   return {
     campaignId: 'c1',

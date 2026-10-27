@@ -16,11 +16,13 @@ import {
   canComplete2027,
   immediate2027Issues,
   partialAssessment2027,
+  resetPolicyCaches2027,
   permitCounts2027,
   legalChoices2027,
 } from './policy-2027.ts';
 import {
   availabilityByCycle,
+  resetAvailabilityCache2027,
   recordedAvailabilityByCycle2027,
   restoredAvailabilityByCycle2027,
   availabilityImpact,
@@ -80,7 +82,12 @@ export const PRESENTATION_2027: PolicyPresentation = {
   explanationId: 'lecs-2027',
 };
 
-const BUDGETS_2027 = { commit: 2000, options: { total: 256, perCandidate: 32 }, review: 500 };
+const BUDGETS_2027 = {
+  commit: 2000,
+  options: { total: 256, perCandidate: 32 },
+  review: 500,
+  early: { total: 2000, perCandidate: 32, deadlineMs: 1000 },
+};
 
 const OCCUPANCY_2027: OccupancyRules = {
   version: OCCUPANCY_POLICY_2027,
@@ -97,7 +104,7 @@ const OCCUPANCY_2027: OccupancyRules = {
   evaluateFinal: (state) => evaluate2027Final(state),
   canComplete: (state, o = {}) => canComplete2027(state, o),
   immediateIssues: immediate2027Issues,
-  partialAssessment: (state, o = {}) => partialAssessment2027(state, o.maxChecks),
+  partialAssessment: (state, o = {}) => partialAssessment2027(state, o.maxChecks, o.stateKey),
   availability: availabilityByCycle,
   recordedAvailability: recordedAvailabilityByCycle2027,
   restoredAvailability: restoredAvailabilityByCycle2027,
@@ -187,4 +194,10 @@ export function occupancyFor(year: number): OccupancyRules | null {
 /** The policy view of a stored campaign row and its configuration. */
 export function campaignOf(row: { year: number; team_id: string }, config: Config): PolicyCampaign {
   return { year: row.year, team: row.team_id, config };
+}
+
+/** Clear all occupancy caches for isolated tests, including completion certificates. */
+export function resetOccupancyCaches(): void {
+  resetPolicyCaches2027();
+  resetAvailabilityCache2027();
 }

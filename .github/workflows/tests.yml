@@ -66,7 +66,7 @@ jobs:
         run: pnpm exec tsc --noEmit -p tsconfig.app.json
 
   build:
-    name: Build and informative lint
+    name: Build and lint ratchet
     # The e2e-full label run cancels the opened/synchronize run in the same group, so it must run these too.
     if: >-
       (github.event.action != 'labeled' || github.event.label.name == 'e2e-full') &&
@@ -104,10 +104,8 @@ jobs:
         run: pnpm format:check
       # The build needs no secrets or Site variables.
       - run: pnpm build
-      # Informative until the existing errors are fixed; see docs/PRUEBAS.md.
-      - name: Lint (informative)
-        continue-on-error: true
-        run: pnpm lint
+      - name: Lint (sin regresiones)
+        run: pnpm lint:ratchet
 
   browser:
     name: Playwright desktop and mobile

@@ -1038,20 +1038,54 @@ export function transplant2027Witness(
   return null;
 }
 
-const partialCache = new Map<string, CandidateAssessment>();
-/** Assessment of the current partial allocation, shared by the commit audit
- * and the following view so one decision pays for its warnings only once. */
-export function partialAssessment2027(state: PolicyState, maxChecks = 500): CandidateAssessment {
-  const key = JSON.stringify([
+/** Trusted fingerprint: reuse only while the complete state remains unchanged. */
+export function availabilityStateKey2027(state: PolicyState): string {
+  const parts: unknown[] = [
     OCCUPANCY_POLICY_2027,
-    maxChecks,
+    0,
+    false,
     [...state.cycles].sort((a, b) => a.date.localeCompare(b.date)),
     [...state.members].sort((a, b) => a.id.localeCompare(b.id)),
     state.awards.map((a) => a.member_id + '|' + a.cycle_date).sort(),
-  ]);
+  ];
+  // Preserve historical fingerprints when no HR summer total was specified.
+  if (state.summerTotal !== undefined) parts.push(state.summerTotal);
+  const text = JSON.stringify(parts);
+  let high = 0x811c9dc5,
+    low = 0x01000193;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    high = Math.imul(high ^ code, 0x01000193) >>> 0;
+    low = Math.imul(low ^ (code * 31 + i), 0x01000193) >>> 0;
+  }
+  return high.toString(16).padStart(8, '0') + low.toString(16).padStart(8, '0');
+}
+
+/** Own the graph first: completion witnesses can reference input awards. */
+export function immutableCacheValue2027<T>(value: T): T {
+  const copy = structuredClone(value);
+  function freeze(node: unknown): void {
+    if (node === null || typeof node !== 'object' || Object.isFrozen(node)) return;
+    for (const child of Object.values(node)) freeze(child);
+    Object.freeze(node);
+  }
+  freeze(copy);
+  return copy;
+}
+
+const partialCache = new Map<string, CandidateAssessment>();
+/** Tests must also start without validated completion certificates. */
+export function resetPolicyCaches2027(): void {
+  partialCache.clear();
+  completionWitnessCache.clear();
+}
+/** Assessment of the current partial allocation, shared by the commit audit
+ * and the following view so one decision pays for its warnings only once. */
+export function partialAssessment2027(state: PolicyState, maxChecks = 500, stateKey?: string): CandidateAssessment {
+  const key = JSON.stringify([stateKey ?? availabilityStateKey2027(state), maxChecks]);
   const cached = partialCache.get(key);
   if (cached) return cached;
-  const result = evaluate2027Candidate(state, [], maxChecks);
+  const result = immutableCacheValue2027(evaluate2027Candidate(state, [], maxChecks));
   partialCache.set(key, result);
   if (partialCache.size > 16) partialCache.delete(partialCache.keys().next().value!);
   return result;
