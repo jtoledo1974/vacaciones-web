@@ -4,6 +4,10 @@
     "app/api/[...path]/route.ts": {
       "@typescript-eslint/no-explicit-any": 3
     },
+    "app/campaign-forms.tsx": {
+      "@typescript-eslint/no-explicit-any": 11,
+      "react-hooks/set-state-in-effect": 1
+    },
     "app/confirmation.tsx": {
       "react-hooks/set-state-in-effect": 1
     },
@@ -12,11 +16,14 @@
     },
     "app/dashboard.tsx": {
       "@next/next/no-html-link-for-pages": 2,
-      "@typescript-eslint/no-explicit-any": 59,
-      "react-hooks/set-state-in-effect": 5
+      "@typescript-eslint/no-explicit-any": 48,
+      "react-hooks/set-state-in-effect": 4
+    },
+    "app/election-activation.tsx": {
+      "@typescript-eslint/no-explicit-any": 7
     },
     "app/election-workspace.tsx": {
-      "@typescript-eslint/no-explicit-any": 90,
+      "@typescript-eslint/no-explicit-any": 78,
       "react-hooks/immutability": 1,
       "react-hooks/set-state-in-effect": 11
     },
@@ -56,6 +63,9 @@
     },
     "app/simulation-tools.tsx": {
       "@typescript-eslint/no-explicit-any": 1
+    },
+    "app/tie-resolver.tsx": {
+      "@typescript-eslint/no-explicit-any": 5
     },
     "app/user-permissions.tsx": {
       "@typescript-eslint/no-explicit-any": 11
