@@ -190,6 +190,7 @@ export type ElectionProjectionData = {
   } | null;
   redo: string | null;
   pendingAutomatic: boolean;
+  turnsAhead: number | null;
   automaticAhead: number | null;
   listPlan: {
     memberId: string;
@@ -308,6 +309,7 @@ function sharedElectionFields(data: ElectionProjectionData) {
     policyPresentation: publicPresentation(data.policyPresentation),
     points: data.points.map(({ member_id, cycles, points }) => ({ member_id, cycles, points })),
     pendingAutomatic: data.pendingAutomatic,
+    turnsAhead: data.turnsAhead,
     automaticAhead: data.automaticAhead,
   };
 }

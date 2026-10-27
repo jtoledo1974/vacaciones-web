@@ -7,6 +7,8 @@ import {
   preferredChoice,
   choiceIssues,
   entitlementFor,
+  upgradeElectionState,
+  withLiveEarlyChoices,
   resolveTie,
   registerJointAgreement,
   cancelJointAgreement,
@@ -116,7 +118,8 @@ function restore(cid: string, s: Snapshot): Statement[] {
       PREFERENCE_COLUMNS,
       s.preferences.map((p) => preferenceRow(p, cid)),
     ),
-    statement(cid, s.state),
+    // Early-choice entries go with their awards: only those restored here survive.
+    statement(cid, s.state && withLiveEarlyChoices(upgradeElectionState(s.state)!, s.awards)),
   ];
 }
 function sameList(a: Preference, b: Preference) {
@@ -138,7 +141,8 @@ const isDecision = (action: string) =>
   ].includes(action);
 function historical(d: any, row: any): Historical | null {
   if (!isDecision(row.action) || !row.before_json) return null;
-  const before = auditBefore(row) as Snapshot;
+  const raw = auditBefore(row) as Snapshot;
+  const before = { ...raw, state: upgradeElectionState(raw.state) };
   if (before.format !== 'election-undo-v1' || !before.state) return null;
   let turn;
   try {

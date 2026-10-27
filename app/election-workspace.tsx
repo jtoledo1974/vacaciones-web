@@ -958,6 +958,7 @@ export default function ElectionWorkspace({
         cycles: data.result.cycles,
         awards: data.awards,
         preferences: election.preferences,
+        turnsAhead: election.turnsAhead,
         automaticAhead: election.automaticAhead,
         state,
         turn,

@@ -139,6 +139,7 @@ const viewShape: Shape = {
   undoSummary: scalar,
   redo: scalar,
   pendingAutomatic: scalar,
+  turnsAhead: scalar,
   automaticAhead: scalar,
   listPlan: {
     memberId: scalar,
@@ -225,6 +226,7 @@ function fixture(): ElectionProjectionData {
     undoSummary: null,
     redo: 'redo-privado',
     pendingAutomatic: false,
+    turnsAhead: 2,
     automaticAhead: 0,
     listPlan: {
       memberId: 'alice',
@@ -261,6 +263,8 @@ test('proyección pura: mantiene las claves existentes sin datos administrativos
     tieResolutions: data.state!.tieResolutions?.map((r) => ({ ...r, actor: r.actor })),
   });
   assert.equal(manager.canManage, true);
+  assert.equal(manager.turnsAhead, 2);
+  assert.equal(controller.turnsAhead, 2);
   assert.deepEqual(manager.accounts, data.accounts);
   assert.equal(manager.undo, 'id-privado');
   assert.deepEqual(manager.preferences, [data.preferences[0]]);

@@ -12,7 +12,7 @@ import { ElectionService } from './election-service.ts';
 import { PersonalSimulationService } from './personal-simulation.ts';
 import { cloneSimulation } from './simulations.ts';
 import { projectAdminCampaignView, projectPublicCampaignView, projectPublishedCampaignView } from './projections.ts';
-import { validateElectionState } from '../domain/election.ts';
+import { validateElectionState, upgradeElectionState } from '../domain/election.ts';
 import { checkedConfig, runCommand } from './service-commands.ts';
 export { ApiError } from './errors.ts';
 const id = () => crypto.randomUUID(),
@@ -665,7 +665,7 @@ export class Service {
     try {
       for (const row of tables.election_states)
         validateElectionState(
-          JSON.parse(row.json),
+          upgradeElectionState(JSON.parse(row.json))!,
           tables.campaign_members.filter((m: any) => m.campaign_id === row.campaign_id),
         );
       for (const pref of tables.preferences) {

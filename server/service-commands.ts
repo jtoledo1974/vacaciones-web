@@ -2,7 +2,19 @@ import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '.
 import { calculate } from '../domain/vacations.ts';
 import { occupancyFor, campaignOf } from '../domain/policy.ts';
 import { VACATIONS_UNDO_FORMAT } from '../domain/events.ts';
-import { PREFERENCE_COLUMNS, preferenceRow } from '../domain/election.ts';
+import {
+  PREFERENCE_COLUMNS,
+  preferenceRow,
+  upgradeElectionState,
+  withLiveEarlyChoices,
+  type ElectionState,
+} from '../domain/election.ts';
+
+// A state from an undo snapshot: current format, and early choices only with their awards.
+const restoredState = (state: unknown, awards: unknown): ElectionState | null => {
+  const upgraded = upgradeElectionState(state);
+  return upgraded && Array.isArray(awards) ? withLiveEarlyChoices(upgraded, awards) : upgraded;
+};
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
 import { ApiError } from './errors.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
@@ -693,7 +705,7 @@ async function restoreElection({ service, c, cid, ops }: CommandContext) {
   if (old?.election) {
     ops.push(
       { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
-      electionStateStatement(cid, old.election.state),
+      electionStateStatement(cid, restoredState(old.election.state, old.awards)),
     );
     ops.push(
       ...insertRows(

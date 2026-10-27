@@ -39,7 +39,31 @@ export type ElectionState = {
   }[];
   // When the turn at this (normalized) cursor opened for choosing: a 'wait' list counts from here.
   turnSince?: { cursor: number; at: string };
+  // Cycles awarded ahead of their slot (absolute cursor), which then counts as played.
+  // Nothing writes them yet; an entry lives and dies with its award.
+  earlyChoices?: { memberId: string; round: number; cursor: number; awardId: string; at: string }[];
+  /** Stored format (see upgradeElectionState); missing means 1. */
+  format?: number;
 };
+export const ELECTION_STATE_FORMAT = 1;
+/**
+ * Bring a stored state (election_states, or a snapshot in audit) to the current
+ * format. Every read goes through here, so a future format only adds a step.
+ */
+export function upgradeElectionState(raw: unknown): ElectionState | null {
+  if (raw === null || raw === undefined) return null;
+  const state = raw as ElectionState;
+  const format = state.format ?? 1;
+  if (!Number.isInteger(format) || format < 1 || format > ELECTION_STATE_FORMAT)
+    throw new Error('Formato de estado de elección no admitido');
+  return { ...state, format: ELECTION_STATE_FORMAT };
+}
+/** Drop early choices whose award no longer exists (undone, or not rebuilt). */
+export function withLiveEarlyChoices(state: ElectionState, awards: readonly { id: string }[]): ElectionState {
+  if (!state.earlyChoices) return state;
+  const ids = new Set(awards.map((a) => a.id));
+  return { ...state, earlyChoices: state.earlyChoices.filter((e) => ids.has(e.awardId)) };
+}
 // immediate: applied as soon as the turn arrives. wait: applied waitMinutes after it
 // arrives unless its owner chooses first. manual: a note only, never applied.
 export type PreferenceMode = 'immediate' | 'wait' | 'manual';
@@ -285,6 +309,29 @@ export function validateElectionState(state: ElectionState, members: Member[]) {
       ))
   )
     throw new Error('Actas de sorteo no válidas');
+  if (state.format !== undefined && state.format !== ELECTION_STATE_FORMAT)
+    throw new Error('Formato de estado de elección no admitido');
+  if (state.earlyChoices !== undefined) {
+    const n = state.order.length;
+    if (
+      !Array.isArray(state.earlyChoices) ||
+      new Set(state.earlyChoices.map((e) => e?.awardId)).size !== state.earlyChoices.length ||
+      state.earlyChoices.some(
+        (e) =>
+          !e ||
+          !state.order.includes(e.memberId) ||
+          !Number.isInteger(e.cursor) ||
+          e.cursor < 0 ||
+          e.cursor > 1000000 ||
+          e.round !== Math.floor(e.cursor / n) + 1 ||
+          typeof e.awardId !== 'string' ||
+          !e.awardId ||
+          typeof e.at !== 'string' ||
+          Number.isNaN(Date.parse(e.at)),
+      )
+    )
+      throw new Error('Elecciones anticipadas no válidas');
+  }
 }
 /** The campaign's turn sequence, with each member's entitlement taken from the year's policy. */
 export function sequenceFor(ctx: ElectionContext, state: ElectionState): SequenceInput {
@@ -310,6 +357,7 @@ export function currentTurn(ctx: ElectionContext, input: ElectionState) {
       requiredByMember: {} as Record<string, number>,
     };
   const slot = nextSlot(sequenceFor(ctx, state));
+  for (const id of slot.spentCredits ?? []) state.credits[id] = 0;
   if ('complete' in slot) {
     const rules = occupancyFor(ctx.year);
     if (rules) {
