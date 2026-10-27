@@ -11,6 +11,7 @@ import {
   resolveTie,
   registerJointAgreement,
   cancelJointAgreement,
+  stampTurn,
   type ElectionContext,
   type ElectionState,
   type Preference,
@@ -87,6 +88,20 @@ const snap = (state: ElectionState | null, preferences: Preference[], d: any): S
   capture(d, { state, preferences });
 const statement = electionStateStatement;
 const restore = (cid: string, s: Snapshot): Statement[] => restoreStatements(cid, s);
+/**
+ * The turn left open by a reconstruction starts waiting when it ends, not before it began.
+ * Steps move the cursor without the clock, so stamp the turn that is open now.
+ */
+function restartClock(context: ElectionContext, state: ElectionState | null, at: string) {
+  if (state?.status !== 'active') return state;
+  let cursor = state.cursor;
+  try {
+    cursor = currentTurn(context, state).state.cursor;
+  } catch {
+    /* An unreadable turn keeps its stored cursor; the scheduled stamp corrects it later. */
+  }
+  return stampTurn(state, cursor, at, true);
+}
 function sameList(a: Preference, b: Preference) {
   return (
     JSON.stringify([a.dates, a.persistent === true, a.mode ?? 'immediate', a.waitMinutes ?? 0, a.labels ?? {}]) ===
@@ -494,8 +509,12 @@ export class ReconstructionService {
     if (!existing || existing.status === 'completed') throw new ApiError('No hay una reconstrucción abierta', 409);
     const s = structuredClone(existing) as Session;
     if (action === 'reconstruction_cancel') {
+      const now = new Date().toISOString();
       ops.push(
-        ...restore(cid, s.origin),
+        ...restore(cid, {
+          ...s.origin,
+          state: restartClock(ctx(d, s.origin.awards, s.origin.requests), s.origin.state, now),
+        }),
         { sql: 'DELETE FROM reconstruction_sessions WHERE campaign_id=?', args: [cid] },
         this.host.audit('reconstruction_cancel', c, null, {
           targetId: s.targetId,
@@ -530,9 +549,11 @@ export class ReconstructionService {
     if (action === 'reconstruction_finish') {
       if (s.status !== 'review') throw new ApiError('Quedan turnos anteriores por reconstruir');
       s.status = 'completed';
-      s.completedAt = new Date().toISOString();
+      const completedAt = new Date().toISOString();
+      s.completedAt = completedAt;
       s.impact = this.impact(d, s, d.awards, d.requests);
       ops.push(
+        statement(cid, restartClock(ctx(d), raw.state, completedAt)),
         this.write(cid, s),
         this.host.audit('reconstruction_finish', c, null, {
           version: c.version + 1,

@@ -314,7 +314,7 @@ function executeAdvance(x: ElectionCommandContext) {
 }
 
 async function executeLinkAccount(x: ElectionCommandContext) {
-  const { body, d, c, actor, ops } = x;
+  const { body, d, ops } = x;
   x.authorizeMember(body.memberId);
   x.recordUndo = false;
   const member = d.members.find((m) => m.id === body.memberId),
@@ -332,13 +332,10 @@ async function executeLinkAccount(x: ElectionCommandContext) {
     provider === 'firebase' && subject.length <= 250 && subject.length > 0 && !/[\s\r\n:]/.test(subject);
   if ((subject && !isEmail && !isFirebaseUid) || !['chatgpt', 'firebase'].includes(provider))
     throw new ApiError('Introduce un correo válido de ChatGPT Sites o un UID de Firebase');
-  if (
-    c.scope_key === 'live' &&
-    actor.role !== 'superadmin' &&
-    existing?.principal_key &&
-    existing.principal_key !== (provider === 'chatgpt' ? 'chatgpt-email:' + email : 'firebase:' + subject)
-  )
-    throw new ApiError('Solo el superadministrador puede sustituir una cuenta ya vinculada', 403);
+  // A team administrator may link or replace any account of the team; a controller only
+  // replaces the email of their own, and cannot leave it unlinked.
+  if (!x.manage && (!subject || provider !== 'chatgpt'))
+    throw new ApiError('Solo puedes cambiar el correo de tu propia cuenta', 403);
   if (subject)
     ops.push({
       sql: 'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',
@@ -594,7 +591,6 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
   link_account: {
     preconditions: {
       liveOnly: 'Vincula las cuentas desde una campaña real',
-      manager: 'Solo el responsable puede vincular cuentas',
     },
     execute: executeLinkAccount,
   },

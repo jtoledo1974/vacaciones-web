@@ -117,6 +117,7 @@ async function serve(request: Request) {
           identity: user ? { provider: user.provider, subject: user.subject, email: user.email } : null,
         });
       if (path[0] === 'index') return reply(await service.list());
+      if (path[0] === 'stats') return reply(await service.stats());
       if (path[0] === 'campaign' && path[1])
         return reply(
           url.searchParams.get('published') === '1'

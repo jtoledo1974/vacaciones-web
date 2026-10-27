@@ -152,6 +152,14 @@ const viewShape: Shape = {
   },
   queue: scalar,
   chain: scalar,
+  myAccountVersion: scalar,
+  timing: {
+    turns: [
+      { id: scalar, kind: scalar, round: scalar, memberIds: [scalar], at: scalar, openedAt: scalar, activeMs: scalar },
+    ],
+    averages: [{ memberId: scalar, turns: scalar, meanMs: scalar }],
+    waiting: { since: scalar, activeMs: scalar },
+  },
   timeline: [
     {
       id: scalar,
@@ -240,6 +248,22 @@ function fixture(): ElectionProjectionData {
     },
     queue: null,
     chain: null,
+    myAccountVersion: 1,
+    timing: {
+      turns: [
+        {
+          id: 'evento',
+          kind: 'choice',
+          round: 1,
+          memberIds: ['m1'],
+          at: '2026-07-01T10:00:00Z',
+          openedAt: '2026-07-01T09:00:00Z',
+          activeMs: 3_600_000,
+        },
+      ],
+      averages: [{ memberId: 'm1', turns: 1, meanMs: 3_600_000 }],
+      waiting: { since: '2026-07-01T10:00:00Z', activeMs: 0 },
+    },
     timeline: [
       {
         id: 'evento',
@@ -297,6 +321,11 @@ test('la proyección del controlador bloquea campos añadidos en profundidad', (
     },
     preferences: [{ ...data.preferences[0], privateFuturePreference: 'no-publicar' }, data.preferences[1]],
     timeline: [{ ...data.timeline[0], privateAudit: 'no-publicar' }],
+    timing: {
+      ...data.timing!,
+      privateAudit: 'no-publicar',
+      turns: [{ ...data.timing!.turns[0], actor: 'secreto' }],
+    },
   } as ElectionProjectionData;
   const publicView = projectElectionViewForController(poisoned);
   allowlisted(publicView, viewShape);

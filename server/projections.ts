@@ -4,6 +4,7 @@ import type { ElectionService } from './election-service.ts';
 import type { ElectionState, Preference, roundQueue, automaticChain } from '../domain/election.ts';
 import type { AvailabilitySnapshot, PolicyPresentation } from '../domain/occupancy.ts';
 import type { ElectionTimelineItem, PublicElectionTimelineItem } from './election-timeline.ts';
+import type { ElectionTiming } from '../domain/turn-timing.ts';
 import type { ReconstructionService } from './reconstruction.ts';
 
 /** Database rows have additional columns: the administrative projection preserves them. */
@@ -212,6 +213,8 @@ export type ElectionProjectionData = {
   queue: ReturnType<typeof roundQueue> | null;
   chain: ReturnType<typeof automaticChain> | null;
   timeline: ElectionTimelineItem[] | PublicElectionTimelineItem[];
+  timing: ElectionTiming | null;
+  myAccountVersion: number | null;
   reconstruction: Awaited<ReturnType<ReconstructionService['view']>>;
 };
 
@@ -285,6 +288,9 @@ function publicPresentation(value: PolicyPresentation | null): PolicyPresentatio
 function sharedElectionFields(data: ElectionProjectionData) {
   const editable = new Set(data.preferenceMemberIds);
   return {
+    // Public by design: everyone sees how long each turn took.
+    timing: data.timing && publicTiming(data.timing),
+    myAccountVersion: data.myAccountVersion,
     turn: data.turn
       ? {
           memberId: data.turn.memberId,
@@ -356,6 +362,22 @@ export function projectElectionViewForManager(data: ElectionProjectionData) {
     chain: data.chain,
     timeline: data.timeline,
     reconstruction: data.reconstruction,
+  };
+}
+
+function publicTiming(timing: ElectionTiming): ElectionTiming {
+  return {
+    turns: timing.turns.map((t) => ({
+      id: t.id,
+      kind: t.kind,
+      round: t.round,
+      memberIds: [...t.memberIds],
+      at: t.at,
+      openedAt: t.openedAt,
+      activeMs: t.activeMs,
+    })),
+    averages: timing.averages.map((a) => ({ memberId: a.memberId, turns: a.turns, meanMs: a.meanMs })),
+    waiting: timing.waiting && { since: timing.waiting.since, activeMs: timing.waiting.activeMs },
   };
 }
 

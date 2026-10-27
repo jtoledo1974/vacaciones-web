@@ -193,8 +193,17 @@ test('la reconstrucción restaura con el módulo al empezar, retroceder y cancel
   await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'manual', dates: [dates[3]] });
   await act(s, cid, { action: 'reconstruction_back' });
   assert.deepEqual(await rows(repo, cid), started);
+  const cancelledAt = new Date().toISOString();
   await act(s, cid, { action: 'reconstruction_cancel' });
-  assert.deepEqual(await rows(repo, cid), original);
+  // Everything comes back as it was, except that the open turn waits from the cancellation.
+  const restored = await rows(repo, cid);
+  const clock = (r: typeof restored) => r.state.map((row: { json: string }) => JSON.parse(row.json).turnSince);
+  assert.ok(clock(restored).every((since: { at: string } | undefined) => !since || since.at >= cancelledAt));
+  const strip = (r: typeof restored) => ({
+    ...r,
+    state: r.state.map((row: { json: string }) => ({ ...JSON.parse(row.json), turnSince: undefined })),
+  });
+  assert.deepEqual(strip(restored), strip(original));
 });
 
 test('restaurar desde instantánea migra versión y descarta elecciones anticipadas huérfanas', async () => {

@@ -11,6 +11,8 @@ import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 import { cycleAvailability, cycleOccupancyLabel, slotExplanation, summarizeImpact } from './cycle-availability-ui';
 import MyElectionCard from './my-election-card';
+import OwnAccountEmail from './own-account-email';
+import WaitingSince, { formatWhen } from './waiting-since';
 import PersonalSimulator from './personal-simulator';
 import PolicyExplanation from './policy-explanations';
 import Glossary from './glossary';
@@ -691,6 +693,12 @@ export default function ElectionWorkspace({
             </h2>
             {state?.status === 'active' && current && !turn?.pendingTie && (
               <span className="muted">{turn.needed === 1 ? '1 ciclo' : turn.needed + ' ciclos'} por elegir</span>
+            )}
+            {state?.status === 'active' && current && !turn?.pendingTie && election.timing?.waiting && (
+              <span className="election-turn-since">
+                Le toca desde el {formatWhen(election.timing.waiting.since)}
+                <WaitingSince since={election.timing.waiting.since} prefix=" · llevamos esperando " />
+              </span>
             )}
           </div>
           <div className="election-turn-controls">
@@ -1625,6 +1633,7 @@ export default function ElectionWorkspace({
                   cycles={data.result.cycles}
                   previousScores={data.config?.previousScores}
                   policyPresentation={election.policyPresentation}
+                  timing={election.timing}
                   rowAction={(event: any) =>
                     choosingReconstructionStart &&
                     canOpenReconstruction &&
@@ -1851,6 +1860,9 @@ export default function ElectionWorkspace({
             </p>
           ))}
         </details>
+      )}
+      {mine && !manage && open && !previewReadOnly && election.myAccountVersion != null && (
+        <OwnAccountEmail memberId={mine} accountVersion={election.myAccountVersion} busy={busy} act={act} />
       )}
     </>
   );

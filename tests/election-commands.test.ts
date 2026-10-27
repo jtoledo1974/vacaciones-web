@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ELECTION_COMMANDS, electionCommandFor, electionPreconditionError } from '../server/election-commands.ts';
 
-test('tabla de comandos de elección: acciones conocidas y nada heredado del prototipo', () => {
+test('tabla de comandos de elección: acciones conocidas y nada heredado de la primera versión', () => {
   assert.deepEqual(Object.keys(ELECTION_COMMANDS).sort(), [
     'advance',
     'cancel_joint',
@@ -36,7 +36,6 @@ test('precondiciones de elección: campaña real, responsable y elección config
     'pause',
     'resume',
     'resume_automatic',
-    'link_account',
     'election_undo',
     'election_redo',
   ];

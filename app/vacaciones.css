@@ -741,6 +741,8 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac2-occupants,.vac2-date-link,
  table,table th,table td,td code
 ){font-size:12px}
+/* The cycle table has its own size control (A− / A+), never below 12px. */
+.app .vac3 .vac3-table,.app .vac3 .vac3-table :is(th,td){font-size:var(--vac3-font-size)}
 .election-log-automatic{color:#1f5a4b;font-weight:600}
 /* #64 primera pantalla del controlador: su situación antes que los metadatos. */
 .app.controller-ux .heading{margin-bottom:14px;gap:12px}
@@ -1099,3 +1101,42 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .vac2-panel .vac2-cycles .vac2-cycle.vac2-mine.vac2-summer{box-shadow:inset 0 -3px 0 #e0a526}
 .vac2-panel .vac2-days .vac2-day.vac2-mine{box-shadow:inset 0 0 0 2px #17663f}
 .vac2-panel .vac2-days .vac2-day.vac2-mine.vac2-summer{box-shadow:inset 0 0 0 2px #17663f,inset 0 -5px 0 #e0a526}
+
+/* Estadísticas */
+.campaign-stats { display: grid; gap: 12px; }
+.stats-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.stats-header button { display: inline-flex; align-items: center; gap: 6px; }
+.app .stats-team > summary { display: grid; gap: 6px; cursor: pointer; list-style: none; }
+.stats-team > summary::-webkit-details-marker { display: none; }
+.stats-team-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.stats-progress { display: block; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.stats-progress > span { display: block; height: 100%; background: var(--teal); }
+.stats-block { margin-top: 16px; }
+.stats-block h3 { margin: 0 0 8px; font-size: 14px; }
+.stats-bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.stats-bar { display: grid; grid-template-columns: 8em 1fr 9.5em; align-items: center; gap: 10px; min-height: 28px; }
+.stats-bar-label { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.stats-bar-label time, .stats-bar-label span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.stats-bar-track { position: relative; height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--line) 55%, transparent); }
+.stats-bar-fill { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: var(--teal); }
+.stats-bar.slow .stats-bar-fill, .stats-key-slow { background: #c2702a; }
+.stats-bar.current .stats-bar-fill { background: repeating-linear-gradient(135deg, var(--teal) 0 6px, color-mix(in srgb, var(--teal) 60%, #fff) 6px 12px); }
+.stats-bar.current .stats-bar-label strong { color: var(--teal); }
+.stats-bar-mean, .stats-key-mean { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); opacity: .45; }
+.stats-bar-value { font-variant-numeric: tabular-nums; font-size: 13px; white-space: nowrap; text-align: right; }
+.stats-round { margin-top: 8px; padding-bottom: 2px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.stats-key { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; margin-top: 10px; }
+.stats-key-mean { position: static; display: inline-block; height: 12px; }
+.stats-key-slow { display: inline-block; width: 14px; height: 8px; border-radius: 4px; }
+@media (max-width: 580px) {
+  .stats-bar { grid-template-columns: 1fr auto; grid-template-areas: 'label value' 'track track'; gap: 2px 8px; padding: 4px 0; }
+  .stats-bar-label { grid-area: label; flex-direction: row; gap: 8px; align-items: baseline; }
+  .stats-bar-track { grid-area: track; }
+  .stats-bar-value { grid-area: value; }
+}
+.own-account-email form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-top: 8px; }
+.own-account-email label { display: grid; gap: 4px; flex: 1 1 16em; }
+.election-turn-since { display: block; margin-top: 2px; font-size: 13px; color: var(--muted); }
+.election-log-when { margin-left: auto; display: inline-flex; flex-direction: column; align-items: flex-end; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.election-log-duration { display: block; height: 3px; margin-top: 2px; border-radius: 2px; background: var(--teal); opacity: .35; }
+.election-log-title:has(.election-log-when){justify-content:flex-start}

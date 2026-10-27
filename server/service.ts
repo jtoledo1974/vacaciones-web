@@ -103,6 +103,20 @@ export class Service {
       myCampaignIds: mine.map((m) => m.campaign_id).filter((id) => campaigns.some((c) => c.id === id)),
     };
   }
+  /** Every team's live campaign of the latest year, as anyone may follow it. */
+  async stats() {
+    if (!this.actor.id) throw new ApiError('Inicia sesión para consultar el estado de las campañas', 401);
+    const live = (await this.repo.all("SELECT id,year FROM campaigns WHERE scope_key='live' ORDER BY team_id")) as {
+      id: string;
+      year: number;
+    }[];
+    const year = Math.max(0, ...live.map((c) => c.year));
+    const election = this.election();
+    return {
+      year: year || null,
+      campaigns: await Promise.all(live.filter((c) => c.year === year).map((c) => election.summary(c.id))),
+    };
+  }
   async createSimulation(cid: string, body: any) {
     const d = await this.load(cid);
     requireWrite(this.actor, d.campaign.team_id);

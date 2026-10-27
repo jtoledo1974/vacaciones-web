@@ -1,7 +1,6 @@
 import consultation from '../docs/CONSULTA.md?raw';
 import management from '../docs/GESTION.md?raw';
 import readme from '../README.md?raw';
-import validation from '../VALIDACION.md?raw';
 import deployment from '../DESPLIEGUE.md?raw';
 import election from '../docs/ELECCION.md?raw';
 import { helpDocuments, type HelpDocument } from './docs-policy';
@@ -16,13 +15,6 @@ const documents: HelpDocument[] = [
     content: election,
   },
   { id: 'readme', title: 'Documentación del proyecto', audience: 'admin', filename: 'README.md', content: readme },
-  {
-    id: 'validacion',
-    title: 'Validación y límites',
-    audience: 'admin',
-    filename: 'VALIDACION.md',
-    content: validation,
-  },
   { id: 'despliegue', title: 'Despliegue y acceso', audience: 'admin', filename: 'DESPLIEGUE.md', content: deployment },
 ];
 export function documentation(role: string) {

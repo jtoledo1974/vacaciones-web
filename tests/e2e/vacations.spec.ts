@@ -1345,3 +1345,37 @@ test('vista de controlador: en su turno, «Tu lista ahora» muestra puntos y pla
     );
   }
 });
+
+test('vista de tabla: A+ y A− cambian el tamaño de la letra', async ({ page, request }) => {
+  const s = await setup(request, page);
+  await open(page, s.id);
+  await activate(page);
+  await page
+    .getByRole('group', { name: 'Vista del calendario' })
+    .getByRole('button', { name: 'Tabla', exact: true })
+    .click();
+  const cell = page.locator('.vac3-table td').first();
+  const size = async () => parseFloat(await cell.evaluate((el) => getComputedStyle(el).fontSize));
+  const before = await size();
+  await page.getByRole('button', { name: 'Ampliar letra de la tabla' }).click();
+  await page.getByRole('button', { name: 'Ampliar letra de la tabla' }).click();
+  await expect.poll(size).toBe(before + 2);
+  await page.getByRole('button', { name: 'Reducir letra de la tabla' }).click();
+  await expect.poll(size).toBe(before + 1);
+});
+
+test('estadísticas: solo con sesión, una tarjeta por equipo y nada para anónimos', async ({
+  page,
+  request,
+  browser,
+}) => {
+  await setup(request, page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Estadísticas' }).first().click();
+  await expect(page.getByRole('heading', { name: /Estado de las campañas/ })).toBeVisible();
+  await expect(page.locator('.stats-team').first()).toBeVisible();
+  const anonymous = await browser.newContext();
+  const response = await anonymous.request.get(origin + '/api/stats');
+  expect(response.status()).toBe(401);
+  await anonymous.close();
+});

@@ -1,4 +1,4 @@
-# Vacaciones · MVP web
+# Vacaciones web
 
 Proyecto independiente: no modifica el Excel, la hoja nativa ni sus Apps Script. React/Vinext con Worker, D1 y autenticación de Sites. Las tablas y parámetros permanecen al desplegar versiones nuevas.
 
@@ -61,11 +61,11 @@ Firebase Authentication puede reutilizar usuarios y UID de un proyecto externo s
 
 ## Firebase, Cloudflare y límites
 
-Consultar [VALIDACION.md](VALIDACION.md) para alcance comprobado, discrepancias y pendientes, y [VALIDACION_HISTORICA.md](docs/VALIDACION_HISTORICA.md) para la reproducción de los Excel del equipo H de 2020/2022. Firebase sigue sin estar habilitado en el Site alojado, pero ya existe un adaptador opcional que verifica tokens ID en el servidor (firma, issuer, audience, expiración y sujeto) y vincula proveedor/sujeto a los permisos existentes. Para promover superadministradores con Firebase debe exigirse además `email_verified`, sin confiar en un correo suministrado por el cliente. Configurar dominio autorizado y probar popup/redirect antes de activar. Referencias: https://firebase.google.com/docs/auth/admin/verify-id-tokens y https://firebase.google.com/docs/auth/web/google-signin.
+Consultar [VALIDACION_HISTORICA.md](docs/VALIDACION_HISTORICA.md) para la reproducción de los Excel del equipo H de 2020/2022. Firebase sigue sin estar habilitado en el Site alojado, pero ya existe un adaptador opcional que verifica tokens ID en el servidor (firma, issuer, audience, expiración y sujeto) y vincula proveedor/sujeto a los permisos existentes. Para promover superadministradores con Firebase debe exigirse además `email_verified`, sin confiar en un correo suministrado por el cliente. Configurar dominio autorizado y probar popup/redirect antes de activar. Referencias: https://firebase.google.com/docs/auth/admin/verify-id-tokens y https://firebase.google.com/docs/auth/web/google-signin.
 
 Migración a Cloudflare: desplegar el build Worker con Wrangler, crear DB, aplicar las SQL versionadas, importar el backup, configurar las variables de entorno y sustituir el adaptador de autenticación de Sites por Firebase verificado u otro proveedor. El motor y el repositorio D1 se conservan. PostgreSQL requeriría otro repositorio y traducción acotada de SQL/transacciones; no se ha implementado. La vinculación de identidades entre proveedores requiere confirmar cuentas: no mapear automáticamente sujetos de ChatGPT a Firebase.
 
-No se ha contratado ningún servicio de pago. No existe prueba de gratuidad permanente: las cuotas y condiciones dependen de Sites y, tras migrar, del plan del proveedor. D1 tiene límites de tamaño, consultas y lote; el MVP limita las importaciones y debe ampliar la estrategia de restauración si el historial crece. Referencia: https://developers.cloudflare.com/d1/platform/limits/.
+No se ha contratado ningún servicio de pago. No existe prueba de gratuidad permanente: las cuotas y condiciones dependen de Sites y, tras migrar, del plan del proveedor. D1 tiene límites de tamaño, consultas y lote; la aplicación limita las importaciones y debe ampliar la estrategia de restauración si el historial crece. Referencia: https://developers.cloudflare.com/d1/platform/limits/.
 
 
 La administración de plantillas permite nombres, nicks Unicode y fechas de antigüedad opcionales en una tabla conjunta; pegado por columnas y archivo de importación preparado desde el Excel. Los nombres son exclusivos de administración. No se generan fechas de antigüedad para celdas vacías. El código se conserva también en el repositorio privado https://github.com/jtoledo1974/vacaciones-web; las importaciones y copias de datos quedan excluidas.
@@ -75,7 +75,7 @@ La administración de plantillas permite nombres, nicks Unicode y fechas de anti
 En todas las vistas de administración hay Deshacer y Rehacer para el último cambio en solicitudes/adjudicaciones. Se conserva entre recargas y funciona también con el reinicio. Otra operación invalida el paso anterior para evitar sobrescribir trabajo posterior. En Administración, Empezar de cero las vacaciones exige escribir equipo-año; borra solo solicitudes y adjudicaciones del borrador y conserva plantilla, parámetros y publicaciones. Los cambios anteriores a esta versión no tienen undo retroactivo.
 
 ## Ayuda en la web
-El apartado Ayuda permite leer y descargar las guías. La guía de consulta es pública; la guía de gestión y README, VALIDACION y DESPLIEGUE se entregan solo a administradores mediante una ruta que comprueba el rol en el servidor. Los originales Markdown se incorporan al build del servidor, por lo que sus cambios se reflejan al desplegar.
+El apartado Ayuda permite leer y descargar las guías. La guía de consulta es pública; la guía de gestión y README y DESPLIEGUE se entregan solo a administradores mediante una ruta que comprueba el rol en el servidor. Los originales Markdown se incorporan al build del servidor, por lo que sus cambios se reflejan al desplegar.
 
 
 ## Paradigma de elección

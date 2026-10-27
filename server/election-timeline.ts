@@ -1,6 +1,7 @@
 import { currentTurn, orderForRound, type ElectionContext, type ElectionState } from '../domain/election.ts';
 import { appliedAudit, auditBefore, auditAfter, type AuditRow } from './audit-context.ts';
 import type { ElectionTimelineItem } from '../domain/election-timeline-types.ts';
+import { electionTiming, type ElectionTiming } from '../domain/turn-timing.ts';
 export type { ElectionTimelineItem } from '../domain/election-timeline-types.ts';
 
 function parsed(row: AuditRow, side: 'before' | 'after'): any {
@@ -290,4 +291,41 @@ export function publicElectionTimeline(
     ...(item.kind === 'choice' && automaticallyChosen.has(item.id) ? { automatic: true as const } : {}),
     ...(item.kind === 'choice' && item.anticipated ? { anticipated: true } : {}),
   }));
+}
+
+const CLOCK_RESTARTS = new Set([
+  'start',
+  'resume',
+  'resume_automatic',
+  'election_undo',
+  'election_redo',
+  'reconstruction_finish',
+  'reconstruction_cancel',
+]);
+/** A draw restarts the clock unless it was settled ahead of time, while someone else was choosing. */
+function restartsClock(row: Pick<AuditRow, 'action' | 'after_json'>) {
+  if (CLOCK_RESTARTS.has(row.action)) return true;
+  if (row.action !== 'resolve_tie') return false;
+  try {
+    return JSON.parse(row.after_json ?? 'null')?.resolution?.anticipated !== true;
+  } catch {
+    return true;
+  }
+}
+/** Turn durations of a campaign, from its audit and its built timeline (see electionTiming). */
+export function timingOf(
+  rows: Pick<AuditRow, 'id' | 'action' | 'after_json' | 'created_at'>[],
+  items: ElectionTimelineItem[],
+  state: ElectionState | null,
+  now = Date.now(),
+  frozen = false,
+): ElectionTiming {
+  return electionTiming({
+    items,
+    clockRestarts: rows.filter(restartsClock).map((row) => row.created_at),
+    untimed: new Set(rows.filter((row) => row.action === 'reconstruction_step').map((row) => row.id)),
+    turnSince: state?.turnSince ?? null,
+    active: state?.status === 'active' && !frozen,
+    now,
+  });
 }

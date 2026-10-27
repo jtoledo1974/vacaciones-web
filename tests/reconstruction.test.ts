@@ -317,3 +317,79 @@ test('la sesión de reconstrucción guarda solo lo necesario de cada decisión o
   // The historical preference of the turn being rebuilt is still offered.
   assert.deepEqual(v.election.reconstruction.current.historicalPreference, [dates[4]]);
 });
+
+test('reconstrucción: congela la espera en estadísticas y el turno espera desde que termina', async () => {
+  const { s, cid, ids, dates } = await fixture();
+  await act(s, cid, start(ids));
+  await act(s, cid, { action: 'choose', memberId: ids[0], dates: [dates[0]] });
+  await act(s, cid, { action: 'choose', memberId: ids[1], dates: [dates[1]] });
+  const target = (await s.view(cid)).election.reconstruction.candidates.find((e: { memberIds: string[] }) =>
+    e.memberIds.includes(ids[1]),
+  );
+  await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  const frozen = await s.election().summary(cid);
+  assert.equal(frozen.frozen, true);
+  assert.equal(frozen.turn, null);
+  assert.equal(frozen.timing?.waiting, null);
+  const before = new Date().toISOString();
+  await act(s, cid, { action: 'reconstruction_cancel' });
+  const after = await s.election().summary(cid);
+  assert.equal(after.frozen, false);
+  assert.ok(after.timing?.waiting);
+  assert.ok(after.timing.waiting.since >= before, 'la espera no incluye la reconstrucción');
+});
+
+test('un sorteo que bloqueaba el turno reinicia su reloj', async () => {
+  const { s, cid, ids } = await fixture();
+  let d = await s.view(cid);
+  await s.mutate(cid, {
+    action: 'config',
+    version: d.campaign.version,
+    config: { ...d.config, previousScores: { AA: 10, BB: 10, CC: 30, DD: 40 } },
+  });
+  d = await s.view(cid);
+  await s.election().mutate(cid, { ...start(ids), version: d.campaign.version }, Date.parse('2026-07-01T08:00:00Z'));
+  d = await s.view(cid);
+  assert.ok(d.election.turn.pendingTie, 'el fixture debe empezar con un empate pendiente');
+  const drawn = Date.parse('2026-07-01T15:00:00Z');
+  await s
+    .election()
+    .mutate(
+      cid,
+      { action: 'resolve_tie', method: 'external', order: d.election.turn.pendingTie, version: d.campaign.version },
+      drawn,
+    );
+  const state = (await s.election().read(cid)).state!;
+  assert.equal(state.turnSince?.at, new Date(drawn).toISOString());
+});
+
+test('al finalizar una reconstrucción de varios turnos, el reloj marca el turno abierto desde ese momento', async () => {
+  const { s, cid, ids, dates } = await fixture();
+  await act(s, cid, start(ids));
+  for (let i = 0; i < 3; i++) await act(s, cid, { action: 'choose', memberId: ids[i], dates: [dates[i]] });
+  const target = (await s.view(cid)).election.reconstruction.candidates.find(
+    (e: { action: string; memberIds: string[] }) => e.action === 'choose' && e.memberIds.includes(ids[0]),
+  );
+  await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  for (let i = 0; i < 3; i++)
+    await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'manual', dates: [dates[i + 4]] });
+  const before = new Date().toISOString();
+  await act(s, cid, { action: 'reconstruction_finish' });
+  const d = await s.load(cid),
+    state = (await s.election().read(cid)).state!;
+  const { currentTurn } = await import('../domain/election.ts');
+  const open = currentTurn(
+    {
+      year: d.campaign.year,
+      team: d.campaign.team_id,
+      config: d.config,
+      members: d.members,
+      awards: d.awards,
+      requests: d.requests,
+    },
+    state,
+  );
+  assert.equal(open.memberId, ids[3]);
+  assert.equal(state.turnSince?.cursor, open.state.cursor);
+  assert.ok(state.turnSince!.at >= before);
+});

@@ -36,7 +36,9 @@ import {
   X,
   BookOpen,
   Bell,
+  BarChart3,
 } from 'lucide-react';
+import CampaignStats from './campaign-stats';
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
 const api = (path: string, body?: any) => apiJson(path, body === undefined ? {} : { body });
 function Dashboard() {
@@ -430,6 +432,8 @@ function Dashboard() {
     ...(index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin'
       ? [['administracion', 'Administración', ShieldCheck] as const]
       : []),
+    // Signed-in users only: the server refuses anonymous requests too.
+    ...(index?.principal.id ? [['estadisticas', 'Estadísticas', BarChart3] as const] : []),
     ['ayuda', 'Ayuda', BookOpen],
   ] as const;
   async function go(n: string) {
@@ -549,7 +553,15 @@ function Dashboard() {
           </button>
           <span>
             Equipos <ChevronRight size={13} />{' '}
-            <b>{nav === 'eleccion' ? 'Vacaciones' : nav === 'administracion' ? 'Administración' : 'Ayuda'}</b>
+            <b>
+              {nav === 'eleccion'
+                ? 'Vacaciones'
+                : nav === 'administracion'
+                  ? 'Administración'
+                  : nav === 'estadisticas'
+                    ? 'Estadísticas'
+                    : 'Ayuda'}
+            </b>
           </span>
           <HeaderSession
             {...sessionDetails}
@@ -599,14 +611,18 @@ function Dashboard() {
                   ? 'Vacaciones del equipo'
                   : nav === 'ayuda'
                     ? 'Ayuda y documentación'
-                    : superuser
-                      ? 'Administración general'
-                      : 'Administración del equipo'}
+                    : nav === 'estadisticas'
+                      ? 'Estadísticas'
+                      : superuser
+                        ? 'Administración general'
+                        : 'Administración del equipo'}
               </h1>
               <p>
                 {nav === 'eleccion'
                   ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.'
-                  : 'Cada cambio se guarda en la campaña seleccionada.'}
+                  : nav === 'estadisticas'
+                    ? 'Cómo avanza la elección en cada equipo y cuánto tarda cada turno.'
+                    : 'Cada cambio se guarda en la campaña seleccionada.'}
               </p>
             </div>
             <div className="selectors">
@@ -806,6 +822,8 @@ function Dashboard() {
           )}
           {nav === 'ayuda' ? (
             <Help />
+          ) : nav === 'estadisticas' && index?.principal.id ? (
+            <CampaignStats />
           ) : !index ? (
             <div className="panel empty">Cargando el espacio de trabajo…</div>
           ) : !index.teams.length ? (

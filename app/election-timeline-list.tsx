@@ -4,6 +4,8 @@ import { formatDate } from './cycle-calendar';
 import { summarizeImpact } from './cycle-availability-ui';
 import { numberTimelineCycles } from '../domain/timeline-numbering';
 import type { ElectionTimelineItem } from '../domain/election-timeline-types';
+import { formatActive, type ElectionTiming } from '../domain/turn-timing';
+import { formatWhen } from './waiting-since';
 
 /** A history entry as either view sends it: the public one omits impact and warnings. */
 type TimelineEvent = Partial<ElectionTimelineItem> &
@@ -19,6 +21,7 @@ export default function ElectionTimelineList({
   previousScores,
   policyPresentation,
   rowAction,
+  timing,
 }: {
   timeline: TimelineEvent[];
   members: { id: string; code: string }[];
@@ -26,7 +29,11 @@ export default function ElectionTimelineList({
   previousScores?: Record<string, number>;
   policyPresentation: Parameters<typeof summarizeImpact>[1];
   rowAction?: (event: TimelineEvent) => ReactNode;
+  /** Turn durations (election.timing): a hairline under each turn and its time. */
+  timing?: ElectionTiming | null;
 }) {
+  const timed = new Map((timing?.turns ?? []).map((t) => [t.id, t]));
+  const scale = Math.max(1, ...[...timed.values()].map((t) => t.activeMs ?? 0));
   const [historyLimit, setHistoryLimit] = useState(40);
   const cycleNumbers = numberTimelineCycles(timeline as ElectionTimelineItem[]);
   return (
@@ -44,12 +51,29 @@ export default function ElectionTimelineList({
                 : event.kind === 'defer'
                   ? code(event.memberIds[0]) + ' — Aplazamiento'
                   : event.memberIds.map(code).join(' + ');
+          const turn = timed.get(event.id),
+            at = turn?.at ?? (event.createdAt || null);
           return (
             <li key={event.id}>
               <div className="election-log-entry">
                 <div className="election-log-title">
                   <b>{title}</b>
                   {event.round && <span>Ronda {event.round}</span>}
+                  {at && (
+                    <span className="election-log-when">
+                      <time dateTime={at}>
+                        {formatWhen(at)}
+                        {turn?.activeMs != null && <> · {formatActive(turn.activeMs)}</>}
+                      </time>
+                      {turn?.activeMs != null && (
+                        <span
+                          className="election-log-duration"
+                          title={'Tardó ' + formatActive(turn.activeMs) + ' (sin contar de 23:00 a 9:00)'}
+                          style={{ width: (0.3 + 5.7 * Math.sqrt(turn.activeMs / scale)).toFixed(2) + 'em' }}
+                        />
+                      )}
+                    </span>
+                  )}
                 </div>
                 {event.kind === 'tie' && (
                   <p className="election-log-note">

@@ -24,7 +24,13 @@ import { cas, insertRows, type Repository, type Statement } from './repository.t
 import { capture, electionStateStatement } from './campaign-snapshot.ts';
 export { electionStateStatement } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
-import { buildElectionTimeline, publicElectionTimeline, type PublicElectionTimelineItem } from './election-timeline.ts';
+import {
+  buildElectionTimeline,
+  publicElectionTimeline,
+  timingOf,
+  type PublicElectionTimelineItem,
+} from './election-timeline.ts';
+import type { ElectionTiming } from '../domain/turn-timing.ts';
 import { ReconstructionService, appliedAudit } from './reconstruction.ts';
 import { historicalAvailability } from './availability-history.ts';
 import { AuditContext, auditAfter, eventsFor } from './audit-context.ts';
@@ -104,6 +110,48 @@ export class ElectionService {
       raw = await this.read(cid);
     const { d, state } = await this.concealedFor(loaded, raw.state);
     return { d, raw: state !== undefined ? { ...raw, state } : raw, concealing: d !== loaded };
+  }
+  /** Public progress of a live campaign: whose turn it is, for how long, and how long each turn took. */
+  async summary(cid: string, now = Date.now()) {
+    const { d, raw } = await this.concealedRead(cid);
+    const ctx = context(d);
+    let turn: ReturnType<typeof currentTurn> | null = null;
+    try {
+      turn = raw.state ? currentTurn(ctx, raw.state) : null;
+    } catch {
+      turn = null;
+    }
+    const rows = await eventsFor(this.repo, cid);
+    // While an administrator reconstructs the history nobody can choose: no one is being waited for.
+    const session = await this.reconstruction().read(cid),
+      frozen = !!session && session.status !== 'completed';
+    const timing = raw.state
+      ? timingOf(rows, buildElectionTimeline(rows, ctx, raw.state), raw.state, now, frozen)
+      : null;
+    let total = 0;
+    for (const m of d.members)
+      try {
+        total += entitlementFor(ctx, m.id);
+      } catch {
+        /* A member without a policy entitlement adds nothing to the expected total. */
+      }
+    return {
+      campaignId: cid,
+      teamId: d.campaign.team_id as string,
+      year: d.campaign.year as number,
+      status: (raw.state?.status ?? null) as ElectionState['status'] | null,
+      frozen,
+      round: raw.state?.status === 'active' ? (turn?.round ?? null) : null,
+      turn:
+        raw.state?.status === 'active' && !frozen && turn?.memberId && !turn.pendingTie
+          ? { participants: [...turn.participants], needed: turn.needed }
+          : null,
+      pendingTie: !!turn?.pendingTie,
+      members: ctx.members.map((m) => ({ id: m.id, code: m.code })),
+      awarded: d.awards.length,
+      total,
+      timing,
+    };
   }
   async memberForAccount(d: any) {
     if (this.actor.preview)
@@ -441,10 +489,12 @@ export class ElectionService {
     // Replay persisted actions, then expose only an allowlisted compact projection
     // to public viewers. Managers retain the complete existing timeline.
     let timeline: ReturnType<typeof buildElectionTimeline> | PublicElectionTimelineItem[] = [];
+    let timing: ElectionTiming | null = null;
     if (manage || raw.state || ctx.awards.length) {
       const rows = await (options.auditContext?.rows() ?? eventsFor(this.repo, cid));
       const events = buildElectionTimeline(rows as any, ctx, raw.state, history ?? undefined);
       timeline = manage ? events : publicElectionTimeline(events, rows as any);
+      timing = timingOf(rows, events, raw.state, Date.now(), reconstruction.active);
     }
 
     const cycleAvailability =
@@ -460,6 +510,16 @@ export class ElectionService {
           [cid],
         )
       : [];
+    // The controller's own link, so they can replace its email (link_account).
+    const myAccountVersion =
+      mine && d.campaign.scope_key === 'live'
+        ? (((
+            await this.repo.all(
+              'SELECT a.version FROM controller_accounts a JOIN campaign_members m ON m.person_id=a.person_id WHERE m.id=?',
+              [mine],
+            )
+          )[0]?.version as number | undefined) ?? 0)
+        : null;
     // Only counts, for the controller's own forecast; never whose lists are active.
     const ahead =
       mine && raw.state?.status === 'active' && !raw.state.automaticPaused && !turn?.pendingTie
@@ -560,6 +620,8 @@ export class ElectionService {
       queue,
       chain,
       timeline,
+      timing,
+      myAccountVersion,
       reconstruction,
     };
     return manage ? projectElectionViewForManager(projection) : projectElectionViewForController(projection);
@@ -704,8 +766,16 @@ export class ElectionService {
           });
       }
     // Undo and redo restore their snapshot exactly; undo also pauses automatic choices, and resuming restarts the clock.
+    // A draw that held up the turn opens it now: the wait counts from here, not from before the draw.
+    let blockedByTie = false;
+    if (action === 'resolve_tie' && raw.state)
+      try {
+        blockedByTie = !!currentTurn(ctx, raw.state).pendingTie;
+      } catch {
+        blockedByTie = false;
+      }
     if (!command.restoresSnapshot)
-      state = stampTurnAfter(ctx, state, choices, new Date(now).toISOString(), !!command.restartsClock);
+      state = stampTurnAfter(ctx, state, choices, new Date(now).toISOString(), !!command.restartsClock || blockedByTie);
     ops.push(electionStateStatement(cid, state));
     ops.push(
       ...insertRows(

@@ -9,7 +9,7 @@ const PAUSE = 'Pausa la elección antes de corregir datos o cambiar la plantilla
   LIVE_ONLY = 'El traslado entre grupos se gestiona en la campaña real, no desde una simulación aislada';
 const base = { electionActive: false, closed: false, live: true, renameOnly: false };
 
-test('tabla de comandos: acciones de administración conocidas y nada heredado del prototipo', () => {
+test('tabla de comandos: acciones de administración conocidas y nada heredado de la primera versión', () => {
   assert.deepEqual(Object.keys(COMMANDS).sort(), [
     'award',
     'bulk_members',

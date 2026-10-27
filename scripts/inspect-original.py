@@ -1,5 +1,6 @@
 import openpyxl,json,re,collections,pathlib
 p=pathlib.Path(__file__).resolve().parents[2]
+repo=pathlib.Path(__file__).resolve().parents[1]
 w=openpyxl.load_workbook(p/'fuentes'/'Vacaciones V21.1.3X Perpetuo.xlsm',data_only=False,keep_vba=True)
 v=openpyxl.load_workbook(p/'fuentes'/'Vacaciones V21.1.3X Perpetuo.xlsm',data_only=True)
 out={}
@@ -12,4 +13,4 @@ for s in w:
    if row[0].row>(70 if s.title!='DATOS' else 30):break
    cells=[f'{c.coordinate}:{fs.get(c.coordinate,c.value) if c.data_type=="f" or s.title=="DATOS" else "[valor]"}' for c in row if c.value is not None and (s.title=='DATOS' or c.column<12)]
    print(' | '.join(cells))
-(p/'web-mvp'/'.sites-runtime'/'original-private.json').write_text(json.dumps(out,default=str,ensure_ascii=False),encoding='utf8')
+(repo/'.sites-runtime'/'original-private.json').write_text(json.dumps(out,default=str,ensure_ascii=False),encoding='utf8')
