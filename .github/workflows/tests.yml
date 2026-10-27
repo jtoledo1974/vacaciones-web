@@ -3,23 +3,22 @@ on:
   push:
     branches: [main]
   pull_request:
-    # labeled lets the e2e-full label start the full suite without a new push.
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       runner:
-        description: Runner pool or laptop runner for manual validation
+        description: Runner for manual validation (both jobs); empty keeps the usual split
         type: choice
-        default: vacaciones-ci-v2
+        default: ''
         options:
-          - vacaciones-ci-v2
+          - ''
+          - pve-playwright-01
           - portatil-playwright-01
           - portatil-playwright-02
 
 # Cancel outdated jobs on new commits to the same PR.
-# Unrelated labels get their own group so they do not cancel a running suite.
 concurrency:
-  group: tests-${{ github.event.pull_request.number || github.ref }}${{ github.event.action == 'labeled' && github.event.label.name != 'e2e-full' && format('-label-{0}', github.run_id) || '' }}
+  group: tests-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -27,56 +26,17 @@ permissions:
 
 jobs:
   checks:
-    name: Unit tests and types
-    # The e2e-full label run cancels the opened/synchronize run in the same group, so it must run these too.
+    name: Checks rápidos
+    # Conditions reduce exposure; repository writers can still change workflows.
     if: >-
-      (github.event.action != 'labeled' || github.event.label.name == 'e2e-full') &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'pull_request' &&
-        github.event.pull_request.user.login == 'jtoledo1974' &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.head.repo.fork == false) ||
-       (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974'))
-    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
-    timeout-minutes: 8
-    env:
-      CI: '1'
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      WRANGLER_SEND_METRICS: 'false'
-      CLOUDFLARE_CF_FETCH_ENABLED: 'false'
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-          clean: true
-      - name: Verify local runner and installed tools
-        shell: bash
-        run: |
-          case "$RUNNER_NAME" in
-            pve-playwright-01|portatil-playwright-01|portatil-playwright-02) ;;
-            *) echo "Unexpected runner: $RUNNER_NAME" >&2; exit 1 ;;
-          esac
-          node --version
-          test "$(pnpm --version)" = 11.25.0
-      - name: Install locked dependencies using the local store
-        run: pnpm install --frozen-lockfile --store-dir /pnpm/store
-      - run: pnpm test
-      - name: TypeScript typecheck
-        run: pnpm exec tsc --noEmit -p tsconfig.app.json
-
-  build:
-    name: Build and lint ratchet
-    # The e2e-full label run cancels the opened/synchronize run in the same group, so it must run these too.
-    if: >-
-      (github.event.action != 'labeled' || github.event.label.name == 'e2e-full') &&
-      ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-       (github.event_name == 'pull_request' &&
-        github.event.pull_request.user.login == 'jtoledo1974' &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        github.event.pull_request.head.repo.fork == false) ||
-       (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974'))
-    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.user.login == 'jtoledo1974' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.repo.fork == false) ||
+      (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974')
+    # vacaciones-rapidos is reserved for this job, so it never queues behind Playwright.
+    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-rapidos' }}"]
     timeout-minutes: 10
     env:
       CI: '1'
@@ -100,36 +60,33 @@ jobs:
           test "$(pnpm --version)" = 11.25.0
       - name: Install locked dependencies using the local store
         run: pnpm install --frozen-lockfile --store-dir /pnpm/store
+      # Cheapest checks first so a formatting slip fails in seconds.
       - name: Prettier (comprobar formato)
         run: pnpm format:check
+      - name: TypeScript typecheck
+        run: pnpm exec tsc --noEmit -p tsconfig.app.json
+      - run: pnpm test
       # The build needs no secrets or Site variables.
       - run: pnpm build
+      # Informative until the existing errors are fixed; see docs/PRUEBAS.md.
       - name: Lint (sin regresiones)
         run: pnpm lint:ratchet
 
   browser:
     name: Playwright desktop and mobile
-    # The v2 pool includes the server and isolated laptop runners.
-    # Keep the old label on the server for workflows already queued before this change.
+    # Only after the fast checks pass: a red check never occupies a Playwright runner.
+    needs: checks
+    # The laptop runners take Playwright; the server stays free for fast checks.
     # One Playwright process and one worker keep RAM and isolated D1 within tested limits.
-    # Conditions reduce exposure; repository writers can still change workflows.
-    # PR pushes run the @smoke subset; main, manual runs and PRs labelled e2e-full run everything.
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.user.login == 'jtoledo1974' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.head.repo.fork == false &&
-       (github.event.action != 'labeled' || github.event.label.name == 'e2e-full')) ||
-      (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974')
-    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
+    # PRs run the @smoke subset; main and manual runs run everything.
+    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-portatil' }}"]
     timeout-minutes: 30
     env:
       CI: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       PLAYWRIGHT_JSON_OUTPUT_FILE: /job-control/playwright.json
-      E2E_SCOPE: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'e2e-full')) && 'full' || 'smoke' }}
+      E2E_SCOPE: ${{ github.event_name == 'pull_request' && 'smoke' || 'full' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -155,4 +112,4 @@ jobs:
           pnpm exec playwright test --workers=1 --retries=0 --reporter=list,json "${grep[@]}"
 
 # No default upload of screenshots, videos or traces: artifacts stay local.
-# All jobs use the self-hosted pool; there is no GitHub-hosted fallback.
+# All jobs use the self-hosted runners; there is no GitHub-hosted fallback.

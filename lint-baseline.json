@@ -96,8 +96,11 @@
     "server/roster.ts": {
       "@typescript-eslint/no-explicit-any": 1
     },
+    "server/service-commands.ts": {
+      "@typescript-eslint/no-explicit-any": 48
+    },
     "server/service.ts": {
-      "@typescript-eslint/no-explicit-any": 40
+      "@typescript-eslint/no-explicit-any": 28
     },
     "server/simulations.ts": {
       "@typescript-eslint/no-explicit-any": 3
@@ -194,6 +197,9 @@
     },
     "tests/sequence.test.ts": {
       "@typescript-eslint/no-explicit-any": 1
+    },
+    "tests/service-commands.test.ts": {
+      "@typescript-eslint/no-explicit-any": 7
     },
     "tests/service.test.ts": {
       "@typescript-eslint/no-explicit-any": 8,

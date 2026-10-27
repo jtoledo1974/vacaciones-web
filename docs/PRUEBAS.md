@@ -45,12 +45,21 @@ node node_modules/playwright/cli.js test tests/e2e/preferences.spec.ts
 
 ## Integración continua
 
-GitHub Actions no necesita credenciales del Site ni de producción. En cada push a una pull request propia del mismo repositorio y a `main` ejecuta, en el grupo de runners propios `vacaciones-ci-v2` (servidor y dos runners del portátil):
+GitHub Actions no necesita credenciales del Site ni de producción. En cada push a una pull request propia del mismo repositorio y a `main` ejecuta dos jobs en runners propios, sin alternativa alojada en GitHub:
 
-- `pnpm test` y la comprobación de tipos.
-- `pnpm build`, para que un verde garantice que se puede desplegar.
-- `pnpm lint:ratchet`, obligatorio: bloquea cualquier incremento de errores ESLint por combinación de archivo y regla respecto a `lint-baseline.json`.
+1. **Checks rápidos** (`checks`), en el runner con la etiqueta `vacaciones-rapidos` (el servidor, `pve-playwright-01`, reservado para esto). Una sola instalación y, en este orden: Prettier, tipos, `pnpm test`, `pnpm build` y `pnpm lint:ratchet`, obligatorio: bloquea cualquier incremento de errores ESLint por archivo y regla respecto a `lint-baseline.json`.
+2. **Playwright** (`browser`), solo si los checks rápidos pasan, en los runners del portátil (etiqueta `vacaciones-portatil`). Un check rojo no ocupa nunca un runner de Playwright, y Playwright no deja en cola a los checks rápidos.
 
+Cada runner atiende un job a la vez, con su propio workspace y caché persistente de pnpm en `/pnpm/store`. Se usan Node 24 y pnpm 11.25.0 ya instalados en la imagen; no se reinstalan globalmente en cada job. El selector manual de runner, si se elige uno, se aplica a los dos jobs. Las PR externas y de otros autores no ejecutan código en estos runners. Si el portátil está apagado, Playwright espera en cola, pero los checks rápidos siguen respondiendo.
+
+Playwright tiene dos niveles:
+
+- **Smoke** en cada push de una pull request: los tests etiquetados `@smoke`, que cubren acceso, consulta de la campaña, elección en un turno y preferencias. `pnpm exec playwright test --list --grep @smoke` muestra el subconjunto.
+- **Suite completa** solo en cada push a `main` y al lanzar el workflow a mano (`workflow_dispatch`, que sirve para validar una rama concreta antes del merge si hace falta). Si falla en `main`, se corrige con una pull request nueva. No se suben capturas, vídeos ni trazas: los resultados quedan en la consola del job.
+
+`pnpm install` activa un hook `pre-push` (`.githooks/pre-push`) que ejecuta `pnpm format:check` y bloquea el push si hay errores de formato; se corrige con `pnpm format`. `git push --no-verify` lo omite una vez.
+
+Para marcar un test como smoke se añade `@smoke` a su `tag`, sin cambiar lo que comprueba. El subconjunto debe seguir siendo pequeño: cada test añadido se ejecuta en cada push de cada pull request.
 
 ### Trinquete de ESLint
 
