@@ -258,10 +258,7 @@ async function confirm(page: Page, button: string) {
   );
   const isPost = (r: Request) => r.url().includes('/api/election/') && r.method() === 'POST';
   const settled = decision
-    ? Promise.race([
-        page.waitForResponse((r) => isPost(r.request())),
-        page.waitForEvent('requestfailed', isPost),
-      ])
+    ? Promise.race([page.waitForResponse((r) => isPost(r.request())), page.waitForEvent('requestfailed', isPost)])
     : null;
   if (/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)) {
     const dialog = page.getByRole('dialog', { name: 'Confirmar adjudicación' });
