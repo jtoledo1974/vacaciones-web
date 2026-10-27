@@ -1,20 +1,7 @@
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import { occupancyFor, campaignOf } from '../domain/policy.ts';
-import { VACATIONS_UNDO_FORMAT } from '../domain/events.ts';
-import {
-  PREFERENCE_COLUMNS,
-  preferenceRow,
-  upgradeElectionState,
-  withLiveEarlyChoices,
-  type ElectionState,
-} from '../domain/election.ts';
-
-// A state from an undo snapshot: current format, and early choices only with their awards.
-const restoredState = (state: unknown, awards: unknown): ElectionState | null => {
-  const upgraded = upgradeElectionState(state);
-  return upgraded && Array.isArray(awards) ? withLiveEarlyChoices(upgraded, awards) : upgraded;
-};
+import { captureVacations, restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
 import { ApiError } from './errors.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
@@ -119,10 +106,7 @@ async function executeResetVacations(ctx: CommandContext): Promise<CommandResult
   let after: any = body;
   if (body.confirmation !== `${c.team_id}-${c.year}`)
     throw new ApiError('Confirma el equipo y ejercicio antes de empezar de cero');
-  ops.push(
-    { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-    { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-  );
+  ops.push(...restoreStatements(cid, { awards: [], requests: [] }));
   after = { requests: 0, awards: 0 };
   return { before, after };
 }
@@ -136,21 +120,20 @@ const executeUndoVacations =
     const entry = await service.vacationUndo(cid, c.version);
     if (!entry || entry.id !== body.undoId || (action === 'redo_vacations') !== (entry.action === 'undo_vacations'))
       throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.', 409);
-    const snapshot = JSON.parse(entry.before_json!);
-    if (!Array.isArray(snapshot.awards))
-      throw new ApiError('La copia para deshacer carece de adjudicaciones verificables', 409);
+    const restored = validateSnapshot(JSON.parse(entry.before_json!), 'vacations-undo-v1');
+    if (!restored) throw new ApiError('La copia para deshacer carece de adjudicaciones verificables', 409);
     // The target is a prior committed snapshot protected by the campaign
     // version CAS. Rechecking global completion here is unnecessary and
     // can make undo unusably slow; new awards are still validated normally.
     // Undo/redo may restore a full preference snapshot. Do not let a delegated
     // administrator overwrite linked controllers' preferences through this route.
-    if (c.scope_key === 'live' && actor.role !== 'superadmin' && snapshot.election) {
+    if (c.scope_key === 'live' && actor.role !== 'superadmin' && restored.preferences) {
       const mine = await service.election().memberForAccount(d);
       const linked = await repo.all(
         'SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',
         [cid],
       );
-      const previous = snapshot.election.preferences ?? [],
+      const previous = restored.preferences,
         current = election.preferences;
       if (
         linked.some(
@@ -165,20 +148,7 @@ const executeUndoVacations =
           403,
         );
     }
-    ops.push(
-      { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-      { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-    );
-    for (const r of snapshot.requests)
-      ops.push({
-        sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,?)',
-        args: [r.id, cid, r.member_id, r.slot, r.cycle_date, r.version],
-      });
-    for (const a of snapshot.awards)
-      ops.push({
-        sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,?)',
-        args: [a.id, cid, a.member_id, a.cycle_date, a.version],
-      });
+    ops.push(...restoreStatements(cid, restored));
     after = { undone: entry.id };
     return { before, after };
   };
@@ -447,13 +417,10 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
   if (check.issues.length) throw new ApiError('Revisa la plantilla: ' + check.issues.join('; '));
   service.assertCompletable(c, importedConfig, imported, importedAwards, 'Importar plantilla');
 
-  ops.push(
-    { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
-    electionStateStatement(cid, null),
-    { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-    { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-    { sql: 'DELETE FROM campaign_members WHERE campaign_id=?', args: [cid] },
-  );
+  ops.push(...restoreStatements(cid, { awards: [], requests: [], preferences: [], state: null }), {
+    sql: 'DELETE FROM campaign_members WHERE campaign_id=?',
+    args: [cid],
+  });
 
   for (const m of imported) {
     const annual = d.members.find((p) => p.code === m.code);
@@ -699,23 +666,6 @@ function resetVacationsElection({ c, cid, actor, ops }: CommandContext) {
     electionStateStatement(cid, null),
   );
 }
-async function restoreElection({ service, c, cid, ops }: CommandContext) {
-  const entry = await service.vacationUndo(cid, c.version);
-  const old = entry ? JSON.parse(entry.before_json!) : null;
-  if (old?.election) {
-    ops.push(
-      { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
-      electionStateStatement(cid, restoredState(old.election.state, old.awards)),
-    );
-    ops.push(
-      ...insertRows(
-        'preferences',
-        PREFERENCE_COLUMNS,
-        old.election.preferences.map((p: any) => preferenceRow(p, cid)),
-      ),
-    );
-  }
-}
 const availabilityImpact =
   (action: 'award' | 'delete_award') =>
   ({ rules, c, d, body }: CommandContext, after: any) => {
@@ -738,8 +688,8 @@ export const COMMANDS: Record<string, Command> = {
     election: resetVacationsElection,
     execute: executeResetVacations,
   },
-  undo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('undo_vacations') },
-  redo_vacations: { ...vacations, election: restoreElection, execute: executeUndoVacations('redo_vacations') },
+  undo_vacations: { ...vacations, election: 'keep', execute: executeUndoVacations('undo_vacations') },
+  redo_vacations: { ...vacations, election: 'keep', execute: executeUndoVacations('redo_vacations') },
   config: { preconditions: editing, election: 'reset', execute: executeConfig },
   request: { ...vacations, execute: executeRequest },
   delete_request: { ...vacations, execute: executeDeleteRequest('delete_request') },
@@ -837,7 +787,7 @@ export async function runCommand(service: Service, repo: Repository, cid: string
   };
   let { before, after } = await command.execute(ctx);
   if (command.vacationsUndo) {
-    before = { format: VACATIONS_UNDO_FORMAT, requests: d.requests, awards: d.awards, election };
+    before = captureVacations(d, election);
     after = { ...after, version: c.version + 1 };
   }
   if (typeof command.election === 'function') await command.election(ctx);

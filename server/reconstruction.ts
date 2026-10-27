@@ -8,12 +8,9 @@ import {
   choiceIssues,
   entitlementFor,
   upgradeElectionState,
-  withLiveEarlyChoices,
   resolveTie,
   registerJointAgreement,
   cancelJointAgreement,
-  PREFERENCE_COLUMNS,
-  preferenceRow,
   type ElectionContext,
   type ElectionState,
   type Preference,
@@ -23,6 +20,7 @@ import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domai
 import { occupancyFor, campaignOf } from '../domain/policy.ts';
 import { canWrite, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
+import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { AuditContext, appliedAudit, auditBefore, auditAfter, eventsFor } from './audit-context.ts';
 import { ELECTION_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
@@ -85,43 +83,10 @@ const ctx = (d: any, awards = d.awards, requests = d.requests): ElectionContext 
   awards,
   requests,
 });
-const snap = (state: ElectionState | null, preferences: Preference[], d: any): Snapshot => ({
-  state: structuredClone(state),
-  preferences: structuredClone(preferences),
-  awards: structuredClone(d.awards),
-  requests: structuredClone(d.requests),
-});
-const statement = (cid: string, state: ElectionState | null): Statement =>
-  state
-    ? {
-        sql: 'INSERT INTO election_states(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',
-        args: [cid, JSON.stringify(state)],
-      }
-    : { sql: 'DELETE FROM election_states WHERE campaign_id=?', args: [cid] };
-function restore(cid: string, s: Snapshot): Statement[] {
-  return [
-    { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-    { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-    { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
-    ...insertRows(
-      'awards',
-      ['id', 'campaign_id', 'member_id', 'cycle_date', 'version'],
-      s.awards.map((a) => [a.id, cid, a.member_id, a.cycle_date, a.version]),
-    ),
-    ...insertRows(
-      'requests',
-      ['id', 'campaign_id', 'member_id', 'slot', 'cycle_date', 'version'],
-      s.requests.map((r) => [r.id, cid, r.member_id, r.slot, r.cycle_date, r.version]),
-    ),
-    ...insertRows(
-      'preferences',
-      PREFERENCE_COLUMNS,
-      s.preferences.map((p) => preferenceRow(p, cid)),
-    ),
-    // Early-choice entries go with their awards: only those restored here survive.
-    statement(cid, s.state && withLiveEarlyChoices(upgradeElectionState(s.state)!, s.awards)),
-  ];
-}
+const snap = (state: ElectionState | null, preferences: Preference[], d: any): Snapshot =>
+  capture(d, { state, preferences });
+const statement = electionStateStatement;
+const restore = (cid: string, s: Snapshot): Statement[] => restoreStatements(cid, s);
 function sameList(a: Preference, b: Preference) {
   return (
     JSON.stringify([a.dates, a.persistent === true, a.mode ?? 'immediate', a.waitMinutes ?? 0, a.labels ?? {}]) ===

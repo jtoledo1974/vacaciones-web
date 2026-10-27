@@ -73,7 +73,8 @@ test('efecto sobre la elección y copia para deshacer declarados por comando', (
   const keeps = Object.entries(COMMANDS)
     .filter(([, command]) => command.election === 'keep')
     .map(([action]) => action);
-  assert.deepEqual(keeps.sort(), ['calculate', 'publish', 'reopen']);
+  // Undo/redo restore the saved election inside execute; the pipeline must keep it.
+  assert.deepEqual(keeps.sort(), ['calculate', 'publish', 'redo_vacations', 'reopen', 'undo_vacations']);
   const undoable = Object.entries(COMMANDS)
     .filter(([, command]) => command.vacationsUndo)
     .map(([action]) => action);
