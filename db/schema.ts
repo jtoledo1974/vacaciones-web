@@ -36,6 +36,14 @@ export const reconstructionSessions=sqliteTable('reconstruction_sessions',{campa
 export const localAdminSessions=sqliteTable('local_admin_sessions',{id:text('id').primaryKey(),actor:text('actor').notNull(),createdAt:text('created_at').notNull(),expiresAt:integer('expires_at').notNull(),revokedAt:text('revoked_at')});
 export const localAdminAttempts=sqliteTable('local_admin_attempts',{id:text('id').primaryKey(),attemptKey:text('attempt_key').notNull(),createdAt:text('created_at').notNull()},t=>[index('local_admin_attempt_key').on(t.attemptKey,t.createdAt)]);
 
+export const cliSessions = sqliteTable('cli_sessions', {
+  pairingHash: text('pairing_hash').primaryKey(), tokenHash: text('token_hash').unique(), ownerKey: text('owner_key'),
+  identityJson: text('identity_json'), scopeJson: text('scope_json'), status: text('status').notNull(), expiresAt: integer('expires_at').notNull(),
+}, t => [index('cli_sessions_expiry').on(t.expiresAt)]);
+export const cliAttempts = sqliteTable('cli_attempts', {
+  attemptKey: text('attempt_key').primaryKey(), attempts: integer('attempts').notNull(), expiresAt: integer('expires_at').notNull(),
+});
+
 // RRHH's yearly workbook, kept out of the repository (it lists real employees); see server/hr-xlsx.ts.
 export const hrTemplates=sqliteTable('hr_templates',{year:integer('year').primaryKey(),data:text('data').notNull(),sha256:text('sha256').notNull(),uploadedBy:text('uploaded_by').notNull(),uploadedAt:text('uploaded_at').notNull()});
 // Each person's name exactly as column J of their team sheet spells it.

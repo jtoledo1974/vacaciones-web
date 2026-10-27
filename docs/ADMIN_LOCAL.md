@@ -35,7 +35,26 @@ Es una cuenta de emergencia **altamente privilegiada**; una contraseña fija no 
 Los secretos deben quedar en el almacén privado de la plataforma. Si ChatGPT Sites no ofrece una forma de configurar secretos persistentes, **no** sustituirlos por valores hardcoded ni un formulario público de provisión de admin. Se necesita un entorno que admita secretos del servidor.
 
 
-## Uso por API sin navegador
+## CLI con autenticación en el navegador
+
+El modo habitual no necesita credenciales del administrador local:
+
+```bash
+export VACACIONES_URL=https://<origen>
+node scripts/admin-cli.mjs session --browser
+node scripts/admin-cli.mjs campaign <id> --browser --out campana.json
+node scripts/admin-cli.mjs post campaign/<id> cuerpo.json --browser
+```
+
+La terminal muestra un código de 16 caracteres y la operación exacta que va a ejecutar, y abre `/cli` (sin código ni datos en la URL). Si aún no tienes sesión, inicia sesión con ChatGPT. Escribe en la página el código de **tu** terminal: la web muestra entonces el método y la ruta que pide la terminal, avisa si modifica datos y si descargará antes una copia completa. Pulsa **Autorizar esta operación** solo si coincide con la orden que acabas de lanzar. Solo un superadministrador autenticado puede emparejar y aprobar, y únicamente el mismo administrador que introdujo el código. No uses códigos recibidos de otra persona. `--no-open` evita abrir el navegador; abre `/cli` manualmente en el perfil donde ya tienes sesión.
+
+El código y el token son independientes: el código solo empareja la terminal (5 minutos) y el token de 256 bits solo vive en la memoria del CLI; D1 guarda la SHA-256 de ambos. La autorización dura como máximo 15 minutos y sirve solo para la operación aprobada: mismo método, ruta y, en un POST, la misma SHA-256 del cuerpo. Además permite consultar `/api/session` y, si el POST incluye copia previa, `GET /api/backup` antes de escribir. Una escritura autorizada se ejecuta **una sola vez**: el servidor consume la autorización de forma atómica antes de aplicarla, y cualquier repetición recibe 409. Si la web autoriza `GET /api/backup`, avisa de que descargará una copia completa con datos personales. Los permisos se resuelven de nuevo en cada petición. Cada aprobación y cada intento rechazado quedan en la auditoría (`cli_authorized`, `cli_authorization_rejected`). Hay límites persistentes: 5 emparejamientos cada 15 minutos por administrador, y uniones y revocaciones por IP.
+
+El CLI revoca su token al acabar **esa orden**, también tras un error, si se cancela con Ctrl+C/SIGTERM y aunque la aprobación aún no hubiera llegado: la revocación deja una marca que impide una aprobación tardía. Una cancelación detiene la espera, la copia previa y cualquier paso pendiente; un POST ya enviado no se aborta (ni por Ctrl+C ni por tiempo de espera) ni se reintenta, porque puede haberse aplicado. Si se pierde la conexión tras enviarlo, el CLI termina con código 3 e indica que el resultado es desconocido: comprueba el estado antes de lanzar una orden nueva. Las esperas reintentan errores de red, 429 y 5xx dentro de los 5 minutos. La revocación se reintenta tres veces y es *best effort*: si la red sigue fallando, el acceso caduca solo en un máximo de 15 minutos. Cerrar sesión en la web no revoca el acceso temporal concedido al CLI. No se cambian secretos ni se cierran sesiones del navegador o de otros administradores. Las filas caducadas se borran en cada operación CLI y en el despachador periódico de notificaciones (`dispatchNotifications`); sin ese despachador solo se limpian con tráfico CLI, aunque caducadas ya no autorizan nada. Una restauración invalida también las sesiones CLI; ninguna de las dos tablas se incluye en las copias.
+
+Antes de habilitar este flujo, aplica `drizzle/0013_cli_sessions.sql` (crea `cli_sessions` y `cli_attempts`) y despliega el código del servidor y la página `/cli`. No requiere nuevas variables secretas. Un Site privado debe permitir además el acceso de clientes no interactivos en la capa de Sites: esta autorización no sustituye los controles de entrada del alojamiento.
+
+## CLI con administrador local
 
 `scripts/admin-cli.mjs` inicia sesión con estas credenciales, ejecuta una orden y cierra la sesión al terminar (la cookie queda revocada). Sirve para cualquier operación de la API de administración, porque la interfaz usa esa misma API.
 
@@ -48,3 +67,5 @@ node scripts/admin-cli.mjs post campaign/<id> cuerpo.json
 ```
 
 Antes de cada `post` guarda una copia completa en `admin-backups/` (excluida de Git) y no escribe si no la obtiene. Cada ejecución consume uno de los cinco inicios de sesión permitidos cada quince minutos.
+
+Si no defines `VACACIONES_ADMIN_USER` ni `VACACIONES_ADMIN_PASSWORD`, el CLI usa el navegador automáticamente. `--browser` fuerza este modo aunque estén definidas. La protección de copia previa, el control de versión de la API y `--dry-run` se mantienen en ambos modos.

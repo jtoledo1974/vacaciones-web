@@ -13,6 +13,7 @@ import { documentation } from '../../../server/documentation';
 import { liteSummary, renderLitePdf } from '../../../server/lite';
 import { XLSM_TYPE } from '../../../server/hr-xlsx';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
+import { approveCli, revokeCli, pairCli, joinCli, cliPairingStatus } from '../../../server/cli-auth';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) =>
   Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -23,6 +24,23 @@ async function serve(request: Request) {
     const bindings = env as any;
     if (!bindings.DB) return reply({ error: 'El almacenamiento todavía no está disponible' }, 503);
     const repo = new D1Repository(bindings.DB);
+    if (path[0] === 'cli-auth' && ['join', 'logout'].includes(path[1]) && request.method === 'POST') {
+      if (!request.headers.get('content-type')?.startsWith('application/json'))
+        throw new ApiError('Usa contenido JSON', 415);
+      const text = await request.text();
+      if (text.length > 8192) throw new ApiError('Solicitud demasiado grande', 413);
+      let body;
+      try {
+        body = JSON.parse(text);
+      } catch {
+        throw new ApiError('Contenido JSON no válido');
+      }
+      return reply(
+        path[1] === 'join'
+          ? await joinCli(request, repo, body?.code, body?.operation)
+          : await revokeCli(request, repo, body?.code),
+      );
+    }
     if (path[0] === 'local-admin' && request.method === 'POST') {
       if (path[1] === 'login') return localAdminLogin(request, bindings, repo);
       if (path[1] === 'logout') return localAdminLogout(request, bindings, repo);
@@ -46,6 +64,8 @@ async function serve(request: Request) {
     if (preview && request.method === 'POST' && (path[0] !== 'election' || !preview.writable))
       throw new ApiError('La campaña real es de solo lectura en la vista previa', 403);
     if (request.method === 'GET') {
+      if (path[0] === 'cli-auth' && path[1] === 'status')
+        return reply(await cliPairingStatus(request, repo, user, actor, url.searchParams.get('pairing') ?? ''));
       if (path[0] === 'auth-config')
         return reply({
           localAdminEnabled: localAdminEnabled(bindings),
@@ -193,6 +213,9 @@ async function serve(request: Request) {
     }
     if (path[0] === 'notifications' && b.action === 'test')
       return reply(await sendTestPush(repo, actor, b.endpoint, bindings));
+    if (path[0] === 'cli-auth' && path[1] === 'approve')
+      return reply(await approveCli(request, repo, user, actor, b.pairing));
+    if (path[0] === 'cli-auth' && path[1] === 'pair') return reply(await pairCli(request, repo, user, actor, b.code));
     if (path[0] === 'notifications') return reply(await updateSubscription(repo, actor, b, bindings));
     if (path[0] === 'initialize') return reply(await service.init());
     if (path[0] === 'campaigns')

@@ -2,6 +2,7 @@ import { getChatGPTUser } from './chatgpt-auth';
 import type { Identity } from './permissions';
 import { verifyFirebaseIdToken } from './firebase-auth';
 import { localAdminIdentity, type LocalAdminConfig } from './local-admin.ts';
+import { cliIdentity, CLI_TOKEN_HEADER } from './cli-auth.ts';
 
 export interface Authenticator {
   authenticate(request: Request): Promise<Identity>;
@@ -14,7 +15,7 @@ export const sitesAuthenticator: Authenticator = {
   },
 };
 
-/** A valid Firebase bearer ID token takes precedence; absent it, Sites remains available. */
+/** Explicit CLI credentials fail closed; otherwise Firebase, local admin and Sites retain their precedence. */
 export function federatedAuthenticator(
   firebaseProjectId: string,
   localConfig: LocalAdminConfig = {},
@@ -22,6 +23,7 @@ export function federatedAuthenticator(
 ): Authenticator {
   return {
     async authenticate(request) {
+      if (request.headers.has(CLI_TOKEN_HEADER)) return cliIdentity(request, repo);
       const authorization = request.headers.get('authorization');
       if (authorization !== null) {
         const token = /^Bearer ([A-Za-z0-9._-]+)$/.exec(authorization)?.[1];

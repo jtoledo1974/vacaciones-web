@@ -16,6 +16,8 @@ const excludedTables: Record<string, string> = {
   push_deliveries: 'Intentos y leases de envíos push; restaurarlos reenviaría avisos antiguos.',
   personal_simulations: 'Borradores privados de simulación ajenos a la elección oficial.',
   local_admin_sessions: 'Sesiones del admin local: restaurar una copia las invalida todas.',
+  cli_sessions: 'Emparejamientos y sesiones CLI efímeros; no se restauran.',
+  cli_attempts: 'Límites de intentos CLI; caducan.',
   local_admin_attempts: 'Intentos de acceso del admin local: caducan en quince minutos.',
   hr_templates: 'Plantilla Excel de RRHH: se vuelve a subir; no es dato de la elección.',
 };

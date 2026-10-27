@@ -974,6 +974,7 @@ export class Service {
     for (const n of [...names].reverse()) ops.push({ sql: `DELETE FROM ${n}` });
     // A restore invalidates every local admin session.
     ops.push({ sql: 'DELETE FROM local_admin_sessions' });
+    ops.push({ sql: 'DELETE FROM cli_sessions' });
     for (const n of names) {
       const cols = tableColumns[n];
       for (const row of tables[n]) {

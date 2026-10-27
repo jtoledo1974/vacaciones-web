@@ -68,6 +68,8 @@ export const CAMPAIGN_ACTIONS = [
   'hr_export',
 ] as const;
 export const ADMIN_ACTIONS = [
+  'cli_authorized',
+  'cli_authorization_rejected',
   'initialize_demo',
   'permissions',
   'delete_permissions',

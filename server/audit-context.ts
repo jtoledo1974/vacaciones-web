@@ -258,6 +258,11 @@ export function append(event: AppendInput): Statement {
     ],
   };
 }
+/** Appends only when the previous statement of the same batch changed exactly one row. */
+export function appendIfChanged(event: AppendInput): Statement {
+  const { sql, args } = append(event);
+  return { sql: sql.replace(/ VALUES\((.*)\)$/, ' SELECT $1 WHERE changes()=1'), args };
+}
 export function deleteEventsFor(campaignId: string): Statement {
   return { sql: 'DELETE FROM audit WHERE campaign_id=?', args: [campaignId] };
 }

@@ -17,6 +17,7 @@ import { automaticAdvancesSince, hasChoicesSince, eventsFor, appliedAudit, audit
 import { requireSuper, type Principal } from './permissions.ts';
 import { deliverPush, publicPushKey, type PushConfig } from './web-push.ts';
 import { ApiError } from './errors.ts';
+import { cleanupCliSessions } from './cli-auth.ts';
 /** Keep Push ownership aligned with the account key used by the controller link.
  * Older linked ChatGPT accounts can use UID instead of a verified email key.
  * Refuse ambiguous links, as the election service already does. */
@@ -590,6 +591,7 @@ export async function dispatchNotifications(
   sender: typeof deliverPush = deliverPush,
   now = Date.now(),
 ) {
+  await cleanupCliSessions(repo, now);
   const campaigns = await repo.all(
     `SELECT c.id,c.year,c.team_id,c.version,c.status,e.json,p.json AS config_json
     FROM campaigns c JOIN election_states e ON e.campaign_id=c.id
