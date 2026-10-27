@@ -30,6 +30,8 @@ type Props = {
   onSelect: (cycle: Cycle) => void;
   availability?: AvailabilitySnapshot | null;
   notForMe?: string[];
+  /** Cycles the viewer may take now, ahead of their turn (proved safe by the server). */
+  secured?: string[];
 };
 
 function shortDate(iso: string): string {
@@ -52,8 +54,10 @@ export default function CycleTable({
   onSelect,
   availability,
   notForMe,
+  secured,
 }: Props) {
-  const blocked = new Set(notForMe ?? []);
+  const blocked = new Set(notForMe ?? []),
+    safe = new Set(secured ?? []);
   const [fontSize, setFontSize] = useState(12);
   const codes = useMemo(() => new Map(members.map((m) => [m.id, m.code])), [members]);
   const occupants = useMemo(() => {
@@ -133,6 +137,7 @@ export default function CycleTable({
                 c.occupied +
                 ' plazas ocupadas, ' +
                 status.description +
+                (safe.has(c.date) ? ', asegurado para ti' : '') +
                 (extra && !ruled ? ', posible cupo adicional' : '') +
                 (people.length ? ', ' + people.join(', ') : '');
               return (
@@ -141,6 +146,7 @@ export default function CycleTable({
                   className={
                     (c.period === 1 ? 'vac3-summer ' : '') +
                     (blocked.has(c.date) ? 'vac3-not-for-me ' : '') +
+                    (safe.has(c.date) ? 'vac3-secured ' : '') +
                     (chosen.has(c.date) ? 'vac3-selected ' : '') +
                     (marked.has(c.date) ? 'vac3-highlight ' : '')
                   }
@@ -164,6 +170,11 @@ export default function CycleTable({
                       }}
                     >
                       <time dateTime={c.date}>{shortDate(c.date)}</time>
+                      {safe.has(c.date) && (
+                        <span className="vac3-secured-badge" aria-label="Asegurado para ti" title="Asegurado para ti">
+                          ★
+                        </span>
+                      )}
                       {selectedIndex !== -1 && (
                         <span
                           className="vac3-choice-indicator"

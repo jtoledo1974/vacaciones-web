@@ -932,6 +932,10 @@ export default function ElectionWorkspace({
       setPreferenceMessage('Añadido a tus preferencias · posición ' + (dates.length + 1) + '. Sin guardar.');
       return;
     }
+    if (mode === 'choose' && earlySecured.includes(c.date) && !previewReadOnly) {
+      void chooseEarly(c);
+      return;
+    }
     if (!canChoose || previewReadOnly) return;
     if (loadingOptions) {
       setMessage('Comprobando qué segundo ciclo es compatible…');
@@ -965,6 +969,23 @@ export default function ElectionWorkspace({
       })
     : null;
   const canChooseHere = canChoose;
+  // Ahead of one's turn, only the cycles the server proved safe may be taken (domain/early-election.ts).
+  const earlySecured: string[] =
+    !canChoose && !!mine && mode === 'choose' && open && !frozen ? (election.early?.guaranteed ?? []) : [];
+  async function chooseEarly(c: { date: string; end: string }) {
+    if (
+      !(await confirm(
+        `¿Elegir ${formatDate(c.date)} – ${formatDate(c.end)} por adelantado? Cuenta como tu elección en tu próximo turno. Podrás anularla hasta que llegue.`,
+      ))
+    )
+      return;
+    await act({ action: 'early_choose', memberId: mine, date: c.date }, 'Ciclo elegido por adelantado');
+  }
+  async function cancelEarly(awardId: string, date: string) {
+    if (!(await confirm(`¿Anular la elección anticipada de ${formatDate(date)}? Volverás a elegir en tu turno.`)))
+      return;
+    await act({ action: 'early_cancel', awardId }, 'Elección anticipada anulada');
+  }
   const canUndo = !!(election.undo || data.undo) && open;
   async function undoLast() {
     setUndoOffer(null);
@@ -1034,6 +1055,17 @@ export default function ElectionWorkspace({
           cycles={data.result.cycles}
           available={me.phase === 'my-turn' && canChoose && !previewReadOnly ? election.available : undefined}
           onPick={pickFromList}
+          early={election.early}
+          onEarly={
+            !canChoose && open && !frozen && !previewReadOnly && (election.early?.guaranteed?.length ?? 0) > 0
+              ? async () => {
+                  if (mode !== 'choose' && !(await leavePreferences())) return;
+                  setMode('choose');
+                  showCalendar();
+                }
+              : undefined
+          }
+          onCancelEarly={open && !frozen && !previewReadOnly ? cancelEarly : undefined}
           onChoose={async () => {
             if (mode !== 'choose' && !(await leavePreferences())) return;
             setMode('choose');
@@ -1638,6 +1670,7 @@ export default function ElectionWorkspace({
             points={election.points}
             availability={election.cycleAvailability}
             glossary={!manage || !!mine}
+            secured={earlySecured}
             notForMe={
               !!mine &&
               turn?.memberId === mine &&

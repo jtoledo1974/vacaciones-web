@@ -1051,3 +1051,14 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .my-election-now-text small{display:block;font-size:11px;color:#64766d}
 .my-election-now li.is-ok small{color:#2f6b58;font-weight:600}
 .my-election-now button{flex:none;padding:8px 14px}
+/* Early election: cycles secured ahead of one's turn, distinct from merely free seats. */
+.my-election-early{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:10px 0 0;padding:12px;border-radius:8px;background:#eef0ff;border:1px solid #b9c0f2;color:#25306e;font-size:14px;line-height:1.5}
+.my-election-early>div{display:flex;flex-direction:column;gap:2px;flex:1 1 220px}
+.my-election-early .primary{min-height:44px}
+.my-election-early-done .my-election-chips span{display:inline-flex;align-items:center;gap:8px;background:#eef0ff;color:#25306e}
+.my-election-early-undo{border:0;background:none;padding:6px 2px;min-height:32px;color:#3446b8;font:inherit;font-weight:650;text-decoration:underline;cursor:pointer}
+.vac2-cycle.vac2-secured{outline:3px solid #4656d6;outline-offset:-3px}
+.vac2-secured-badge{display:inline-block;margin-top:4px;padding:2px 6px;border-radius:4px;background:#4656d6;color:#fff;font-size:11px;font-weight:700}
+.vac2-secured-key{display:inline-block;width:11px;height:11px;border-radius:3px;border:3px solid #4656d6;box-sizing:border-box}
+.vac3-table tr.vac3-secured .vac3-date{background:#eef0ff}
+.vac3-secured-badge{margin-left:4px;color:#4656d6;font-weight:700}

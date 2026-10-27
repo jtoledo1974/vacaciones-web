@@ -48,6 +48,8 @@ type Props = {
   points?: { member_id: string; points: number; cycles: number }[];
   availability?: AvailabilitySnapshot | null;
   notForMe?: string[];
+  /** Cycles the viewer may take now, ahead of their turn (proved safe by the server). */
+  secured?: string[];
   glossary?: boolean;
 };
 
@@ -83,10 +85,12 @@ export default function CycleCalendar({
   points = [],
   availability,
   notForMe,
+  secured,
   glossary = false,
 }: Props) {
   // On one's own turn, cycles one cannot take are marked up front rather than discovered by tapping.
-  const blocked = new Set(notForMe ?? []);
+  const blocked = new Set(notForMe ?? []),
+    safe = new Set(secured ?? []);
   const [view, setView] = useState<View>('map');
   useEffect(() => {
     try {
@@ -177,12 +181,17 @@ export default function CycleCalendar({
         disabled={busy}
         onClick={() => onSelect(c)}
         aria-pressed={selected.includes(c.date)}
-        aria-label={cycleTitle(c, ruled, availability) + (people.length ? ' · ' + people.join(', ') : '')}
+        aria-label={
+          cycleTitle(c, ruled, availability) +
+          (safe.has(c.date) ? ' · asegurado para ti' : '') +
+          (people.length ? ' · ' + people.join(', ') : '')
+        }
         title={cycleTitle(c, ruled, availability)}
         className={
           'vac2-cycle ' +
           status.className +
           (blocked.has(c.date) ? ' vac2-not-for-me' : '') +
+          (safe.has(c.date) ? ' vac2-secured' : '') +
           (isSummer(c) ? ' vac2-summer' : '') +
           (selected.includes(c.date) ? ' vac2-selected' : '') +
           (highlighted.includes(c.date) ? ' vac2-person' : '')
@@ -212,6 +221,7 @@ export default function CycleCalendar({
             {cycleOccupancyLabel(c, availability, ruled)} ocupadas{!ruled && extraAvailable(c) ? ' · ampliable' : ''}
           </span>
         </span>
+        {safe.has(c.date) && <span className="vac2-secured-badge">Asegurado para ti</span>}
         {preferenceMode && selected.includes(c.date) && (
           <span className="vac2-preference-rank">Preferencia {selected.indexOf(c.date) + 1}</span>
         )}
@@ -470,6 +480,12 @@ export default function CycleCalendar({
             <i className="vac2-key vac2-unknown" />? Por confirmar
           </span>
         )}
+        {safe.size > 0 && (
+          <span>
+            <i className="vac2-secured-key" />
+            Asegurado para ti
+          </span>
+        )}
         <span className="vac2-legend-summer">
           <i className="vac2-summer-key" />
           Verano
@@ -505,6 +521,7 @@ export default function CycleCalendar({
           onSelect={onSelect}
           availability={availability}
           notForMe={notForMe}
+          secured={secured}
         />
       )}
       {view === 'map' && (
