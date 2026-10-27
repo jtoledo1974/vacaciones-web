@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page, type Request } from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin = 'http://127.0.0.1:5199';
 
@@ -251,11 +251,21 @@ async function confirm(page: Page, button: string) {
     await page.getByLabel('Más acciones', { exact: true }).click();
   // A covered/unclickable control should fail locally, not consume the entire 45 s test timeout.
   await target.click({ timeout: 10_000 });
+  // An award or a deferral is a POST: wait until the server has answered it, or the next
+  // API read can see the state before the decision (only on a loaded CI runner).
+  const decision = /^(Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)|Aplazar para elegir (dos|tres))$/.test(
+    button,
+  );
+  const isPost = (r: Request) => r.url().includes('/api/election/') && r.method() === 'POST';
+  const settled = decision
+    ? Promise.race([page.waitForResponse((r) => isPost(r.request())), page.waitForEvent('requestfailed', isPost)])
+    : null;
   if (/^Confirmar (ciclo|ambos ciclos|tres ciclos|turno conjunto)$/.test(button)) {
     const dialog = page.getByRole('dialog', { name: 'Confirmar adjudicación' });
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Adjudicar', exact: true }).click();
   } else await page.getByRole('dialog').getByRole('button', { name: 'Confirmar', exact: true }).click();
+  await settled;
 }
 
 test(
@@ -892,7 +902,7 @@ test('reconstrucción: un turno doble oculta el selector completo y permite camb
   await expect(alternative).toHaveCount(0);
   await expect(editor.getByRole('button', { name: 'Registrar decisión y continuar' })).toBeEnabled();
   await editor.getByRole('button', { name: 'Cancelar y restaurar estado original' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Confirmar', exact: true }).click();
+  await confirmSaved(page, s.id);
   expect((await read(request, s.id)).awards.map((a: any) => [a.member_id, a.cycle_date]).sort()).toEqual(
     before.awards.map((a: any) => [a.member_id, a.cycle_date]).sort(),
   );

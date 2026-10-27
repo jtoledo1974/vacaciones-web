@@ -1,5 +1,7 @@
 import {
   canComplete2027,
+  availabilityStateKey2027,
+  immutableCacheValue2027,
   evaluate2027Candidate,
   evaluate2027Final,
   regularFlowCertificate2027,
@@ -64,11 +66,12 @@ const reason = (
   ...(limit !== undefined ? { limit } : {}),
 });
 
-function keyFor(state: PolicyState, maxChecks: number, exact = false): string {
-  const cycles = [...state.cycles].sort((a, b) => a.date.localeCompare(b.date));
-  const members = [...state.members].sort((a, b) => a.id.localeCompare(b.id));
-  const awards = [...state.awards].map((a) => a.member_id + '|' + a.cycle_date).sort();
-  return JSON.stringify([OCCUPANCY_POLICY_2027, maxChecks, exact, cycles, members, awards]);
+function keyFor(state: PolicyState, maxChecks: number, exact = false, stateKey?: string): string {
+  return JSON.stringify([stateKey ?? availabilityStateKey2027(state), maxChecks, exact]);
+}
+
+export function resetAvailabilityCache2027(): void {
+  cache.clear();
 }
 /**
  * Audit form of a snapshot. Every 2027 decision persists two of them, so the
@@ -159,18 +162,7 @@ export function expandAvailability(compact: CompactAvailabilitySnapshot, state: 
   };
 }
 
-/** Stable 53-bit FNV-1a hash of the canonical proved state. */
-export function availabilityStateKey2027(state: PolicyState): string {
-  const text = keyFor(state, 0);
-  let high = 0x811c9dc5,
-    low = 0x01000193;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    high = Math.imul(high ^ code, 0x01000193) >>> 0;
-    low = Math.imul(low ^ (code * 31 + i), 0x01000193) >>> 0;
-  }
-  return high.toString(16).padStart(8, '0') + low.toString(16).padStart(8, '0');
-}
+export { availabilityStateKey2027 } from './policy-2027.ts';
 function capacity(state: PolicyState, index: number): number {
   const c = state.cycles[index];
   return Math.max(0, Math.min(4, c.maximum ?? 4, c.fourthExcluded ? 3 : 4));
@@ -303,7 +295,7 @@ function extraThirdCause(state: PolicyState, c: PolicyCycle, position: number, m
 }
 function snapshotCache(key: string, value: AvailabilitySnapshot): void {
   cache.delete(key);
-  cache.set(key, value);
+  cache.set(key, immutableCacheValue2027(value));
   if (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value!);
 }
 
@@ -463,7 +455,8 @@ export function restoredAvailabilityByCycle2027(state: PolicyState): Availabilit
 export function availabilityByCycle(state: PolicyState, options: AvailabilityOptions = {}): AvailabilitySnapshot {
   const maxChecks = options.maxChecks ?? 500;
   const exact = options.exact === true;
-  const cacheKey = keyFor(state, maxChecks, exact);
+  const stateKey = options.stateKey ?? availabilityStateKey2027(state);
+  const cacheKey = keyFor(state, maxChecks, exact, stateKey);
   if (options.useCache !== false && cache.has(cacheKey)) return cache.get(cacheKey)!;
   const baseline = canComplete2027(state, { maxChecks, exact });
   // One shared budget for the entire table. Do not spend maxChecks for
@@ -613,10 +606,10 @@ export function availabilityByCycle(state: PolicyState, options: AvailabilityOpt
     status,
     cycles,
     checked,
-    stateKey: availabilityStateKey2027(state),
+    stateKey,
   };
   if (options.useCache !== false) snapshotCache(cacheKey, result);
-  return result;
+  return options.useCache !== false ? cache.get(cacheKey)! : result;
 }
 
 const occupancyCount = (state: PolicyState, date: string): number =>
@@ -704,6 +697,8 @@ export function availabilityImpact(
 ): AvailabilityImpact {
   if (keyFor({ ...before, awards: [] }, 1) !== keyFor({ ...after, awards: [] }, 1))
     throw new Error('No es posible comparar campañas o políticas con distinta plantilla o calendario.');
+  // A single-state key cannot identify both sides of an operation.
+  options = { ...options, stateKey: undefined };
   const left = availabilityByCycle(before, options);
   const right = firstAwardSymmetry(before, after, left, options) ?? availabilityByCycle(after, options);
   const changes: AvailabilityChange[] = [];

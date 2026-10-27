@@ -1,0 +1,7 @@
+#!/bin/sh
+# Prettier before every push: CI fails on format in seconds, but only after a round trip.
+# Fix with `pnpm format`. Skip once with `git push --no-verify`.
+pnpm -s format:check || {
+  echo "pre-push: formato incorrecto. Ejecuta 'pnpm format' y vuelve a hacer commit." >&2
+  exit 1
+}

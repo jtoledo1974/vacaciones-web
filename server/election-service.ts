@@ -9,6 +9,8 @@ import {
   preferredChoice,
   validateOrder,
   validateElectionState,
+  upgradeElectionState,
+  sequenceFor,
   entitlementFor,
   resolveTie,
   drawTie,
@@ -38,13 +40,16 @@ import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domai
 import { occupancyFor, type OccupancyRules, type PolicyAward } from '../domain/policy.ts';
 import { canWrite, requireSuper, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
+import { capture, electionStateStatement, restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
+export { electionStateStatement } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { buildElectionTimeline, publicElectionTimeline, type PublicElectionTimelineItem } from './election-timeline.ts';
 import { ReconstructionService, appliedAudit } from './reconstruction.ts';
 import { historicalAvailability } from './availability-history.ts';
 import { AuditContext, auditAfter, eventsFor } from './audit-context.ts';
-import { ELECTION_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
-import { peopleAhead } from '../domain/sequence.ts';
+import { type AuditAction } from '../domain/events.ts';
+import { turnsBefore } from '../domain/sequence.ts';
+import { projectElectionViewForManager, projectElectionViewForController } from './projections.ts';
 
 type Host = {
   load: (cid: string) => Promise<any>;
@@ -59,14 +64,6 @@ const context = (d: any): ElectionContext => ({
   requests: d.requests,
   awards: d.awards,
 });
-export function electionStateStatement(cid: string, state: ElectionState | null): Statement {
-  return state
-    ? {
-        sql: 'INSERT INTO election_states(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',
-        args: [cid, JSON.stringify(state)],
-      }
-    : { sql: 'DELETE FROM election_states WHERE campaign_id=?', args: [cid] };
-}
 // What «Deshacer» would revert, so the manager confirms knowingly.
 function undoSummary(row: any) {
   const after = auditAfter(row) ?? {};
@@ -118,7 +115,9 @@ export class ElectionService {
       { sql: 'SELECT * FROM preferences WHERE campaign_id=?', args: [cid] },
     ]);
     return {
-      state: result[0].results[0] ? (JSON.parse(result[0].results[0].json) as ElectionState) : null,
+      state: result[0].results[0] ? upgradeElectionState(JSON.parse(result[0].results[0].json)) : null,
+      // As stored, for compare-and-set: the upgraded state may differ from it.
+      stateJson: (result[0].results[0]?.json as string | undefined) ?? null,
       preferences: result[1].results.map(preferenceFromRow),
     };
   }
@@ -469,15 +468,21 @@ export class ElectionService {
           [cid],
         )
       : [];
-    // Only a count, for the controller's own forecast; never whose lists are active.
+    // Only counts, for the controller's own forecast; never whose lists are active.
     const ahead =
       mine && raw.state?.status === 'active' && !raw.state.automaticPaused && !turn?.pendingTie
-        ? peopleAhead(raw.state, ctx.awards, ctx.config.cyclesPerPerson, mine)
+        ? turnsBefore(sequenceFor(ctx, raw.state), mine)
         : null;
-    // A list that waits, or is only a note, does not shorten anybody's wait.
+    const turnsAhead = ahead?.length ?? null;
+    // Only an individual turn resolves on its own, and a list that waits, or is only a
+    // note, does not shorten anybody's wait.
     const automaticAhead = ahead
-      ? ahead.filter((id) =>
-          raw.preferences.some((p) => p.member_id === id && activeList(p) && (p.mode ?? 'immediate') === 'immediate'),
+      ? ahead.filter(
+          (slot) =>
+            slot.participants.length === 1 &&
+            raw.preferences.some(
+              (p) => p.member_id === slot.participants[0] && activeList(p) && (p.mode ?? 'immediate') === 'immediate',
+            ),
         ).length
       : null;
     const listPlan = !skipFullAvailability ? this.listPlan(ctx, raw, turn, manage, mine) : null;
@@ -491,14 +496,8 @@ export class ElectionService {
         chain = null;
       }
     }
-    return {
-      state: raw.state
-        ? {
-            ...raw.state,
-            source: manage ? raw.state.source : undefined,
-            tieResolutions: raw.state.tieResolutions?.map((r) => ({ ...r, actor: manage ? r.actor : undefined })),
-          }
-        : null,
+    const projection = {
+      state: raw.state,
       turn: turn
         ? {
             memberId: turn.memberId,
@@ -519,10 +518,9 @@ export class ElectionService {
             ),
           }
         : null,
-      preferences: raw.preferences.filter((p) => preferenceMemberIds.includes(p.member_id)),
+      preferences: raw.preferences,
       preferenceMemberIds,
       myMemberId: mine,
-      canManage: manage,
       available,
       availabilityPending,
       availabilityReasons,
@@ -536,6 +534,7 @@ export class ElectionService {
       undoSummary: history?.undo ? undoSummary(history.undo) : null,
       redo: history?.redo?.id ?? null,
       pendingAutomatic,
+      turnsAhead,
       automaticAhead,
       listPlan,
       queue,
@@ -543,6 +542,7 @@ export class ElectionService {
       timeline,
       reconstruction,
     };
+    return manage ? projectElectionViewForManager(projection) : projectElectionViewForController(projection);
   }
   /**
    * Scheduled: apply the lists whose wait has run out, nobody having the page open.
@@ -566,7 +566,7 @@ export class ElectionService {
         await this.repo.batch([
           {
             sql: 'UPDATE election_states SET json=? WHERE campaign_id=? AND json=?',
-            args: [JSON.stringify(stamped), cid, JSON.stringify(raw.state)],
+            args: [JSON.stringify(stamped), cid, raw.stateJson],
           },
           { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" },
         ]);
@@ -636,7 +636,7 @@ export class ElectionService {
     if (reconstruction && reconstruction.status !== 'completed')
       throw new ApiError('Elección congelada: termina la reconstrucción administrativa antes de continuar', 409);
     const ops = cas(cid, c.version),
-      snapshot = { format: ELECTION_UNDO_FORMAT, ...raw, awards: d.awards, requests: d.requests };
+      snapshot = capture(d, raw);
     let state = raw.state,
       preferences = raw.preferences,
       choices: any[] = [],
@@ -865,7 +865,8 @@ export class ElectionService {
           throw new ApiError(privateDenied, 403);
         if (!entry || entry.id !== body.historyId)
           throw new ApiError('El cambio ya no está disponible para deshacer o rehacer', 409);
-        const prior = JSON.parse(entry.before_json);
+        const prior = validateSnapshot(JSON.parse(entry.before_json), 'election-undo-v1');
+        if (!prior) throw new ApiError('La copia para deshacer no es válida', 409);
         // Restore the undone list edit itself and list flags (active) consumed by an
         // undone award; every other list keeps what its owner has saved since.
         const original = action === 'election_undo' ? entry : history.redoOriginal;
@@ -883,30 +884,14 @@ export class ElectionService {
           if (linked.some((m: any) => m.id !== mine && listContent(next, m.id) !== listContent(preferences, m.id)))
             throw new ApiError(privateDenied, 403);
         }
-        state = prior.state;
+        // The undone awards take their early-choice entries with them.
+        state = prior.state ?? null;
         preferences = next;
         // Undo must leave the recovered turn editable, never automatically re-award it.
         // Redo restores the prior snapshot exactly (including the old pause state).
         if (action === 'election_undo' && state) state = { ...state, automaticPaused: true };
         ops.push(
-          { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
-          { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
-          { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
-          ...insertRows(
-            'awards',
-            ['id', 'campaign_id', 'member_id', 'cycle_date', 'version'],
-            prior.awards.map((a: any) => [a.id, cid, a.member_id, a.cycle_date, a.version]),
-          ),
-          ...insertRows(
-            'requests',
-            ['id', 'campaign_id', 'member_id', 'slot', 'cycle_date', 'version'],
-            (prior.requests ?? d.requests).map((a: any) => [a.id, cid, a.member_id, a.slot, a.cycle_date, a.version]),
-          ),
-          ...insertRows(
-            'preferences',
-            PREFERENCE_COLUMNS,
-            preferences.map((p) => preferenceRow(p, cid)),
-          ),
+          ...restoreStatements(cid, { awards: prior.awards, requests: prior.requests ?? d.requests, preferences }),
         );
       } else throw new ApiError('Operación de elección no válida');
     } catch (e: any) {

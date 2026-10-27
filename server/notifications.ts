@@ -2,10 +2,12 @@ import {
   choiceIssues,
   currentTurn,
   entitlementFor,
+  sequenceFor,
+  upgradeElectionState,
   type ElectionContext,
   type ElectionState,
 } from '../domain/election.ts';
-import { turnsUntil } from '../domain/sequence.ts';
+import { turnsUntil, type SequenceInput } from '../domain/sequence.ts';
 import type { Repository } from './repository.ts';
 import { automaticAdvancesSince, hasChoicesSince } from './audit-context.ts';
 import { requireSuper, type Principal } from './permissions.ts';
@@ -343,9 +345,8 @@ const isTurnEvent = (id: string) => ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX].some
 type InactiveListInput = {
   campaignId: string;
   members: { id: string; person_id: string }[];
-  state: ElectionState;
-  awards: { member_id: string }[];
-  entitlement: number;
+  /** The campaign's turn sequence, with each member's own entitlement. */
+  sequence: SequenceInput;
   round: number;
   turnMemberIds: string[];
   preferences: { member_id: string; active?: boolean }[];
@@ -356,9 +357,10 @@ export async function enqueueInactiveListAlerts(repo: Repository, input: Inactiv
   let enqueued = 0;
   for (const member of input.members) {
     if (input.turnMemberIds.includes(member.id)) continue;
-    if (input.awards.filter((a) => a.member_id === member.id).length >= input.entitlement) continue;
+    const { sequence } = input;
+    if (sequence.awards.filter((a) => a.member_id === member.id).length >= sequence.entitlement(member.id)) continue;
     if (input.preferences.some((p) => p.member_id === member.id && p.active !== false)) continue;
-    const ahead = turnsUntil(input.state, input.awards, input.entitlement, member.id);
+    const ahead = turnsUntil(sequence, member.id);
     if (ahead === null || ahead > SOON_TURNS) continue;
     const account = (
       await repo.all('SELECT principal_key FROM controller_accounts WHERE person_id=?', [member.person_id])
@@ -455,7 +457,7 @@ export function lowListInput(
     preferences: rows.map((r) => ({ member_id: r.member_id, dates: JSON.parse(r.dates_json), active: !!r.active })),
     turnMemberIds: turn.participants?.length ? turn.participants : turn.memberId ? [turn.memberId] : [],
     needs: (id) => ctx.awards.filter((a) => a.member_id === id).length < entitlementFor(ctx, id),
-    ahead: (id) => turnsUntil(state, ctx.awards, entitlementFor(ctx, id), id),
+    ahead: (id) => turnsUntil(sequenceFor(ctx, state), id),
     viable: (id, date) =>
       !ctx.awards.some((a) => a.cycle_date === date && a.member_id === id) && !choiceIssues(ctx, id, [date]).length,
   };
@@ -488,7 +490,7 @@ export async function dispatchNotifications(
     try {
       // A list may also make the last choice and complete the election.
       enqueued += await enqueueAutomaticChoices(repo, campaign.id, now);
-      const state = JSON.parse(campaign.json);
+      const state = upgradeElectionState(JSON.parse(campaign.json))!;
       if (state.status !== 'active' || state.automaticPaused) continue;
       const parts = await repo.batch([
         { sql: 'SELECT * FROM campaign_members WHERE campaign_id=?', args: [campaign.id] },
@@ -510,9 +512,7 @@ export async function dispatchNotifications(
         enqueued += await enqueueInactiveListAlerts(repo, {
           campaignId: campaign.id,
           members: ctx.members as unknown as { id: string; person_id: string }[],
-          state,
-          awards: ctx.awards,
-          entitlement: ctx.config.cyclesPerPerson ?? 6,
+          sequence: sequenceFor(ctx, state),
           round: turn.round,
           turnMemberIds: turn.participants?.length ? turn.participants : turn.memberId ? [turn.memberId] : [],
           // A list kept only as a note does not choose: warn its owner like someone without one.
@@ -571,7 +571,7 @@ export async function dispatchNotifications(
   for (const campaign of campaigns) {
     try {
       // Drop obsolete pending alerts: never notify a controller after their turn passed.
-      const state = JSON.parse(campaign.json);
+      const state = upgradeElectionState(JSON.parse(campaign.json))!;
       if (state.status !== 'active' || state.automaticPaused) {
         if (
           (
