@@ -407,6 +407,7 @@ function executeEarlyChoose(x: ElectionCommandContext) {
       409,
     );
   awardEarly(x, proof.window, body.date);
+  if (proof.window.owed === 1) x.preferences = consumePreferences(x.preferences, [body.memberId]);
 }
 function awardEarly(x: ElectionCommandContext, window: Parameters<typeof earlyEntry>[0], date: string) {
   const id = crypto.randomUUID();
@@ -449,9 +450,16 @@ function executeEarlyCancel(x: ElectionCommandContext) {
   if (!entry || !award) throw new ApiError('Esa elección anticipada ya no existe', 404);
   x.authorizeMember(entry.memberId);
   // Its owner may withdraw it until their slot arrives; afterwards only a manager.
-  if (!manage && currentTurn(ctx, x.state).state.cursor >= entry.cursor)
-    throw new ApiError('Tu turno ya ha llegado: pide al responsable que anule la elección', 403);
-  x.state = { ...x.state, earlyChoices: x.state.earlyChoices!.filter((e) => e !== entry) };
+  const passed = x.state.status === 'complete' || currentTurn(ctx, x.state).state.cursor >= entry.cursor;
+  if (!manage && passed) throw new ApiError('Tu turno ya ha llegado: pide al responsable que anule la elección', 403);
+  x.state = {
+    ...x.state,
+    status: x.state.status === 'complete' ? 'active' : x.state.status,
+    automaticPaused: passed ? true : x.state.automaticPaused,
+    earlyChoices: x.state.earlyChoices!.filter((e) => e !== entry),
+  };
+  // The recovered right is offered at the next slot without replaying normal choices.
+  if (passed) delete x.state.turnSince;
   x.ops.push(
     { sql: 'DELETE FROM awards WHERE id=? AND campaign_id=?', args: [award.id, cid] },
     {
@@ -459,6 +467,11 @@ function executeEarlyCancel(x: ElectionCommandContext) {
       args: [cid, award.member_id, award.cycle_date],
     },
   );
+}
+
+function earlyAudit(x: ElectionCommandContext) {
+  const entry = x.state?.earlyChoices?.find((e) => e.awardId === x.choices[0]?.id);
+  return entry ? { early: true, memberId: entry.memberId, selectionCursor: entry.cursor, round: entry.round } : {};
 }
 
 const manager = (message: string, state?: string) => ({ manager: message, ...(state ? { state } : {}) });
@@ -518,7 +531,7 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
   advance: {
     preconditions: { state: 'No hay una elección configurada' },
     execute: executeAdvance,
-    audited: (x) => (x.choices.some((c) => c.id) ? { early: true, memberId: x.choices[0].member_id } : {}),
+    audited: earlyAudit,
   },
   link_account: {
     preconditions: {
@@ -527,7 +540,7 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
     },
     execute: executeLinkAccount,
   },
-  early_choose: { execute: executeEarlyChoose },
+  early_choose: { execute: executeEarlyChoose, audited: earlyAudit },
   early_cancel: {
     execute: executeEarlyCancel,
     audited: (x) => ({

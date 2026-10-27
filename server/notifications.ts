@@ -317,14 +317,15 @@ export async function enqueueAutomaticChoices(repo: Repository, campaignId: stri
     } catch {
       continue;
     }
-    const round = row.turns ? Math.floor(row.cursor / row.turns) + 1 : 1;
+    const payload = JSON.parse(row.after_json);
+    const round = payload.round ?? (row.turns ? Math.floor(row.cursor / row.turns) + 1 : 1);
     for (const choice of choices) {
       if (typeof choice?.member_id !== 'string' || typeof choice?.cycle_date !== 'string') continue;
       const owner = (
         await repo.all(
           `SELECT ca.principal_key FROM awards w JOIN campaign_members m ON m.id=w.member_id
-     JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE w.campaign_id=? AND w.member_id=? AND w.cycle_date=?`,
-          [campaignId, choice.member_id, choice.cycle_date],
+     JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE w.campaign_id=? AND w.member_id=? AND w.cycle_date=? AND (? IS NULL OR w.id=?)`,
+          [campaignId, choice.member_id, choice.cycle_date, choice.id ?? null, choice.id ?? null],
         )
       )[0];
       if (!owner) continue;
