@@ -72,6 +72,7 @@ export function appliedAudit(rows: any[]) {
   const done: any[] = [],
     redo: { original: any; undo: any; index: number }[] = [];
   const byId = new Map(rows.map((row) => [row.id, row]));
+  let reconstructionOrigin: AuditRow[] | null = null;
   for (const row of rows) {
     if (row.action === 'election_undo') {
       // A manager's undo may skip newer private-list edits, so remove the entry it
@@ -84,16 +85,54 @@ export function appliedAudit(rows: any[]) {
       const item = redo.pop();
       if (item) done.splice(Math.min(item.index, done.length), 0, item.original);
     } else if (row.action === 'reconstruction_start') {
+      reconstructionOrigin = [...done];
       const after = auditAfter(row) ?? {},
         index = done.findIndex((e) => e.id === after.targetId);
       const keep = index >= 0 ? index : after.keepCount;
-      if (Number.isInteger(keep) && keep >= 0) done.splice(keep);
+      if (Array.isArray(after.retainedIds)) {
+        const retained = new Set(after.retainedIds);
+        const removed = new Set(after.removedAwardIds ?? []);
+        const prefix = done
+          .filter((event) => retained.has(event.id))
+          .map((event) => {
+            const before = auditBefore(event);
+            if (!before?.awards?.some((award: { id: string }) => removed.has(award.id))) return event;
+            // The raw predecessor snapshot may already contain a later early choice.
+            // Its effective undo snapshot must not resurrect that removed suffix.
+            return {
+              ...event,
+              before_json: JSON.stringify({
+                ...before,
+                awards: before.awards.filter((award: { id: string }) => !removed.has(award.id)),
+                state: before.state
+                  ? {
+                      ...before.state,
+                      earlyChoices: before.state.earlyChoices?.filter(
+                        (choice: { awardId: string }) => !removed.has(choice.awardId),
+                      ),
+                    }
+                  : before.state,
+              }),
+            };
+          });
+        done.splice(0, done.length, ...prefix);
+      } else if (Number.isInteger(keep) && keep >= 0) done.splice(keep);
       redo.length = 0;
     } else if (row.action === 'reconstruction_back') {
       done.pop();
       redo.length = 0;
     } else if (row.action === 'reconstruction_cancel') {
       const after = auditAfter(row) ?? {};
+      if (Array.isArray(after.restoreIds)) {
+        const origin = new Map((reconstructionOrigin ?? []).map((event) => [event.id, event]));
+        done.splice(
+          0,
+          done.length,
+          ...after.restoreIds.map((id: string) => origin.get(id) ?? byId.get(id)).filter(Boolean),
+        );
+        redo.length = 0;
+        continue;
+      }
       const index = done.findIndex((e) => e.id === after.targetId);
       const keep = index >= 0 ? index : after.keepCount;
       if (Number.isInteger(keep) && keep >= 0) done.splice(keep);

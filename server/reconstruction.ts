@@ -7,7 +7,6 @@ import {
   preferredChoice,
   choiceIssues,
   entitlementFor,
-  upgradeElectionState,
   resolveTie,
   registerJointAgreement,
   cancelJointAgreement,
@@ -23,28 +22,19 @@ import { canWrite, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
-import { AuditContext, appliedAudit, auditBefore, auditAfter, eventsFor } from './audit-context.ts';
+import { AuditContext, appliedAudit, eventsFor } from './audit-context.ts';
+import {
+  historical,
+  effectiveReconstruction,
+  eventCursor,
+  type Snapshot,
+  type Historical,
+} from './reconstruction-history.ts';
 import { discretion, redactDiscreet, withdrawnNotice } from './early-discretion.ts';
 import { concealPendingEarly } from '../domain/early-election.ts';
 import { ELECTION_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
 export { appliedAudit } from './audit-context.ts';
 
-type Snapshot = {
-  format?: string;
-  state: ElectionState | null;
-  preferences: Preference[];
-  awards: any[];
-  requests: any[];
-};
-type Historical = {
-  id: string;
-  action: string;
-  before: Snapshot;
-  after: any;
-  round: number;
-  participants: string[];
-  memberId: string | null;
-};
 type Applied = {
   before: Snapshot;
   usedId: string | null;
@@ -67,6 +57,7 @@ type Session = {
   origin: Snapshot;
   originalEvents: Historical[];
   originalAuditIds: string[];
+  originAuditIds?: string[];
   applied: Applied[];
   undone: Applied[];
   completedAt?: string;
@@ -110,39 +101,6 @@ function sameList(a: Preference, b: Preference) {
     JSON.stringify([b.dates, b.persistent === true, b.mode ?? 'immediate', b.waitMinutes ?? 0, b.labels ?? {}])
   );
 }
-const isDecision = (action: string) =>
-  [
-    'choose',
-    'choose_joint',
-    'defer',
-    'advance',
-    'resolve_tie',
-    'reconstruction_step',
-    'register_joint',
-    'cancel_joint',
-  ].includes(action);
-function historical(d: any, row: any): Historical | null {
-  if (!isDecision(row.action) || !row.before_json) return null;
-  const raw = auditBefore(row) as Snapshot;
-  const before = { ...raw, state: upgradeElectionState(raw.state) };
-  if (before.format !== 'election-undo-v1' || !before.state) return null;
-  let turn;
-  try {
-    turn = currentTurn(ctx(d, before.awards, before.requests), before.state);
-  } catch {
-    return null;
-  }
-  const after = auditAfter(row) ?? {};
-  return {
-    id: row.id,
-    action: row.action,
-    before,
-    after,
-    round: after?.joint?.round ?? turn.round,
-    participants: after?.joint?.members ?? turn.pendingTie ?? turn.participants,
-    memberId: ['register_joint', 'cancel_joint'].includes(row.action) ? null : turn.memberId,
-  };
-}
 // The session keeps only what replaying a decision reads: the cursor state, the
 // participants' own lists and the decision itself. Awards, requests, other lists
 // and the availability report stay in the audit row (they made sessions ~1.7 MB).
@@ -183,8 +141,9 @@ export class ReconstructionService {
     const rows = await (audit?.rows() ?? this.auditRows(d.campaign.id)),
       current = audit ? await audit.replay() : appliedAudit(rows);
     const currentIds = new Set(current.done.map((row) => row.id));
+    const effectiveRows = new Map(current.done.map((row) => [row.id, row]));
     return rows
-      .map((row) => historical(d, row))
+      .map((row) => historical(d, effectiveRows.get(row.id) ?? row))
       .filter((entry): entry is Historical => !!entry && !['register_joint', 'cancel_joint'].includes(entry.action))
       .map((entry) => ({
         id: entry.id,
@@ -192,7 +151,7 @@ export class ReconstructionService {
         round: entry.round,
         memberIds: entry.participants,
         choices: entry.after.choices ?? [],
-        cursor: entry.before.state?.cursor ?? 0,
+        cursor: eventCursor(entry),
         archived: !currentIds.has(entry.id),
       }))
       .reverse();
@@ -208,7 +167,7 @@ export class ReconstructionService {
         !['register_joint', 'cancel_joint'].includes(event.action) ||
         used.has(event.id) ||
         !event.before.state ||
-        event.before.state.cursor > working.cursor
+        eventCursor(event) > working.cursor
       )
         continue;
       const agreement = event.after?.joint;
@@ -479,8 +438,14 @@ export class ReconstructionService {
         index = applied.done.findIndex((row) => row.id === body.historyId);
       const pos = audit.findIndex((row) => row.id === body.historyId);
       if (pos < 0) throw new ApiError('La decisión no existe en la auditoría', 409);
-      const target = historical(d, audit[pos]);
+      const target = historical(d, applied.done.find((row) => row.id === body.historyId) ?? audit[pos]);
       if (!target?.before.state) throw new ApiError('Selecciona un turno de elección recuperable');
+      const pendingEarly = raw.state
+        ? concealPendingEarly(ctx(d), raw.state, null, d.awards).hidden
+        : new Set<string>();
+      if ((target.after.choices ?? []).some((choice: { id?: string }) => !!choice.id && pendingEarly.has(choice.id)))
+        throw new ApiError('La decisión todavía no está disponible para reconstruir', 409);
+      const effective = index >= 0 ? effectiveReconstruction(d, before, applied.done, target) : null;
       // After undo + a new choice, old decisions form an archived branch. The guided
       // recovery must still find them, even though normal redo has been invalidated.
       const breakpoint = audit.findIndex(
@@ -496,9 +461,13 @@ export class ReconstructionService {
       );
       const records =
         index >= 0 ? applied.done.slice(index) : audit.slice(pos, breakpoint < 0 ? undefined : breakpoint);
-      const originalEvents = records
-        .map((row) => historical(d, row))
-        .filter((e): e is Historical => !!e)
+      const originalEvents = (
+        effective?.events ?? records.map((row) => historical(d, row)).filter((e): e is Historical => !!e)
+      )
+        .filter(
+          (event) =>
+            !(event.after.choices ?? []).some((choice: { id?: string }) => !!choice.id && pendingEarly.has(choice.id)),
+        )
         .map(sessionEvent);
       let keepCount = index;
       if (keepCount < 0)
@@ -508,10 +477,14 @@ export class ReconstructionService {
           return before.format === 'election-undo-v1' && (before.state?.cursor ?? -1) >= target.before.state!.cursor;
         });
       if (keepCount < 0) keepCount = applied.done.length;
-      const originalAuditIds = applied.done.slice(keepCount).map((row) => row.id);
+      if (effective) keepCount = effective.retainedIds.length;
+      const retained = effective ? new Set(effective.retainedIds) : null;
+      const originalAuditIds = retained
+        ? applied.done.filter((row) => !retained.has(row.id)).map((row) => row.id)
+        : applied.done.slice(keepCount).map((row) => row.id);
       if (!originalEvents.length || originalEvents.length > 1500)
         throw new ApiError('Número de decisiones no admitido para la reconstrucción');
-      const previous = target.before,
+      const previous = effective?.previous ?? target.before,
         origin = before;
       // Keep lists edited after the rewind point, but restore the active bit when the same
       // one-turn list was consumed by one of the decisions being reconstructed.
@@ -526,10 +499,17 @@ export class ReconstructionService {
         preferences: working,
         state: { ...previous.state!, automaticPaused: true },
       };
-      const last = originalEvents.at(-1);
-      const lastCursor =
-        (last?.before.state?.cursor ?? 0) +
-        (last && ['choose', 'choose_joint', 'advance', 'defer', 'reconstruction_step'].includes(last.action) ? 1 : 0);
+      const lastCursor = Math.max(
+        ...originalEvents.map(
+          (event) =>
+            eventCursor(event) +
+            (['choose', 'choose_joint', 'advance', 'early_choose', 'defer', 'reconstruction_step'].includes(
+              event.action,
+            )
+              ? 1
+              : 0),
+        ),
+      );
       const rules = occupancyFor(c.year);
       const originAvailability = rules
         ? rules.compact(rules.availability(rules.state(campaignOf(c, d.config), d.members, d.awards)))
@@ -545,6 +525,7 @@ export class ReconstructionService {
         origin,
         originalEvents,
         originalAuditIds,
+        ...(effective ? { originAuditIds: effective.restoreIds } : {}),
         applied: [],
         undone: [],
       };
@@ -565,6 +546,7 @@ export class ReconstructionService {
           targetId: target.id,
           keepCount,
           originalIds: originalAuditIds,
+          ...(effective ? { retainedIds: effective.retainedIds, removedAwardIds: effective.removedAwardIds } : {}),
           ...(withdrawnEarly.length ? { withdrawnEarly: withdrawnEarly.map((e) => e.awardId) } : {}),
           version: c.version + 1,
         }),
@@ -586,6 +568,7 @@ export class ReconstructionService {
           targetId: s.targetId,
           keepCount: s.keepCount,
           originalIds: s.originalAuditIds,
+          ...(s.originAuditIds ? { restoreIds: s.originAuditIds } : {}),
           recordedAvailability: s.originAvailability,
           version: c.version + 1,
         }),

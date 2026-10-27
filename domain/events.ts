@@ -128,6 +128,10 @@ export type ReconstructionMarker = Payload & {
   targetId?: string;
   keepCount?: number;
   originalIds?: string[];
+  /** Logical reconstruction may retain predecessors recorded after an early choice. */
+  retainedIds?: string[];
+  restoreIds?: string[];
+  removedAwardIds?: string[];
   version?: number;
   recordedAvailability?: unknown;
 };

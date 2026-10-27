@@ -106,7 +106,7 @@
       "@typescript-eslint/no-explicit-any": 6
     },
     "server/reconstruction.ts": {
-      "@typescript-eslint/no-explicit-any": 33
+      "@typescript-eslint/no-explicit-any": 28
     },
     "server/repository.ts": {
       "@typescript-eslint/no-explicit-any": 3

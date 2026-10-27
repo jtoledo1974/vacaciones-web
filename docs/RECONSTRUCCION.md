@@ -72,6 +72,8 @@ El administrador trabaja en la vista ordinaria sin ver el formulario de reconstr
 
 En ese modo, las entradas recuperables del timeline incorporan **Desde aquí**. El identificador seleccionado es el ID de auditoría del evento: no se infiere a partir del orden visual (una elección conjunta o un turno doble son una única decisión). Los eventos importados o sin snapshot recuperable no presentan una acción engañosa.
 
+En la secuencia vigente, una elección anticipada que ya ha llegado a su turno se corrige en su posición ordinaria. Se conservan las adjudicaciones de quienes la preceden, aunque se registraran después de aquella anticipada. Por ejemplo, reconstruir desde la posición 9 empieza en esa persona y conserva las posiciones 7 y 8. Las elecciones parciales del mismo turno se agrupan, incluidos sus ciclos aplazados. Las anticipadas todavía privadas siguen fuera de la reconstrucción. Cancelar restaura el estado y el historial anteriores.
+
 Las elecciones deshechas o reemplazadas que ya no forman parte de la secuencia vigente **no se mezclan** con el timeline; se consultan dentro de **Decisiones de ramas anteriores**, accesible únicamente en modo de corrección. Se informa expresamente de que ya no están vigentes.
 
 Al seleccionar el punto se solicita confirmación antes de retroceder y congelar las elecciones. Solo entonces aparece el panel de reconstrucción. Si se cancela el diálogo, no se modifica nada. Durante la sesión se mantiene el asistente visible; al finalizar se oculta y el resumen puede consultarse plegado dentro del historial mientras los automatismos permanezcan detenidos. Se sigue exigiendo la acción independiente para reanudarlos.

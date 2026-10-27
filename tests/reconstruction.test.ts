@@ -2,6 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
+import type { Award } from '../domain/vacations.ts';
+type HistoryCandidate = {
+  id: string;
+  cursor: number;
+  memberIds: string[];
+  choices: Pick<Award, 'member_id' | 'cycle_date'>[];
+};
 const owner = { id: 'chatgpt:owner', role: 'superadmin' as const, teams: [] };
 async function fixture() {
   const repo = new SQLiteRepo(),
@@ -43,6 +50,132 @@ const start = (ids: string[], extra: object = {}) => ({
   allowDeferral: true,
   ...extra,
 });
+
+async function anticipatedFixture() {
+  const f = await fixture();
+  const { s, cid, ids, dates } = f;
+  await act(s, cid, start(ids));
+  for (const index of [1, 2]) {
+    await act(s, cid, { action: 'preferences', memberId: ids[index], dates: [dates[index]] });
+    await act(s, cid, { action: 'advance' });
+  }
+  await act(s, cid, { action: 'choose', memberId: ids[0], dates: [dates[0]] });
+  const v = await act(s, cid, { action: 'choose', memberId: ids[3], dates: [dates[3]] });
+  const target = v.election.reconstruction.candidates.find((e: HistoryCandidate) =>
+    e.choices.some((c: Pick<Award, 'member_id'>) => c.member_id === ids[2]),
+  );
+  return { ...f, original: v, target };
+}
+
+test('reconstruir una anticipada ya confirmada empieza en su turno y conserva ambos predecesores', async () => {
+  const { s, cid, ids, dates, original, target } = await anticipatedFixture();
+  assert.deepEqual(target.memberIds, [ids[2]], 'el candidato nombra al adjudicatario, no al turno abierto');
+  assert.equal(target.cursor, 2);
+  let v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  assert.equal(v.election.reconstruction.current.memberId, ids[2]);
+  assert.equal(v.election.state.cursor, 2);
+  assert.deepEqual(
+    v.awards.map((a: Award) => a.id).sort(),
+    original.awards
+      .filter((a: Award) => ids.slice(0, 2).includes(a.member_id))
+      .map((a: Award) => a.id)
+      .sort(),
+  );
+  assert.deepEqual(v.election.reconstruction.current.originalChoice[0].dates, [dates[2]]);
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'manual', dates: [dates[5]] });
+  assert.equal(v.election.reconstruction.current.memberId, ids[3]);
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  v = await act(s, cid, { action: 'reconstruction_finish' });
+  assert.equal(v.awards.length, 4);
+  assert.equal(v.awards.find((a: Award) => a.member_id === ids[2]).cycle_date, dates[5]);
+  assert.deepEqual(v.requests, original.requests, 'las solicitudes originales no se reescriben');
+  assert.ok(v.election.timeline.some((e: HistoryCandidate) => e.choices.some((a: Award) => a.member_id === ids[0])));
+  assert.ok(v.election.timeline.some((e: HistoryCandidate) => e.choices.some((a: Award) => a.member_id === ids[1])));
+});
+
+test('cancelar una reconstrucción lógica restaura adjudicaciones, auditoría vigente y undo/redo', async () => {
+  const { s, cid, ids, dates, original, target } = await anticipatedFixture();
+  await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'manual', dates: [dates[6]] });
+  const v = await act(s, cid, { action: 'reconstruction_cancel' });
+  assert.deepEqual(v.awards, original.awards);
+  assert.deepEqual(v.requests, original.requests);
+  assert.deepEqual(v.election.timeline, original.election.timeline);
+  assert.equal(v.election.undo, original.election.undo);
+  const undone = await act(s, cid, { action: 'election_undo', historyId: v.election.undo });
+  assert.equal(undone.election.turn.memberId, ids[3]);
+  const redone = await act(s, cid, { action: 'election_redo', historyId: undone.election.redo });
+  assert.deepEqual(redone.awards, original.awards);
+});
+
+test('undo y redo de un predecesor conservado no resucitan la anticipada que se corrigió después', async () => {
+  const { s, cid, ids, dates, target } = await anticipatedFixture();
+  await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'manual', dates: [dates[5]] });
+  await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  let v = await act(s, cid, { action: 'reconstruction_finish' });
+  const corrected = v.awards;
+  const predecessor = v.election.reconstruction.candidates.find((entry: HistoryCandidate) =>
+    entry.memberIds.includes(ids[0]),
+  );
+  await act(s, cid, { action: 'reconstruction_start', historyId: predecessor.id });
+  v = await act(s, cid, { action: 'reconstruction_cancel' });
+  for (let i = 0; i < 3; i++) v = await act(s, cid, { action: 'election_undo', historyId: v.election.undo });
+  assert.equal(
+    (await s.load(cid)).awards.some((a: Award) => a.member_id === ids[2]),
+    false,
+  );
+  for (let i = 0; i < 3; i++) v = await act(s, cid, { action: 'election_redo', historyId: v.election.redo });
+  assert.deepEqual(v.awards, corrected);
+});
+
+test('reconstruir de nuevo desde un predecesor no resucita la antigua anticipada', async () => {
+  const { s, cid, ids, dates, target } = await anticipatedFixture();
+  await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'manual', dates: [dates[5]] });
+  await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  let v = await act(s, cid, { action: 'reconstruction_finish' });
+  const predecessor = v.election.reconstruction.candidates.find((e: HistoryCandidate) => e.memberIds.includes(ids[0]));
+  v = await act(s, cid, { action: 'reconstruction_start', historyId: predecessor.id });
+  assert.equal(v.awards.length, 0);
+  for (let i = 0; i < 4; i++) {
+    assert.equal(v.election.reconstruction.current.memberId, ids[i]);
+    v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  }
+  v = await act(s, cid, { action: 'reconstruction_finish' });
+  assert.equal(v.awards.length, 4);
+  assert.equal(v.awards.find((a: Award) => a.member_id === ids[2]).cycle_date, dates[5]);
+});
+test('las anticipadas parciales se reconstruyen en un turno completo con todos sus créditos aplazados', async () => {
+  const { s, cid, ids, dates } = await fixture();
+  await act(s, cid, start(ids));
+  await act(s, cid, { action: 'choose', memberId: ids[0], dates: [dates[0]] });
+  for (const index of [1, 2]) await act(s, cid, { action: 'defer', memberId: ids[index] });
+  await act(s, cid, { action: 'choose', memberId: ids[3], dates: [dates[3]] });
+  for (const [index, choices] of [
+    [1, [dates[4], dates[5]]],
+    [2, [dates[7], dates[8]]],
+  ] as [number, string[]][]) {
+    await act(s, cid, { action: 'preferences', memberId: ids[index], dates: choices });
+    await act(s, cid, { action: 'advance' });
+    await act(s, cid, { action: 'advance' });
+  }
+  await act(s, cid, { action: 'choose', memberId: ids[0], dates: [dates[6]] });
+  let v = await act(s, cid, { action: 'choose', memberId: ids[3], dates: [dates[9]] });
+  const target = v.election.reconstruction.candidates.find((e: HistoryCandidate) => e.cursor === 5);
+  v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  assert.equal(v.election.reconstruction.current.memberId, ids[1]);
+  assert.equal(v.election.reconstruction.current.needed, 2);
+  assert.deepEqual(v.election.reconstruction.current.originalChoice[0].dates, [dates[4], dates[5]]);
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  assert.equal(v.election.reconstruction.current.memberId, ids[2]);
+  assert.equal(v.election.reconstruction.current.needed, 2);
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  assert.equal(v.election.reconstruction.status, 'review');
+  assert.equal(v.awards.length, 8);
+});
+
 test('reconstrucción guiada modifica tercera elección y recupera preferencia de cuarta', async () => {
   const { s, cid, ids, dates } = await fixture();
   await act(s, cid, { action: 'preferences', memberId: ids[3], dates: [dates[4], dates[5]] });

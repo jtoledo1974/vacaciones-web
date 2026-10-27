@@ -185,6 +185,55 @@ test('elegir por adelantado: comprobación en servidor, vista propia y turno sal
   assert.equal(view.election.turn.memberId, c.id);
 });
 
+test('la anticipada manual confirmada se reconstruye en su posición ordinaria, sin reabrir al predecesor', async () => {
+  const { s, person, run, cid, repo, a, b, c, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  const target = (await repo.all("SELECT id FROM audit WHERE action='early_choose'"))[0].id;
+  await assert.rejects(run(s, { action: 'reconstruction_start', historyId: target }), /todavía no está disponible/);
+  assert.ok(!(await s.view(cid)).election.reconstruction.candidates.some((e) => e.id === target));
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  const original = await run(s, { action: 'choose', memberId: c.id, dates: [dates[2]] });
+  let view = await run(s, { action: 'reconstruction_start', historyId: target });
+  assert.equal(view.election.reconstruction.current.memberId, b.id);
+  assert.deepEqual(
+    view.awards,
+    original.awards.filter((award) => award.member_id === a.id),
+  );
+  view = await run(s, { action: 'reconstruction_step', kind: 'choose', mode: 'manual', dates: [dates[5]] });
+  assert.equal(view.election.reconstruction.current.memberId, c.id);
+  view = await run(s, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  view = await run(s, { action: 'reconstruction_finish' });
+  assert.equal(view.awards.length, 3);
+  assert.equal(view.awards.find((award) => award.member_id === b.id)?.cycle_date, dates[5]);
+  assert.ok(!view.election.timeline.find((entry) => entry.memberIds.includes(b.id))?.anticipated);
+});
+
+test('normalizar una anticipada firme no revela ni obliga a reconstruir otra que sigue siendo privada', async () => {
+  const { s, person, run, cid, a, b, dates, account } = await election();
+  const first = await account(a, 'first');
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  const offer = (await first.view(cid)).election.early!.guaranteed;
+  assert.ok(offer.length);
+  await run(first, { action: 'early_choose', memberId: a.id, date: offer[0] });
+  const secret = (await first.view(cid)).election.early!.choices[0].awardId;
+  const target = (await s.view(cid)).election.reconstruction.candidates.find((entry) =>
+    entry.memberIds.includes(b.id),
+  )!;
+  let view = await run(s, { action: 'reconstruction_start', historyId: target.id });
+  assert.equal(view.election.reconstruction.current.memberId, b.id);
+  assert.ok(!JSON.stringify(view).includes(secret));
+  view = await run(s, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  assert.equal(
+    view.election.reconstruction.status,
+    'review',
+    'la elección todavía privada no alarga la reconstrucción',
+  );
+  assert.ok(!JSON.stringify(view).includes(secret));
+  await run(s, { action: 'reconstruction_cancel' });
+  assert.ok((await first.view(cid)).election.early!.choices.some((choice) => choice.awardId === secret));
+});
+
 test('deshacer la anticipada: el titular antes de su turno, después solo el responsable', async () => {
   const { s, person, run, cid, a, b, dates } = await election();
   let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
