@@ -7,7 +7,7 @@ import { apiFetch } from './api-client';
 import { orderForRound, togglePreferenceDate } from '../domain/election';
 import { numberTimelineCycles } from '../domain/timeline-numbering';
 import { orderAwardsBySelection } from '../domain/award-display-order';
-import PreferencesEditor, { type PreferenceUsageValue } from './preferences-editor';
+import PreferencesEditor from './preferences-editor';
 import ReconstructionPanel from './reconstruction-panel';
 import { cycleAvailability, cycleOccupancyLabel, slotExplanation, summarizeImpact } from './cycle-availability-ui';
 import MyElectionCard from './my-election-card';
@@ -17,6 +17,8 @@ import Glossary from './glossary';
 import { myElection } from './my-election-state';
 import RoundQueuePanel from './round-queue-panel';
 import { TieResolver, PendingTieDialog } from './tie-resolver';
+import { usePairOptions } from './use-pair-options';
+import { usePreferenceDraft } from './use-preference-draft';
 
 export default function ElectionWorkspace({
   data,
@@ -116,11 +118,16 @@ export default function ElectionWorkspace({
     [jointSelected, setJointSelected] = useState<Record<string, string[]>>({}),
     [jointTarget, setJointTarget] = useState(''),
     [detail, setDetail] = useState<any>(null),
-    [dates, setDates] = useState<string[]>([]),
     [message, setMessage] = useState(''),
-    [pairOptions, setPairOptions] = useState<string[] | null>(null),
-    [loadingOptions, setLoadingOptions] = useState(false),
     [filterMember, setFilterMember] = useState(mine ?? '');
+  const { pairOptions, loadingOptions } = usePairOptions({
+    campaignId: data.campaign.id,
+    version: data.campaign.version,
+    policyVersion: election.occupancyPolicyVersion ?? null,
+    turn,
+    selected,
+    onError: setMessage,
+  });
   const thinkingPhase = choicePhase ?? (loadingOptions ? 'options' : null);
   const thinking = thinkingPhase !== null;
   useEffect(() => {
@@ -153,93 +160,32 @@ export default function ElectionWorkspace({
       current ? (data.result.cycles.find((c: any) => c.date === current.date) ?? null) : null,
     );
   }, [data.campaign.version]);
-  const existing = election.preferences.find((p: any) => p.member_id === memberId);
-  const serverPreferences = JSON.stringify({
-    dates: existing?.dates ?? [],
-    persistent: existing?.persistent ?? false,
-    usage: { mode: existing?.mode ?? 'immediate', waitMinutes: existing?.waitMinutes ?? 0 },
-    labels: existing?.labels ?? {},
+  const {
+    dates,
+    persistent,
+    usage,
+    labels,
+    keptLabels,
+    dirty,
+    preferenceMessage,
+    setPreferenceMessage,
+    leavePreferences,
+    editDates,
+    editPersistence,
+    editLabels,
+    editUsage,
+  } = usePreferenceDraft({
+    preferences: election.preferences,
+    memberId,
+    busy,
+    confirm,
+    navigationGuard,
+    onPreferenceEdit,
   });
-  const [persistent, setPersistent] = useState(false),
-    [preferenceMessage, setPreferenceMessage] = useState('');
-  const [usage, setUsage] = useState<PreferenceUsageValue>({ mode: 'immediate', waitMinutes: 0 }),
-    [labels, setLabels] = useState<Record<string, string>>({});
-  const lastSavedPreferences = useRef({ memberId: '', value: serverPreferences });
-  // Names of cycles that left the list do not count as a change.
-  const keptLabels = Object.fromEntries(
-    dates.filter((d: string) => labels[d]?.trim()).map((d: string) => [d, labels[d].trim()]),
-  );
-  const draftValue = JSON.stringify({ dates, persistent, usage, labels: keptLabels });
-  const dirty = draftValue !== serverPreferences;
-  useEffect(() => {
-    const previous = lastSavedPreferences.current;
-    if (previous.memberId !== memberId || draftValue === previous.value) {
-      const incoming = JSON.parse(serverPreferences);
-      setDates(incoming.dates);
-      setPersistent(incoming.persistent);
-      setUsage(incoming.usage);
-      setLabels(incoming.labels);
-    }
-    lastSavedPreferences.current = { memberId, value: serverPreferences };
-  }, [memberId, serverPreferences]);
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
-  async function leavePreferences() {
-    if (busy) return false;
-    if (!dirty) return true;
-    if (
-      !(await confirm(
-        'Has modificado tu lista de preferencias, pero aún no la has guardado. Si descartas los cambios, recuperarás la última lista guardada. Si no tenías ninguna, la lista quedará vacía.',
-        undefined,
-        { title: '¿Descartar los cambios?', cancelLabel: 'Seguir editando', confirmLabel: 'Descartar cambios' },
-      ))
-    )
-      return false;
-    const saved = JSON.parse(serverPreferences);
-    setDates(saved.dates);
-    setPersistent(saved.persistent);
-    setUsage(saved.usage);
-    setLabels(saved.labels);
-    setPreferenceMessage('');
-    return true;
-  }
   async function cancelPreferences() {
     if (!(await leavePreferences())) return;
     setMode('choose');
     setDetail(null);
-  }
-  useEffect(() => {
-    if (navigationGuard) navigationGuard.current = leavePreferences;
-    return () => {
-      if (navigationGuard) navigationGuard.current = null;
-    };
-  });
-  function editDates(next: string[]) {
-    setDates(next);
-    setPreferenceMessage('Lista modificada. Cambios sin guardar.');
-    onPreferenceEdit?.();
-  }
-  function editPersistence(next: boolean) {
-    setPersistent(next);
-    setPreferenceMessage('Uso de la lista modificado. Cambios sin guardar.');
-    onPreferenceEdit?.();
-  }
-  function editLabels(next: Record<string, string>) {
-    setLabels(next);
-    setPreferenceMessage('Nombres modificados. Cambios sin guardar.');
-    onPreferenceEdit?.();
-  }
-  function editUsage(next: PreferenceUsageValue) {
-    setUsage(next);
-    setPreferenceMessage('Uso de la lista modificado. Cambios sin guardar.');
-    onPreferenceEdit?.();
   }
   async function savePreferences() {
     if (previewReadOnly) return;
@@ -282,43 +228,6 @@ export default function ElectionWorkspace({
         : 'No se ha confirmado el guardado. Revisa el error y vuelve a intentarlo.',
     );
   }
-  useEffect(() => {
-    setPairOptions(null);
-    if (turn?.participants?.length !== 1 || turn?.needed < 2 || !selected.length || selected.length >= turn.needed)
-      return;
-    let active = true;
-    setLoadingOptions(true);
-    const query = new URLSearchParams();
-    selected.forEach((date) => query.append('selected', date));
-    apiFetch('election/' + data.campaign.id + '/options?' + query)
-      .then(async (response) => {
-        const body: any = await response.json();
-        if (!response.ok) throw new Error(body.error);
-        if (!active) return;
-        const currentPolicy = election.occupancyPolicyVersion ?? null;
-        if (body.version !== data.campaign.version || (currentPolicy && body.policyVersion !== currentPolicy)) {
-          setPairOptions([]);
-          setMessage(
-            'Los cupos se han recalculado con otra versión del reparto. Actualiza la vista antes de confirmar.',
-          );
-          return;
-        }
-        setPairOptions(body.available ?? []);
-      })
-      .catch((e) => {
-        if (active) {
-          setPairOptions([]);
-          setMessage(e.message);
-        }
-      })
-      .finally(() => {
-        if (active) setLoadingOptions(false);
-      });
-    return () => {
-      active = false;
-      setLoadingOptions(false);
-    };
-  }, [selected.join(','), turn?.needed, data.campaign.version, election.occupancyPolicyVersion]);
   const canChoose =
       open &&
       !frozen &&
