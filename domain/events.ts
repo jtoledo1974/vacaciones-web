@@ -29,6 +29,8 @@ export const ELECTION_ACTIONS = [
   'link_account',
   'election_undo',
   'election_redo',
+  'early_choose',
+  'early_cancel',
 ] as const;
 export const RECONSTRUCTION_ACTIONS = [
   'reconstruction_start',
@@ -94,6 +96,7 @@ export const CHOICE_ACTIONS = [
   'choose_joint',
   'advance',
   'reconstruction_step',
+  'early_choose',
 ] as const satisfies readonly AuditAction[];
 
 type Payload = Record<string, any>;

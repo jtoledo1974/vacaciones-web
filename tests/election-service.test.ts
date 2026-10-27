@@ -83,7 +83,8 @@ test('listas propias y administración delegada, con turno y permisos comprobado
     /propias/,
   );
   await setScores(s, cid, { AA: 20, BB: 10, CC: 30 });
-  let result = await act(s, cid, start(d, [b.id, a.id, d.members[2].id]));
+  // actOne: an immediate list right after the turn would otherwise be applied early (see early-election tests).
+  let result = await actOne(s, cid, start(d, [b.id, a.id, d.members[2].id]));
   assert.equal(result.awards.length, 0);
   await assert.rejects(act(person, cid, { action: 'choose', memberId: a.id, dates: [date] }), /turno/);
   result = await act(s, cid, { action: 'choose', memberId: b.id, dates: [date] });
@@ -127,7 +128,7 @@ test('consulta anónima ve también adjudicaciones automáticas sin exponer pref
     [a, b] = d.members,
     dates = d.result.cycles.map((c: any) => c.date);
   await act(s, cid, { action: 'preferences', memberId: b.id, dates: [dates[1]] });
-  await act(s, cid, start(d));
+  await actOne(s, cid, start(d)); // Without draining: B's list waits for its turn here.
   await act(s, cid, { action: 'choose', memberId: a.id, dates: [dates[0]] });
   const publicView = await new Service(repo, { id: null, role: 'viewer', teams: [] }).view(cid);
   assert.equal(publicView.awards.length, 2);
@@ -222,7 +223,7 @@ test('una preferencia siguiente turno se consume y puede recuperarse con undo/re
     [a, b, c] = d.members,
     dates = d.result.cycles.map((c: any) => c.date);
   await act(s, cid, { action: 'preferences', memberId: b.id, dates: [dates[1]], persistent: false });
-  await act(s, cid, start(d));
+  await actOne(s, cid, start(d)); // Without draining: B's list waits for its turn here.
   let current = await act(s, cid, { action: 'choose', memberId: a.id, dates: [dates[0]] });
   assert.deepEqual(
     current.awards.filter((x: any) => x.member_id === b.id).map((x: any) => x.cycle_date),
@@ -351,7 +352,8 @@ test('aplazar no consume una lista que se guarda antes del siguiente turno efect
   let current = await act(s, cid, { action: 'defer', memberId: a.id });
   await act(s, cid, { action: 'preferences', memberId: a.id, dates });
   assert.equal((await s.view(cid)).election.preferences.find((p: any) => p.member_id === a.id).active, true);
-  current = await act(s, cid, { action: 'choose', memberId: b.id, dates: [dates[2]] });
+  // Without draining: A, right after C, would otherwise choose ahead of time.
+  current = await actOne(s, cid, { action: 'choose', memberId: b.id, dates: [dates[2]] });
   assert.equal(current.election.turn.memberId, c.id);
   const candidate = await s.election().read(cid);
   assert.equal(candidate.preferences.find((p) => p.member_id === a.id)?.active, true);
@@ -982,7 +984,7 @@ test('el controlador sabe cuántos de los que van delante tienen preferencias ac
     date = d.result.cycles[3].date;
   await act(s, cid, { action: 'link_account', memberId: c.id, subject: 'person@example.test', accountVersion: 0 });
   await act(s, cid, { action: 'preferences', memberId: b.id, dates: [date], automatic: true });
-  await act(s, cid, start(d, [a.id, b.id, c.id]));
+  await actOne(s, cid, start(d, [a.id, b.id, c.id])); // Without draining: B's list stays ahead of C.
   const mine = (await person.view(cid)).election;
   assert.equal(mine.myMemberId, c.id);
   assert.equal(mine.automaticAhead, 1);

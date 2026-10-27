@@ -58,6 +58,7 @@ export function buildElectionTimeline(
           'choose',
           'choose_joint',
           'advance',
+          'early_choose',
           'defer',
           'reconstruction_step',
           'register_joint',
@@ -158,6 +159,7 @@ export function buildElectionTimeline(
           choices,
           deferredTurns: memberIds.length === 1 ? (previous.credits?.[memberIds[0]] ?? 0) : 0,
           ties,
+          ...(row.action === 'early_choose' || after?.early === true ? { anticipated: true } : {}),
           ...(after?.impact
             ? {
                 impact: {
@@ -232,7 +234,7 @@ export function buildElectionTimeline(
  */
 export type PublicElectionTimelineItem = Pick<
   ElectionTimelineItem,
-  'id' | 'kind' | 'round' | 'memberIds' | 'choices' | 'deferredTurns' | 'method' | 'order'
+  'id' | 'kind' | 'round' | 'memberIds' | 'choices' | 'deferredTurns' | 'method' | 'order' | 'anticipated'
 > & { automatic?: true };
 
 export function publicElectionTimeline(
@@ -250,5 +252,6 @@ export function publicElectionTimeline(
     ...(item.kind === 'tie' && item.method ? { method: item.method } : {}),
     ...(item.kind === 'tie' && item.order ? { order: [...item.order] } : {}),
     ...(item.kind === 'choice' && automaticallyChosen.has(item.id) ? { automatic: true as const } : {}),
+    ...(item.kind === 'choice' && item.anticipated ? { anticipated: true } : {}),
   }));
 }

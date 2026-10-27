@@ -34,9 +34,11 @@ import {
   electionCommandFor,
   electionPreconditionError,
   resultDates,
+  pendingEarlyListChoice,
   type ElectionCommandContext,
 } from './election-commands.ts';
-import { projectElectionViewForManager, projectElectionViewForController } from './projections.ts';
+import { projectElectionViewForManager, projectElectionViewForController, type EarlyView } from './projections.ts';
+import { earlyProof } from '../domain/early-election.ts';
 
 type Host = {
   load: (cid: string) => Promise<any>;
@@ -352,7 +354,12 @@ export class ElectionService {
     const pendingAutomatic =
       !options.restored &&
       !reconstruction.active &&
-      !!(raw.state && turn && preferredChoice(ctx, turn.state, raw.preferences, Date.now()));
+      !!(
+        raw.state &&
+        turn &&
+        (preferredChoice(ctx, turn.state, raw.preferences, Date.now()) ||
+          pendingEarlyListChoice(ctx, raw.state, raw.preferences))
+      );
     const skipFullAvailability = !!options.skipAvailabilityForPendingAutomatic && pendingAutomatic;
     // A single source of truth per snapshot. Previous code evaluated rejected
     // policy choices twice and reconstructed the full HR calendar for every date.
@@ -446,6 +453,33 @@ export class ElectionService {
             ),
         ).length
       : null;
+    // The viewer's own early election: proved cycles, and early choices they may withdraw.
+    let early: EarlyView | null = null;
+    if (mine && raw.state && !reconstruction.active && !skipFullAvailability) {
+      const proof = options.restored
+        ? null
+        : earlyProof(
+            ctx,
+            raw.state,
+            mine,
+            result.cycles.map((c) => c.date),
+          );
+      const cursor = turn?.state?.cursor ?? raw.state.cursor;
+      const choices = (raw.state.earlyChoices ?? []).flatMap((e) => {
+        const award = ctx.awards.find((a) => a.id === e.awardId);
+        return e.memberId === mine && award
+          ? [{ awardId: e.awardId, date: award.cycle_date, cancellable: e.cursor > cursor }]
+          : [];
+      });
+      if (proof || choices.length)
+        early = {
+          guaranteed: proof?.guaranteed ?? [],
+          indeterminate: proof?.indeterminate ?? false,
+          round: proof?.window.round ?? null,
+          owed: proof?.window.owed ?? 0,
+          choices,
+        };
+    }
     const listPlan = !skipFullAvailability ? this.listPlan(ctx, raw, turn, manage, mine) : null;
     const queue =
       manage && raw.state && raw.state.status !== 'complete' ? roundQueue(ctx, raw.state, raw.preferences) : null;
@@ -497,6 +531,7 @@ export class ElectionService {
       pendingAutomatic,
       turnsAhead,
       automaticAhead,
+      early,
       listPlan,
       queue,
       chain,
@@ -652,7 +687,7 @@ export class ElectionService {
       ...insertRows(
         'awards',
         ['id', 'campaign_id', 'member_id', 'cycle_date', 'version'],
-        choices.map((a) => [crypto.randomUUID(), cid, a.member_id, a.cycle_date, 1]),
+        choices.map((a) => [a.id ?? crypto.randomUUID(), cid, a.member_id, a.cycle_date, 1]),
       ),
     );
     // Criterios 1.1 p.2: the original selection persists even if an award is

@@ -141,6 +141,7 @@ const viewShape: Shape = {
   pendingAutomatic: scalar,
   turnsAhead: scalar,
   automaticAhead: scalar,
+  early: scalar,
   listPlan: {
     memberId: scalar,
     mode: scalar,
@@ -228,6 +229,7 @@ function fixture(): ElectionProjectionData {
     pendingAutomatic: false,
     turnsAhead: 2,
     automaticAhead: 0,
+    early: null,
     listPlan: {
       memberId: 'alice',
       mode: 'immediate',

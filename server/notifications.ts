@@ -4,9 +4,13 @@ import {
   entitlementFor,
   sequenceFor,
   upgradeElectionState,
+  preferenceFromRow,
   type ElectionContext,
   type ElectionState,
+  type Preference,
 } from '../domain/election.ts';
+import { earlyProof, earlyWindow } from '../domain/early-election.ts';
+import { pendingEarlyListChoice, resultDates } from './election-commands.ts';
 import { turnsUntil, type SequenceInput } from '../domain/sequence.ts';
 import type { Repository } from './repository.ts';
 import { automaticAdvancesSince, hasChoicesSince } from './audit-context.ts';
@@ -267,6 +271,11 @@ export function notificationText(row: { id: string; round: number }, extra: { de
         row.round +
         '. Te toca pronto y no tienes preferencias que se apliquen solas. Prepáralas por si no estás cuando llegue tu turno.',
     };
+  if (row.id.startsWith(EARLY_PREFIX))
+    return {
+      title: 'Algunos ciclos de vacaciones ya están disponibles para ti',
+      body: 'Aunque todavía no sea tu turno, puedes solicitar alguno de los ciclos disponibles',
+    };
   if (row.id.startsWith(LOW_PREFIX)) {
     const left = Number(row.id.split(':').at(-1));
     return {
@@ -340,7 +349,52 @@ const LOW_WINDOW_MS = 10 * 60_000;
 // soon:<campaign>:<member>:<round>, at most one notice per round.
 const SOON_PREFIX = 'soon:';
 const SOON_TURNS = 3;
-const isTurnEvent = (id: string) => ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX].some((prefix) => id.startsWith(prefix));
+// early:<campaign>:<member>:<round>, at most one early-election opportunity per round.
+const EARLY_PREFIX = 'early:';
+const isTurnEvent = (id: string) =>
+  ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX, EARLY_PREFIX].some((prefix) => id.startsWith(prefix));
+
+/**
+ * Tell the controller in an early-election window (domain/early-election.ts) that some
+ * cycles are already theirs to take. Not when their immediate list will take one by
+ * itself: that award is announced as a list choice instead.
+ */
+export async function enqueueEarlyOpportunity(
+  repo: Repository,
+  campaignId: string,
+  ctx: ElectionContext,
+  state: ElectionState,
+  preferences: Preference[],
+  now: number,
+) {
+  if (pendingEarlyListChoice(ctx, state, preferences)) return 0;
+  const dates = resultDates(ctx);
+  for (const member of ctx.members as unknown as { id: string; person_id: string }[]) {
+    const window = earlyWindow(ctx, state, member.id);
+    if (!window) continue;
+    const proof = earlyProof(ctx, state, member.id, dates);
+    if (!proof?.guaranteed.length) return 0;
+    const account = (
+      await repo.all('SELECT principal_key FROM controller_accounts WHERE person_id=?', [member.person_id])
+    )[0];
+    if (!account) return 0;
+    await repo.batch([
+      {
+        sql: 'INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at) VALUES(?,?,?,?,?,?)',
+        args: [
+          [EARLY_PREFIX + campaignId, member.id, window.round].join(':'),
+          account.principal_key,
+          campaignId,
+          member.id,
+          window.round,
+          new Date(now).toISOString(),
+        ],
+      },
+    ]);
+    return 1;
+  }
+  return 0;
+}
 
 type InactiveListInput = {
   campaignId: string;
@@ -544,6 +598,18 @@ export async function dispatchNotifications(
       } catch {
         errors++;
       }
+      try {
+        enqueued += await enqueueEarlyOpportunity(
+          repo,
+          campaign.id,
+          ctx as unknown as ElectionContext,
+          state,
+          (await repo.all('SELECT * FROM preferences WHERE campaign_id=?', [campaign.id])).map(preferenceFromRow),
+          now,
+        );
+      } catch {
+        errors++;
+      }
       if (turn.pendingTie || !turn.memberId) continue;
       const participants: string[] = turn.participants?.length ? turn.participants : [turn.memberId];
       for (const memberId of participants) {
@@ -590,17 +656,15 @@ export async function dispatchNotifications(
         { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [campaign.id] },
         { sql: 'SELECT * FROM requests WHERE campaign_id=?', args: [campaign.id] },
       ]);
-      const turn = currentTurn(
-        {
-          year: campaign.year,
-          team: campaign.team_id,
-          config: JSON.parse(campaign.config_json),
-          members: rows[0].results,
-          awards: rows[1].results,
-          requests: rows[2].results,
-        },
-        state,
-      );
+      const current = {
+        year: campaign.year,
+        team: campaign.team_id,
+        config: JSON.parse(campaign.config_json),
+        members: rows[0].results,
+        awards: rows[1].results,
+        requests: rows[2].results,
+      };
+      const turn = currentTurn(current, state);
       const participants: string[] = turn.pendingTie
         ? []
         : turn.participants?.length
@@ -614,8 +678,14 @@ export async function dispatchNotifications(
         [campaign.id],
       );
       // Automatic-choice notices stay valid after the turn moves on.
+      // An opportunity is stale once its window has closed (turn reached, chosen, undone).
+      const earlyStale = (id: string) => {
+        if (!id.startsWith(EARLY_PREFIX)) return false;
+        const [, , memberId, round] = id.split(':');
+        return earlyWindow(current as unknown as ElectionContext, state, memberId)?.round !== Number(round);
+      };
       for (const row of pending)
-        if (isTurnEvent(row.id) && !valid.includes(row.id))
+        if ((isTurnEvent(row.id) && !valid.includes(row.id)) || earlyStale(row.id))
           await repo.batch([
             { sql: "UPDATE turn_notifications SET push_status='obsolete' WHERE id=?", args: [row.id] },
           ]);
