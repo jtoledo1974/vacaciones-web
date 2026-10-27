@@ -762,11 +762,13 @@ export class Service {
         id: m.id,
         code: m.code,
         label: m.label,
+        // '' is an explicit "no name" (a rejected proposal); null means never reviewed.
         hrName: saved.get(m.person_id) ?? null,
         suggested: suggested[m.id] ?? null,
       })),
     };
   }
+  /** name: an entry of column J; '' to reject any proposal; null to forget the decision. */
   async saveHrNames(cid: string, names: Record<string, string | null>) {
     const d = await this.hrCampaign(cid);
     const year = d.campaign.year;
@@ -778,7 +780,8 @@ export class Service {
     for (const [memberId, name] of Object.entries(names)) {
       const m = byId.get(memberId);
       if (!m) throw new ApiError('Persona desconocida en este equipo');
-      if (name !== null && !roster.has(name)) throw new ApiError(`«${name}» no está en la hoja ${d.campaign.team_id}`);
+      if (name !== null && name !== '' && !roster.has(name))
+        throw new ApiError(`«${name}» no está en la hoja ${d.campaign.team_id}`);
       ops.push(
         name === null
           ? { sql: 'DELETE FROM hr_names WHERE year=? AND person_id=?', args: [year, m.person_id] }
@@ -791,7 +794,6 @@ export class Service {
     await this.commit([...ops, this.audit('hr_names', d.campaign, null, { year, names })]);
     return this.hrStatus(cid);
   }
-  /** RRHH's workbook with only this team's sheet filled in; the team must be closed. */
   private async hrNames(year: number) {
     return new Map<string, string>(
       (await this.repo.all('SELECT person_id,hr_name FROM hr_names WHERE year=?', [year])).map((r) => [
@@ -804,8 +806,17 @@ export class Service {
   private async hrCells(cid: string, book: HrWorkbook, saved: Map<string, string>) {
     const d = await this.load(cid);
     const view = await this.view(cid);
-    const names = suggestHrNames(d.members, book.sheets.find((s) => s.team === d.campaign.team_id)!.roster);
-    for (const m of d.members) if (saved.has(m.person_id)) names[m.id] = saved.get(m.person_id)!;
+    // Saved decisions first ('' = rejected); otherwise only exact proposals, never approximate ones.
+    const names: Record<string, string> = {};
+    const suggested = suggestHrNames(d.members, book.sheets.find((s) => s.team === d.campaign.team_id)!.roster);
+    for (const m of d.members) {
+      const name = saved.has(m.person_id)
+        ? saved.get(m.person_id)!
+        : suggested[m.id]?.exact
+          ? suggested[m.id].name
+          : '';
+      if (name) names[m.id] = name;
+    }
     return hrTeamCells({
       sheet: book.sheets.find((s) => s.team === d.campaign.team_id)!,
       cycles: view.result.cycles,

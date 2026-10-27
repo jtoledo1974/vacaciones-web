@@ -2,7 +2,14 @@
 import { useEffect, useState } from 'react';
 import { api, apiFetch } from './api-client';
 
-type HrMember = { id: string; code: string; label: string; hrName: string | null; suggested: string | null };
+type HrMember = {
+  id: string;
+  code: string;
+  label: string;
+  /** Saved decision: a column J name, '' for "no name" (proposal rejected), null if never reviewed. */
+  hrName: string | null;
+  suggested: { name: string; exact: boolean } | null;
+};
 type HrStatus = {
   year: number;
   template: { sha256: string; uploadedAt: string } | null;
@@ -54,7 +61,7 @@ export default function HrExportPanel({
   const [note, setNote] = useState('');
   const show = (s: HrStatus) => {
     setStatus(s);
-    setNames(Object.fromEntries(s.members.map((m) => [m.id, m.hrName ?? m.suggested ?? ''])));
+    setNames(Object.fromEntries(s.members.map((m) => [m.id, m.hrName ?? m.suggested?.name ?? ''])));
   };
   useEffect(() => {
     let live = true;
@@ -66,8 +73,25 @@ export default function HrExportPanel({
     };
   }, [cid, closed]);
 
-  const pending = status ? status.members.filter((m) => (names[m.id] || null) !== m.hrName) : [];
-  const unmatched = status ? status.members.filter((m) => !status.roster.includes(names[m.id])) : [];
+  const members = status?.members ?? [];
+  const current = (m: HrMember) => names[m.id] ?? '';
+  // Never reviewed: a proposal (or its rejection) is pending until saved. Reviewed: any change is.
+  const isPending = (m: HrMember) => (m.hrName === null ? current(m) !== '' || !!m.suggested : current(m) !== m.hrName);
+  const asProposed = (m: HrMember) => m.hrName === null && !!m.suggested && current(m) === m.suggested.name;
+  const pending = members.filter(isPending);
+  const unmatched = members.filter((m) => !status?.roster.includes(current(m)));
+  const approximate = members.filter((m) => asProposed(m) && !m.suggested!.exact);
+  const exact = members.filter((m) => asProposed(m) && m.suggested!.exact);
+  const edited = pending.filter((m) => !asProposed(m));
+  const who = (list: HrMember[]) => list.map((m) => m.label || m.code).join(', ');
+  const save = async () => {
+    if (!status) return;
+    show(
+      await api<HrStatus>('hr/' + cid, {
+        body: { action: 'names', names: Object.fromEntries(pending.map((m) => [m.id, current(m)])) },
+      }),
+    );
+  };
 
   return (
     <section className="panel hr-export">
@@ -113,23 +137,69 @@ export default function HrExportPanel({
       )}
       {status?.template && (
         <>
-          <details open={unmatched.length > 0}>
+          <ul className="hr-summary" role="status">
+            {unmatched.length > 0 && (
+              <li>
+                Sin nombre de RRHH ({unmatched.length}): {who(unmatched)}. Asígnalo en «Nombres de RRHH»; quien no tenga
+                vacaciones adjudicadas no impide la descarga.
+              </li>
+            )}
+            {approximate.length > 0 && (
+              <li>
+                <strong>Propuestas aproximadas por revisar ({approximate.length}):</strong> {who(approximate)}. Solo se
+                usan si las confirmas.
+              </li>
+            )}
+            {exact.length > 0 && <li>Coincidencias exactas sin confirmar: {exact.length}.</li>}
+            {edited.length > 0 && <li>Cambios sin guardar: {edited.length}.</li>}
+            {!unmatched.length && !pending.length && <li>Todos los nombres de RRHH confirmados.</li>}
+          </ul>
+          {!closed && <p className="muted">Cierra el equipo {team} para poder descargar su Excel.</p>}
+          <div className="button-row">
+            <button
+              className="primary"
+              disabled={busy || !closed}
+              onClick={() =>
+                perform(
+                  async () => {
+                    if (pending.length) await save();
+                    await downloadXlsm('hr/' + cid + '/xlsm', `${status.year}_LECS_Vac_${team}.xlsm`);
+                  },
+                  'Excel de RRHH descargado',
+                  { refreshIndex: false },
+                )
+              }
+            >
+              {approximate.length
+                ? `Confirmar ${approximate.length === 1 ? 'la propuesta aproximada' : 'las ' + approximate.length + ' propuestas aproximadas'} y descargar`
+                : `Descargar Excel de RRHH · equipo ${team}`}
+            </button>
+          </div>
+          <details open={unmatched.length > 0 || approximate.length > 0}>
             <summary>
               Nombres de RRHH{' '}
               {unmatched.length
                 ? `· ${unmatched.length} sin asignar`
                 : pending.length
-                  ? `· ${pending.length} propuestas sin guardar`
-                  : '· todos guardados'}
+                  ? `· ${pending.length} por confirmar`
+                  : '· todos confirmados'}
             </summary>
             <p className="muted">
-              Elige cómo figura cada persona en la columna J de la hoja {team}. Las propuestas automáticas aparecen ya
-              seleccionadas: revísalas y guarda.
+              Cómo figura cada persona en la columna J de la hoja {team}. Las propuestas automáticas aparecen ya
+              seleccionadas; las aproximadas, marcadas para revisar. «Sin asignar» descarta la propuesta.
             </p>
             <div className="hr-names">
               {status.members.map((m) => (
                 <label key={m.id}>
-                  <span>{m.label ? `${m.label} · ${m.code}` : m.code}</span>
+                  <span>
+                    {m.label ? `${m.label} · ${m.code}` : m.code}
+                    {asProposed(m) && (
+                      <em className={m.suggested!.exact ? 'hr-proposed' : 'hr-proposed hr-approximate'}>
+                        {m.suggested!.exact ? ' · propuesta' : ' · propuesta aproximada, revisar'}
+                      </em>
+                    )}
+                    {!asProposed(m) && isPending(m) && <em className="hr-proposed"> · sin guardar</em>}
+                  </span>
                   <select
                     aria-label={'Nombre de RRHH de ' + m.code}
                     value={names[m.id] ?? ''}
@@ -150,43 +220,12 @@ export default function HrExportPanel({
               <button
                 className="secondary"
                 disabled={busy || !pending.length}
-                onClick={() =>
-                  perform(
-                    async () =>
-                      show(
-                        await api<HrStatus>('hr/' + cid, {
-                          body: {
-                            action: 'names',
-                            names: Object.fromEntries(pending.map((m) => [m.id, names[m.id] || null])),
-                          },
-                        }),
-                      ),
-                    'Nombres de RRHH guardados',
-                    { refreshIndex: false },
-                  )
-                }
+                onClick={() => perform(save, 'Nombres de RRHH guardados', { refreshIndex: false })}
               >
                 Guardar nombres
               </button>
             </div>
           </details>
-          {!closed && <p className="muted">Cierra el equipo {team} para poder descargar su Excel.</p>}
-          <div className="button-row">
-            <button
-              className="primary"
-              disabled={busy || !closed || pending.length > 0}
-              onClick={() =>
-                perform(
-                  () => downloadXlsm('hr/' + cid + '/xlsm', `${status.year}_LECS_Vac_${team}.xlsm`),
-                  'Excel de RRHH descargado',
-                  { refreshIndex: false },
-                )
-              }
-            >
-              Descargar Excel de RRHH · equipo {team}
-            </button>
-          </div>
-          {pending.length > 0 && <p className="muted">Guarda los nombres antes de descargar.</p>}
           {superuser && (
             <>
               <h3>Todos los turnos</h3>

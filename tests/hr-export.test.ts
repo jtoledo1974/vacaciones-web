@@ -122,6 +122,96 @@ test('propone el nombre de RRHH sin tildes, mayúsculas ni orden de palabras', (
       ],
       sheet.roster,
     ),
-    { a: 'PÉREZ GARCÍA,ANA', l: 'LÓPEZ RUIZ, LUIS' },
+    { a: { name: 'PÉREZ GARCÍA,ANA', exact: true }, l: { name: 'LÓPEZ RUIZ, LUIS', exact: true } },
+  );
+});
+
+test('propone por palabras en común solo cuando hay un candidato claro y libre', () => {
+  const roster = ['GÓMEZ PRIETO,MARÍA JOSÉ', 'RUIZ SOTO,ANA', 'RUIZ VEGA,ANA BELÉN', 'LUNA MAR,PEDRO'];
+  assert.deepEqual(
+    suggestHrNames(
+      [
+        // Second surname missing in the app.
+        { id: 'mj', code: 'MJ', label: 'Gómez, María José' },
+        // Two candidates share "RUIZ ANA": no proposal.
+        { id: 'ana', code: 'ANA', label: 'Ana Ruiz' },
+        // Only one word in common: no proposal.
+        { id: 'p', code: 'P', label: 'Pedro Sol' },
+      ],
+      roster,
+    ),
+    { mj: { name: 'GÓMEZ PRIETO,MARÍA JOSÉ', exact: false } },
+  );
+  // Two members wanting the same free entry: neither gets it.
+  assert.deepEqual(
+    suggestHrNames(
+      [
+        { id: 'a', code: 'A', label: 'Luna, Pedro Juan' },
+        { id: 'b', code: 'B', label: 'Luna Sol, Pedro' },
+      ],
+      ['LUNA MAR,PEDRO', 'OTRO,NOMBRE'],
+    ),
+    {},
+  );
+});
+
+test('«Nombre Apellido» se empareja si es el único nombre de la hoja que contiene ambas palabras', () => {
+  const roster = ['GARCÍA LÓPEZ,LUIS', 'GARCÍA RUIZ,ANA', 'MORA PAZ,LUISA'];
+  assert.deepEqual(
+    suggestHrNames(
+      [
+        { id: 'l', code: 'L', label: 'Luis García' },
+        // A nickname with the only "MORA" surname: the last-resort rule, also approximate.
+        { id: 'p', code: 'P', label: 'Pepa Mora' },
+      ],
+      roster,
+    ),
+    { l: { name: 'GARCÍA LÓPEZ,LUIS', exact: false }, p: { name: 'MORA PAZ,LUISA', exact: false } },
+  );
+  // Both words in two entries: no proposal.
+  assert.deepEqual(
+    suggestHrNames([{ id: 'a', code: 'A', label: 'Ana García' }], ['GARCÍA RUIZ,ANA', 'GARCÍA SOL,ANA MARÍA']),
+    {},
+  );
+});
+
+test('una propuesta aproximada exige al menos un apellido en común', () => {
+  // Same given names, different surname: no proposal.
+  assert.deepEqual(
+    suggestHrNames([{ id: 'a', code: 'A', label: 'Ana María Pérez' }], ['GARCÍA,ANA MARÍA', 'SOL,LUIS']),
+    {},
+  );
+  // Both surnames, nickname as given name: proposed, but only as approximate.
+  assert.deepEqual(suggestHrNames([{ id: 'p', code: 'P', label: 'Pepe Mora Paz' }], ['MORA PAZ,JOSÉ', 'SOL,LUIS']), {
+    p: { name: 'MORA PAZ,JOSÉ', exact: false },
+  });
+});
+
+test('último recurso: un apellido que solo está en un nombre libre de la hoja', () => {
+  const roster = ['TORRES MOLINA,MARIA JOSE', 'GÓMEZ SOL,KEKA', 'RUIZ PAZ,ANA', 'RUIZ VEGA,LUIS'];
+  assert.deepEqual(
+    suggestHrNames(
+      [
+        // Nickname + one surname: approximate.
+        { id: 'k', code: 'K', label: 'Keka Torres' },
+        // Surname in two entries: no proposal.
+        { id: 'r', code: 'R', label: 'Pepe Ruiz' },
+      ],
+      roster,
+    ),
+    { k: { name: 'TORRES MOLINA,MARIA JOSE', exact: false } },
+  );
+  // Only the given name in common (KEKA is not a surname there): no proposal.
+  assert.deepEqual(suggestHrNames([{ id: 'k', code: 'K', label: 'Keka Martín' }], roster), {});
+  // Two members with that only surname: neither gets it.
+  assert.deepEqual(
+    suggestHrNames(
+      [
+        { id: 'a', code: 'A', label: 'Keka Torres' },
+        { id: 'b', code: 'B', label: 'Pepa Torres' },
+      ],
+      roster,
+    ),
+    {},
   );
 });

@@ -186,11 +186,56 @@ test('exporta coincidencias exactas propuestas sin guardar, tanto por equipo com
   });
   await s.mutate(cid, { action: 'close', version: (await s.load(cid)).campaign.version });
   const status = await admin.hrStatus(cid);
-  assert.equal(status.members.find((m) => m.id === member.id)!.suggested, roster[0]);
+  assert.deepEqual(status.members.find((m) => m.id === member.id)!.suggested, { name: roster[0], exact: true });
   assert.equal(status.members.find((m) => m.id === member.id)!.hrName, null);
   for (const bytes of [(await admin.exportHrTeam(cid)).bytes, (await s.exportHrGlobal(2027)).bytes]) {
     const book = await readHrWorkbook(bytes);
     assert.ok((await zipTexts(bytes)).get(book.paths.C)!.includes(roster[0]));
   }
   assert.equal((await repo.all('SELECT * FROM hr_names')).length, 0);
+});
+
+test('rechazar una propuesta («Sin asignar») impide que el servidor la use; las aproximadas solo con confirmación', async () => {
+  const { repo, s, cid, admin } = await setup();
+  await s.uploadHrTemplate(2027, template.toString('base64'));
+  const roster = (await admin.hrStatus(cid)).roster;
+  const d = await s.view(cid);
+  const [exact, approx] = d.members;
+  // Exact: same words. Approximate: an extra word ("Apodo") besides the RRHH name.
+  await repo.batch([
+    { sql: 'UPDATE campaign_members SET label=? WHERE id=?', args: [roster[0], exact.id] },
+    { sql: 'UPDATE campaign_members SET label=? WHERE id=?', args: ['Apodo ' + roster[1], approx.id] },
+  ]);
+  let version = d.campaign.version;
+  for (const [memberId, i] of [
+    [exact.id, 2],
+    [approx.id, 3],
+  ] as const) {
+    await s.mutate(cid, { action: 'award', version, memberId, date: d.result.cycles[i].date });
+    version = (await s.load(cid)).campaign.version;
+  }
+  await s.mutate(cid, { action: 'close', version });
+
+  let status = await admin.hrStatus(cid);
+  const byId = (id: string) => status.members.find((m) => m.id === id)!;
+  assert.deepEqual(byId(exact.id).suggested, { name: roster[0], exact: true });
+  assert.deepEqual(byId(approx.id).suggested, { name: roster[1], exact: false });
+  // Never reviewed: the exact match is used, the approximate one is not.
+  await assert.rejects(
+    admin.exportHrTeam(cid),
+    (e: Error) => /sin nombre de RRHH/.test(e.message) && /Apodo/.test(e.message),
+  );
+
+  // The admin rejects the exact proposal and confirms the approximate one.
+  status = await admin.saveHrNames(cid, { [exact.id]: '', [approx.id]: roster[1] });
+  assert.equal(byId(exact.id).hrName, '');
+  await assert.rejects(
+    admin.exportHrTeam(cid),
+    (e: Error) => /sin nombre de RRHH/.test(e.message) && e.message.includes(roster[0]) && !/Apodo/.test(e.message),
+  );
+  // Forgetting the decision (null) brings the exact proposal back.
+  await admin.saveHrNames(cid, { [exact.id]: null });
+  const { bytes } = await admin.exportHrTeam(cid);
+  const sheet = (await zipTexts(bytes)).get((await readHrWorkbook(bytes)).paths.C)!;
+  assert.ok(sheet.includes(roster[0]) && sheet.includes(roster[1]));
 });

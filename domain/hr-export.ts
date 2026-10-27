@@ -43,22 +43,73 @@ function tokens(name: string): string {
     .join(' ');
 }
 
+/** A proposed RRHH name: exact (same words) or approximate (needs an admin's confirmation). */
+export type HrSuggestion = { name: string; exact: boolean };
+
 /**
- * Proposed RRHH name for each member: the roster entry with the same words as
- * the member's label or code, when exactly one matches. Admins confirm it.
+ * Proposed RRHH name for each member:
+ * 1. exact: the roster entry with the same words as the member's label or code;
+ * 2. approximate, only for an admin to confirm: the free entry sharing the most
+ *    words (at least two, at least one of them a surname) with the label, when
+ *    it is the only one holding every word of the label or beats every other
+ *    entry by two words, and no other unmatched member prefers it. Covers a
+ *    missing or extra surname, or a nickname with both surnames;
+ * 3. approximate, as a last resort: the only free entry whose surnames share a
+ *    word with the label (a nickname with one surname).
  */
-export function suggestHrNames(members: readonly HrMember[], roster: readonly string[]): Record<string, string> {
-  const out: Record<string, string> = {};
+export function suggestHrNames(members: readonly HrMember[], roster: readonly string[]): Record<string, HrSuggestion> {
+  const out: Record<string, HrSuggestion> = {};
   for (const m of members) {
     for (const source of [m.label, m.code]) {
       const key = source ? tokens(source) : '';
       const hits = key ? roster.filter((r) => tokens(r) === key) : [];
       if (hits.length === 1) {
-        out[m.id] = hits[0];
+        out[m.id] = { name: hits[0], exact: true };
         break;
       }
     }
   }
+  const taken = new Set(Object.values(out).map((s) => s.name));
+  const free = roster.filter((r) => !taken.has(r));
+  const words = (s: string) =>
+    new Set(
+      tokens(s)
+        .split(' ')
+        .filter((w) => w.length > 1),
+    );
+  // RRHH writes "APELLIDOS,NOMBRE": the surnames are what comes before the comma.
+  const surnames = (r: string) => words(r.includes(',') ? r.slice(0, r.indexOf(',')) : r);
+  const common = (a: Set<string>, b: Set<string>) => [...a].filter((w) => b.has(w)).length;
+  const best = new Map<string, string>();
+  for (const m of members) {
+    if (out[m.id] || !m.label) continue;
+    const own = words(m.label);
+    const scored = free.map((name) => ({ name, score: common(own, words(name)) })).sort((x, y) => y.score - x.score);
+    const [top, next] = scored;
+    // Every word of the label in exactly one entry ("Nombre Apellido" → "APELLIDOS,NOMBRE").
+    const contained = top?.score === own.size && next?.score !== own.size;
+    if (
+      top &&
+      top.score >= 2 &&
+      common(own, surnames(top.name)) >= 1 &&
+      (contained || top.score - (next?.score ?? 0) >= 2)
+    )
+      best.set(m.id, top.name);
+  }
+  for (const [id, name] of best)
+    if ([...best.values()].filter((n) => n === name).length === 1) out[id] = { name, exact: false };
+  // Last resort ("Keka Torres" → "TORRES MOLINA,MARIA JOSE"): a surname of the
+  // label found in the surnames of exactly one free entry, claimed by no one else.
+  const left = free.filter((r) => !Object.values(out).some((s) => s.name === r));
+  const bySurname = new Map<string, string>();
+  for (const m of members) {
+    if (out[m.id] || !m.label) continue;
+    const own = words(m.label);
+    const hits = left.filter((r) => common(own, surnames(r)) >= 1);
+    if (hits.length === 1) bySurname.set(m.id, hits[0]);
+  }
+  for (const [id, name] of bySurname)
+    if ([...bySurname.values()].filter((n) => n === name).length === 1) out[id] = { name, exact: false };
   return out;
 }
 
