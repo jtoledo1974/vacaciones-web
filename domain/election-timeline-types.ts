@@ -13,6 +13,8 @@ export type ElectionTimelineItem = {
   method?: 'random' | 'external';
   order?: string[];
   anticipated?: boolean;
+  /** Original logical turn, independent of the registration date. */
+  selectionCursor?: number;
   jointAction?: 'register_joint' | 'cancel_joint';
   impact?: {
     policyVersion: string;

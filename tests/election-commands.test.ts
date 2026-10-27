@@ -9,6 +9,8 @@ test('tabla de comandos de elección: acciones conocidas y nada heredado del pro
     'choose',
     'choose_joint',
     'defer',
+    'early_cancel',
+    'early_choose',
     'election_redo',
     'election_undo',
     'link_account',

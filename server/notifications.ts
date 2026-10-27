@@ -4,12 +4,16 @@ import {
   entitlementFor,
   sequenceFor,
   upgradeElectionState,
+  preferenceFromRow,
   type ElectionContext,
   type ElectionState,
+  type Preference,
 } from '../domain/election.ts';
+import { earlyProof, earlyWindow } from '../domain/early-election.ts';
+import { pendingEarlyListChoice, resultDates } from './election-commands.ts';
 import { turnsUntil, type SequenceInput } from '../domain/sequence.ts';
 import type { Repository } from './repository.ts';
-import { automaticAdvancesSince, hasChoicesSince } from './audit-context.ts';
+import { automaticAdvancesSince, hasChoicesSince, eventsFor, appliedAudit, auditAfter } from './audit-context.ts';
 import { requireSuper, type Principal } from './permissions.ts';
 import { deliverPush, publicPushKey, type PushConfig } from './web-push.ts';
 import { ApiError } from './errors.ts';
@@ -39,7 +43,7 @@ export async function notificationSettings(repo: Repository, actor: Principal, c
       (s) => ({ endpoint: s.endpoint, createdAt: s.created_at }),
     ),
     notifications: await repo.all(
-      'SELECT n.id,n.campaign_id,n.round,n.created_at,c.team_id,c.year FROM turn_notifications n JOIN campaigns c ON c.id=n.campaign_id WHERE n.owner_key=? ORDER BY n.created_at DESC LIMIT 25',
+      "SELECT n.id,n.campaign_id,n.round,n.created_at,c.team_id,c.year FROM turn_notifications n JOIN campaigns c ON c.id=n.campaign_id WHERE n.owner_key=? AND c.scope_key='live' ORDER BY n.created_at DESC LIMIT 25",
       [key],
     ),
   };
@@ -147,12 +151,23 @@ export async function flushTurnNotifications(
     "SELECT * FROM turn_notifications WHERE campaign_id=? AND push_status='pending' ORDER BY created_at LIMIT 25",
     [campaignId],
   );
-  const campaign = (await repo.all('SELECT team_id,year FROM campaigns WHERE id=?', [campaignId]))[0];
+  const campaign = (
+    await repo.all("SELECT team_id,year FROM campaigns WHERE id=? AND scope_key='live'", [campaignId])
+  )[0];
   if (!campaign) return;
   const targetUrl =
     '/?equipo=' + encodeURIComponent(campaign.team_id) + '&year=' + encodeURIComponent(String(campaign.year));
   for (const row of rows) {
     if (budget.remaining <= 0) break;
+    if (row.id.startsWith(MANUAL_PREFIX) && !(await manualNoticeIsCurrent(repo, row))) {
+      await repo.batch([
+        {
+          sql: "UPDATE turn_notifications SET push_status='obsolete' WHERE id=? AND push_status='pending'",
+          args: [row.id],
+        },
+      ]);
+      continue;
+    }
     const subscriptions = await repo.all('SELECT * FROM push_subscriptions WHERE owner_key=?', [row.owner_key]);
     if (!subscriptions.length) continue;
     for (const sub of subscriptions) {
@@ -267,6 +282,19 @@ export function notificationText(row: { id: string; round: number }, extra: { de
         row.round +
         '. Te toca pronto y no tienes preferencias que se apliquen solas. Prepáralas por si no estás cuando llegue tu turno.',
     };
+  if (row.id.startsWith(EARLY_PREFIX))
+    return {
+      title: 'Algunos ciclos de vacaciones ya están disponibles para ti',
+      body: 'Aunque todavía no sea tu turno, puedes solicitar alguno de los ciclos disponibles',
+    };
+  if (row.id.startsWith(MANUAL_PREFIX))
+    return {
+      title: 'Vacaciones · Tu lista ya no elige sola',
+      body:
+        'Se ha anulado tu elección anticipada y recuperas ese ciclo (ronda ' +
+        row.round +
+        '). Tus preferencias han pasado a manual: entra para elegir o vuelve a activarlas.',
+    };
   if (row.id.startsWith(LOW_PREFIX)) {
     const left = Number(row.id.split(':').at(-1));
     return {
@@ -302,20 +330,21 @@ export async function enqueueAutomaticChoices(repo: Repository, campaignId: stri
   const rows = await automaticAdvancesSince(repo, campaignId, new Date(now - AUTO_WINDOW_MS).toISOString());
   let enqueued = 0;
   for (const row of rows) {
-    let choices: any[] = [];
+    let choices: any[] = [],
+      payload: { choices?: unknown[]; round?: number } | null = null;
     try {
-      choices = JSON.parse(row.after_json)?.choices ?? [];
+      choices = (payload = JSON.parse(row.after_json))?.choices ?? [];
     } catch {
       continue;
     }
-    const round = row.turns ? Math.floor(row.cursor / row.turns) + 1 : 1;
+    const round = payload?.round ?? (row.turns ? Math.floor(row.cursor / row.turns) + 1 : 1);
     for (const choice of choices) {
       if (typeof choice?.member_id !== 'string' || typeof choice?.cycle_date !== 'string') continue;
       const owner = (
         await repo.all(
           `SELECT ca.principal_key FROM awards w JOIN campaign_members m ON m.id=w.member_id
-     JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE w.campaign_id=? AND w.member_id=? AND w.cycle_date=?`,
-          [campaignId, choice.member_id, choice.cycle_date],
+     JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE w.campaign_id=? AND w.member_id=? AND w.cycle_date=? AND (? IS NULL OR w.id=?)`,
+          [campaignId, choice.member_id, choice.cycle_date, choice.id ?? null, choice.id ?? null],
         )
       )[0];
       if (!owner) continue;
@@ -340,7 +369,71 @@ const LOW_WINDOW_MS = 10 * 60_000;
 // soon:<campaign>:<member>:<round>, at most one notice per round.
 const SOON_PREFIX = 'soon:';
 const SOON_TURNS = 3;
-const isTurnEvent = (id: string) => ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX].some((prefix) => id.startsWith(prefix));
+// early:<campaign>:<member>:<round>, at most one early-election opportunity per round.
+const EARLY_PREFIX = 'early:';
+/** A notice belongs to an effective cancellation and a list that is still manual. */
+async function manualNoticeIsCurrent(repo: Repository, row: { id: string; campaign_id: string; member_id: string }) {
+  const awardId = row.id.split(':').at(-1);
+  const pref = (
+    await repo.all('SELECT mode,active FROM preferences WHERE campaign_id=? AND member_id=?', [
+      row.campaign_id,
+      row.member_id,
+    ])
+  )[0];
+  if (!pref?.active || pref.mode !== 'manual') return false;
+  if ((await repo.all('SELECT id FROM awards WHERE campaign_id=? AND id=?', [row.campaign_id, awardId])).length)
+    return false;
+  return appliedAudit(await eventsFor(repo, row.campaign_id)).done.some(
+    (event) => event.action === 'early_cancel' && auditAfter(event)?.cancelled === awardId,
+  );
+}
+
+// manual:<campaign>:<member>:<award>, queued by early_cancel when it turns a list manual.
+const MANUAL_PREFIX = 'manual:';
+const isTurnEvent = (id: string) =>
+  ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX, EARLY_PREFIX, MANUAL_PREFIX].some((prefix) => id.startsWith(prefix));
+
+/**
+ * Tell the controller in an early-election window (domain/early-election.ts) that some
+ * cycles are already theirs to take. Not when their immediate list will take one by
+ * itself: that award is announced as a list choice instead.
+ */
+export async function enqueueEarlyOpportunity(
+  repo: Repository,
+  campaignId: string,
+  ctx: ElectionContext,
+  state: ElectionState,
+  preferences: Preference[],
+  now: number,
+) {
+  if (pendingEarlyListChoice(ctx, state, preferences)) return 0;
+  const dates = resultDates(ctx);
+  for (const member of ctx.members as unknown as { id: string; person_id: string }[]) {
+    const window = earlyWindow(ctx, state, member.id);
+    if (!window) continue;
+    const proof = earlyProof(ctx, state, member.id, dates);
+    if (!proof?.guaranteed.length) return 0;
+    const account = (
+      await repo.all('SELECT principal_key FROM controller_accounts WHERE person_id=?', [member.person_id])
+    )[0];
+    if (!account) return 0;
+    await repo.batch([
+      {
+        sql: 'INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at) VALUES(?,?,?,?,?,?)',
+        args: [
+          [EARLY_PREFIX + campaignId, member.id, window.round].join(':'),
+          account.principal_key,
+          campaignId,
+          member.id,
+          window.round,
+          new Date(now).toISOString(),
+        ],
+      },
+    ]);
+    return 1;
+  }
+  return 0;
+}
 
 type InactiveListInput = {
   campaignId: string;
@@ -544,6 +637,18 @@ export async function dispatchNotifications(
       } catch {
         errors++;
       }
+      try {
+        enqueued += await enqueueEarlyOpportunity(
+          repo,
+          campaign.id,
+          ctx as unknown as ElectionContext,
+          state,
+          (await repo.all('SELECT * FROM preferences WHERE campaign_id=?', [campaign.id])).map(preferenceFromRow),
+          now,
+        );
+      } catch {
+        errors++;
+      }
       if (turn.pendingTie || !turn.memberId) continue;
       const participants: string[] = turn.participants?.length ? turn.participants : [turn.memberId];
       for (const memberId of participants) {
@@ -590,17 +695,15 @@ export async function dispatchNotifications(
         { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [campaign.id] },
         { sql: 'SELECT * FROM requests WHERE campaign_id=?', args: [campaign.id] },
       ]);
-      const turn = currentTurn(
-        {
-          year: campaign.year,
-          team: campaign.team_id,
-          config: JSON.parse(campaign.config_json),
-          members: rows[0].results,
-          awards: rows[1].results,
-          requests: rows[2].results,
-        },
-        state,
-      );
+      const current = {
+        year: campaign.year,
+        team: campaign.team_id,
+        config: JSON.parse(campaign.config_json),
+        members: rows[0].results,
+        awards: rows[1].results,
+        requests: rows[2].results,
+      };
+      const turn = currentTurn(current, state);
       const participants: string[] = turn.pendingTie
         ? []
         : turn.participants?.length
@@ -614,8 +717,14 @@ export async function dispatchNotifications(
         [campaign.id],
       );
       // Automatic-choice notices stay valid after the turn moves on.
+      // An opportunity is stale once its window has closed (turn reached, chosen, undone).
+      const earlyStale = (id: string) => {
+        if (!id.startsWith(EARLY_PREFIX)) return false;
+        const [, , memberId, round] = id.split(':');
+        return earlyWindow(current as unknown as ElectionContext, state, memberId)?.round !== Number(round);
+      };
       for (const row of pending)
-        if (isTurnEvent(row.id) && !valid.includes(row.id))
+        if ((isTurnEvent(row.id) && !valid.includes(row.id)) || earlyStale(row.id))
           await repo.batch([
             { sql: "UPDATE turn_notifications SET push_status='obsolete' WHERE id=?", args: [row.id] },
           ]);

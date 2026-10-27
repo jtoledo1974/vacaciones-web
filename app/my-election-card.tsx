@@ -156,6 +156,12 @@ function ListNow({
   );
 }
 
+export type EarlyElection = {
+  guaranteed: string[];
+  indeterminate: boolean;
+  choices: { awardId: string; date: string; cancellable: boolean }[];
+};
+
 /** The controller's own situation, first on the page: turn, cycles and list.
  * compact: a one-line summary that unfolds, for managers running the table while it is not their turn. */
 export default function MyElectionCard({
@@ -168,6 +174,9 @@ export default function MyElectionCard({
   onChoose,
   onList,
   onSimulate,
+  early,
+  onEarly,
+  onCancelEarly,
   compact = false,
 }: {
   me: MyElection;
@@ -179,6 +188,10 @@ export default function MyElectionCard({
   onChoose: () => void;
   onList: () => void;
   onSimulate?: () => void;
+  /** Early election: cycles secured for the viewer now, and early choices already made. */
+  early?: EarlyElection | null;
+  onEarly?: () => void;
+  onCancelEarly?: (awardId: string, date: string) => void;
   compact?: boolean;
 }) {
   // An automatic pick stays visible until dismissed on this device: it may have happened while away.
@@ -234,6 +247,45 @@ export default function MyElectionCard({
         )}
       </div>
       {note && <p className="my-election-soon">{note}</p>}
+      {!turn && early && early.guaranteed.length > 0 && (
+        <div className="my-election-early" role="status">
+          <div>
+            <strong>Algunos ciclos de vacaciones ya están disponibles para ti</strong>
+            <span>
+              Aunque todavía no sea tu turno, puedes solicitar alguno de los ciclos disponibles.{' '}
+              {early.guaranteed.length === 1
+                ? 'Hay 1 ciclo asegurado, marcado en el calendario.'
+                : `Hay ${early.guaranteed.length} ciclos asegurados, marcados en el calendario.`}
+            </span>
+          </div>
+          {onEarly && (
+            <button type="button" className="primary" onClick={onEarly}>
+              Elegir por adelantado
+            </button>
+          )}
+        </div>
+      )}
+      {early && early.choices.length > 0 && (
+        <div className="my-election-row my-election-early-done">
+          <strong>Elegido por adelantado</strong>
+          <div className="my-election-chips">
+            {early.choices.map((choice) => (
+              <span key={choice.awardId}>
+                {formatDate(choice.date)} – {formatDate(cycles.find((c) => c.date === choice.date)?.end ?? choice.date)}
+                {choice.cancellable && onCancelEarly && (
+                  <button
+                    type="button"
+                    className="my-election-early-undo"
+                    onClick={() => onCancelEarly(choice.awardId, choice.date)}
+                  >
+                    Anular
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       {turn && plan?.mode === 'wait' && <WaitingPlan plan={plan} list={me.list} cycles={cycles} />}
       {turn && available && me.list.entries.length > 0 && (
         <ListNow entries={me.list.entries} available={available} onPick={onPick} />

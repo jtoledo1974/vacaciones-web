@@ -158,6 +158,13 @@ export function projectPublishedCampaignView(
  * no repository reads, permissions checks, policy evaluation or clock access.
  * In particular, no incoming object is spread into a controller's response.
  */
+export type EarlyView = {
+  guaranteed: string[];
+  indeterminate: boolean;
+  round: number | null;
+  owed: number;
+  choices: { awardId: string; date: string; cancellable: boolean }[];
+};
 export type ElectionProjectionData = {
   state: ElectionState | null;
   turn: {
@@ -192,6 +199,8 @@ export type ElectionProjectionData = {
   pendingAutomatic: boolean;
   turnsAhead: number | null;
   automaticAhead: number | null;
+  /** The viewer's own early election: cycles proved safe now and early choices made. */
+  early: EarlyView | null;
   listPlan: {
     memberId: string;
     mode: Preference['mode'];
@@ -311,6 +320,15 @@ function sharedElectionFields(data: ElectionProjectionData) {
     pendingAutomatic: data.pendingAutomatic,
     turnsAhead: data.turnsAhead,
     automaticAhead: data.automaticAhead,
+    early: data.early
+      ? {
+          guaranteed: [...data.early.guaranteed],
+          indeterminate: data.early.indeterminate,
+          round: data.early.round,
+          owed: data.early.owed,
+          choices: data.early.choices.map(({ awardId, date, cancellable }) => ({ awardId, date, cancellable })),
+        }
+      : null,
   };
 }
 
@@ -427,7 +445,7 @@ export function projectElectionViewForController(data: ElectionProjectionData) {
       memberIds: [...item.memberIds],
       choices: item.choices.map(({ member_id, cycle_date }) => ({ member_id, cycle_date })),
       deferredTurns: item.deferredTurns,
-      ...own(item, ['method', 'order', 'automatic']),
+      ...own(item, ['method', 'order', 'automatic', 'anticipated', 'selectionCursor']),
     })),
     reconstruction: { active: data.reconstruction.active },
   };

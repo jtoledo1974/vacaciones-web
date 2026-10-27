@@ -1,5 +1,5 @@
 /**
- * Show effective selections in the order they happened, regardless of the
+ * Show effective selections in logical turn order, regardless of the
  * storage order of the award rows (which is not specified by SQL).
  *
  * Timeline events arrive newest first. Undo, redo and reconstruction are
@@ -8,7 +8,7 @@
  * traced choices instead of inventing their history.
  */
 export type AwardReference = { member_id: string; cycle_date: string };
-export type ChoiceTimelineEvent = { kind: string; choices: AwardReference[] };
+export type ChoiceTimelineEvent = { kind: string; choices: AwardReference[]; selectionCursor?: number };
 
 function awardKey(award: AwardReference): string {
   return JSON.stringify([award.member_id, award.cycle_date]);
@@ -20,7 +20,12 @@ export function orderAwardsBySelection<A extends AwardReference>(
   newestFirstTimeline: readonly ChoiceTimelineEvent[] | null | undefined,
 ): A[] {
   const positions = new Map<string, number>();
-  for (const event of [...(newestFirstTimeline ?? [])].reverse()) {
+  const chronological = [...(newestFirstTimeline ?? [])].reverse();
+  // Reorder traced turn events only; old callers without cursors retain chronology.
+  const ordered = chronological.every((event) => event.kind !== 'choice' || event.selectionCursor !== undefined)
+    ? chronological.filter((event) => event.kind === 'choice').sort((a, b) => a.selectionCursor! - b.selectionCursor!)
+    : chronological;
+  for (const event of ordered) {
     if (event.kind !== 'choice') continue;
     for (const choice of event.choices) {
       const key = awardKey(choice);

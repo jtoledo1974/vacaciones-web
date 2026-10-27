@@ -58,3 +58,13 @@ test('sin historial: importaciones mantienen el orden de entrada sin inventar se
   ]);
   assert.deepEqual(orderAwardsBySelection([gonzalo, david], []), [gonzalo, david]);
 });
+
+test('la anticipada respeta prioridad lógica aunque se registre antes', () => {
+  const early = { member_id: 'B', cycle_date: 'X' };
+  const prior = { member_id: 'A', cycle_date: 'X' };
+  const events = [
+    { kind: 'choice', selectionCursor: 0, choices: [prior] },
+    { kind: 'choice', selectionCursor: 1, choices: [early] },
+  ];
+  assert.deepEqual(orderAwardsBySelection([early, prior], events), [prior, early]);
+});
