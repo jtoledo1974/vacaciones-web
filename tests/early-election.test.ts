@@ -155,7 +155,7 @@ test('elegir por adelantado: comprobación en servidor, vista propia y turno sal
     [dates[3]],
   );
   assert.equal(view.election.early.choices.length, 1);
-  assert.equal(view.election.early.choices[0].cancellable, false, 'firme para su titular');
+  assert.equal(view.election.early.choices[0].cancellable, true);
   assert.equal(view.election.turn.memberId, a.id, 'el turno ordinario no cambia');
   assert.ok(view.election.timeline.some((item) => item.anticipated));
   // A may still take the same cycle; then B's slot is skipped.
@@ -163,12 +163,11 @@ test('elegir por adelantado: comprobación en servidor, vista propia y turno sal
   assert.equal(view.election.turn.memberId, c.id);
 });
 
-test('la anticipada es firme para su titular; solo el responsable la anula, antes o después de su turno', async () => {
+test('deshacer la anticipada: el titular antes de su turno, después solo el responsable', async () => {
   const { s, person, run, cid, a, b, dates } = await election();
   let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
   const awardId = view.election.early.choices[0].awardId;
-  await assert.rejects(run(person, { action: 'early_cancel', awardId }), /firme/);
-  view = await run(s, { action: 'early_cancel', awardId });
+  view = await run(person, { action: 'early_cancel', awardId });
   assert.equal(view.awards.length, 0);
   assert.equal(view.requests.length, 0);
   assert.equal((await person.view(cid)).election.early.choices.length, 0);
@@ -176,7 +175,7 @@ test('la anticipada es firme para su titular; solo el responsable la anula, ante
   view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
   const second = view.election.early.choices[0].awardId;
   await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
-  await assert.rejects(run(person, { action: 'early_cancel', awardId: second }), /firme/);
+  await assert.rejects(run(person, { action: 'early_cancel', awardId: second }), /responsable/);
   view = await run(s, { action: 'early_cancel', awardId: second });
   assert.ok(!view.awards.some((x) => x.member_id === b.id));
   await assert.rejects(run(s, { action: 'early_cancel', awardId: second }), /ya no existe/);
@@ -248,7 +247,7 @@ test('elección anticipada manual consume una lista no persistente', async () =>
 test('cancelar y repetir una anticipada no duplica su historial', async () => {
   const { s, person, run, b, dates } = await election();
   let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
-  await run(s, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
+  await run(person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
   view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
   assert.equal(view.election.timeline.filter((e) => e.choices.some((c) => c.member_id === b.id)).length, 1);
 });
@@ -297,10 +296,10 @@ test('aviso automático anticipado usa la ronda adjudicada', async () => {
 });
 
 test('anular antes del turno conserva el reloj del predecesor y no pausa sus listas', async () => {
-  const { s, person, run, b, dates } = await election();
+  const { person, run, b, dates } = await election();
   let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
   const clock = view.election.state.turnSince;
-  view = await run(s, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
+  view = await run(person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
   assert.deepEqual(view.election.state.turnSince, clock);
   assert.notEqual(view.election.state.automaticPaused, true);
 });
@@ -384,7 +383,7 @@ test('la anulación registra en su auditoría qué lista pasó a manual', async 
   const g = await election();
   await g.run(g.s, { action: 'preferences', memberId: g.b.id, dates: [g.dates[6]], mode: 'wait', waitMinutes: 30 });
   let view = await g.run(g.person, { action: 'early_choose', memberId: g.b.id, date: g.dates[4] });
-  view = await g.run(g.s, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
+  view = await g.run(g.person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
   const own = await g.repo.all("SELECT after_json FROM audit WHERE action='early_cancel' ORDER BY rowid");
   assert.equal(JSON.parse(own.at(-1).after_json).manualized, null);
   view = await g.run(g.s, { action: 'election_undo', historyId: (await g.s.view(g.cid)).election.undo });
