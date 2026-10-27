@@ -1,29 +1,11 @@
 import {
-  advanceAutomatic,
-  choose,
-  chooseJoint,
   currentTurn,
-  defer,
-  consumePreferences,
   choiceIssues,
   preferredChoice,
-  validateOrder,
-  validateElectionState,
   upgradeElectionState,
   sequenceFor,
   entitlementFor,
-  resolveTie,
-  drawTie,
-  registerJointAgreement,
-  cancelJointAgreement,
-  ELECTION_POLICY_VERSION,
-  PREFERENCE_COLUMNS,
-  PREFERENCE_MODES,
-  MAX_WAIT_MINUTES,
-  preferenceRow,
   preferenceFromRow,
-  cleanLabels,
-  MAX_LABEL_LENGTH,
   stampTurn,
   automaticAt,
   automaticChain,
@@ -32,15 +14,14 @@ import {
   roundQueue,
   type ElectionState,
   type Preference,
-  type PreferenceMode,
   type ElectionContext,
 } from '../domain/election.ts';
-import { calculate, cycleTable } from '../domain/vacations.ts';
+import { calculate } from '../domain/vacations.ts';
 import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domain/occupancy.ts';
 import { occupancyFor, type OccupancyRules, type PolicyAward } from '../domain/policy.ts';
 import { canWrite, requireSuper, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
-import { capture, electionStateStatement, restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
+import { capture, electionStateStatement } from './campaign-snapshot.ts';
 export { electionStateStatement } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { buildElectionTimeline, publicElectionTimeline, type PublicElectionTimelineItem } from './election-timeline.ts';
@@ -49,6 +30,12 @@ import { historicalAvailability } from './availability-history.ts';
 import { AuditContext, auditAfter, eventsFor } from './audit-context.ts';
 import { type AuditAction } from '../domain/events.ts';
 import { turnsBefore } from '../domain/sequence.ts';
+import {
+  electionCommandFor,
+  electionPreconditionError,
+  resultDates,
+  type ElectionCommandContext,
+} from './election-commands.ts';
 import { projectElectionViewForManager, projectElectionViewForController } from './projections.ts';
 
 type Host = {
@@ -73,32 +60,6 @@ function undoSummary(row: any) {
     at: (row.created_at ?? null) as string | null,
     choices: (after.choices ?? []).map((c: any) => ({ memberId: c.member_id as string, date: c.cycle_date as string })),
   };
-}
-// A list's content as its owner saved it, ignoring the active flag that awards consume.
-function listContent(items: Preference[], id: string) {
-  const p = items.find((item) => item.member_id === id);
-  return p
-    ? JSON.stringify({
-        dates: p.dates,
-        automatic: p.automatic !== false,
-        persistent: p.persistent === true,
-        mode: p.mode ?? 'immediate',
-        waitMinutes: p.waitMinutes ?? 0,
-        labels: p.labels ?? {},
-      })
-    : null;
-}
-// Lists for an undo/redo snapshot: the snapshot's copy when the content is unchanged
-// (or it is the list being restored), otherwise the current list.
-function restoredPreferences(prior: Preference[], current: Preference[], restoredMember: string | null): Preference[] {
-  const ids = new Set([...prior, ...current].map((p) => p.member_id));
-  return [...ids].flatMap((id) => {
-    const keep =
-      id === restoredMember || listContent(prior, id) === listContent(current, id)
-        ? prior.find((p) => p.member_id === id)
-        : current.find((p) => p.member_id === id);
-    return keep ? [keep] : [];
-  });
 }
 export class ElectionService {
   constructor(
@@ -635,271 +596,46 @@ export class ElectionService {
     const reconstruction = await this.reconstruction().read(cid);
     if (reconstruction && reconstruction.status !== 'completed')
       throw new ApiError('Elección congelada: termina la reconstrucción administrativa antes de continuar', 409);
-    const ops = cas(cid, c.version),
-      snapshot = capture(d, raw);
-    let state = raw.state,
-      preferences = raw.preferences,
-      choices: any[] = [],
-      recordUndo = true;
-    const authorizeMember = (memberId: string) => {
-      if (!d.members.some((m: any) => m.id === memberId)) throw new ApiError('Controlador ajeno al equipo');
-      if (!manage && memberId !== mine)
-        throw new ApiError('Solo puedes modificar tus propias preferencias o elegir en tu turno', 403);
+    const command = electionCommandFor(action);
+    if (!command) throw new ApiError('Operación de elección no válida');
+    const failed = electionPreconditionError(command, { live: c.scope_key === 'live', manage, state: raw.state });
+    if (failed) throw new ApiError(failed.message, failed.status);
+    const x: ElectionCommandContext = {
+      service: this,
+      repo: this.repo,
+      actor: this.actor,
+      cid,
+      body,
+      d,
+      c,
+      ctx,
+      manage,
+      mine,
+      raw,
+      now,
+      ops: cas(cid, c.version),
+      state: raw.state,
+      preferences: raw.preferences,
+      choices: [],
+      recordUndo: true,
+      authorizeMember: (memberId: string) => {
+        if (!d.members.some((m: any) => m.id === memberId)) throw new ApiError('Controlador ajeno al equipo');
+        if (!manage && memberId !== mine)
+          throw new ApiError('Solo puedes modificar tus propias preferencias o elegir en tu turno', 403);
+      },
     };
+    const snapshot = capture(d, raw);
     try {
-      if (action === 'preferences') {
-        authorizeMember(body.memberId);
-        if (!(await this.preferenceMemberIds(d, mine)).includes(body.memberId))
-          throw new ApiError(
-            'Las preferencias de un controlador con cuenta vinculada solo pueden modificarlas su titular o un superadministrador',
-            403,
-          );
-        const dates = body.dates,
-          validDates = new Set(resultDates(ctx));
-        if (
-          !Array.isArray(dates) ||
-          dates.length > 100 ||
-          dates.some((date) => typeof date !== 'string' || !validDates.has(date)) ||
-          new Set(dates).size !== dates.length ||
-          (body.persistent !== undefined && typeof body.persistent !== 'boolean')
-        )
-          throw new ApiError('Lista de preferencias no válida: usa ciclos del calendario, sin duplicados');
-        // Older clients send no mode: their lists keep applying at once.
-        const mode: PreferenceMode = body.mode ?? 'immediate',
-          waitMinutes = mode === 'wait' ? body.waitMinutes : 0;
-        if (
-          !PREFERENCE_MODES.includes(mode) ||
-          !Number.isInteger(waitMinutes) ||
-          waitMinutes < 0 ||
-          waitMinutes > MAX_WAIT_MINUTES ||
-          (mode === 'wait' && waitMinutes < 1)
-        )
-          throw new ApiError('Indica un plazo de espera entre 1 minuto y 24 horas');
-        const persistent = body.persistent === true,
-          active = dates.length > 0;
-        const labels = cleanLabels(body.labels, dates);
-        if (!labels)
-          throw new ApiError('Los nombres de los ciclos deben tener como mucho ' + MAX_LABEL_LENGTH + ' caracteres');
-        const saved: Preference = {
-          member_id: body.memberId,
-          dates,
-          automatic: true,
-          persistent,
-          active,
-          mode,
-          waitMinutes,
-          labels,
-        };
-        preferences = [...preferences.filter((p) => p.member_id !== body.memberId), saved];
-        ops.push({
-          sql: `INSERT INTO preferences(${PREFERENCE_COLUMNS.join(',')}) VALUES(${PREFERENCE_COLUMNS.map(() => '?').join(',')}) ON CONFLICT(member_id) DO UPDATE SET dates_json=excluded.dates_json,automatic=excluded.automatic,persistent=excluded.persistent,active=excluded.active,mode=excluded.mode,wait_minutes=excluded.wait_minutes,labels_json=excluded.labels_json`,
-          args: preferenceRow(saved, cid),
-        });
-      } else if (action === 'start') {
-        if (!manage) throw new ApiError('Solo el responsable puede activar esta elección', 403);
-        if (d.config.cyclesPerPerson < 1 || d.config.cyclesPerPerson > 6)
-          throw new ApiError('La elección admite entre uno y seis ciclos por persona');
-        if (state && (d.awards.length || state.tieResolutions?.length))
-          throw new ApiError('No cambies el orden después de comenzar a elegir');
-        if (body.rulesConfirmed !== true || typeof body.allowDeferral !== 'boolean')
-          throw new ApiError('Confirma las reglas de elección');
-        const scores = d.config.previousScores,
-          source = d.config.previousScoresSource;
-        if (!scores || d.members.some((m: any) => !Number.isFinite(scores[m.code])) || !d.members.length)
-          throw new ApiError('Faltan puntuaciones anteriores: complétalas en Administración antes de activar');
-        if (typeof source !== 'string' || source.trim().length < 10)
-          throw new ApiError('Indica y guarda el origen de las puntuaciones anteriores');
-        const order = [...d.members].sort((a: any, b: any) => scores[a.code] - scores[b.code]).map((m: any) => m.id);
-        const groups = new Map<number, string[]>();
-        for (const id of order) {
-          const m = d.members.find((candidate: any) => candidate.id === id),
-            score = scores[m.code];
-          groups.set(score, [...(groups.get(score) ?? []), id]);
-        }
-        const tieGroups = [...groups.values()].filter((group) => group.length > 1);
-        const rules = occupancyFor(ctx.year);
-        if (rules) {
-          const feasibility = rules.canComplete(rules.state(ctx, ctx.members, ctx.awards));
-          if (feasibility.status !== 'possible')
-            throw new ApiError(
-              'La campaña no tiene completación validada conforme a ' +
-                rules.authority +
-                ': ' +
-                (feasibility.reason ?? feasibility.status),
-            );
-        }
-        state = {
-          status: 'active',
-          order,
-          cursor: 0,
-          credits: {},
-          source: source.trim(),
-          allowDeferral: body.allowDeferral,
-          policyVersion: ELECTION_POLICY_VERSION,
-          tieGroups,
-          pendingTieGroups: structuredClone(tieGroups),
-          tieResolutions: [],
-          jointGroups: [],
-          jointAgreements: [],
-        };
-        validateElectionState(state, d.members);
-      } else if (action === 'resolve_tie') {
-        if (!manage) throw new ApiError('Solo el responsable puede registrar el sorteo', 403);
-        if (!state) throw new ApiError('No hay una elección configurada');
-        const group =
-          body.groupMemberIds === undefined
-            ? currentTurn(ctx, state).pendingTie
-            : Array.isArray(body.groupMemberIds)
-              ? (state.pendingTieGroups ?? []).find(
-                  (pending: string[]) =>
-                    pending.length === body.groupMemberIds.length &&
-                    pending.every((id) => body.groupMemberIds.includes(id)),
-                )
-              : undefined;
-        if (!group) throw new ApiError('No hay un empate pendiente para el grupo indicado');
-        if (!['random', 'external'].includes(body.method)) throw new ApiError('Método de sorteo no válido');
-        state = resolveTie(
-          ctx,
-          state,
-          body.method === 'random' ? drawTie(group) : body.order,
-          body.method,
-          this.actor.id!,
-          new Date().toISOString(),
-          body.groupMemberIds,
-        );
-        // The result must be visible and reviewable before an automatic choice uses it.
-      } else if (action === 'register_joint' || action === 'cancel_joint') {
-        if (!manage) throw new ApiError('Solo el responsable puede gestionar acuerdos de elección conjunta', 403);
-        if (!state) throw new ApiError('No hay una elección activa');
-        const at = new Date().toISOString();
-        state =
-          action === 'register_joint'
-            ? registerJointAgreement(ctx, state, body.members, body.round, this.actor.id!, at)
-            : cancelJointAgreement(ctx, state, body.members, body.round, this.actor.id!, at);
-      } else if (action === 'choose' || action === 'choose_joint' || action === 'defer') {
-        if (action === 'choose_joint') {
-          if (!manage) throw new ApiError('El turno conjunto requiere la confirmación del responsable', 403);
-        } else authorizeMember(body.memberId);
-        if (!state) throw new ApiError('El administrador debe confirmar el orden de elección primero');
-        if (action === 'choose') {
-          if (!Array.isArray(body.dates) || body.dates.some((v: any) => typeof v !== 'string'))
-            throw new ApiError('Selección no válida');
-          const next = choose(ctx, state, body.memberId, body.dates);
-          state = next.state;
-          choices = next.choices;
-        } else if (action === 'choose_joint') {
-          const next = chooseJoint(ctx, state, body.entries);
-          state = next.state;
-          choices = next.choices;
-        } else state = defer(ctx, state, body.memberId);
-        if (action === 'choose' || action === 'choose_joint')
-          preferences = consumePreferences(
-            preferences,
-            action === 'choose' ? [body.memberId] : body.entries.map((entry: any) => entry.member_id),
-          );
-      } else if (action === 'pause' || action === 'resume') {
-        if (!manage) throw new ApiError('Solo el responsable puede pausar o reanudar la elección', 403);
-        if (!state) throw new ApiError('No hay una elección configurada');
-        state = { ...state, status: action === 'pause' ? 'paused' : 'active' };
-      } else if (action === 'resume_automatic') {
-        if (!manage) throw new ApiError('Solo el responsable del equipo puede reanudar los automatismos', 403);
-        if (!state || state.status !== 'active' || !state.automaticPaused)
-          throw new ApiError('No hay automatismos detenidos para reanudar');
-        state = { ...state, automaticPaused: false };
-      } else if (action === 'advance') {
-        if (!state) throw new ApiError('No hay una elección configurada');
-        // advanceAutomatic checks stored preferences and validates its chosen
-        // cycles; do not perform an identical, expensive solver search beforehand.
-        // Each successful advance still commits EXACTLY ONE undoable turn.
-        const next = advanceAutomatic(ctx, state, preferences, 1, now);
-        if (!next.choices.length) return { changed: false };
-        state = next.state;
-        preferences = next.preferences;
-        choices = next.choices;
-      } else if (action === 'link_account') {
-        if (c.scope_key !== 'live') throw new ApiError('Vincula las cuentas desde una campaña real');
-        if (!manage) throw new ApiError('Solo el responsable puede vincular cuentas', 403);
-        authorizeMember(body.memberId);
-        recordUndo = false;
-        const member = d.members.find((m: any) => m.id === body.memberId),
-          existing = (
-            await this.repo.all('SELECT * FROM controller_accounts WHERE person_id=?', [member.person_id])
-          )[0];
-        if ((existing?.version ?? 0) !== body.accountVersion)
-          throw new ApiError('La vinculación cambió. Recarga antes de guardar.', 409);
-        const subject = String(body.subject ?? '').trim(),
-          provider = body.provider ?? 'chatgpt';
-        const email = subject.toLowerCase();
-        const isEmail =
-          provider === 'chatgpt' &&
-          /^[^\s@:\x00-\x1f]+@[^\s@:\x00-\x1f]+\.[^\s@:\x00-\x1f]+$/.test(email) &&
-          email.length <= 250;
-        const isFirebaseUid =
-          provider === 'firebase' && subject.length <= 250 && subject.length > 0 && !/[\s\r\n:]/.test(subject);
-        if ((subject && !isEmail && !isFirebaseUid) || !['chatgpt', 'firebase'].includes(provider))
-          throw new ApiError('Introduce un correo válido de ChatGPT Sites o un UID de Firebase');
-        if (
-          c.scope_key === 'live' &&
-          this.actor.role !== 'superadmin' &&
-          existing?.principal_key &&
-          existing.principal_key !== (provider === 'chatgpt' ? 'chatgpt-email:' + email : 'firebase:' + subject)
-        )
-          throw new ApiError('Solo el superadministrador puede sustituir una cuenta ya vinculada', 403);
-        if (subject)
-          ops.push({
-            sql: 'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO UPDATE SET principal_key=excluded.principal_key,version=controller_accounts.version+1',
-            args: [member.person_id, provider === 'chatgpt' ? 'chatgpt-email:' + email : 'firebase:' + subject],
-          });
-        else ops.push({ sql: 'DELETE FROM controller_accounts WHERE person_id=?', args: [member.person_id] });
-      } else if (action === 'election_undo' || action === 'election_redo') {
-        if (!manage) throw new ApiError('Solo el responsable del equipo puede deshacer o rehacer elecciones', 403);
-        const history = await this.managerHistory(cid, d, mine);
-        const entry = action === 'election_undo' ? history.undo : history.redo;
-        const privateDenied =
-          'Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas';
-        if (
-          action === 'election_undo' &&
-          entry?.id !== body.historyId &&
-          history.done.some((e) => e.id === body.historyId && history.isPrivate(e))
-        )
-          throw new ApiError(privateDenied, 403);
-        if (!entry || entry.id !== body.historyId)
-          throw new ApiError('El cambio ya no está disponible para deshacer o rehacer', 409);
-        const prior = validateSnapshot(JSON.parse(entry.before_json), 'election-undo-v1');
-        if (!prior) throw new ApiError('La copia para deshacer no es válida', 409);
-        // Restore the undone list edit itself and list flags (active) consumed by an
-        // undone award; every other list keeps what its owner has saved since.
-        const original = action === 'election_undo' ? entry : history.redoOriginal;
-        const next = restoredPreferences(
-          prior.preferences ?? [],
-          preferences,
-          original?.action === 'preferences' ? auditAfter(original)?.memberId : null,
-        );
-        // Linked accounts' private lists are protected.
-        if (c.scope_key === 'live' && this.actor.role !== 'superadmin') {
-          const linked = await this.repo.all(
-            'SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',
-            [cid],
-          );
-          if (linked.some((m: any) => m.id !== mine && listContent(next, m.id) !== listContent(preferences, m.id)))
-            throw new ApiError(privateDenied, 403);
-        }
-        // The undone awards take their early-choice entries with them.
-        state = prior.state ?? null;
-        preferences = next;
-        // Undo must leave the recovered turn editable, never automatically re-award it.
-        // Redo restores the prior snapshot exactly (including the old pause state).
-        if (action === 'election_undo' && state) state = { ...state, automaticPaused: true };
-        ops.push(
-          ...restoreStatements(cid, { awards: prior.awards, requests: prior.requests ?? d.requests, preferences }),
-        );
-      } else throw new ApiError('Operación de elección no válida');
+      const outcome = await command.execute(x);
+      if (outcome && outcome.changed === false) return outcome;
     } catch (e: any) {
       if (e.status) throw e;
       throw new ApiError(e.message);
     }
+    const { ops, choices, recordUndo, preferences } = x;
+    let state = x.state;
     // Save preference consumption atomically with awards, requests and cursor.
-    if (!['election_undo', 'election_redo'].includes(action))
+    if (!command.restoresSnapshot)
       for (const p of preferences) {
         const prior = raw.preferences.find((previous) => previous.member_id === p.member_id);
         if (prior && prior.active !== p.active)
@@ -909,14 +645,8 @@ export class ElectionService {
           });
       }
     // Undo and redo restore their snapshot exactly; undo also pauses automatic choices, and resuming restarts the clock.
-    if (!['election_undo', 'election_redo'].includes(action))
-      state = stampTurnAfter(
-        ctx,
-        state,
-        choices,
-        new Date(now).toISOString(),
-        ['start', 'resume', 'resume_automatic'].includes(action),
-      );
+    if (!command.restoresSnapshot)
+      state = stampTurnAfter(ctx, state, choices, new Date(now).toISOString(), !!command.restartsClock);
     ops.push(electionStateStatement(cid, state));
     ops.push(
       ...insertRows(
@@ -989,15 +719,7 @@ export class ElectionService {
         version: c.version + 1,
         choices,
         memberId: body.memberId ?? null,
-        ...(action === 'election_undo'
-          ? { undoTargetId: body.historyId }
-          : action === 'election_redo'
-            ? { redoTargetId: body.historyId }
-            : {}),
-        ...(action === 'resolve_tie' ? { resolution: state?.tieResolutions?.at(-1) } : {}),
-        ...(['register_joint', 'cancel_joint'].includes(action)
-          ? { joint: { round: body.round, members: body.members, actor: this.actor.id, at: new Date().toISOString() } }
-          : {}),
+        ...command.audited?.(x),
       }),
     );
     await this.host.commit(ops);
@@ -1023,7 +745,4 @@ export function stampTurnAfter(
     /* An undo restores other awards; its cursor is already normalized. */
   }
   return stampTurn(state, cursor, at, restart);
-}
-function resultDates(ctx: ElectionContext) {
-  return cycleTable(ctx.year, ctx.team, ctx.config, [], []).map((c) => c.date);
 }
