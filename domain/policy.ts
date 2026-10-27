@@ -34,12 +34,15 @@ import { hr2027FourthExcluded } from './hr-2027.ts';
 export type * from './occupancy.ts';
 
 export type VacationPolicy = {
+  /** Text displayed at activation, provided by the same policy selected on the server. */
+  activationRulesName?: string;
   /** Cycles a member must take this year. */
   entitlement(config: Config, member: Pick<Member, 'code'>): number;
   occupancy: OccupancyRules | null;
 };
 
 const LEGACY: VacationPolicy = {
+  activationRulesName: 'Criterios Vacaciones 1.1 (2025)',
   entitlement: (config) => config.cyclesPerPerson,
   occupancy: null,
 };
@@ -115,6 +118,7 @@ const OCCUPANCY_2027: OccupancyRules = {
 };
 
 const LECS_2027: VacationPolicy = {
+  activationRulesName: 'la Guía de elección de vacaciones LECS 2027 v1.3',
   entitlement: cyclesEntitlement2027,
   occupancy: OCCUPANCY_2027,
 };

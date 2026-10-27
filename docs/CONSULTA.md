@@ -1,10 +1,10 @@
 # Consultar y elegir vacaciones
 
-Selecciona equipo (A–H) y ejercicio. La vista **Vacaciones** reúne calendario, ocupación, baremos y elecciones confirmadas.
+Selecciona equipo (A–H) y ejercicio. La vista **Vacaciones** reúne calendario, ocupación, baremos y elecciones confirmadas. Las secciones tienen enlaces directos: `/` (Vacaciones), `/ayuda` (Ayuda), `/estadisticas` (Estadísticas, requiere sesión) y `/administracion` (Administración, requiere permiso). En móvil aparecen como enlaces visibles debajo de la cabecera; las URL conservan el equipo, año y escenario al navegar.
 
 ## Consulta pública
 
-Sin iniciar sesión puedes ver lo que ya está asignado, también durante una elección en curso. Pulsa un día para ver el ciclo, su baremo y quién lo tiene. Usa **Ver vacaciones de** para resaltar las vacaciones de una persona y consultar sus ciclos y baremo acumulado. Las listas personales, nombres completos, antigüedades y simulaciones son privados.
+Sin iniciar sesión puedes ver lo que ya está asignado, también durante una elección en curso. Pulsa un día para ver el ciclo, su baremo y quién lo tiene. Usa la vista **Por CTA** para consultar los ciclos adjudicados y el baremo de cada controlador. Esta vista es una tabla/listado por persona: no resalta sus días en el calendario. Las listas personales, nombres completos, antigüedades y simulaciones son privados.
 
 Los puntos mostrados son la suma del baremo de los ciclos elegidos, sin ponderar. El remanente oficial y la proyección al año siguiente esperan el documento de normas; esta suma no fija el orden.
 

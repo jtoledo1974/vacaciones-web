@@ -3,6 +3,7 @@ import { calculate } from '../domain/vacations.ts';
 import { occupancyFor, campaignOf } from '../domain/policy.ts';
 import { captureVacations, restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
+import { auditAfter, auditBefore, eventById, type AuditRow } from './audit-context.ts';
 import { ApiError } from './errors.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { validateRoster, rowStatements } from './roster.ts';
@@ -86,11 +87,12 @@ export type Command = {
   audited?: (ctx: CommandContext, after: any) => any;
 };
 type Conditions = { electionActive: boolean; closed: boolean; live: boolean; renameOnly: boolean };
+const PAUSE_FIRST = 'Pausa la elección antes de corregir datos o cambiar la plantilla';
 /** The common preconditions, in the order the pipeline applies them. Null when the action may run. */
 export function preconditionError(command: Command | undefined, s: Conditions): string | null {
   const guard = command?.preconditions.activeElection ?? 'blocked';
   if (s.electionActive && !s.renameOnly && guard !== 'allowed' && !(guard === 'simulation' && !s.live))
-    return 'Pausa la elección antes de corregir datos o cambiar la plantilla';
+    return PAUSE_FIRST;
   if (s.closed && !command?.preconditions.closedCampaign)
     return 'La campaña está cerrada. Un superadministrador puede reabrirla.';
   if (command?.preconditions.liveOnly && !s.live) return command.preconditions.liveOnly;
@@ -106,6 +108,7 @@ async function executeResetVacations(ctx: CommandContext): Promise<CommandResult
   let after: any = body;
   if (body.confirmation !== `${c.team_id}-${c.year}`)
     throw new ApiError('Confirma el equipo y ejercicio antes de empezar de cero');
+  // All reset steps are batched atomically, including linked controllers' lists.
   ops.push(...restoreStatements(cid, { awards: [], requests: [] }));
   after = { requests: 0, awards: 0 };
   return { before, after };
@@ -125,9 +128,41 @@ const executeUndoVacations =
     // The target is a prior committed snapshot protected by the campaign
     // version CAS. Rechecking global completion here is unnecessary and
     // can make undo unusably slow; new awards are still validated normally.
-    // Undo/redo may restore a full preference snapshot. Do not let a delegated
-    // administrator overwrite linked controllers' preferences through this route.
-    if (c.scope_key === 'live' && actor.role !== 'superadmin' && restored.preferences) {
+    // A reset and its undo swap whole campaigns, linked controllers' private
+    // lists included. They apply only over exactly what the previous step left
+    // (nothing after the reset, the pre-reset campaign after its undo), for
+    // every actor, so they can never erase anything written in between.
+    // Undo and redo name the entry they reverse: follow them back to the change.
+    let root: AuditRow | null = entry;
+    for (let i = 0; i < 30 && (root?.action === 'undo_vacations' || root?.action === 'redo_vacations'); i++) {
+      const undone: unknown = auditAfter(root!)?.undone;
+      root = typeof undone === 'string' ? await eventById(repo, cid, undone) : null;
+    }
+    const resetStep = root?.action === 'reset_vacations';
+    // Like the reset itself, its undo and redo may run during an active
+    // election (undoing a reset restores it active); any other undo may not.
+    if (!resetStep && election.state?.status === 'active') throw new ApiError(PAUSE_FIRST);
+    // A reset or a redo leaves the campaign empty; an undo leaves the pre-reset campaign.
+    const expected =
+      entry.action === 'undo_vacations'
+        ? root && validateSnapshot(auditBefore(root), 'vacations-undo-v1')
+        : { awards: [], requests: [], preferences: [], state: null };
+    if (resetStep) {
+      const rows = <T extends object>(items: readonly T[] | undefined, key: keyof T) =>
+        JSON.stringify([...(items ?? [])].sort((a, b) => String(a[key]).localeCompare(String(b[key]))));
+      if (
+        rows(d.awards, 'id') !== rows(expected?.awards, 'id') ||
+        rows(d.requests, 'id') !== rows(expected?.requests, 'id') ||
+        rows(election.preferences, 'member_id') !== rows(expected?.preferences, 'member_id') ||
+        JSON.stringify(election.state ?? null) !== JSON.stringify(expected?.state ?? null)
+      )
+        throw new ApiError('No se puede deshacer el reinicio: la elección ya contiene datos nuevos', 409);
+    }
+    // Any team administrator may undo or redo a reset: the check above makes
+    // it restore exactly the campaign that existed. Other undo/redo may restore
+    // a full preference snapshot, so a delegated administrator must not use it
+    // to overwrite linked controllers' preferences.
+    if (!resetStep && c.scope_key === 'live' && actor.role !== 'superadmin' && restored.preferences) {
       const mine = await service.election().memberForAccount(d);
       const linked = await repo.all(
         'SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?',
@@ -654,17 +689,14 @@ const sameSeniority = (d: CommandContext['d'], r: any) => {
 };
 const editing = { activeElection: 'blocked', closedCampaign: false } as const;
 const vacations = { preconditions: editing, vacationsUndo: true, election: 'reset' } as const;
-function resetVacationsElection({ c, cid, actor, ops }: CommandContext) {
-  const delegated = c.scope_key === 'live' && actor.role !== 'superadmin';
-  ops.push(
-    {
-      sql: delegated
-        ? 'DELETE FROM preferences WHERE campaign_id=? AND member_id NOT IN (SELECT m.id FROM campaign_members m JOIN controller_accounts a ON a.person_id=m.person_id WHERE m.campaign_id=?)'
-        : 'DELETE FROM preferences WHERE campaign_id=?',
-      args: delegated ? [cid, cid] : [cid],
-    },
-    electionStateStatement(cid, null),
-  );
+const resetSteps = {
+  preconditions: { activeElection: 'allowed', closedCampaign: false },
+  vacationsUndo: true,
+  election: 'keep',
+} as const;
+function resetVacationsElection({ cid, ops }: CommandContext) {
+  // A reset clears every preference, including those owned by linked accounts.
+  ops.push({ sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] }, electionStateStatement(cid, null));
 }
 const availabilityImpact =
   (action: 'award' | 'delete_award') =>
@@ -683,13 +715,14 @@ const availabilityImpact =
 
 export const COMMANDS: Record<string, Command> = {
   reset_vacations: {
-    preconditions: { activeElection: 'simulation', closedCampaign: false },
+    preconditions: { activeElection: 'allowed', closedCampaign: false },
     vacationsUndo: true,
     election: resetVacationsElection,
     execute: executeResetVacations,
   },
-  undo_vacations: { ...vacations, election: 'keep', execute: executeUndoVacations('undo_vacations') },
-  redo_vacations: { ...vacations, election: 'keep', execute: executeUndoVacations('redo_vacations') },
+  // The active-election check runs in execute: only steps of a reset may run while active.
+  undo_vacations: { ...resetSteps, execute: executeUndoVacations('undo_vacations') },
+  redo_vacations: { ...resetSteps, execute: executeUndoVacations('redo_vacations') },
   config: { preconditions: editing, election: 'reset', execute: executeConfig },
   request: { ...vacations, execute: executeRequest },
   delete_request: { ...vacations, execute: executeDeleteRequest('delete_request') },

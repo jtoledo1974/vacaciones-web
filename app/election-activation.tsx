@@ -15,6 +15,7 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
     open = data.campaign.status === 'open',
     frozen = !!data.election.reconstruction?.active;
   const complete = hasScores && sourceValid && cyclesValid && open && !frozen;
+  const rulesName = data.election.activationRulesName ?? 'las normas vigentes del ejercicio';
   const ranked = hasScores ? [...data.members].sort((a: any, b: any) => scores[a.code] - scores[b.code]) : [];
   const tieCounts = new Map<number, number>();
   if (hasScores) for (const m of ranked) tieCounts.set(scores[m.code], (tieCounts.get(scores[m.code]) ?? 0) + 1);
@@ -225,8 +226,8 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
           dos aplazamientos
         </label>
         <label>
-          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> Confirmo
-          Criterios Vacaciones 1.1 (2025) y las puntuaciones
+          <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> Confirmo{' '}
+          {rulesName} y las puntuaciones
         </label>
       </div>
       <button

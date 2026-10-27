@@ -118,6 +118,7 @@ const viewShape: Shape = {
   availabilityWarnings: { '*': [problem] },
   cycleAvailability: snapshot,
   occupancyPolicyVersion: scalar,
+  activationRulesName: scalar,
   policyPresentation: {
     periodNames: [scalar],
     permits: { '*': { name: scalar, suffix: scalar } },
@@ -228,6 +229,7 @@ function fixture(): ElectionProjectionData {
     availabilityWarnings: {},
     cycleAvailability: null,
     occupancyPolicyVersion: null,
+    activationRulesName: 'Criterios Vacaciones 1.1 (2025)',
     policyPresentation: null,
     points: [{ member_id: 'alice', cycles: 0, points: 0 }],
     accounts: [{ principal_key: 'identidad-privada' }],

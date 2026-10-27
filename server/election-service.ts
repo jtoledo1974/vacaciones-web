@@ -18,7 +18,7 @@ import {
 } from '../domain/election.ts';
 import { calculate } from '../domain/vacations.ts';
 import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domain/occupancy.ts';
-import { occupancyFor, type OccupancyRules, type PolicyAward } from '../domain/policy.ts';
+import { occupancyFor, policyFor, type OccupancyRules, type PolicyAward } from '../domain/policy.ts';
 import { canWrite, requireSuper, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { capture, electionStateStatement } from './campaign-snapshot.ts';
@@ -669,6 +669,7 @@ export class ElectionService {
       availabilityWarnings,
       cycleAvailability,
       occupancyPolicyVersion: rules?.version ?? null,
+      activationRulesName: policyFor(d.campaign.year).activationRulesName ?? 'las normas vigentes de este ejercicio',
       policyPresentation: rules?.presentation ?? null,
       points,
       accounts,

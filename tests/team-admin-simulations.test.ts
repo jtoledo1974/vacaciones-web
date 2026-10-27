@@ -153,7 +153,7 @@ test('delegated grants cannot remove permissions in other teams', async () => {
   assert.ok(listing.grants.every((g: any) => g.team_id === 'B'));
 });
 
-test('a team administrator cannot erase private real preferences through reset or roster import', async () => {
+test('team administrator reset removes linked preferences but roster import respects privacy', async () => {
   const { global, team, live } = await setup();
   let d = await global.view(live.id),
     member = d.members[0],
@@ -170,8 +170,26 @@ test('a team administrator cannot erase private real preferences through reset o
     .election()
     .mutate(live.id, { action: 'preferences', memberId: member.id, dates: [date], version: d.campaign.version });
   d = await global.view(live.id);
-  await team.mutate(live.id, { action: 'reset_vacations', confirmation: 'B-2026', version: d.campaign.version });
+  const before = { version: d.campaign.version, awards: d.awards, state: d.election.state };
+  const cleared = await team.mutate(live.id, {
+    action: 'reset_vacations',
+    confirmation: 'B-2026',
+    version: d.campaign.version,
+  });
   d = await global.view(live.id);
+  assert.equal(d.campaign.version, before.version + 1);
+  assert.deepEqual(d.awards, []);
+  assert.deepEqual(d.requests, []);
+  assert.deepEqual(d.election.preferences, [], 'todas las preferencias vinculadas se borran también');
+  assert.equal(d.election.state, null);
+  await team.mutate(live.id, {
+    action: 'undo_vacations',
+    undoId: cleared.undo.id,
+    version: d.campaign.version,
+  });
+  d = await global.view(live.id);
+  assert.deepEqual(d.awards, before.awards);
+  assert.deepEqual(d.election.state, before.state);
   assert.deepEqual(d.election.preferences.find((p: any) => p.member_id === member.id)?.dates, [date]);
   const roster = {
     format: 'vacaciones-roster-v1',
@@ -185,6 +203,105 @@ test('a team administrator cannot erase private real preferences through reset o
     /preferencias privadas/,
   );
   assert.equal((await global.view(live.id)).members.length, d.members.length);
+});
+
+test('un reinicio no se puede deshacer sobre preferencias nuevas de cuentas vinculadas', async () => {
+  const { global, team, live } = await setup();
+  let d = await global.view(live.id);
+  const member = d.members[0];
+  const date = d.result.cycles[0].date;
+  await global.election().mutate(live.id, {
+    action: 'link_account',
+    memberId: member.id,
+    subject: 'protected@example.test',
+    accountVersion: 0,
+    version: d.campaign.version,
+  });
+  d = await global.view(live.id);
+  const reset = await team.mutate(live.id, {
+    action: 'reset_vacations',
+    confirmation: 'B-2026',
+    version: d.campaign.version,
+  });
+  await global.election().mutate(live.id, {
+    action: 'preferences',
+    memberId: member.id,
+    dates: [date],
+    version: reset.campaign.version,
+  });
+  d = await global.view(live.id);
+  await assert.rejects(
+    team.mutate(live.id, {
+      action: 'undo_vacations',
+      undoId: reset.undo.id,
+      version: d.campaign.version,
+    }),
+    /El cambio ya no se puede deshacer/,
+  );
+  assert.deepEqual((await global.view(live.id)).election.preferences.find((p) => p.member_id === member.id)?.dates, [
+    date,
+  ]);
+});
+
+test('otro administrador rehace un reinicio deshecho solo si nadie ha guardado nada después', async () => {
+  const { global, team, live } = await setup();
+  let d = await global.view(live.id);
+  const [member, other] = d.members;
+  const [first, second] = d.result.cycles.map((c) => c.date);
+  await global.election().mutate(live.id, {
+    action: 'link_account',
+    memberId: member.id,
+    subject: 'redo@example.test',
+    accountVersion: 0,
+    version: d.campaign.version,
+  });
+  d = await global.view(live.id);
+  await global.election().mutate(live.id, {
+    action: 'preferences',
+    memberId: member.id,
+    dates: [first],
+    mode: 'wait',
+    waitMinutes: 30,
+    labels: { [first]: 'Verano' },
+    version: d.campaign.version,
+  });
+  d = await global.view(live.id);
+  const reset = await global.mutate(live.id, {
+    action: 'reset_vacations',
+    confirmation: 'B-2026',
+    version: d.campaign.version,
+  });
+  const undone = await team.mutate(live.id, {
+    action: 'undo_vacations',
+    undoId: reset.undo.id,
+    version: reset.campaign.version,
+  });
+  d = await global.view(live.id);
+  assert.deepEqual(d.election.preferences.find((p) => p.member_id === member.id)?.dates, [first]);
+  const redone = await team.mutate(live.id, {
+    action: 'redo_vacations',
+    undoId: d.redo.id,
+    version: d.campaign.version,
+  });
+  assert.deepEqual((await global.view(live.id)).election.preferences, []);
+  // Undo again, then a controller saves: redoing must not erase that list.
+  const view = await global.view(live.id);
+  await team.mutate(live.id, { action: 'undo_vacations', undoId: view.undo.id, version: view.campaign.version });
+  d = await global.view(live.id);
+  const pending = d.redo;
+  await global.election().mutate(live.id, {
+    action: 'preferences',
+    memberId: other.id,
+    dates: [second],
+    version: d.campaign.version,
+  });
+  d = await global.view(live.id);
+  await assert.rejects(
+    global.mutate(live.id, { action: 'redo_vacations', undoId: pending.id, version: d.campaign.version }),
+    /ya no se puede deshacer|datos nuevos/,
+  );
+  assert.equal((await global.view(live.id)).election.preferences.length, 2);
+  assert.ok(undone && redone);
 });
 
 test('team admin can activate, pause and resume an unstarted private simulation', async () => {

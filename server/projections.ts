@@ -186,6 +186,7 @@ export type ElectionProjectionData = {
   availabilityWarnings: Record<string, unknown>;
   cycleAvailability: AvailabilitySnapshot | null;
   occupancyPolicyVersion: string | null;
+  activationRulesName: string;
   policyPresentation: PolicyPresentation | null;
   points: { member_id: string; cycles: number; points: number }[];
   accounts: unknown[];
@@ -321,6 +322,7 @@ function sharedElectionFields(data: ElectionProjectionData) {
     ),
     cycleAvailability: publicAvailability(data.cycleAvailability),
     occupancyPolicyVersion: data.occupancyPolicyVersion,
+    activationRulesName: data.activationRulesName,
     policyPresentation: publicPresentation(data.policyPresentation),
     points: data.points.map(({ member_id, cycles, points }) => ({ member_id, cycles, points })),
     pendingAutomatic: data.pendingAutomatic,

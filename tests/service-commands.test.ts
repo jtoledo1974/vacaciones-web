@@ -36,7 +36,8 @@ test('tabla de comandos: acciones de administración conocidas y nada heredado d
 test('precondiciones por acción: elección activa, campaña cerrada, simulación o campaña real', () => {
   const expected = (action: string, s: typeof base) => {
     if (s.electionActive && !s.renameOnly) {
-      const allowed = ['calculate', 'close', ...(s.live ? [] : ['reset_vacations'])];
+      // Undo and redo decide in execute: only the steps of a reset may run while active.
+      const allowed = ['calculate', 'close', 'reset_vacations', 'undo_vacations', 'redo_vacations'];
       if (!allowed.includes(action)) return PAUSE;
     }
     if (s.closed && !['reopen', 'publish', 'close'].includes(action)) return CLOSED;
@@ -52,6 +53,78 @@ test('precondiciones por acción: elección activa, campaña cerrada, simulació
             assert.equal(preconditionError(commandFor(action), s), expected(action, s), JSON.stringify({ action, s }));
           }
   assert.equal(preconditionError(undefined, base), null, 'la acción desconocida falla después: Operación no válida');
+});
+
+test('reiniciar una elección real activa vacía adjudicaciones y cola y permite deshacer', async () => {
+  const repo = new SQLiteRepo(),
+    service = new Service(repo, { id: 'chatgpt:owner', role: 'superadmin', teams: [] });
+  await service.init();
+  const cid = (await service.list()).campaigns.find((c) => c.team_id === 'C')!.id;
+  let d = await service.view(cid);
+  d = await service.mutate(cid, {
+    action: 'config',
+    version: d.campaign.version,
+    config: {
+      ...d.config,
+      previousScores: Object.fromEntries(d.members.map((m, i) => [m.code, i])),
+      previousScoresSource: 'Puntuaciones verificadas para el reinicio de prueba',
+    },
+  });
+  await service.election().mutate(cid, {
+    action: 'start',
+    version: d.campaign.version,
+    order: d.members.map((m) => m.id),
+    source: 'Orden confirmado para prueba',
+    rulesConfirmed: true,
+    allowDeferral: true,
+  });
+  // Election commands answer { changed }, not the campaign view.
+  d = await service.view(cid);
+  await service.election().mutate(cid, {
+    action: 'choose',
+    version: d.campaign.version,
+    memberId: d.election.turn.memberId,
+    dates: [d.result.cycles[0].date],
+  });
+  d = await service.view(cid);
+  assert.equal(d.election.state.status, 'active');
+  assert.equal(d.awards.length, 1);
+  const state = d.election.state,
+    awards = d.awards,
+    requests = d.requests;
+  const cleared = await service.mutate(cid, {
+    action: 'reset_vacations',
+    version: d.campaign.version,
+    confirmation: 'C-2026',
+  });
+  assert.equal(cleared.election.state, null);
+  assert.deepEqual(cleared.requests, []);
+  assert.deepEqual(cleared.awards, []);
+  assert.ok(cleared.undo);
+  const restored = await service.mutate(cid, {
+    action: 'undo_vacations',
+    version: cleared.campaign.version,
+    undoId: cleared.undo.id,
+  });
+  assert.deepEqual(restored.awards, awards);
+  assert.deepEqual(restored.requests, requests);
+  assert.deepEqual(restored.election.state, state);
+  assert.equal(restored.election.state.status, 'active');
+  // Undoing the reset restored an active election; redoing it must not ask to pause.
+  const redone = await service.mutate(cid, {
+    action: 'redo_vacations',
+    version: restored.campaign.version,
+    undoId: restored.redo.id,
+  });
+  assert.equal(redone.election.state, null);
+  assert.deepEqual(redone.awards, []);
+  const again = await service.mutate(cid, {
+    action: 'undo_vacations',
+    version: redone.campaign.version,
+    undoId: redone.undo.id,
+  });
+  assert.deepEqual(again.awards, awards);
+  assert.equal(again.election.state.status, 'active');
 });
 
 test('solo member y bulk_members pueden ser renombrados que no pausan ni reinician la elección', () => {
@@ -137,10 +210,20 @@ test('la canalización aplica las precondiciones en la campaña real y en simula
   d = await s.view(cid);
   assert.equal(d.election.state.status, 'active');
   await assert.rejects(s.mutate(cid, request(d)), { message: PAUSE });
-  await assert.rejects(
-    s.mutate(cid, { action: 'reset_vacations', version: d.campaign.version, confirmation: 'C-2026' }),
-    { message: PAUSE },
-  );
+  const reset = await s.mutate(cid, {
+    action: 'reset_vacations',
+    version: d.campaign.version,
+    confirmation: 'C-2026',
+  });
+  assert.equal(reset.election.state, null, 'reiniciar una elección activa borra la cola sin pausa previa');
+  assert.equal(reset.awards.length, 0);
+  assert.ok(reset.undo, 'el reinicio se puede deshacer');
+  d = await s.mutate(cid, {
+    action: 'undo_vacations',
+    version: reset.campaign.version,
+    undoId: reset.undo.id,
+  });
+  assert.equal(d.election.state.status, 'active', 'deshacer restaura el estado activo anterior');
   const [m] = d.members;
   d = await s.mutate(cid, {
     action: 'member',

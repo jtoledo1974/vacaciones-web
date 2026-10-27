@@ -40,14 +40,15 @@ import {
   BarChart3,
 } from 'lucide-react';
 import CampaignStats from './campaign-stats';
+import { sectionFromPath, sectionPaths, type DashboardSection } from './section-routes';
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
 const api = (path: string, body?: any) => apiJson(path, body === undefined ? {} : { body });
-function Dashboard() {
+function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   const confirm = useConfirmation();
   const [index, setIndex] = useState<any>(null),
     [data, setData] = useState<any>(null),
     [cid, setCid] = useState(''),
-    [nav, setNav] = useState('eleccion'),
+    [nav, setNav] = useState<DashboardSection>(initialSection),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
     [busy, setBusy] = useState(false),
@@ -66,6 +67,22 @@ function Dashboard() {
   const [sessionLoaded, setSessionLoaded] = useState(false);
   const [publicConsultation, setPublicConsultation] = useState(false);
   const currentCid = useRef('');
+  const currentSection = useRef<DashboardSection>(initialSection);
+  const navigationIndex = useRef(0);
+  // Dashboard index of the entry a cancelled Back/Forward returns to, if any.
+  const revertingTo = useRef<number | null>(null);
+  const navigationPending = useRef(false);
+  const lastSectionUrl = useRef('');
+  const adminPrincipal = useRef('');
+  const currentIndex = useRef<Parameters<typeof resolveLandingCampaign>[0] | null>(null);
+  useEffect(() => {
+    // Tag dashboard-created history entries to restore the correct entry when
+    // a user rejects leaving an unsaved preference draft.
+    navigationIndex.current =
+      typeof history.state?.vacationNavigationIndex === 'number' ? history.state.vacationNavigationIndex : 0;
+    lastSectionUrl.current = location.href;
+    history.replaceState({ ...history.state, vacationNavigationIndex: navigationIndex.current }, '', location.href);
+  }, []);
   // Native <details> do not dismiss on Escape or outside interaction.
   useEffect(() => {
     const opened = () =>
@@ -97,6 +114,9 @@ function Dashboard() {
     currentCid.current = cid;
   }, [cid]);
   useEffect(() => {
+    currentIndex.current = index;
+  }, [index]);
+  useEffect(() => {
     isBusy.current = busy;
   }, [busy]);
   useEffect(() => {
@@ -108,9 +128,16 @@ function Dashboard() {
     const timer = setTimeout(() => setNotice(''), 6000);
     return () => clearTimeout(timer);
   }, [notice]);
+  function acceptIndex(i: { principal: { id: string | null; role: string } }) {
+    // Another account (or none, after signing out) must never see the previous one's users and grants.
+    const principal = i.principal.id + ':' + i.principal.role;
+    if (principal !== adminPrincipal.current) setAdmin(null);
+    adminPrincipal.current = principal;
+    setIndex(i);
+  }
   async function loadIndex() {
     const i = await api('index');
-    setIndex(i);
+    acceptIndex(i);
     return i;
   }
   function selectLanding(i: any) {
@@ -206,7 +233,8 @@ function Dashboard() {
         u.searchParams.set('year', d.campaign.year);
         if (d.campaign.scope_key === 'live') u.searchParams.delete('escenario');
         else u.searchParams.set('escenario', d.campaign.id);
-        history.replaceState({}, '', u);
+        history.replaceState(history.state, '', u);
+        lastSectionUrl.current = u.toString();
       })
       .catch((e) => {
         if (!cancelled) setError(e.message);
@@ -234,7 +262,7 @@ function Dashboard() {
             current ? api('campaign/' + current) : Promise.resolve(null),
           ]);
           if (!active) return;
-          setIndex(newIndex);
+          acceptIndex(newIndex);
           if (next && current === currentCid.current) {
             setData((previous: any) =>
               previous?.campaign.id === next.campaign.id && previous.campaign.version > next.campaign.version
@@ -428,6 +456,19 @@ function Dashboard() {
       yearChoice ??
       Math.max(2026, ...(index?.campaigns ?? []).filter((c: any) => c.scope_key === 'live').map((c: any) => c.year)),
     result = data?.result;
+  const sectionParams = new URLSearchParams();
+  // Use the selected campaign ID, never a previously loaded campaign while
+  // changing team/year/scenario (the request to load the new one is async).
+  const sectionCampaign = index?.campaigns?.find((campaign: any) => campaign.id === cid);
+  if (sectionCampaign) {
+    sectionParams.set('equipo', sectionCampaign.team_id);
+    sectionParams.set('year', String(sectionCampaign.year));
+    if (sectionCampaign.scope_key !== 'live') sectionParams.set('escenario', sectionCampaign.id);
+  } else if (yearChoice) {
+    sectionParams.set('year', String(yearChoice));
+  }
+  if (previewCode) sectionParams.set('verComo', previewCode);
+  const sectionQuery = sectionParams.size ? '?' + sectionParams.toString() : '';
   const links = [
     ['eleccion', 'Vacaciones', CalendarDays],
     ...(index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin'
@@ -437,19 +478,91 @@ function Dashboard() {
     ...(index?.principal.id ? [['estadisticas', 'Estadísticas', BarChart3] as const] : []),
     ['ayuda', 'Ayuda', BookOpen],
   ] as const;
-  async function go(n: string) {
-    if (n !== nav && !(await canNavigate())) return false;
+  async function go(n: DashboardSection, updateHistory = true) {
+    if (n !== currentSection.current && !(await canNavigate())) return false;
+    currentSection.current = n;
     setNav(n);
     setMenu(false);
-    if (n === 'administracion' && (index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin')) {
-      try {
-        setAdmin(await api('admin'));
-      } catch (e: any) {
-        setError(e.message);
-      }
+    if (updateHistory && location.pathname !== sectionPaths[n]) {
+      // Same query as the section links: the selected campaign and «verComo».
+      // Before any campaign is selected, keep whatever the address already says.
+      const url = new URL(sectionPaths[n] + (sectionQuery || location.search), location.href);
+      const nextIndex = navigationIndex.current + 1;
+      history.pushState({ ...history.state, vacationNavigationIndex: nextIndex }, '', url);
+      navigationIndex.current = nextIndex;
     }
+    lastSectionUrl.current = location.href;
+    setSigninUrl('/signin-with-chatgpt?return_to=' + encodeURIComponent(location.pathname + location.search));
     return true;
   }
+  const adminRole = index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin';
+  useEffect(() => {
+    // Direct /administracion loads and browser Back/Forward both use the same
+    // path as a sidebar click. Do not fetch from go(): it would miss initial loads.
+    // Refetch on each visit and after each change so recent activity stays current.
+    if (nav !== 'administracion' || !adminRole) return;
+    let cancelled = false;
+    api('admin')
+      .then((details) => {
+        if (!cancelled) setAdmin(details);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nav, adminRole, index?.principal.id, cid, data?.campaign.version]);
+  useEffect(() => {
+    const onPopState = async (event: PopStateEvent) => {
+      const nextIndex = event.state?.vacationNavigationIndex;
+      // Only the entry a cancelled navigation returned to is skipped; any other
+      // popstate (the revert never fired, or the user moved again) is handled.
+      const reverted = revertingTo.current;
+      revertingTo.current = null;
+      if (reverted !== null && reverted === nextIndex) return;
+      if (navigationPending.current) return;
+      navigationPending.current = true;
+      try {
+        const previous = currentSection.current;
+        const next = sectionFromPath(location.pathname);
+        const previousIndex = navigationIndex.current;
+        const allowed = (next === previous && location.href === lastSectionUrl.current) || (await canNavigate());
+        if (!allowed) {
+          if (typeof nextIndex === 'number' && nextIndex !== previousIndex) {
+            // Go back to the original entry, not replace the destination entry.
+            revertingTo.current = previousIndex;
+            history.go(previousIndex - nextIndex);
+          } else {
+            // Unknown browser entries have no dashboard index. Preserve the
+            // destination entry rather than overwriting it with replaceState.
+            history.pushState({ ...history.state, vacationNavigationIndex: previousIndex }, '', lastSectionUrl.current);
+          }
+        } else {
+          currentSection.current = next;
+          setNav(next);
+          setMenu(false);
+          if (typeof nextIndex === 'number') navigationIndex.current = nextIndex;
+          // The entry also names a team, year and scenario: show what loading that URL would.
+          if (currentIndex.current) {
+            const selection = resolveLandingCampaign(currentIndex.current, location.search);
+            setYearChoice(selection.year);
+            const target = selection.campaignId ?? '';
+            if (target !== currentCid.current) {
+              currentCid.current = target;
+              setCid(target);
+            }
+          }
+          lastSectionUrl.current = location.href;
+          setSigninUrl('/signin-with-chatgpt?return_to=' + encodeURIComponent(location.pathname + location.search));
+        }
+      } finally {
+        navigationPending.current = false;
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
   useEffect(() => {
     if (!jumpToActivation || nav !== 'administracion' || !canManage || data?.election?.state) return;
     const panel = document.getElementById('activation-panel') as HTMLDetailsElement | null;
@@ -572,6 +685,22 @@ function Dashboard() {
             }}
           />
         </header>
+        <nav className="section-navigation" aria-label="Ir a una sección">
+          {links.map(([key, label]) => (
+            <a
+              key={key}
+              href={sectionPaths[key] + sectionQuery}
+              aria-current={nav === key ? 'page' : undefined}
+              onClick={(event) => {
+                if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                event.preventDefault();
+                void go(key);
+              }}
+            >
+              {label}
+            </a>
+          ))}
+        </nav>
         <div className="content">
           {previewCode && (
             <div
@@ -646,7 +775,8 @@ function Dashboard() {
                     else {
                       const u = new URL(location.href);
                       u.searchParams.set('year', String(selectedYear));
-                      history.replaceState({}, '', u);
+                      history.replaceState(history.state, '', u);
+                      lastSectionUrl.current = u.toString();
                     }
                   }}
                 >
@@ -676,7 +806,8 @@ function Dashboard() {
                       setCid('');
                       const u = new URL(location.href);
                       u.searchParams.delete('equipo');
-                      history.replaceState({}, '', u);
+                      history.replaceState(history.state, '', u);
+                      lastSectionUrl.current = u.toString();
                     } else
                       setCid(
                         index.campaigns.find(
@@ -823,10 +954,28 @@ function Dashboard() {
           )}
           {nav === 'ayuda' ? (
             <Help />
-          ) : nav === 'estadisticas' && index?.principal.id ? (
-            <CampaignStats />
           ) : !index ? (
             <div className="panel empty">Cargando el espacio de trabajo…</div>
+          ) : nav === 'estadisticas' ? (
+            index.principal.id ? (
+              <CampaignStats />
+            ) : (
+              <section className="panel empty">
+                <BarChart3 size={32} />
+                <h2>Estadísticas reservadas</h2>
+                <p>Inicia sesión para consultar las estadísticas de las campañas.</p>
+              </section>
+            )
+          ) : nav === 'administracion' && !adminRole ? (
+            <section className="panel empty">
+              <ShieldCheck size={32} />
+              <h2>Administración reservada</h2>
+              <p>
+                {index.principal.id
+                  ? 'Tu cuenta no tiene permisos de administración.'
+                  : 'Inicia sesión con una cuenta de administración para gestionar los equipos.'}
+              </p>
+            </section>
           ) : !index.teams.length ? (
             <div className="panel empty">
               <Layers size={36} />
@@ -1039,7 +1188,10 @@ function Dashboard() {
                       }
                       onActivated={() => {
                         setJumpToActivation(false);
-                        setNav('eleccion');
+                        void go('eleccion').then((moved) => {
+                          if (!moved)
+                            setNotice('Elección activada. Ve a Vacaciones cuando termines con tus preferencias.');
+                        });
                       }}
                     />
                     <details id="campaign-config-panel" className="panel">
@@ -1171,9 +1323,10 @@ function Dashboard() {
                       <section className="panel">
                         <h2>Corregir o empezar de cero</h2>
                         <p>
-                          Vacía las preferencias, las elecciones y el estado del turno de este equipo y ejercicio.
-                          Conserva plantilla, configuración y resultados publicados. Para corregir solo la última
-                          adjudicación, usa «Deshacer» en el historial de la elección.
+                          Empezar de cero cancela la elección en curso, elimina todas las adjudicaciones confirmadas,
+                          solicitudes y preferencias, y vacía la cola del equipo. No hace falta pausar primero. Conserva
+                          plantilla, configuración y resultados publicados. Para corregir solo la última adjudicación,
+                          usa «Deshacer» en el historial de la elección.
                         </p>
                         <div className="button-row">
                           <button
@@ -1190,7 +1343,7 @@ function Dashboard() {
                               const expected = `${team}-${year}`;
                               if (
                                 await confirm(
-                                  `Para empezar de cero el equipo ${team}, ejercicio ${year}, se borrarán las preferencias, elecciones y el estado del turno. Podrás deshacerlo inmediatamente.`,
+                                  `ATENCIÓN: vas a cancelar la elección${data.election.state?.status === 'active' ? ' EN CURSO' : ''} del equipo ${team} (${year}). Se eliminarán TODAS las adjudicaciones ya confirmadas (${data.awards.length}), solicitudes, preferencias y la cola de turnos. No requiere pausa previa. El deshacer inmediato deja de estar disponible si otra operación cambia la campaña. La instantánea anterior queda en la auditoría para revisión, pero no existe recuperación automática de estados antiguos. ¿Quieres empezar de cero?`,
                                   expected,
                                 )
                               )
@@ -1339,10 +1492,10 @@ function Dashboard() {
   );
 }
 
-export default function Page() {
+export default function Page({ initialSection = 'eleccion' }: { initialSection?: DashboardSection }) {
   return (
     <ConfirmationProvider>
-      <Dashboard />
+      <Dashboard initialSection={initialSection} />
     </ConfirmationProvider>
   );
 }

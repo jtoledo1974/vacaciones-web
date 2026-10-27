@@ -29,9 +29,6 @@
 
 .confirmation-backdrop{position:fixed;inset:0;background:#15292180;display:flex;align-items:center;justify-content:center;padding:20px;z-index:1000}.confirmation-dialog{background:white;border-radius:16px;max-width:520px;width:100%;padding:28px;box-shadow:0 20px 80px #0004}.confirmation-dialog p{line-height:1.6;margin:18px 0}.confirmation-dialog label{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}.confirmation-dialog input{width:100%}
 
-.election-filter{display:flex;align-items:end;gap:20px;margin-bottom:20px;flex-wrap:wrap}.election-filter label{display:flex;flex-direction:column;gap:8px;min-width:220px}.election-filter a{color:#2a6655;font-size:13px}.day.person-vacation{outline:2px solid #b98336;outline-offset:-2px}.day.selected.person-vacation{outline-color:#205847}
-
-
 /* Election workspace v2: dense cycle map, availability, summer and accessible mobile layout */
 .vac2-panel{min-width:0;overflow:hidden;padding:19px 20px 12px}
 .vac2-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
@@ -1133,6 +1130,15 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
  .vac3-scroll.vac3-fits{max-height:none;overflow:visible;scrollbar-gutter:auto}
  /* hidden would make the panel the sticky header's scroll container; clip crops the same without that. */
  .vac2-panel:has(.vac3-fits){overflow:clip}
+}
+
+/* Direct section links stay visible on compact screens without opening the sidebar. */
+.section-navigation{display:none}
+@media(max-width:850px){
+ .section-navigation{display:flex;flex-direction:row;gap:6px;overflow-x:auto;padding:8px 12px;background:#fff;border-bottom:1px solid var(--line);overscroll-behavior-x:contain}
+ .section-navigation a{display:inline-flex;align-items:center;justify-content:center;flex:1 0 auto;min-height:44px;padding:8px 11px;border-radius:8px;color:#557465;font-size:12px;font-weight:650;white-space:nowrap}
+ .section-navigation a[aria-current=page]{color:#245d4b;background:#e5f0e9}
+ .section-navigation a:hover{background:#f1f6f1}
 }
 
 .hr-export .hr-upload { display: grid; gap: 6px; margin-bottom: 12px; }

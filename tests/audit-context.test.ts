@@ -57,7 +57,7 @@ test('administrator campaign view reads full election history once and vacation 
     1,
   );
   assert.equal(
-    queries.filter((sql) => sql === 'SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30').length,
+    queries.filter((sql) => sql === 'SELECT * FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 30').length,
     1,
   );
   queries.length = 0;

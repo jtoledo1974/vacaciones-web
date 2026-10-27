@@ -120,8 +120,7 @@ export default function ElectionWorkspace({
     [jointSelected, setJointSelected] = useState<Record<string, string[]>>({}),
     [jointTarget, setJointTarget] = useState(''),
     [detail, setDetail] = useState<any>(null),
-    [message, setMessage] = useState(''),
-    [filterMember, setFilterMember] = useState(mine ?? '');
+    [message, setMessage] = useState('');
   const { pairOptions, loadingOptions } = usePairOptions({
     campaignId: data.campaign.id,
     version: data.campaign.version,
@@ -1116,34 +1115,6 @@ export default function ElectionWorkspace({
         </div>
       )}
       {manage && open && !frozen && state && state.status !== 'complete' && <RoundQueuePanel data={data} />}
-      {mode === 'choose' && (
-        <div className="election-filter">
-          <label>
-            Ver vacaciones de
-            <select
-              aria-label="Ver vacaciones de controlador"
-              value={filterMember}
-              onChange={(e) => setFilterMember(e.target.value)}
-            >
-              <option value="">Todo el equipo</option>
-              {preferenceMembers.map((m: any) => (
-                <option key={m.id} value={m.id}>
-                  {m.code}
-                </option>
-              ))}
-            </select>
-          </label>
-          {filterMember && (
-            <span>
-              {((n) => (n === 1 ? '1 ciclo' : n + ' ciclos'))(
-                election.points.find((p: any) => p.member_id === filterMember)?.cycles ?? 0,
-              )}{' '}
-              · {election.points.find((p: any) => p.member_id === filterMember)?.points ?? 0} de baremo sin ponderar
-            </span>
-          )}
-          <a href="#puntos-equipo">Ver puntos y ciclos del equipo</a>
-        </div>
-      )}
       {canPreferences && mode === 'preferences' && manage && (
         <label className="preference-member">
           Introducir preferencias para
@@ -1218,7 +1189,6 @@ export default function ElectionWorkspace({
             }
             onSelect={clickCycle}
             busy={busy || loadingOptions || choiceSubmitting}
-            highlighted={data.awards.filter((a: any) => a.member_id === filterMember).map((a: any) => a.cycle_date)}
             awards={visibleAwards}
             members={data.members}
             order={roundOrder}

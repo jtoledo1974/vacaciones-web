@@ -19,7 +19,7 @@ async function election(api: APIRequestContext, id: string, body: object) {
 }
 
 /** An isolated 2027 simulation of team C with a roster large enough to complete. */
-async function setup2027(api: APIRequestContext, page: Page) {
+async function setup2027(api: APIRequestContext, page: Page, startElection = true) {
   await api.get('/signin-with-chatgpt?return_to=/');
   await page.context().addCookies((await api.storageState()).cookies);
   let index = await (await api.get('/api/index')).json();
@@ -55,9 +55,11 @@ async function setup2027(api: APIRequestContext, page: Page) {
       previousScoresSource: 'Puntuaciones de Playwright verificadas',
     },
   });
-  d = await election(api, clone.id, { action: 'start', rulesConfirmed: true, allowDeferral: false });
-  for (let step = 0; step < 100 && d.election.pendingAutomatic; step++)
-    d = await election(api, clone.id, { action: 'advance' });
+  if (startElection) {
+    d = await election(api, clone.id, { action: 'start', rulesConfirmed: true, allowDeferral: false });
+    for (let step = 0; step < 100 && d.election.pendingAutomatic; step++)
+      d = await election(api, clone.id, { action: 'advance' });
+  }
   created.push(clone.id);
   return { id: clone.id, data: await read(api, clone.id) };
 }
@@ -79,6 +81,26 @@ async function open(page: Page, id: string) {
 }
 const turnCode = (d: any) => d.members.find((m: any) => m.id === d.election.turn.memberId).code;
 const preCycles = (d: any) => d.result.cycles.filter((c: any) => c.period === 0).map((c: any) => c.date);
+
+test(
+  '2027: la activación confirma la guía vigente, nunca los criterios antiguos',
+  { tag: ['@both', '@smoke'] },
+  async ({ page, request }) => {
+    const { id } = await setup2027(request, page, false);
+    await open(page, id);
+    if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
+      await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+    await page.getByRole('button', { name: 'Administración', exact: true }).click();
+    const activation = page.locator('#activation-panel');
+    await expect(activation).toBeVisible();
+    if (!(await activation.evaluate((element) => element.hasAttribute('open'))))
+      await activation.locator('> summary').click();
+    await expect(
+      activation.getByRole('checkbox', { name: /Confirmo la Guía de elección de vacaciones LECS 2027 v1\.3/ }),
+    ).toBeVisible();
+    await expect(activation).not.toContainText('Criterios Vacaciones 1.1 (2025)');
+  },
+);
 
 test(
   '2027: el motivo de una plaza bloqueada se consulta con teclado o toque, no solo por color',

@@ -852,7 +852,7 @@ test('preferencias privadas: administrador delegado solo gestiona controladores 
   assert.deepEqual((await delegate.view(cid)).election.preferenceMemberIds, [b.id]);
   await act(delegate, cid, { action: 'preferences', memberId: b.id, dates: [dates[6]], automatic: false });
 });
-test('deshacer un reinicio no permite a un administrador delegado restaurar preferencias vinculadas', async () => {
+test('cualquier administrador del equipo deshace un reinicio y recupera intactas las preferencias vinculadas', async () => {
   const { repo, s, cid, d } = await setup(),
     member = d.members[0],
     date = d.result.cycles[0].date;
@@ -879,17 +879,10 @@ test('deshacer un reinicio no permite a un administrador delegado restaurar pref
     confirmation: 'C-2026',
   });
   assert.deepEqual(reset.election.preferences, []);
+  // The reset was the superadmin's; another administrator can still restore it.
   const view = await delegate.view(cid);
-  await assert.rejects(
-    delegate.mutate(cid, { action: 'undo_vacations', version: view.campaign.version, undoId: view.undo.id }),
-    /restaurar preferencias/,
-  );
-  assert.deepEqual((await delegate.view(cid)).election.preferences, []);
-  const restored = await s.mutate(cid, {
-    action: 'undo_vacations',
-    version: reset.campaign.version,
-    undoId: reset.undo.id,
-  });
+  await delegate.mutate(cid, { action: 'undo_vacations', version: view.campaign.version, undoId: view.undo.id });
+  const restored = await s.view(cid);
   assert.deepEqual(
     restored.election.preferences.map((p: any) => p.member_id),
     [member.id],

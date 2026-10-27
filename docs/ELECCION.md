@@ -1,6 +1,6 @@
-# Elección de vacaciones por turnos — Criterios Vacaciones 1.1 (2025)
+# Elección de vacaciones por turnos — política según ejercicio
 
-Fuente: [resumen documental](CRITERIOS_VACACIONES_1.1_2025.md) de «250610 Criterios Vacaciones 1.1.pdf» (10/06/2025). Prevalece el PDF original, que debe subirse al repositorio desde un entorno capaz de adjuntar binarios.
+Para 2027, las reglas vigentes están documentadas en [Política LECS 2027](policy-2027-definitive-guide.md) y proceden de la Guía LECS 2027 v1.3 y de los cupos de RR. HH. Para ejercicios anteriores, la referencia es [Criterios Vacaciones 1.1 (2025)](CRITERIOS_VACACIONES_1.1_2025.md). El servidor selecciona la política por ejercicio; el texto de confirmación se obtiene de esa política, no de una etiqueta codificada por año en la interfaz.
 
 ## Selección y puntuación
 

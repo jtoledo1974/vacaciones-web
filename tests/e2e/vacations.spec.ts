@@ -2,6 +2,111 @@ import { test, expect, type APIRequestContext, type Page, type Request } from '@
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin = 'http://127.0.0.1:5199';
 
+test(
+  'se elimina el filtro redundante «Ver vacaciones de» y se conserva la vista Por CTA',
+  { tag: '@both' },
+  async ({ page, request }) => {
+    const scenario = await setup(request, page);
+    await open(page, scenario.id);
+    await activate(page);
+    await expect(page.getByLabel('Ver vacaciones de controlador')).toHaveCount(0);
+    await expect(page.getByText('Ver vacaciones de', { exact: true })).toHaveCount(0);
+    await page.getByRole('group', { name: 'Vista del calendario' }).getByRole('button', { name: 'Por CTA' }).click();
+    await expect(page.getByRole('group', { name: 'Ordenación de vacaciones por CTA' })).toBeVisible();
+  },
+);
+
+test(
+  'rutas directas a Ayuda, Estadísticas y Administración conservan el escenario y admiten navegación',
+  { tag: ['@both', '@smoke'] },
+  async ({ page, request }) => {
+    const scenario = await setup(request, page);
+    await open(page, scenario.id);
+    if ((page.viewportSize()?.width ?? 1280) <= 850) {
+      const navigation = page.getByRole('navigation', { name: 'Ir a una sección' });
+      await expect(navigation).toBeVisible();
+      await navigation.getByRole('link', { name: 'Ayuda' }).click();
+    } else {
+      await page.getByRole('button', { name: 'Ayuda', exact: true }).click();
+    }
+    await expect(page).toHaveURL(/\/ayuda\?.*equipo=C/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Ayuda y documentación' })).toBeVisible();
+    await page.goto('/estadisticas?equipo=C&year=2026&escenario=' + scenario.id);
+    await expect(page.getByRole('heading', { name: 'Estadísticas', exact: true })).toBeVisible();
+    await expect(page.getByLabel('Escenario', { exact: true })).toHaveValue(scenario.id);
+    const adminResponse = page.waitForResponse(
+      (response) => response.url().endsWith('/api/admin') && response.status() === 200,
+    );
+    await page.goto('/administracion?equipo=C&year=2026&escenario=' + scenario.id);
+    const loadedAdmin = await adminResponse;
+    expect((await loadedAdmin.json()).users).toBeDefined();
+    await expect(page.getByRole('heading', { name: 'Administración general' })).toBeVisible();
+    await expect(page.getByLabel('Escenario', { exact: true })).toHaveValue(scenario.id);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/estadisticas\?/);
+    await expect(page.getByRole('heading', { name: 'Estadísticas', exact: true })).toBeVisible();
+  },
+);
+
+test(
+  'Atrás tras cambiar de equipo en otra sección vuelve al equipo de la URL',
+  { tag: ['@both', '@smoke'] },
+  async ({ page, request }) => {
+    await setup(request, page);
+    await page.goto('/?equipo=A&year=2026');
+    const team = page.getByLabel('Equipo', { exact: true });
+    await expect(team).toHaveValue('A');
+    if ((page.viewportSize()?.width ?? 1280) <= 850)
+      await page
+        .getByRole('navigation', { name: 'Ir a una sección' })
+        .getByRole('link', { name: 'Administración' })
+        .click();
+    else await page.getByRole('button', { name: 'Administración', exact: true }).click();
+    await expect(page).toHaveURL(/\/administracion\?.*equipo=A/);
+    await team.selectOption('B');
+    await expect(page).toHaveURL(/\/administracion\?.*equipo=B/);
+    await page.goBack();
+    await expect(page).toHaveURL(/\/\?.*equipo=A/);
+    await expect(team).toHaveValue('A');
+    await expect(page.getByText(/Equipo A · 2026/)).toBeVisible();
+  },
+);
+
+test(
+  'reiniciar sin pausar advierte del borrado y permite deshacer inmediatamente',
+  { tag: '@smoke' },
+  async ({ page, request }) => {
+    const scenario = await setup(request, page);
+    await open(page, scenario.id);
+    await activate(page);
+    await cycle(page, scenario.data.result.cycles[0].date);
+    await confirm(page, 'Confirmar ciclo');
+    await expect(page.getByRole('heading', { name: 'QA_B elige ahora', exact: true })).toBeVisible();
+    if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
+      await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+    await page.getByRole('button', { name: 'Administración', exact: true }).click();
+    await page.getByText('Herramientas avanzadas', { exact: true }).click();
+    await page.getByRole('button', { name: 'Empezar de cero las vacaciones' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Confirmar cambio' });
+    await expect(dialog).toContainText('elección EN CURSO');
+    await expect(dialog).toContainText('TODAS las adjudicaciones ya confirmadas (1)');
+    await expect(dialog).toContainText('No requiere pausa previa');
+    await dialog.getByRole('textbox', { name: 'Confirmación del equipo y año' }).fill('C-2026');
+    await dialog.getByRole('button', { name: 'Confirmar' }).click();
+    await expect.poll(async () => (await read(request, scenario.id)).election.state).toBeNull();
+    const cleared = await read(request, scenario.id);
+    expect(cleared.undo?.action).toBe('reset_vacations');
+    await post(request, 'campaign/' + scenario.id, {
+      action: 'undo_vacations',
+      version: cleared.campaign.version,
+      undoId: cleared.undo.id,
+    });
+    await expect.poll(async () => (await read(request, scenario.id)).awards.length).toBe(1);
+    expect((await read(request, scenario.id)).election.state.status).toBe('active');
+    expect((await read(request, scenario.id)).latestReset).toBeUndefined();
+  },
+);
+
 test('menús de acciones se cierran con Escape y clic exterior', { tag: '@both' }, async ({ page, request }) => {
   const s = await setup(request, page);
   await open(page, s.id);

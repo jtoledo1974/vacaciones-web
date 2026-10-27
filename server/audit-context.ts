@@ -15,6 +15,8 @@ import {
 
 export type AuditRow = {
   id: string;
+  /** Available when callers SELECT *; compact event reads may omit it. */
+  actor?: string | null;
   action: string;
   before_json: string | null;
   after_json: string | null;
@@ -201,10 +203,9 @@ export async function lastRestoring(repo: Repository, campaignId: string): Promi
 }
 /** The vacation change whose undo snapshot yields campaign `version`. */
 export async function lastUndoableVacation(repo: Repository, campaignId: string, version: number) {
-  const entries = await repo.all<AuditRow>(
-    'SELECT * FROM audit WHERE campaign_id=? ORDER BY created_at DESC LIMIT 30',
-    [campaignId],
-  );
+  const entries = await repo.all<AuditRow>('SELECT * FROM audit WHERE campaign_id=? ORDER BY rowid DESC LIMIT 30', [
+    campaignId,
+  ]);
   return entries.find((e) => isVacationsUndo(auditBefore(e)) && auditAfter(e).version === version) ?? null;
 }
 /** Global administrative log for superadmins. */
