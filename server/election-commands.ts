@@ -1,3 +1,4 @@
+import { withdrawnNotice } from './early-discretion.ts';
 import {
   advanceAutomatic,
   choose,
@@ -88,6 +89,8 @@ export type ElectionCommandContext = {
   /** New awards; an early choice brings its own id, already referenced by the state. */
   choices: { id?: string; member_id: string; cycle_date: string }[];
   recordUndo: boolean;
+  /** Discreet early choices an undo took away, recorded so they stay unseen. */
+  withdrawnEarly?: string[];
   /** Throws unless the actor may act for this member (own member, or a manager). */
   authorizeMember: (memberId: string) => void;
 };
@@ -349,14 +352,16 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   const history = await x.service.managerHistory(cid, d, mine);
   const entry = action === 'election_undo' ? history.undo : history.redo;
   const privateDenied = 'Solo el titular o un superadministrador pueden restaurar preferencias de cuentas vinculadas';
+  const unavailable = 'El cambio ya no está disponible para deshacer o rehacer';
+  // A discreet early choice is unknown here: refuse it like any stale id.
+  if (history.done.some((e) => e.id === body.historyId && history.isDiscreet(e))) throw new ApiError(unavailable, 409);
   if (
     action === 'election_undo' &&
     entry?.id !== body.historyId &&
     history.done.some((e) => e.id === body.historyId && history.isPrivate(e))
   )
     throw new ApiError(privateDenied, 403);
-  if (!entry || entry.id !== body.historyId)
-    throw new ApiError('El cambio ya no está disponible para deshacer o rehacer', 409);
+  if (!entry || entry.id !== body.historyId) throw new ApiError(unavailable, 409);
   const prior = validateSnapshot(JSON.parse(entry.before_json), 'election-undo-v1');
   if (!prior) throw new ApiError('La copia para deshacer no es válida', 409);
   // Restore the undone list edit itself and list flags (active) consumed by an
@@ -410,7 +415,14 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
     )
       throw new ApiError(privateDenied, 403);
   }
-  // The undone awards take their early-choice entries with them.
+  // The undone awards take their early-choice entries with them. Discreet ones nobody
+  // here knew of are lost without anyone seeing it, so their owners are told.
+  const restored = new Set(prior.awards.map((a) => a.id));
+  for (const early of x.raw.state?.earlyChoices ?? [])
+    if (history.hidden.has(early.awardId) && !restored.has(early.awardId)) {
+      (x.withdrawnEarly ??= []).push(early.awardId);
+      x.ops.push(withdrawnNotice(cid, early, new Date(x.now).toISOString()));
+    }
   let state = prior.state ?? null;
   // Undo must leave the recovered turn editable, never automatically re-award it.
   // Redo restores the prior snapshot exactly (including the old pause state).
@@ -426,6 +438,9 @@ const notYet = 'Todavía no puedes adelantar tu elección: solo cuando quede un 
 function executeEarlyChoose(x: ElectionCommandContext) {
   const { body, ctx } = x;
   x.authorizeMember(body.memberId);
+  // Discreet until its slot, administrators included: only its owner may make it.
+  if (body.memberId !== x.mine)
+    throw new ApiError('Solo el propio controlador puede elegir por adelantado, desde su cuenta', 403);
   if (!x.state) throw new ApiError(noOrder);
   if (typeof body.date !== 'string') throw new ApiError('Selección no válida');
   const proof = earlyProof(ctx, x.state, body.memberId, resultDates(ctx), { only: [body.date] });
@@ -524,6 +539,16 @@ function executeEarlyCancel(x: ElectionCommandContext) {
   );
 }
 
+function discreetWithdrawal(x: ElectionCommandContext) {
+  const state = x.raw.state,
+    entry = state?.earlyChoices?.find((e) => e.awardId === x.body.awardId);
+  if (!state || !entry || state.status === 'complete') return false;
+  try {
+    return currentTurn(x.ctx, state).state.cursor < entry.cursor;
+  } catch {
+    return false;
+  }
+}
 function earlyAudit(x: ElectionCommandContext) {
   const entry = x.state?.earlyChoices?.find((e) => e.awardId === x.choices[0]?.id);
   return entry ? { early: true, memberId: entry.memberId, selectionCursor: entry.cursor, round: entry.round } : {};
@@ -599,6 +624,8 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
     execute: executeEarlyCancel,
     audited: (x) => ({
       cancelled: x.body.awardId,
+      // Withdrawn before its slot: it never came to light (server/early-discretion.ts).
+      discreet: discreetWithdrawal(x),
       memberId: x.d.awards.find((a: { id: string }) => a.id === x.body.awardId)?.member_id ?? null,
       // The member whose list this cancellation turned manual, read back by undo and redo.
       manualized:
@@ -613,7 +640,10 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
     preconditions: manager('Solo el responsable del equipo puede deshacer o rehacer elecciones'),
     restoresSnapshot: true,
     execute: executeHistory('election_undo'),
-    audited: (x) => ({ undoTargetId: x.body.historyId }),
+    audited: (x) => ({
+      undoTargetId: x.body.historyId,
+      ...(x.withdrawnEarly ? { withdrawnEarly: x.withdrawnEarly } : {}),
+    }),
   },
   election_redo: {
     preconditions: manager('Solo el responsable del equipo puede deshacer o rehacer elecciones'),

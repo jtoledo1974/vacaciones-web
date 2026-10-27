@@ -1059,6 +1059,8 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .my-election-early .primary{min-height:44px}
 .my-election-early-done .my-election-chips span{display:inline-flex;align-items:center;gap:8px;background:#eef0ff;color:#25306e}
 .my-election-early-undo{border:0;background:none;padding:6px 2px;min-height:32px;color:#3446b8;font:inherit;font-weight:650;text-decoration:underline;cursor:pointer}
+.my-election-early-discreet{font-size:13px;color:#4a5280}
+.my-election-early-done .my-election-early-discreet{flex-basis:100%;order:3}
 .vac2-cycle.vac2-secured{outline:3px solid #4656d6;outline-offset:-3px}
 .vac2-secured-badge{display:inline-block;margin-top:4px;padding:2px 6px;border-radius:4px;background:#4656d6;color:#fff;font-size:11px;font-weight:700}
 .vac2-secured-key{display:inline-block;width:11px;height:11px;border-radius:3px;border:3px solid #4656d6;box-sizing:border-box}

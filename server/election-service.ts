@@ -33,7 +33,8 @@ import {
 import type { ElectionTiming } from '../domain/turn-timing.ts';
 import { ReconstructionService, appliedAudit } from './reconstruction.ts';
 import { historicalAvailability } from './availability-history.ts';
-import { AuditContext, auditAfter, eventsFor } from './audit-context.ts';
+import { AuditContext, auditAfter, eventsFor, type AuditRow } from './audit-context.ts';
+import { discretion, unconsumed } from './early-discretion.ts';
 import { type AuditAction } from '../domain/events.ts';
 import { turnsBefore } from '../domain/sequence.ts';
 import {
@@ -91,18 +92,38 @@ export class ElectionService {
     };
   }
   /**
-   * The campaign as a viewer outside the administration may see it: early choices of
-   * others that still wait for their slot are left out (concealPendingEarly).
+   * The campaign as any viewer may see it, administrators included: early choices of
+   * others that still wait for their slot are left out (concealPendingEarly), with the
+   * original requests they recorded (server/early-discretion.ts).
    */
-  async concealedFor<D extends { campaign: { id: string; team_id: string }; awards: { id: string }[] }>(
+  async concealedFor<
+    D extends {
+      campaign: { id: string; team_id: string };
+      awards: { id: string }[];
+      requests: { id: string; member_id: string; cycle_date: string }[];
+    },
+  >(
     d: D,
     stored?: ElectionState | null,
-  ): Promise<{ d: D; state?: ElectionState | null }> {
-    if (canWrite(this.actor, d.campaign.team_id)) return { d };
+    audit?: AuditContext,
+  ): Promise<{ d: D; state?: ElectionState | null; hidden: Set<string>; consumed?: Map<string, string> }> {
     const state = stored !== undefined ? stored : (await this.read(d.campaign.id)).state;
-    if (!state?.earlyChoices?.length) return { d, state };
-    const masked = concealPendingEarly(context(d), state, await this.memberForAccount(d), d.awards);
-    return masked.hidden.size ? { d: { ...d, awards: masked.awards }, state: masked.state } : { d, state };
+    if (!state) return { d, state, hidden: new Set() };
+    const rows = await (audit?.rows() ?? eventsFor(this.repo, d.campaign.id));
+    // Withdrawn ones may have left their request behind (a rebuild restores requests).
+    if (!state.earlyChoices?.length && !rows.some((row) => row.action === 'early_choose' || row.action === 'advance'))
+      return { d, state, hidden: new Set() };
+    const mine = await this.memberForAccount(d);
+    const masked = concealPendingEarly(context(d), state, mine, d.awards);
+    const { ids, consumed } = discretion(rows, masked.hidden, mine, new Set(d.awards.map((a) => a.id)), d.requests);
+    const requests = d.requests.filter((r) => !ids.has(r.id));
+    if (!masked.hidden.size && requests.length === d.requests.length) return { d, state, hidden: masked.hidden };
+    return {
+      d: { ...d, awards: masked.awards, requests },
+      state: masked.state,
+      hidden: masked.hidden,
+      consumed,
+    };
   }
   /** Load and read for the read-only endpoints, concealed as concealedFor() does. */
   async concealedRead(cid: string) {
@@ -192,11 +213,32 @@ export class ElectionService {
   }
   // Edits to lists this actor may not touch stay out of their undo: «Deshacer»
   // reaches the newest decision below them instead of being blocked by them.
-  async managerHistory(cid: string, d: any, mine: string | null, audit?: AuditContext) {
+  // Discreet early choices of others stay out of it too (server/early-discretion.ts).
+  // `hidden` is what concealedFor() hid; without it, `d` must be the stored campaign.
+  async managerHistory(cid: string, d: any, mine: string | null, audit?: AuditContext, hidden?: Set<string>) {
     const history = await this.history(cid, audit),
       editable = new Set(await this.preferenceMemberIds(d, mine));
-    const isPrivate = (entry: any) => entry.action === 'preferences' && !editable.has(auditAfter(entry)?.memberId);
-    return { ...history, undo: history.done.findLast((entry) => !isPrivate(entry)) ?? null, isPrivate };
+    if (!hidden) {
+      const state = (await this.read(cid)).state;
+      hidden = state ? concealPendingEarly(context(d), state, mine, d.awards).hidden : new Set();
+    }
+    // `d` may be the concealed campaign: what it hid is still there.
+    const live = new Set<string>([...d.awards.map((a: { id: string }) => a.id), ...hidden]);
+    const discreet = discretion(audit ? await audit.rows() : await eventsFor(this.repo, cid), hidden, mine, live);
+    const isDiscreet = (entry: AuditRow | null) => !!entry && discreet.row(entry);
+    const isPrivate = (entry: any) =>
+      (entry.action === 'preferences' && !editable.has(auditAfter(entry)?.memberId)) || isDiscreet(entry);
+    return {
+      ...history,
+      undo: history.done.findLast((entry) => !isPrivate(entry)) ?? null,
+      // Redo only what this viewer could see being undone.
+      redo: history.redo && isDiscreet(history.redoOriginal) ? null : history.redo,
+      isPrivate,
+      isDiscreet,
+      /** Any historical row, effective or not (archived branches, rebuilt decisions). */
+      discreetIds: discreet.ids,
+      hidden,
+    };
   }
   async options(cid: string, selected: string[], jointEntries?: { member_id: string; dates: string[] }[]) {
     const { d, raw } = await this.concealedRead(cid),
@@ -395,8 +437,11 @@ export class ElectionService {
       recordedAvailability?: AvailabilitySnapshot | CompactAvailabilitySnapshot | null;
       skipAvailabilityForPendingAutomatic?: boolean;
       auditContext?: AuditContext;
-      /** The state as concealedFor() left it, instead of the stored one. */
+      /** The state as concealedFor() left it, instead of the stored one, and what it hid. */
       state?: ElectionState | null;
+      hidden?: Set<string>;
+      /** Lists a waiting early choice consumed, shown as they were (unconsumed). */
+      consumed?: Map<string, string>;
     } = {},
   ) {
     const cid = d.campaign.id,
@@ -418,7 +463,13 @@ export class ElectionService {
     const result =
       options.result ??
       calculate(ctx.year, ctx.team, ctx.config, ctx.members, ctx.requests, ctx.awards, { skipProof: options.restored });
-    const reconstruction = await this.reconstruction().view(d, raw, options.restored === true, options.auditContext);
+    const reconstruction = await this.reconstruction().view(
+      d,
+      raw,
+      options.restored === true,
+      options.auditContext,
+      mine,
+    );
     // Determine whether the next automatic turn can be resolved by its stored
     // preferences BEFORE starting the table-wide global availability searches.
     // The intermediate POST response is not rendered: the client immediately
@@ -485,7 +536,7 @@ export class ElectionService {
         points: awarded.reduce((sum: number, a: any) => sum + (cycleScores.get(a.cycle_date) ?? 0), 0),
       };
     });
-    const history = manage ? await this.managerHistory(cid, d, mine, options.auditContext) : null;
+    const history = manage ? await this.managerHistory(cid, d, mine, options.auditContext, options.hidden) : null;
     // Replay persisted actions, then expose only an allowlisted compact projection
     // to public viewers. Managers retain the complete existing timeline.
     let timeline: ReturnType<typeof buildElectionTimeline> | PublicElectionTimelineItem[] = [];
@@ -565,16 +616,28 @@ export class ElectionService {
         };
     }
     const listPlan = !skipFullAvailability ? this.listPlan(ctx, raw, turn, manage, mine) : null;
+    // Display only: what the election runs on stays raw.preferences.
+    const shownPreferences = options.consumed ? unconsumed(raw.preferences, options.consumed) : raw.preferences;
     const queue =
-      manage && raw.state && raw.state.status !== 'complete' ? roundQueue(ctx, raw.state, raw.preferences) : null;
+      manage && raw.state && raw.state.status !== 'complete' ? roundQueue(ctx, raw.state, shownPreferences) : null;
     let chain: ReturnType<typeof automaticChain> | null = null;
     if (manage && queue && !skipFullAvailability && !reconstruction.active && !turn?.pendingTie) {
       try {
-        chain = automaticChain(ctx, raw.state!, raw.preferences, 6);
+        chain = automaticChain(ctx, raw.state!, shownPreferences, 6);
       } catch {
         chain = null;
       }
     }
+    // Nobody may rebuild from, or even see, a discreet early choice.
+    const visibleReconstruction: typeof reconstruction =
+      history && 'candidates' in reconstruction && Array.isArray(reconstruction.candidates)
+        ? {
+            ...reconstruction,
+            candidates: reconstruction.candidates.filter(
+              (candidate: { id: string }) => !history.discreetIds.has(candidate.id),
+            ),
+          }
+        : reconstruction;
     const projection = {
       state: raw.state,
       turn: turn
@@ -597,7 +660,7 @@ export class ElectionService {
             ),
           }
         : null,
-      preferences: raw.preferences,
+      preferences: shownPreferences,
       preferenceMemberIds,
       myMemberId: mine,
       available,
@@ -622,7 +685,7 @@ export class ElectionService {
       timeline,
       timing,
       myAccountVersion,
-      reconstruction,
+      reconstruction: visibleReconstruction,
     };
     return manage ? projectElectionViewForManager(projection) : projectElectionViewForController(projection);
   }

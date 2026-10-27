@@ -6,6 +6,10 @@ import { aheadNote, formatDeadline, formatWait, remainingText, type MyElection }
 import { seatsLeft } from './own-cycles';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
 
+/** Early choices are discreet (domain/early-election.ts, concealPendingEarly). */
+export const EARLY_DISCRETION =
+  'Es discreta: nadie, tampoco la administración, la verá hasta que llegue tu turno. Entonces aparecerá como una elección normal.';
+
 /** How the controller's saved list will act, in one sentence. */
 export function listSentence(list: MyElection['list'], turn = false): string {
   if (list.state === 'none') return 'No tienes preferencias guardadas: en tu turno tendrás que elegir tú.';
@@ -274,6 +278,7 @@ export default function MyElectionCard({
                 ? 'Hay 1 ciclo asegurado, marcado en el calendario.'
                 : `Hay ${early.guaranteed.length} ciclos asegurados, marcados en el calendario.`}
             </span>
+            <span className="my-election-early-discreet">{EARLY_DISCRETION}</span>
           </div>
           {onEarly && (
             <button type="button" className="primary" onClick={onEarly}>
@@ -285,6 +290,7 @@ export default function MyElectionCard({
       {early && early.choices.length > 0 && (
         <div className="my-election-row my-election-early-done">
           <strong>Elegido por adelantado</strong>
+          <span className="my-election-early-discreet">{EARLY_DISCRETION}</span>
           <div className="my-election-chips">
             {early.choices.map((choice) => (
               <span key={choice.awardId}>

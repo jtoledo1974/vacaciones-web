@@ -159,7 +159,10 @@ export async function flushTurnNotifications(
     '/?equipo=' + encodeURIComponent(campaign.team_id) + '&year=' + encodeURIComponent(String(campaign.year));
   for (const row of rows) {
     if (budget.remaining <= 0) break;
-    if (row.id.startsWith(MANUAL_PREFIX) && !(await manualNoticeIsCurrent(repo, row))) {
+    if (
+      (row.id.startsWith(MANUAL_PREFIX) && !(await manualNoticeIsCurrent(repo, row))) ||
+      (row.id.startsWith(WITHDRAWN_PREFIX) && !(await withdrawnNoticeIsCurrent(repo, row)))
+    ) {
       await repo.batch([
         {
           sql: "UPDATE turn_notifications SET push_status='obsolete' WHERE id=? AND push_status='pending'",
@@ -287,6 +290,14 @@ export function notificationText(row: { id: string; round: number }, extra: { de
       title: 'Algunos ciclos de vacaciones ya están disponibles para ti',
       body: 'Aunque todavía no sea tu turno, puedes solicitar alguno de los ciclos disponibles',
     };
+  if (row.id.startsWith(WITHDRAWN_PREFIX))
+    return {
+      title: 'Vacaciones · Se ha anulado tu elección anticipada',
+      body:
+        'Una corrección de la elección ha deshecho turnos anteriores al tuyo (ronda ' +
+        row.round +
+        ') y tu elección anticipada ya no vale. Elegirás en tu turno; entra para ver si puedes volver a adelantarla.',
+    };
   if (row.id.startsWith(MANUAL_PREFIX))
     return {
       title: 'Vacaciones · Tu lista ya no elige sola',
@@ -388,10 +399,20 @@ async function manualNoticeIsCurrent(repo: Repository, row: { id: string; campai
   );
 }
 
+/** Still worth telling: a redo has not brought the award back. */
+async function withdrawnNoticeIsCurrent(repo: Repository, row: { id: string; campaign_id: string }) {
+  const awardId = row.id.split(':').at(-1);
+  return !(await repo.all('SELECT id FROM awards WHERE campaign_id=? AND id=?', [row.campaign_id, awardId])).length;
+}
+
 // manual:<campaign>:<member>:<award>, queued by early_cancel when it turns a list manual.
 const MANUAL_PREFIX = 'manual:';
+// withdrawn:<campaign>:<member>:<award>, queued by an undo that took a discreet early choice away.
+const WITHDRAWN_PREFIX = 'withdrawn:';
 const isTurnEvent = (id: string) =>
-  ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX, EARLY_PREFIX, MANUAL_PREFIX].some((prefix) => id.startsWith(prefix));
+  ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX, EARLY_PREFIX, MANUAL_PREFIX, WITHDRAWN_PREFIX].some((prefix) =>
+    id.startsWith(prefix),
+  );
 
 /**
  * Tell the controller in an early-election window (domain/early-election.ts) that some

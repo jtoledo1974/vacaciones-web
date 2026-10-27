@@ -12,6 +12,7 @@ import {
 } from '../domain/election.ts';
 import { earlyProof, earlyWindow } from '../domain/early-election.ts';
 import { earlyListChoice } from '../server/election-commands.ts';
+import { discretion } from '../server/early-discretion.ts';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import { dispatchNotifications, notificationSettings, flushTurnNotifications } from '../server/notifications.ts';
@@ -139,7 +140,28 @@ async function election(order = 3) {
   await run(s, { action: 'start', rulesConfirmed: true, allowDeferral: true });
   const [a, b, c] = d.members;
   await run(s, { action: 'link_account', memberId: b.id, subject: 'person@example.test', accountVersion: 0 });
-  return { repo, s, person: new Service(repo, visitor), cid, a, b, c, run, dates: d.result.cycles.map((x) => x.date) };
+  // Another controller's own account: early choices are made only by their owner.
+  const account = async (member: { id: string }, name: string) => {
+    await run(s, { action: 'link_account', memberId: member.id, subject: name + '@example.test', accountVersion: 0 });
+    return new Service(repo, {
+      id: 'chatgpt:' + name,
+      emailKey: 'chatgpt-email:' + name + '@example.test',
+      role: 'viewer' as const,
+      teams: [],
+    });
+  };
+  return {
+    repo,
+    s,
+    person: new Service(repo, visitor),
+    cid,
+    a,
+    b,
+    c,
+    run,
+    account,
+    dates: d.result.cycles.map((x) => x.date),
+  };
 }
 
 test('elegir por adelantado: comprobación en servidor, vista propia y turno saltado', async () => {
@@ -148,7 +170,7 @@ test('elegir por adelantado: comprobación en servidor, vista propia y turno sal
   assert.equal(mine.myMemberId, b.id);
   assert.ok(mine.early.guaranteed.includes(dates[3]));
   await assert.rejects(run(person, { action: 'early_choose', memberId: c.id, date: dates[3] }), /propias/);
-  await assert.rejects(run(s, { action: 'early_choose', memberId: c.id, date: dates[3] }), /único turno/);
+  await assert.rejects(run(s, { action: 'early_choose', memberId: b.id, date: dates[3] }), /propio controlador/);
   let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[3] });
   assert.deepEqual(
     view.awards.filter((x) => x.member_id === b.id).map((x) => x.cycle_date),
@@ -182,19 +204,27 @@ test('deshacer la anticipada: el titular antes de su turno, después solo el res
 });
 
 test('undo y redo de una elección anticipada restauran adjudicación y estado', async () => {
-  const { s, person, run, cid, b, dates } = await election();
+  const { s, person, run, cid, repo, a, b, dates } = await election();
+  const hiddenUndo = (await s.view(cid)).election.undo;
   await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
-  let view = await s.view(cid);
+  const early = (await repo.all("SELECT id FROM audit WHERE action='early_choose'"))[0].id;
+  // Discreet: the manager's undo does not reach it, nor may it be named.
+  assert.equal((await s.view(cid)).election.undo, hiddenUndo);
+  await assert.rejects(run(s, { action: 'election_undo', historyId: early }), /ya no está disponible/);
+  // Once revealed, undoing the predecessor hides it again; redo brings both back.
+  let view = await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  assert.equal(view.awards.length, 2);
   view = await run(s, { action: 'election_undo', historyId: view.election.undo });
   assert.equal(view.awards.length, 0);
-  assert.equal(view.election.state.earlyChoices?.length ?? 0, 0);
+  assert.equal(view.election.state!.earlyChoices?.length ?? 0, 0);
+  assert.equal((await person.view(cid)).election.early?.choices.length, 1, 'B la conserva');
   view = await run(s, { action: 'election_redo', historyId: view.election.redo });
-  assert.equal(view.awards.length, 1);
-  assert.equal(view.election.state.earlyChoices.length, 1);
+  assert.equal(view.awards.length, 2);
+  assert.equal(view.election.state!.earlyChoices!.length, 1);
 });
 
 test('lista inmediata del siguiente: se adjudica por adelantado con advance; en espera, no', async () => {
-  const { s, run, cid, b, dates } = await election();
+  const { s, person, run, cid, b, dates } = await election();
   await run(s, { action: 'preferences', memberId: b.id, dates: [dates[6]], mode: 'wait', waitMinutes: 30 });
   let view = await s.view(cid);
   assert.equal(view.election.pendingAutomatic, false, 'una lista en espera aguarda al turno ordinario');
@@ -202,12 +232,14 @@ test('lista inmediata del siguiente: se adjudica por adelantado con advance; en 
   view = await s.view(cid);
   assert.equal(view.election.pendingAutomatic, true);
   view = await run(s, { action: 'advance' });
+  assert.deepEqual(view.awards, [], 'discreta también para la administración');
+  view = await person.view(cid);
   assert.deepEqual(
     view.awards.map((x) => x.cycle_date),
     [dates[6]],
   );
-  assert.equal(view.election.state.earlyChoices.length, 1);
-  assert.equal(view.election.preferences.find((p) => p.member_id === b.id).active, false);
+  assert.equal(view.election.early?.choices.length, 1);
+  assert.equal(view.election.preferences.find((p) => p.member_id === b.id)?.active, false);
   const automatic = view.election.timeline.find((item) => item.anticipated);
   assert.ok(automatic, 'la línea de tiempo marca la adjudicación como anticipada');
 });
@@ -271,10 +303,11 @@ test('anulación administrativa tras completar reabre el derecho sin detener aut
 });
 
 test('anticipada de la próxima ronda conserva ronda lógica en historial y aviso', async () => {
-  const { s, run, cid, a, b, c, dates } = await election();
+  const { s, run, account, a, b, dates } = await election();
+  const first = await account(a, 'first');
   await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
   await run(s, { action: 'choose', memberId: b.id, dates: [dates[1]] });
-  const view = await run(s, { action: 'early_choose', memberId: a.id, date: dates[4] });
+  const view = await run(first, { action: 'early_choose', memberId: a.id, date: dates[4] });
   const entry = view.election.timeline.find((e) => e.anticipated);
   assert.equal(entry.round, 2);
   assert.equal(entry.selectionCursor, 3);
@@ -384,10 +417,15 @@ test('la anulación registra en su auditoría qué lista pasó a manual', async 
   await g.run(g.s, { action: 'preferences', memberId: g.b.id, dates: [g.dates[6]], mode: 'wait', waitMinutes: 30 });
   let view = await g.run(g.person, { action: 'early_choose', memberId: g.b.id, date: g.dates[4] });
   view = await g.run(g.person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
-  const own = await g.repo.all("SELECT after_json FROM audit WHERE action='early_cancel' ORDER BY rowid");
+  const own = await g.repo.all(
+    "SELECT id,after_json FROM audit WHERE action IN ('early_choose','early_cancel') ORDER BY rowid",
+  );
   assert.equal(JSON.parse(own.at(-1).after_json).manualized, null);
-  view = await g.run(g.s, { action: 'election_undo', historyId: (await g.s.view(g.cid)).election.undo });
-  assert.equal(view.election.preferences.find((p) => p.member_id === g.b.id).mode, 'wait');
+  assert.equal(JSON.parse(own.at(-1).after_json).discreet, true);
+  // Withdrawn before its slot, it never comes to light: not even the manager's undo shows it.
+  view = await g.s.view(g.cid);
+  assert.ok(!own.some((row) => row.id === view.election.undo));
+  assert.equal(view.election.preferences.find((p) => p.member_id === g.b.id)?.mode, 'wait');
 });
 
 test('deshacer la anulación conserva una edición posterior de la lista', async () => {
@@ -506,10 +544,9 @@ test('la anticipada pendiente no se ve fuera de la administración y luego ocupa
     (await person.view(cid)).election.timeline.some((item) => item.anticipated),
     'B sí la ve',
   );
-  assert.ok(
-    (await s.view(cid)).election.timeline.some((item) => item.anticipated),
-    'la administración también',
-  );
+  const admin = await s.view(cid);
+  assert.deepEqual(admin.awards, [], 'ni la administración la ve');
+  assert.deepEqual(admin.election.timeline, []);
   await run(first, { action: 'choose', memberId: a.id, dates: [dates[0]] });
   seen = await first.view(cid);
   assert.deepEqual(seen.awards.map((x) => x.member_id).sort(), [a.id, b.id].sort());
@@ -579,15 +616,194 @@ test('la disponibilidad, las opciones y el impacto tampoco revelan la anticipada
   const pick = options.available.find((x: string) => x !== date) ?? options.available[0];
   const impact = await first.election().previewImpact(cid, [{ member_id: a.id, cycle_date: pick }], version);
   assert.ok(!JSON.stringify(impact).includes(b.id), 'el impacto no menciona a B');
-  assert.ok(slots(await s.election().availability(cid)).includes(b.id), 'la administración sí lo ve');
+  assert.ok(!slots(await s.election().availability(cid)).includes(b.id), 'ni la administración lo ve');
 });
 
 test('dos anticipadas seguidas se muestran en orden de turno tras el predecesor', async () => {
-  const { s, person, run, cid, a, b, c, dates } = await election();
+  const { s, person, run, account, cid, a, b, c, dates } = await election();
+  const third = await account(c, 'third');
   await run(person, { action: 'early_choose', memberId: b.id, date: dates[3] });
-  await run(s, { action: 'early_choose', memberId: c.id, date: dates[4] });
+  await run(third, { action: 'early_choose', memberId: c.id, date: dates[4] });
   await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
   const order = (timeline: { memberIds: string[] }[]) => timeline.map((item) => item.memberIds[0]);
   assert.deepEqual(order((await s.view(cid)).election.timeline), [c.id, b.id, a.id]);
   assert.deepEqual(order((await person.view(cid)).election.timeline), [c.id, b.id, a.id]);
+});
+
+test('un deshacer que anula una anticipada discreta se lo avisa a su titular, sin que lo vea nadie', async () => {
+  const { s, person, run, cid, repo, b, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
+  const early = (await repo.all("SELECT id FROM audit WHERE action='early_choose'"))[0].id;
+  // Nor in the global log of a superadministrator.
+  assert.ok(!(await s.admin()).audit.some((row: { id: string }) => row.id === early));
+  // The manager's newest visible decision predates it: undoing it takes it away.
+  await run(s, { action: 'election_undo', historyId: (await s.view(cid)).election.undo });
+  assert.equal((await person.view(cid)).election.early?.choices.length ?? 0, 0);
+  const notices = await repo.all("SELECT member_id FROM turn_notifications WHERE id LIKE 'withdrawn:%'");
+  assert.deepEqual(
+    notices.map((n) => n.member_id),
+    [b.id],
+  );
+});
+
+test('las copias del registro global no conservan la anticipada discreta', async () => {
+  const { s, person, run, repo, b, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
+  const awardId = (await repo.all('SELECT id FROM awards'))[0].id;
+  // A later decision copies the campaign, the hidden award included, into its snapshot.
+  await run(s, { action: 'preferences', memberId: b.id, dates: [dates[6]] });
+  const stored = await repo.all("SELECT before_json FROM audit WHERE action='preferences'");
+  assert.ok(
+    stored.some((row) => row.before_json.includes(awardId)),
+    'la copia guardada la contiene',
+  );
+  const log = JSON.stringify((await s.admin()).audit);
+  assert.ok(!log.includes(awardId), 'el registro global no la muestra');
+});
+
+test('una reconstrucción no revela la anticipada discreta de su origen', async () => {
+  const { s, person, run, account, cid, repo, a, b, c, dates } = await election();
+  for (const [member, date] of [
+    [a, dates[0]],
+    [b, dates[1]],
+    [c, dates[5]],
+  ] as const)
+    await run(s, { action: 'choose', memberId: member.id, dates: [date] });
+  // Round two: whoever is second may choose ahead.
+  const state = (await s.view(cid)).election;
+  const turn = state.turn!.memberId!,
+    order = state.state!.order;
+  const second = [a, b, c].find((m) => m.id === order[(order.indexOf(turn) + 1) % order.length])!;
+  const owner = second.id === b.id ? person : await account(second, 'second');
+  const offer = (await owner.view(cid)).election.early?.guaranteed ?? [];
+  assert.ok(offer.length, 'hay un ciclo asegurado');
+  await run(owner, { action: 'early_choose', memberId: second.id, date: offer[0] });
+  const awardId = (await repo.all('SELECT id FROM awards WHERE member_id=? AND cycle_date=?', [second.id, offer[0]]))[0]
+    .id;
+  const target = (await s.view(cid)).election.reconstruction.candidates.at(-1);
+  const view = await run(s, { action: 'reconstruction_start', historyId: target.id });
+  const rebuilt = view.election.reconstruction;
+  assert.equal(rebuilt.active, true);
+  assert.ok(
+    !rebuilt.original.some((x: { memberId: string; date: string }) => x.date === offer[0] && x.memberId === second.id),
+  );
+  assert.ok(!JSON.stringify(rebuilt).includes(awardId));
+  // Gone with the rewind, it stays discreet: recorded, its owner told, and unseen in the log.
+  const started = (await repo.all("SELECT after_json FROM audit WHERE action='reconstruction_start'"))[0];
+  assert.deepEqual(JSON.parse(started.after_json).withdrawnEarly, [awardId]);
+  const notices = await repo.all("SELECT member_id FROM turn_notifications WHERE id LIKE 'withdrawn:%'");
+  assert.deepEqual(
+    notices.map((n) => n.member_id),
+    [second.id],
+  );
+  assert.ok(!JSON.stringify((await s.admin()).audit).includes(awardId), 'el registro global no la muestra');
+  // Its request survives the rewind (requests are restored), still unseen.
+  const shown = (view: unknown) =>
+    (view as { requests: { member_id: string; cycle_date: string }[] }).requests.some(
+      (r) => r.member_id === second.id && r.cycle_date === offer[0],
+    );
+  assert.ok(
+    (await repo.all('SELECT id FROM requests WHERE member_id=? AND cycle_date=?', [second.id, offer[0]])).length,
+    'la solicitud sigue guardada',
+  );
+  assert.ok(!shown(await s.view(cid)), 'ni su solicitud durante la reconstrucción');
+  // Out of the effective history, its row is still recognised as discreet.
+  const loaded = await s.load(cid);
+  const history = await s.election().managerHistory(cid, loaded, null);
+  const earlyRow = (await repo.all("SELECT id FROM audit WHERE action='early_choose'"))[0].id;
+  assert.ok(!history.done.some((e: { id: string }) => e.id === earlyRow));
+  assert.ok(history.discreetIds.has(earlyRow));
+  // Cancelling brings it back as it was: still pending, still discreet, still its owner's.
+  const cancelled = await run(s, { action: 'reconstruction_cancel' });
+  assert.equal(cancelled.election.reconstruction.active, false);
+  assert.ok(!cancelled.awards.some((x) => x.id === awardId), 'la administración sigue sin verla');
+  assert.equal((await owner.view(cid)).election.early?.choices[0]?.awardId, awardId);
+  assert.ok(!JSON.stringify((await s.admin()).audit).includes(awardId), 'ni tras cancelar');
+  assert.ok(!shown(cancelled), 'ni su solicitud tras cancelar');
+});
+
+test('la solicitud que registra la anticipada discreta tampoco se ve', async () => {
+  const { s, person, run, cid, b, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
+  const requests = (view: unknown) =>
+    (view as { requests: { member_id: string; cycle_date: string }[] }).requests
+      .filter((r) => r.member_id === b.id)
+      .map((r) => r.cycle_date);
+  assert.deepEqual(requests(await s.view(cid)), [], 'la administración no la ve');
+  const own = await person.view(cid);
+  assert.ok(
+    own.awards.some((a) => a.member_id === b.id && a.cycle_date === dates[2]),
+    'B sí ve su elección',
+  );
+});
+
+test('discreción: oculta la solicitud que creó la anticipada, nunca una que ya existía', () => {
+  const row = (id: string, action: string, before: unknown, after: unknown) => ({
+    id,
+    action,
+    before_json: JSON.stringify(before),
+    after_json: JSON.stringify(after),
+    created_at: '',
+  });
+  const old = { id: 'r-old', member_id: 'B', cycle_date: '2026-03-01', slot: 1 };
+  const rows = [
+    row(
+      'e1',
+      'early_choose',
+      { requests: [old] },
+      { memberId: 'B', choices: [{ id: 'a1', member_id: 'B', cycle_date: '2026-03-01' }] },
+    ),
+    row(
+      'e2',
+      'early_choose',
+      { requests: [old] },
+      { memberId: 'B', choices: [{ id: 'a2', member_id: 'B', cycle_date: '2026-05-01' }] },
+    ),
+  ];
+  const current = [old, { id: 'r-new', member_id: 'B', cycle_date: '2026-05-01', slot: 2 }];
+  const { ids, row: discreet } = discretion(rows, new Set(['a1', 'a2']), 'A', new Set(['a1', 'a2']), current);
+  assert.ok(ids.has('r-new'), 'la solicitud creada por la anticipada');
+  assert.ok(!ids.has('r-old'), 'la solicitud histórica se conserva');
+  assert.ok(discreet(rows[0]) && discreet(rows[1]));
+  // Its owner keeps seeing everything.
+  assert.equal(discretion(rows, new Set(['a1', 'a2']), 'B', new Set(['a1', 'a2']), current).ids.size, 2);
+});
+
+test('una anticipada que se lleva un deshacer no reaparece en el registro global', async () => {
+  const { s, person, run, cid, repo, b, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
+  const awardId = (await repo.all('SELECT id FROM awards'))[0].id;
+  await run(s, { action: 'election_undo', historyId: (await s.view(cid)).election.undo });
+  assert.equal((await repo.all('SELECT id FROM awards')).length, 0);
+  const undo = (await repo.all("SELECT after_json FROM audit WHERE action='election_undo'"))[0];
+  assert.deepEqual(JSON.parse(undo.after_json).withdrawnEarly, [awardId]);
+  const log = JSON.stringify((await s.admin()).audit);
+  assert.ok(!log.includes(awardId), 'ni la elección ni sus copias');
+  assert.ok(!log.includes('early_choose'));
+});
+
+test('la lista que consume una anticipada discreta se muestra como estaba hasta su turno', async () => {
+  const { s, person, run, cid, repo, a, b, dates } = await election();
+  await run(s, { action: 'preferences', memberId: b.id, dates: [dates[6]] });
+  await run(s, { action: 'advance' });
+  // Stored: consumed, as the election needs it.
+  const stored = await repo.all('SELECT active FROM preferences WHERE member_id=?', [b.id]);
+  assert.equal(Number(stored[0].active), 0);
+  assert.equal((await person.view(cid)).election.preferences.find((p) => p.member_id === b.id)?.active, false);
+  // Shown to the administration as it was, with nothing pending to apply.
+  const admin = await s.view(cid);
+  assert.equal(admin.election.preferences.find((p) => p.member_id === b.id)?.active, true);
+  assert.equal(admin.election.pendingAutomatic, false);
+  const log = (await s.admin()).audit.filter((row: { campaign_id: string }) => row.campaign_id === cid);
+  for (const row of log)
+    for (const json of [row.before_json, row.after_json]) {
+      const lists = json ? (JSON.parse(json).preferences ?? []) : [];
+      assert.ok(
+        !lists.some((p: { member_id: string; active?: boolean }) => p.member_id === b.id && p.active === false),
+        'ninguna copia la muestra consumida',
+      );
+    }
+  // Once the slot arrives, the real list shows.
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  assert.equal((await s.view(cid)).election.preferences.find((p) => p.member_id === b.id)?.active, false);
 });

@@ -1,5 +1,6 @@
 'use client';
 import { formatDate } from './cycle-calendar';
+import { EARLY_DISCRETION } from './my-election-card';
 
 type Act = (body: Record<string, unknown>, message: string) => Promise<unknown>;
 
@@ -20,7 +21,7 @@ export function useEarlyElection(input: {
   async function chooseEarly(c: { date: string; end: string }) {
     if (
       !(await confirm(
-        `¿Elegir ${formatDate(c.date)} – ${formatDate(c.end)} por adelantado? Cuenta como tu elección en tu próximo turno. Podrás anularla hasta que llegue.`,
+        `¿Elegir ${formatDate(c.date)} – ${formatDate(c.end)} por adelantado? Cuenta como tu elección en tu próximo turno. Podrás anularla hasta que llegue. ${EARLY_DISCRETION}`,
       ))
     )
       return;

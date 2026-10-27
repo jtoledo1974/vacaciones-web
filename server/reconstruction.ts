@@ -24,6 +24,8 @@ import { cas, insertRows, type Repository, type Statement } from './repository.t
 import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { AuditContext, appliedAudit, auditBefore, auditAfter, eventsFor } from './audit-context.ts';
+import { discretion, redactDiscreet, withdrawnNotice } from './early-discretion.ts';
+import { concealPendingEarly } from '../domain/early-election.ts';
 import { ELECTION_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
 export { appliedAudit } from './audit-context.ts';
 
@@ -355,12 +357,14 @@ export class ReconstructionService {
     raw: { state: ElectionState | null; preferences: Preference[] },
     skipProof = false,
     audit?: AuditContext,
+    viewer: string | null = null,
   ) {
-    const s = await this.read(d.campaign.id);
+    const stored = await this.read(d.campaign.id);
     if (this.actor.preview || !canWrite(this.actor, d.campaign.team_id))
-      return { active: !!s && s.status !== 'completed' };
+      return { active: !!stored && stored.status !== 'completed' };
     const candidates = await this.candidates(d, audit);
-    if (!s) return { active: false, candidates };
+    if (!stored) return { active: false, candidates };
+    const s = await this.discreetOrigin(d, stored, raw.state, viewer, audit);
     const active = s.status !== 'completed',
       state = raw.state;
     const pick = active && state ? this.pick(d, s, state, d.awards, d.requests, skipProof) : null;
@@ -400,6 +404,59 @@ export class ReconstructionService {
         : null,
       changes: s.applied.map((a) => ({ kind: a.kind, dates: a.dates, entries: a.entries, actor: a.actor, at: a.at })),
       impact: s.status === 'completed' ? (s.impact ?? []) : skipProof ? [] : this.impact(d, s, d.awards, d.requests),
+    };
+  }
+  /**
+   * The session as `viewer` may see it: early choices that were discreet when it started
+   * (domain/early-election.ts) and whose slot the rebuilt election has not reached yet
+   * stay out of its origin, its original events and so of the impact.
+   */
+  private async discreetOrigin(
+    d: Parameters<typeof ctx>[0],
+    s: Session,
+    current: ElectionState | null,
+    viewer: string | null,
+    audit?: AuditContext,
+  ): Promise<Session> {
+    const origin = s.origin.state;
+    if (!origin?.earlyChoices?.length) return s;
+    let cursor = Infinity;
+    if (current)
+      try {
+        cursor = currentTurn(ctx(d), current).state.cursor;
+      } catch {
+        cursor = current.cursor;
+      }
+    const pending = concealPendingEarly(
+      ctx(d, s.origin.awards, s.origin.requests),
+      origin,
+      viewer,
+      s.origin.awards,
+    ).hidden;
+    const unreached = new Set(
+      origin.earlyChoices.filter((e) => pending.has(e.awardId) && e.cursor > cursor).map((e) => e.awardId),
+    );
+    if (!unreached.size) return s;
+    // With their audit rows and the original requests they recorded.
+    const { ids } = discretion(
+      await (audit?.rows() ?? this.auditRows(d.campaign.id)),
+      unreached,
+      viewer,
+      new Set(s.origin.awards.map((a) => a.id)),
+      s.origin.requests,
+    );
+    const hiddenOwners = s.origin.awards.filter((a) => unreached.has(a.id)).map((a) => a.member_id);
+    return {
+      ...s,
+      origin: redactDiscreet(s.origin, ids),
+      originalEvents: s.originalEvents.filter(
+        (e) => !ids.has(e.id) && !(e.after?.choices ?? []).some((c: { id?: string }) => !!c?.id && ids.has(c.id)),
+      ),
+      // A stored impact counted them: discount them from the original totals.
+      impact: s.impact?.map((entry) => {
+        const discount = hiddenOwners.filter((id) => id === entry.memberId).length;
+        return discount ? { ...entry, oldCount: entry.oldCount - discount } : entry;
+      }),
     };
   }
   async mutate(d: any, raw: { state: ElectionState | null; preferences: Preference[] }, body: any) {
@@ -493,6 +550,14 @@ export class ReconstructionService {
       };
       const completed = restoreTo.state!.status === 'complete' || restoreTo.state!.cursor >= s.targetCursor;
       if (completed) s.status = 'review';
+      // Discreet early choices the rewind takes away stay unseen (server/early-discretion.ts),
+      // and their owners are told; cancelling brings them back, and the notice goes stale.
+      const kept = new Set(restoreTo.awards.map((a) => a.id));
+      const pending = raw.state ? concealPendingEarly(ctx(d), raw.state, null, d.awards).hidden : new Set<string>();
+      const withdrawnEarly = (raw.state?.earlyChoices ?? []).filter(
+        (e) => pending.has(e.awardId) && !kept.has(e.awardId),
+      );
+      for (const early of withdrawnEarly) ops.push(withdrawnNotice(cid, early, new Date().toISOString()));
       ops.push(
         ...restore(cid, restoreTo),
         this.write(cid, s),
@@ -500,6 +565,7 @@ export class ReconstructionService {
           targetId: target.id,
           keepCount,
           originalIds: originalAuditIds,
+          ...(withdrawnEarly.length ? { withdrawnEarly: withdrawnEarly.map((e) => e.awardId) } : {}),
           version: c.version + 1,
         }),
       );

@@ -3,7 +3,16 @@ import { calendar, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import { occupancyFor, campaignOf } from '../domain/policy.ts';
 import { historicalAvailability } from './availability-history.ts';
-import { AuditContext, append, deleteEventsFor, lastUndoableVacation, recentAudit } from './audit-context.ts';
+import {
+  AuditContext,
+  append,
+  deleteEventsFor,
+  eventsFor,
+  lastUndoableVacation,
+  type AuditRow,
+  recentAudit,
+} from './audit-context.ts';
+import { discretion, redactDiscreet, snapshotRequests } from './early-discretion.ts';
 import { type AuditAction } from '../domain/events.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
@@ -212,7 +221,8 @@ export class Service {
       this.actor.preview?.campaignId !== cid
     )
       throw new ApiError('Simulación reservada a administradores', 403);
-    const { d, state } = await this.election().concealedFor(loaded);
+    const auditContext = new AuditContext(this.repo, cid, loaded.campaign.version);
+    const { d, state, hidden, consumed } = await this.election().concealedFor(loaded, undefined, auditContext);
     const concealing = d !== loaded;
     // A recorded availability counts the hidden awards: recompute it from the masked view.
     const recovery = occupancyFor(d.campaign.year)
@@ -227,8 +237,8 @@ export class Service {
       result,
       recordedAvailability: concealing ? null : recovery.recordedAvailability,
       ...options,
-      ...(state !== undefined ? { state } : {}),
-      auditContext: new AuditContext(this.repo, cid, d.campaign.version),
+      ...(state !== undefined ? { state, hidden, consumed } : {}),
+      auditContext,
     });
     if (canWrite(this.actor, d.campaign.team_id)) {
       const entry = await this.vacationUndo(cid, d.campaign.version);
@@ -629,7 +639,62 @@ export class Service {
       recentAudit(100),
       { sql: "SELECT revision FROM app_state WHERE id='main'" },
     ]);
-    return { users: r[0].results, grants: r[1].results, audit: r[2].results, revision: r[3].results[0]?.revision ?? 0 };
+    return {
+      users: r[0].results,
+      grants: r[1].results,
+      audit: await this.withoutDiscreetEarly(r[2].results),
+      revision: r[3].results[0]?.revision ?? 0,
+    };
+  }
+  /**
+   * The global log keeps discreet early choices out too (server/early-discretion.ts):
+   * their rows go, and every other row's snapshots lose what names them.
+   */
+  private async withoutDiscreetEarly<R extends AuditRow & { campaign_id?: string | null }>(rows: R[]) {
+    const campaigns = new Set(rows.flatMap((row) => (row.campaign_id ? [row.campaign_id] : [])));
+    const byCampaign = new Map<
+      string,
+      { test: (row: AuditRow) => boolean; ids: Set<string>; consumed: Map<string, string> }
+    >();
+    for (const cid of campaigns) {
+      const d = await this.load(cid).catch(() => null);
+      if (!d) continue;
+      const events = await eventsFor(this.repo, cid);
+      if (
+        !events.some(
+          (row) => row.action === 'early_cancel' || row.action === 'early_choose' || row.action === 'advance',
+        )
+      )
+        continue;
+      const { hidden } = await this.election().concealedFor(d);
+      const mine = await this.election().memberForAccount(d);
+      const {
+        row: test,
+        ids,
+        consumed,
+      } = discretion(events, hidden, mine, new Set(d.awards.map((a: { id: string }) => a.id)), [
+        ...d.requests,
+        ...snapshotRequests(events),
+      ]);
+      if (ids.size || consumed.size) byCampaign.set(cid, { test, ids, consumed });
+    }
+    if (!byCampaign.size) return rows;
+    const redact = (json: string | null, { ids, consumed }: { ids: Set<string>; consumed: Map<string, string> }) =>
+      json && ([...ids].some((id) => json.includes(id)) || (consumed.size && json.includes('"preferences"')))
+        ? JSON.stringify(redactDiscreet(JSON.parse(json), ids, consumed))
+        : json;
+    return rows.flatMap((row) => {
+      const discreet = row.campaign_id ? byCampaign.get(row.campaign_id) : undefined;
+      if (!discreet) return [row];
+      if (discreet.test(row)) return [];
+      return [
+        {
+          ...row,
+          before_json: redact(row.before_json, discreet),
+          after_json: redact(row.after_json, discreet),
+        },
+      ];
+    });
   }
   async backup() {
     requireSuper(this.actor);

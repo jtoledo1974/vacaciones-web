@@ -77,6 +77,7 @@ test('quien administra y es el siguiente puede elegir por adelantado para sí', 
     await page.goto('/?equipo=C&year=2026');
     await page.getByLabel('Escenario', { exact: true }).selectOption(cloned.id);
     await expect(page.getByRole('heading', { name: first.code + ' elige ahora', exact: true })).toBeVisible();
+    await expect(page.getByText(/nadie, tampoco la administración, la verá/).first()).toBeVisible();
     await page.getByRole('button', { name: 'Elegir por adelantado', exact: true }).click();
     const banner = page.getByRole('status').filter({ hasText: 'Eligiendo por adelantado para ti' });
     await expect(banner).toBeVisible();
