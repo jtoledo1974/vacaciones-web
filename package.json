@@ -17,6 +17,7 @@
     "lint:ratchet:update": "node scripts/lint-ratchet.mjs --update",
     "format": "prettier --write app server domain tests scripts workers",
     "format:check": "prettier --check app server domain tests scripts workers",
+    "prepare": "git config core.hooksPath .githooks || exit 0",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

@@ -48,6 +48,7 @@ import { historicalAvailability } from './availability-history.ts';
 import { AuditContext, auditAfter, eventsFor } from './audit-context.ts';
 import { ELECTION_UNDO_FORMAT, type AuditAction } from '../domain/events.ts';
 import { turnsBefore } from '../domain/sequence.ts';
+import { projectElectionViewForManager, projectElectionViewForController } from './projections.ts';
 
 type Host = {
   load: (cid: string) => Promise<any>;
@@ -503,14 +504,8 @@ export class ElectionService {
         chain = null;
       }
     }
-    return {
-      state: raw.state
-        ? {
-            ...raw.state,
-            source: manage ? raw.state.source : undefined,
-            tieResolutions: raw.state.tieResolutions?.map((r) => ({ ...r, actor: manage ? r.actor : undefined })),
-          }
-        : null,
+    const projection = {
+      state: raw.state,
       turn: turn
         ? {
             memberId: turn.memberId,
@@ -531,10 +526,9 @@ export class ElectionService {
             ),
           }
         : null,
-      preferences: raw.preferences.filter((p) => preferenceMemberIds.includes(p.member_id)),
+      preferences: raw.preferences,
       preferenceMemberIds,
       myMemberId: mine,
-      canManage: manage,
       available,
       availabilityPending,
       availabilityReasons,
@@ -556,6 +550,7 @@ export class ElectionService {
       timeline,
       reconstruction,
     };
+    return manage ? projectElectionViewForManager(projection) : projectElectionViewForController(projection);
   }
   /**
    * Scheduled: apply the lists whose wait has run out, nobody having the page open.
