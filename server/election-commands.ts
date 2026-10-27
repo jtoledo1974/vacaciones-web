@@ -480,9 +480,9 @@ function executeEarlyCancel(x: ElectionCommandContext) {
   const award = entry && ctx.awards.find((a) => a.id === entry.awardId);
   if (!entry || !award) throw new ApiError('Esa elección anticipada ya no existe', 404);
   x.authorizeMember(entry.memberId);
-  // Its owner may withdraw it until their slot arrives; afterwards only a manager.
+  // Like any other choice, an early one is final for its owner; only a manager corrects it.
+  if (!manage) throw new ApiError('Una elección anticipada es firme: pide al responsable que la anule', 403);
   const passed = x.state.status === 'complete' || currentTurn(ctx, x.state).state.cursor >= entry.cursor;
-  if (!manage && passed) throw new ApiError('Tu turno ya ha llegado: pide al responsable que anule la elección', 403);
   const reopened = x.state.status === 'complete';
   x.state = {
     ...x.state,

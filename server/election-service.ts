@@ -548,11 +548,10 @@ export class ElectionService {
             mine,
             result.cycles.map((c) => c.date),
           );
-      const cursor = turn?.state?.cursor ?? raw.state.cursor;
       const choices = (raw.state.earlyChoices ?? []).flatMap((e) => {
         const award = ctx.awards.find((a) => a.id === e.awardId);
         return e.memberId === mine && award
-          ? [{ awardId: e.awardId, date: award.cycle_date, cancellable: e.cursor > cursor }]
+          ? [{ awardId: e.awardId, date: award.cycle_date, cancellable: manage }]
           : [];
       });
       if (proof || choices.length)

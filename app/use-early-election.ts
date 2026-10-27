@@ -20,7 +20,7 @@ export function useEarlyElection(input: {
   async function chooseEarly(c: { date: string; end: string }) {
     if (
       !(await confirm(
-        `¿Elegir ${formatDate(c.date)} – ${formatDate(c.end)} por adelantado? Cuenta como tu elección en tu próximo turno. Podrás anularla hasta que llegue.`,
+        `¿Elegir ${formatDate(c.date)} – ${formatDate(c.end)} por adelantado? Cuenta como tu elección en tu próximo turno y queda firme: no podrás anularla.`,
       ))
     )
       return;
