@@ -59,3 +59,5 @@ next-env.d.ts
 
 /.dev.vars
 /*.tsbuildinfo
+
+/admin-backups/

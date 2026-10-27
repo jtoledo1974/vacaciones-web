@@ -34,3 +34,17 @@ Es una cuenta de emergencia **altamente privilegiada**; una contraseña fija no 
 
 Los secretos deben quedar en el almacén privado de la plataforma. Si ChatGPT Sites no ofrece una forma de configurar secretos persistentes, **no** sustituirlos por valores hardcoded ni un formulario público de provisión de admin. Se necesita un entorno que admita secretos del servidor.
 
+
+## Uso por API sin navegador
+
+`scripts/admin-cli.mjs` inicia sesión con estas credenciales, ejecuta una orden y cierra la sesión al terminar (la cookie queda revocada). Sirve para cualquier operación de la API de administración, porque la interfaz usa esa misma API.
+
+```bash
+export VACACIONES_URL=https://<origen> VACACIONES_ADMIN_USER=<usuario> VACACIONES_ADMIN_PASSWORD=<contraseña>
+node scripts/admin-cli.mjs session
+node scripts/admin-cli.mjs campaign <id> --out campana.json
+node scripts/admin-cli.mjs post campaign/<id> cuerpo.json --dry-run
+node scripts/admin-cli.mjs post campaign/<id> cuerpo.json
+```
+
+Antes de cada `post` guarda una copia completa en `admin-backups/` (excluida de Git) y no escribe si no la obtiene. Cada ejecución consume uno de los cinco inicios de sesión permitidos cada quince minutos.
