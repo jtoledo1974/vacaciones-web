@@ -252,7 +252,7 @@ test('cancelar y repetir una anticipada no duplica su historial', async () => {
   assert.equal(view.election.timeline.filter((e) => e.choices.some((c) => c.member_id === b.id)).length, 1);
 });
 
-test('anulación administrativa tras completar reabre el derecho y detiene automatismos', async () => {
+test('anulación administrativa tras completar reabre el derecho sin detener automatismos', async () => {
   const { s, person, run, b, dates } = await election();
   let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
   const awardId = view.election.early.choices[0].awardId;
@@ -266,7 +266,7 @@ test('anulación administrativa tras completar reabre el derecho y detiene autom
   assert.equal(view.election.state.status, 'complete');
   view = await run(s, { action: 'early_cancel', awardId });
   assert.equal(view.election.state.status, 'active');
-  assert.equal(view.election.state.automaticPaused, true);
+  assert.notEqual(view.election.state.automaticPaused, true);
   assert.equal(view.election.turn.memberId, b.id);
 });
 
@@ -302,4 +302,46 @@ test('anular antes del turno conserva el reloj del predecesor y no pausa sus lis
   view = await run(person, { action: 'early_cancel', awardId: view.election.early.choices[0].awardId });
   assert.deepEqual(view.election.state.turnSince, clock);
   assert.notEqual(view.election.state.automaticPaused, true);
+});
+
+test('anular tras su turno con la elección en marcha: el derecho vuelve, su lista pasa a manual y se le avisa', async () => {
+  const { repo, s, person, run, a, b, c, dates } = await election();
+  await run(s, {
+    action: 'preferences',
+    memberId: b.id,
+    dates: [dates[6], dates[7]],
+    persistent: true,
+    mode: 'wait',
+    waitMinutes: 30,
+  });
+  await run(s, { action: 'preferences', memberId: c.id, dates: [dates[8]], mode: 'wait', waitMinutes: 30 });
+  let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  const awardId = view.election.early.choices[0].awardId;
+  view = await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  assert.equal(view.election.turn.memberId, c.id, 'el turno de B ya se saltó');
+  view = await run(s, { action: 'early_cancel', awardId });
+  assert.ok(!view.awards.some((w) => w.member_id === b.id));
+  assert.notEqual(view.election.state.automaticPaused, true, 'las listas de los demás siguen activas');
+  const prefs = view.election.preferences;
+  assert.equal(prefs.find((p) => p.member_id === b.id).mode, 'manual');
+  assert.equal(prefs.find((p) => p.member_id === c.id).mode, 'wait');
+  const notices = await repo.all("SELECT round FROM turn_notifications WHERE member_id=? AND id LIKE 'manual:%'", [
+    b.id,
+  ]);
+  assert.deepEqual(
+    notices.map((n) => n.round),
+    [1],
+  );
+  // The recovered right is not lost: B gets a turn that covers it.
+  const seen: string[] = [];
+  for (let i = 0; i < 30 && view.election.state.status !== 'complete'; i++) {
+    const turn = view.election.turn;
+    seen.push(turn.memberId);
+    const owned = new Set(view.awards.filter((w) => w.member_id === turn.memberId).map((w) => w.cycle_date));
+    const available = view.election.available.filter((d) => !owned.has(d));
+    view = await run(s, { action: 'choose', memberId: turn.memberId, dates: available.slice(0, turn.needed) });
+  }
+  assert.ok(seen.includes(b.id));
+  const perMember = (id: string) => view.awards.filter((w) => w.member_id === id).length;
+  assert.equal(perMember(b.id), perMember(a.id));
 });

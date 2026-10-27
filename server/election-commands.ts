@@ -452,14 +452,38 @@ function executeEarlyCancel(x: ElectionCommandContext) {
   // Its owner may withdraw it until their slot arrives; afterwards only a manager.
   const passed = x.state.status === 'complete' || currentTurn(ctx, x.state).state.cursor >= entry.cursor;
   if (!manage && passed) throw new ApiError('Tu turno ya ha llegado: pide al responsable que anule la elección', 403);
+  const reopened = x.state.status === 'complete';
   x.state = {
     ...x.state,
-    status: x.state.status === 'complete' ? 'active' : x.state.status,
-    automaticPaused: passed ? true : x.state.automaticPaused,
+    status: reopened ? 'active' : x.state.status,
     earlyChoices: x.state.earlyChoices!.filter((e) => e !== entry),
   };
-  // The recovered right is offered at the next slot without replaying normal choices.
-  if (passed) delete x.state.turnSince;
+  // A finished election hands the recovered right out now: its turn starts afresh.
+  if (reopened) delete x.state.turnSince;
+  // Once its slot has passed, the owner's list must not re-award the recovered right
+  // unattended: it turns manual (everyone else's lists keep running) and they are told.
+  const pref = x.preferences.find((p) => p.member_id === entry.memberId);
+  if (passed && activeList(pref) && pref.mode !== 'manual') {
+    x.preferences = x.preferences.map((p) => (p === pref ? { ...p, mode: 'manual', waitMinutes: 0 } : p));
+    x.ops.push(
+      {
+        sql: "UPDATE preferences SET mode='manual',wait_minutes=0 WHERE member_id=? AND campaign_id=?",
+        args: [entry.memberId, cid],
+      },
+      // manual:<campaign>:<member>:<award>, read by server/notifications.ts.
+      {
+        sql: `INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at)
+     SELECT ?,ca.principal_key,?,m.id,?,? FROM campaign_members m JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE m.id=?`,
+        args: [
+          ['manual:' + cid, entry.memberId, award.id].join(':'),
+          cid,
+          entry.round,
+          new Date(x.now).toISOString(),
+          entry.memberId,
+        ],
+      },
+    );
+  }
   x.ops.push(
     { sql: 'DELETE FROM awards WHERE id=? AND campaign_id=?', args: [award.id, cid] },
     {

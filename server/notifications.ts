@@ -276,6 +276,14 @@ export function notificationText(row: { id: string; round: number }, extra: { de
       title: 'Algunos ciclos de vacaciones ya están disponibles para ti',
       body: 'Aunque todavía no sea tu turno, puedes solicitar alguno de los ciclos disponibles',
     };
+  if (row.id.startsWith(MANUAL_PREFIX))
+    return {
+      title: 'Vacaciones · Tu lista ya no elige sola',
+      body:
+        'Se ha anulado tu elección anticipada y recuperas ese ciclo (ronda ' +
+        row.round +
+        '). Tus preferencias han pasado a manual: entra para elegir o vuelve a activarlas.',
+    };
   if (row.id.startsWith(LOW_PREFIX)) {
     const left = Number(row.id.split(':').at(-1));
     return {
@@ -311,14 +319,14 @@ export async function enqueueAutomaticChoices(repo: Repository, campaignId: stri
   const rows = await automaticAdvancesSince(repo, campaignId, new Date(now - AUTO_WINDOW_MS).toISOString());
   let enqueued = 0;
   for (const row of rows) {
-    let choices: any[] = [];
+    let choices: any[] = [],
+      payload: { choices?: unknown[]; round?: number } | null = null;
     try {
-      choices = JSON.parse(row.after_json)?.choices ?? [];
+      choices = (payload = JSON.parse(row.after_json))?.choices ?? [];
     } catch {
       continue;
     }
-    const payload = JSON.parse(row.after_json);
-    const round = payload.round ?? (row.turns ? Math.floor(row.cursor / row.turns) + 1 : 1);
+    const round = payload?.round ?? (row.turns ? Math.floor(row.cursor / row.turns) + 1 : 1);
     for (const choice of choices) {
       if (typeof choice?.member_id !== 'string' || typeof choice?.cycle_date !== 'string') continue;
       const owner = (
@@ -352,8 +360,10 @@ const SOON_PREFIX = 'soon:';
 const SOON_TURNS = 3;
 // early:<campaign>:<member>:<round>, at most one early-election opportunity per round.
 const EARLY_PREFIX = 'early:';
+// manual:<campaign>:<member>:<award>, queued by early_cancel when it turns a list manual.
+const MANUAL_PREFIX = 'manual:';
 const isTurnEvent = (id: string) =>
-  ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX, EARLY_PREFIX].some((prefix) => id.startsWith(prefix));
+  ![AUTO_PREFIX, LOW_PREFIX, SOON_PREFIX, EARLY_PREFIX, MANUAL_PREFIX].some((prefix) => id.startsWith(prefix));
 
 /**
  * Tell the controller in an early-election window (domain/early-election.ts) that some
