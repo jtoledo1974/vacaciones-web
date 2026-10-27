@@ -20,9 +20,12 @@ import {
   type ElectionState,
   type Preference,
   type PreferenceMode,
+  activeList,
+  choiceIssues,
   type ElectionContext,
 } from '../domain/election.ts';
 import { cycleTable } from '../domain/vacations.ts';
+import { earlyEntry, earlyProof } from '../domain/early-election.ts';
 import { occupancyFor } from '../domain/policy.ts';
 import { restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
@@ -82,7 +85,8 @@ export type ElectionCommandContext = {
   ops: Statement[];
   state: ElectionState | null;
   preferences: Preference[];
-  choices: { member_id: string; cycle_date: string }[];
+  /** New awards; an early choice brings its own id, already referenced by the state. */
+  choices: { id?: string; member_id: string; cycle_date: string }[];
   recordUndo: boolean;
   /** Throws unless the actor may act for this member (own member, or a manager). */
   authorizeMember: (memberId: string) => void;
@@ -295,7 +299,15 @@ function executeAdvance(x: ElectionCommandContext) {
   // cycles; do not perform an identical, expensive solver search beforehand.
   // Each successful advance still commits EXACTLY ONE undoable turn.
   const next = advanceAutomatic(x.ctx, x.state!, x.preferences, 1, x.now);
-  if (!next.choices.length) return { changed: false } as const;
+  if (!next.choices.length) {
+    // No ordinary turn to apply: an immediate list may still choose ahead of time.
+    const early = pendingEarlyListChoice(x.ctx, x.state!, x.preferences);
+    if (!early) return { changed: false } as const;
+    awardEarly(x, early.window, early.date);
+    // Like an ordinary turn, the list is used up once it has chosen everything owed there.
+    if (early.window.owed === 1) x.preferences = consumePreferences(x.preferences, [early.window.memberId]);
+    return;
+  }
   x.state = next.state;
   x.preferences = next.preferences;
   x.choices = next.choices;
@@ -379,6 +391,76 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   );
 };
 
+const notYet = 'Todavía no puedes adelantar tu elección: solo cuando quede un único turno antes del tuyo';
+function executeEarlyChoose(x: ElectionCommandContext) {
+  const { body, ctx } = x;
+  x.authorizeMember(body.memberId);
+  if (!x.state) throw new ApiError(noOrder);
+  if (typeof body.date !== 'string') throw new ApiError('Selección no válida');
+  const proof = earlyProof(ctx, x.state, body.memberId, resultDates(ctx), { only: [body.date] });
+  if (!proof) throw new ApiError(notYet, 409);
+  if (!proof.guaranteed.includes(body.date))
+    throw new ApiError(
+      proof.indeterminate
+        ? 'No se ha podido comprobar a tiempo que ese ciclo esté garantizado. Elígelo en tu turno.'
+        : 'Ese ciclo no está garantizado frente a quien elige antes que tú',
+      409,
+    );
+  awardEarly(x, proof.window, body.date);
+}
+function awardEarly(x: ElectionCommandContext, window: Parameters<typeof earlyEntry>[0], date: string) {
+  const id = crypto.randomUUID();
+  x.choices = [{ id, member_id: window.memberId, cycle_date: date }];
+  x.state = {
+    ...x.state!,
+    earlyChoices: [...(x.state!.earlyChoices ?? []), earlyEntry(window, id, new Date(x.now).toISOString())],
+  };
+}
+/**
+ * Immediate lists choose ahead of time too: the FIRST still possible cycle of the list,
+ * and only if it is guaranteed. A possible but unproved first cycle stops the list
+ * (the next one is never taken instead); an impossible one gives way to the next.
+ */
+export function earlyListChoice(ctx: ElectionContext, state: ElectionState, pref: Preference, dates: string[]) {
+  const owned = new Set(ctx.awards.filter((a) => a.member_id === pref.member_id).map((a) => a.cycle_date));
+  for (const date of pref.dates) {
+    if (owned.has(date) || choiceIssues(ctx, pref.member_id, [date]).length) continue;
+    const proof = earlyProof(ctx, state, pref.member_id, dates, { only: [date] });
+    return proof?.guaranteed.includes(date) ? { date, window: proof.window } : null;
+  }
+  return null;
+}
+/** The first immediate list that may choose ahead of time now, if any. */
+export function pendingEarlyListChoice(ctx: ElectionContext, state: ElectionState, preferences: Preference[]) {
+  if (state.status !== 'active' || state.automaticPaused) return null;
+  const dates = resultDates(ctx);
+  for (const pref of preferences) {
+    if (!activeList(pref) || (pref.mode ?? 'immediate') !== 'immediate') continue;
+    const found = earlyListChoice(ctx, state, pref, dates);
+    if (found) return found;
+  }
+  return null;
+}
+function executeEarlyCancel(x: ElectionCommandContext) {
+  const { body, ctx, cid, manage } = x;
+  if (!x.state) throw new ApiError(noOrder);
+  const entry = (x.state.earlyChoices ?? []).find((e) => e.awardId === body.awardId);
+  const award = entry && ctx.awards.find((a) => a.id === entry.awardId);
+  if (!entry || !award) throw new ApiError('Esa elección anticipada ya no existe', 404);
+  x.authorizeMember(entry.memberId);
+  // Its owner may withdraw it until their slot arrives; afterwards only a manager.
+  if (!manage && currentTurn(ctx, x.state).state.cursor >= entry.cursor)
+    throw new ApiError('Tu turno ya ha llegado: pide al responsable que anule la elección', 403);
+  x.state = { ...x.state, earlyChoices: x.state.earlyChoices!.filter((e) => e !== entry) };
+  x.ops.push(
+    { sql: 'DELETE FROM awards WHERE id=? AND campaign_id=?', args: [award.id, cid] },
+    {
+      sql: 'DELETE FROM requests WHERE campaign_id=? AND member_id=? AND cycle_date=?',
+      args: [cid, award.member_id, award.cycle_date],
+    },
+  );
+}
+
 const manager = (message: string, state?: string) => ({ manager: message, ...(state ? { state } : {}) });
 const pauseOrResume = (status: 'paused' | 'active'): ElectionCommand => ({
   preconditions: manager('Solo el responsable puede pausar o reanudar la elección', 'No hay una elección configurada'),
@@ -433,13 +515,25 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
       x.state = { ...x.state, automaticPaused: false };
     },
   },
-  advance: { preconditions: { state: 'No hay una elección configurada' }, execute: executeAdvance },
+  advance: {
+    preconditions: { state: 'No hay una elección configurada' },
+    execute: executeAdvance,
+    audited: (x) => (x.choices.some((c) => c.id) ? { early: true, memberId: x.choices[0].member_id } : {}),
+  },
   link_account: {
     preconditions: {
       liveOnly: 'Vincula las cuentas desde una campaña real',
       manager: 'Solo el responsable puede vincular cuentas',
     },
     execute: executeLinkAccount,
+  },
+  early_choose: { execute: executeEarlyChoose },
+  early_cancel: {
+    execute: executeEarlyCancel,
+    audited: (x) => ({
+      cancelled: x.body.awardId,
+      memberId: x.d.awards.find((a: { id: string }) => a.id === x.body.awardId)?.member_id ?? null,
+    }),
   },
   election_undo: {
     preconditions: manager('Solo el responsable del equipo puede deshacer o rehacer elecciones'),
