@@ -13,7 +13,7 @@ import { earlyProof, earlyWindow } from '../domain/early-election.ts';
 import { pendingEarlyListChoice, resultDates } from './election-commands.ts';
 import { turnsUntil, type SequenceInput } from '../domain/sequence.ts';
 import type { Repository } from './repository.ts';
-import { automaticAdvancesSince, hasChoicesSince } from './audit-context.ts';
+import { automaticAdvancesSince, hasChoicesSince, eventsFor, appliedAudit, auditAfter } from './audit-context.ts';
 import { requireSuper, type Principal } from './permissions.ts';
 import { deliverPush, publicPushKey, type PushConfig } from './web-push.ts';
 import { ApiError } from './errors.ts';
@@ -43,7 +43,7 @@ export async function notificationSettings(repo: Repository, actor: Principal, c
       (s) => ({ endpoint: s.endpoint, createdAt: s.created_at }),
     ),
     notifications: await repo.all(
-      'SELECT n.id,n.campaign_id,n.round,n.created_at,c.team_id,c.year FROM turn_notifications n JOIN campaigns c ON c.id=n.campaign_id WHERE n.owner_key=? ORDER BY n.created_at DESC LIMIT 25',
+      "SELECT n.id,n.campaign_id,n.round,n.created_at,c.team_id,c.year FROM turn_notifications n JOIN campaigns c ON c.id=n.campaign_id WHERE n.owner_key=? AND c.scope_key='live' ORDER BY n.created_at DESC LIMIT 25",
       [key],
     ),
   };
@@ -151,12 +151,23 @@ export async function flushTurnNotifications(
     "SELECT * FROM turn_notifications WHERE campaign_id=? AND push_status='pending' ORDER BY created_at LIMIT 25",
     [campaignId],
   );
-  const campaign = (await repo.all('SELECT team_id,year FROM campaigns WHERE id=?', [campaignId]))[0];
+  const campaign = (
+    await repo.all("SELECT team_id,year FROM campaigns WHERE id=? AND scope_key='live'", [campaignId])
+  )[0];
   if (!campaign) return;
   const targetUrl =
     '/?equipo=' + encodeURIComponent(campaign.team_id) + '&year=' + encodeURIComponent(String(campaign.year));
   for (const row of rows) {
     if (budget.remaining <= 0) break;
+    if (row.id.startsWith(MANUAL_PREFIX) && !(await manualNoticeIsCurrent(repo, row))) {
+      await repo.batch([
+        {
+          sql: "UPDATE turn_notifications SET push_status='obsolete' WHERE id=? AND push_status='pending'",
+          args: [row.id],
+        },
+      ]);
+      continue;
+    }
     const subscriptions = await repo.all('SELECT * FROM push_subscriptions WHERE owner_key=?', [row.owner_key]);
     if (!subscriptions.length) continue;
     for (const sub of subscriptions) {
@@ -360,6 +371,23 @@ const SOON_PREFIX = 'soon:';
 const SOON_TURNS = 3;
 // early:<campaign>:<member>:<round>, at most one early-election opportunity per round.
 const EARLY_PREFIX = 'early:';
+/** A notice belongs to an effective cancellation and a list that is still manual. */
+async function manualNoticeIsCurrent(repo: Repository, row: { id: string; campaign_id: string; member_id: string }) {
+  const awardId = row.id.split(':').at(-1);
+  const pref = (
+    await repo.all('SELECT mode,active FROM preferences WHERE campaign_id=? AND member_id=?', [
+      row.campaign_id,
+      row.member_id,
+    ])
+  )[0];
+  if (!pref?.active || pref.mode !== 'manual') return false;
+  if ((await repo.all('SELECT id FROM awards WHERE campaign_id=? AND id=?', [row.campaign_id, awardId])).length)
+    return false;
+  return appliedAudit(await eventsFor(repo, row.campaign_id)).done.some(
+    (event) => event.action === 'early_cancel' && auditAfter(event)?.cancelled === awardId,
+  );
+}
+
 // manual:<campaign>:<member>:<award>, queued by early_cancel when it turns a list manual.
 const MANUAL_PREFIX = 'manual:';
 const isTurnEvent = (id: string) =>

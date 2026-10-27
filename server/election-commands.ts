@@ -365,18 +365,53 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   // Restore the undone list edit itself and list flags (active) consumed by an
   // undone award; every other list keeps what its owner has saved since.
   const original = action === 'election_undo' ? entry : history.redoOriginal;
-  const next = restoredPreferences(
+  let next = restoredPreferences(
     prior.preferences ?? [],
     preferences,
     original?.action === 'preferences' ? auditAfter(original)?.memberId : null,
   );
+  // An early cancellation changes mode as a system side effect, not an owner edit.
+  // Reverse only that exact postimage; later owner edits retain their content.
+  let systemRestored: string | null = null;
+  if (original?.action === 'early_cancel') {
+    const before = validateSnapshot(JSON.parse(original.before_json), 'election-undo-v1');
+    const cancelled = auditAfter(original)?.cancelled;
+    const early = before?.state?.earlyChoices?.find((e) => e.awardId === cancelled);
+    const saved = before?.preferences?.find((p) => p.member_id === early?.memberId);
+    const passed =
+      before?.state && early && (before.state.status === 'complete' || before.state.cursor >= early.cursor);
+    if (passed && saved && activeList(saved) && saved.mode !== 'manual') {
+      const manual = { ...saved, mode: 'manual' as const, waitMinutes: 0 };
+      const expected = action === 'election_undo' ? manual : saved;
+      const target = action === 'election_undo' ? saved : manual;
+      if (listContent([expected], saved.member_id) === listContent(preferences, saved.member_id)) {
+        systemRestored = saved.member_id;
+        next = next.map((p) =>
+          p.member_id === saved.member_id ? { ...p, mode: target.mode, waitMinutes: target.waitMinutes } : p,
+        );
+      }
+    }
+    // Reuse an unsent notice on redo; delivery still checks the effective audit branch.
+    if (cancelled && early)
+      x.ops.push({
+        sql: 'UPDATE turn_notifications SET push_status=? WHERE id=? AND push_status=?',
+        args:
+          action === 'election_undo'
+            ? ['obsolete', ['manual:' + cid, early.memberId, cancelled].join(':'), 'pending']
+            : ['pending', ['manual:' + cid, early.memberId, cancelled].join(':'), 'obsolete'],
+      });
+  }
   // Linked accounts' private lists are protected.
   if (c.scope_key === 'live' && actor.role !== 'superadmin') {
     const linked = await x.repo.all(
       'SELECT m.id FROM campaign_members m JOIN controller_accounts a ON m.person_id=a.person_id WHERE m.campaign_id=?',
       [cid],
     );
-    if (linked.some((m) => m.id !== mine && listContent(next, m.id) !== listContent(preferences, m.id)))
+    if (
+      linked.some(
+        (m) => m.id !== mine && m.id !== systemRestored && listContent(next, m.id) !== listContent(preferences, m.id),
+      )
+    )
       throw new ApiError(privateDenied, 403);
   }
   // The undone awards take their early-choice entries with them.
@@ -473,7 +508,7 @@ function executeEarlyCancel(x: ElectionCommandContext) {
       // manual:<campaign>:<member>:<award>, read by server/notifications.ts.
       {
         sql: `INSERT OR IGNORE INTO turn_notifications(id,owner_key,campaign_id,member_id,round,created_at)
-     SELECT ?,ca.principal_key,?,m.id,?,? FROM campaign_members m JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE m.id=?`,
+     SELECT ?,ca.principal_key,?,m.id,?,? FROM campaign_members m JOIN controller_accounts ca ON ca.person_id=m.person_id WHERE m.id=? AND EXISTS(SELECT 1 FROM campaigns c WHERE c.id=m.campaign_id AND c.scope_key='live')`,
         args: [
           ['manual:' + cid, entry.memberId, award.id].join(':'),
           cid,
