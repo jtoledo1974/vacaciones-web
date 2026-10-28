@@ -5,8 +5,7 @@ import { api } from '../api-client';
 import { normalizeCliCode } from '../../lib/cli-protocol.mjs';
 
 type Session = { principal: { role: string }; identity: { email: string } | null };
-type Operation = { method: 'GET' | 'POST'; path: string; backup: boolean };
-type Pairing = { pairing: string; status: string; operation: Operation | null };
+type Pairing = { pairing: string; status: string };
 
 export default function CliAuthorization() {
   const [session, setSession] = useState<Session | null>(null);
@@ -23,7 +22,7 @@ export default function CliAuthorization() {
   }, []);
   useEffect(loadSession, [loadSession]);
 
-  // The terminal joins after the code is entered: wait for its operation to appear.
+  // The terminal joins after the code is entered: wait for it before offering approval.
   useEffect(() => {
     if (!pairing || pairing.status !== 'waiting') return;
     const timer = setInterval(async () => {
@@ -49,7 +48,6 @@ export default function CliAuthorization() {
       setBusy(false);
     }
   }
-  const operation = pairing?.operation;
   return (
     <main className="panel" style={{ maxWidth: 640, margin: '3rem auto', padding: '2rem' }}>
       <h1>Autorizar la terminal</h1>
@@ -79,7 +77,7 @@ export default function CliAuthorization() {
             event.preventDefault();
             run(async () => {
               const result = await api('cli-auth/pair', { body: { code } });
-              setPairing({ ...result, operation: null });
+              setPairing(result);
             });
           }}
         >
@@ -96,38 +94,21 @@ export default function CliAuthorization() {
             />
           </label>
           <p>
-            Escribe solo un código de una orden que acabas de iniciar tú. No uses códigos recibidos de otra persona.
+            Escribe solo un código de una terminal que acabas de iniciar tú. No uses códigos recibidos de otra persona.
           </p>
           <button disabled={busy || !normalizeCliCode(code)}>Continuar</button>
         </form>
       ) : pairing.status === 'waiting' ? (
         <p>Esperando a que la terminal confirme el código…</p>
-      ) : pairing.status === 'joined' && operation ? (
+      ) : pairing.status === 'joined' ? (
         <>
-          <p>La terminal solicita una única operación:</p>
           <p>
-            <strong style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-              {operation.method} {operation.path}
-            </strong>
+            <strong>La terminal tendrá tus permisos de administración, de lectura y escritura, durante 30 días.</strong>{' '}
+            Guarda el acceso en su disco y no volverá a pedirlo hasta que caduque.
           </p>
-          {operation.method === 'POST' ? (
-            <p>
-              <strong>Esta operación modifica datos.</strong>{' '}
-              {operation.backup
-                ? 'Antes descargará una copia completa de la base de datos, con datos personales.'
-                : 'No se descargará copia previa.'}
-            </p>
-          ) : operation.path.split('?')[0] === '/api/backup' ? (
-            <p>
-              <strong>Descargará una copia completa de la base de datos, con datos personales.</strong> No modifica
-              datos.
-            </p>
-          ) : (
-            <p>Solo consulta datos.</p>
-          )}
           <p>
-            La autorización dura como máximo 15 minutos, sirve solo para esa operación (una escritura se ejecuta una
-            sola vez) y la terminal la revoca al acabar. Cerrar la sesión de la web no la revoca.
+            Para retirarlo antes, ejecuta <code>admin-cli logout</code> en esa terminal. Cerrar la sesión de la web no
+            lo revoca. Si pierdes tu rol de superadministrador, el acceso deja de funcionar.
           </p>
           <button
             disabled={busy}
@@ -139,13 +120,15 @@ export default function CliAuthorization() {
               })
             }
           >
-            Autorizar esta operación
+            Autorizar esta terminal
           </button>
         </>
       ) : pairing.status === 'approved' ? (
         <p>Autorizada.</p>
       ) : (
-        <p>La terminal canceló la solicitud. Inicia una orden nueva.</p>
+        <p>
+          La terminal canceló la solicitud. Vuelve a ejecutar <code>admin-cli login</code>.
+        </p>
       )}
       <p role="status">{message}</p>
     </main>

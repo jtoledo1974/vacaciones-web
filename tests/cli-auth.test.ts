@@ -15,6 +15,7 @@ import {
   joinCli,
   pairCli,
   revokeCli,
+  CLI_PAIR_RATE_WINDOW_MS,
   CLI_SESSION_MS,
 } from '../server/cli-auth.ts';
 import { principal, Service } from '../server/service.ts';
@@ -35,14 +36,13 @@ const call = (token: string, method = 'GET', path = '/api/session', body?: strin
   new Request(origin + path, { method, headers: { 'X-Vacaciones-CLI-Token': token }, body });
 const newCode = () => randomBytes(8).toString('hex').toUpperCase();
 const newToken = () => randomBytes(32).toString('hex');
-const read = { method: 'GET', path: '/api/campaign/x' };
 
 /** Full happy path up to the browser approval; returns what both sides hold. */
-async function authorize(repo: SQLiteRepo, operation: object = read) {
+async function authorize(repo: SQLiteRepo) {
   const code = newCode(),
     token = newToken();
   const { pairing } = await pairCli(browser(), repo, identity, actor, code.match(/.{4}/g)!.join('-').toLowerCase());
-  assert.deepEqual(await joinCli(terminal(token), repo, code, operation), { status: 'joined' });
+  assert.deepEqual(await joinCli(terminal(token), repo, code), { status: 'joined' });
   await approveCli(browser(), repo, identity, actor, pairing);
   return { code, token, pairing };
 }
@@ -52,27 +52,21 @@ test('pairing, join and approval delegate the browser identity; secrets are stor
   const code = newCode(),
     token = newToken();
   // The terminal may join before the browser pairs: it just keeps waiting.
-  assert.deepEqual(await joinCli(terminal(token), repo, code, read), { status: 'waiting' });
+  assert.deepEqual(await joinCli(terminal(token), repo, code), { status: 'waiting' });
   const { pairing } = await pairCli(browser(), repo, identity, actor, code);
-  assert.deepEqual(await cliPairingStatus(browser(), repo, identity, actor, pairing), {
-    status: 'waiting',
-    operation: null,
-  });
+  assert.deepEqual(await cliPairingStatus(browser(), repo, identity, actor, pairing), { status: 'waiting' });
   await assert.rejects(cliIdentity(call(token), repo), /pendiente/);
-  await joinCli(terminal(token), repo, code, read);
-  assert.deepEqual(await cliPairingStatus(browser(), repo, identity, actor, pairing), {
-    status: 'joined',
-    operation: { ...read, backup: false },
-  });
+  await joinCli(terminal(token), repo, code);
+  assert.deepEqual(await cliPairingStatus(browser(), repo, identity, actor, pairing), { status: 'joined' });
   await assert.rejects(cliIdentity(call(token), repo), /pendiente/);
-  await approveCli(browser(), repo, identity, actor, pairing);
-  assert.deepEqual(await joinCli(terminal(token), repo, code, read), { status: 'approved' });
+  assert.deepEqual(await approveCli(browser(), repo, identity, actor, pairing), { ok: true, durationDays: 30 });
+  assert.deepEqual(await joinCli(terminal(token), repo, code), { status: 'approved' });
   assert.deepEqual(await cliIdentity(call(token), repo), identity);
-  assert.deepEqual(await cliIdentity(call(token, 'GET', '/api/campaign/x'), repo), identity);
   const rows = await repo.all('SELECT * FROM cli_sessions');
   assert.equal(rows[0].token_hash, await cliTokenHash(token));
   assert.ok(!JSON.stringify(rows).includes(token) && !JSON.stringify(rows).includes(code));
   assert.ok(rows[0].expires_at <= Date.now() + CLI_SESSION_MS);
+  assert.ok(rows[0].expires_at > Date.now() + 29 * 86_400_000);
   const audit = await repo.all("SELECT action,actor FROM audit WHERE action LIKE 'cli_%'");
   assert.deepEqual(
     audit.map((row) => ({ ...row })),
@@ -109,25 +103,16 @@ test('rejects anonymous, non-superadmin, cross-origin, local-admin and recursive
   repo.db.close();
 });
 
-test('a wrong code, another terminal or an invalid operation cannot take over a pairing', async () => {
+test('a wrong code or another terminal cannot take over a pairing', async () => {
   const repo = new SQLiteRepo(),
     code = newCode(),
     token = newToken();
   await pairCli(browser(), repo, identity, actor, code);
-  await assert.rejects(joinCli(terminal(token), repo, 'nope', read), /Código/);
-  assert.deepEqual(await joinCli(terminal(token), repo, newCode(), read), { status: 'waiting' });
-  for (const operation of [
-    { method: 'DELETE', path: '/api/x' },
-    { method: 'GET', path: 'https://evil.test/api/x' },
-    { method: 'GET', path: '/api/cli-auth/approve' },
-    { method: 'GET', path: '/api/../x' },
-    { method: 'POST', path: '/api/x' },
-    null,
-  ])
-    await assert.rejects(joinCli(terminal(token), repo, code, operation), /no válida/);
-  await joinCli(terminal(token), repo, code, read);
-  await assert.rejects(joinCli(terminal(newToken()), repo, code, read), /otra terminal/);
-  await assert.rejects(joinCli(terminal(token), repo, code, { ...read, path: '/api/admin' }), /otra terminal/);
+  await assert.rejects(joinCli(terminal(token), repo, 'nope'), /Código/);
+  await assert.rejects(joinCli(terminal('invalid'), repo, code), /no válida/);
+  assert.deepEqual(await joinCli(terminal(token), repo, newCode()), { status: 'waiting' });
+  await joinCli(terminal(token), repo, code);
+  await assert.rejects(joinCli(terminal(newToken()), repo, code), /otra terminal/);
   await assert.rejects(pairCli(browser(), repo, identity, actor, code), /ya se ha usado/);
   repo.db.close();
 });
@@ -138,7 +123,7 @@ test('approval is single-use, bound to its administrator and audited when refuse
     token = newToken();
   const { pairing } = await pairCli(browser(), repo, identity, actor, code);
   await assert.rejects(approveCli(browser(), repo, identity, actor, pairing), /ya fue autorizada/);
-  await joinCli(terminal(token), repo, code, read);
+  await joinCli(terminal(token), repo, code);
   await assert.rejects(cliPairingStatus(browser(), repo, identity, other, pairing), /no pertenece/);
   await assert.rejects(approveCli(browser(), repo, identity, other, pairing), /otra cuenta/);
   await approveCli(browser(), repo, identity, actor, pairing);
@@ -155,34 +140,20 @@ test('approval is single-use, bound to its administrator and audited when refuse
   repo.db.close();
 });
 
-test('the delegated session is limited to the approved method, path and body', async () => {
+test('an approved terminal reads and writes any route repeatedly; rights are resolved per request', async () => {
   const repo = new SQLiteRepo();
-  const body = JSON.stringify({ a: 1 });
-  const write = { method: 'POST', path: '/api/campaign/x?y=1', bodyHash: await cliTokenHash(body), backup: true };
-  const { token } = await authorize(repo, write);
-  assert.deepEqual(await cliIdentity(call(token, 'GET', '/api/backup'), repo), identity);
-  await assert.rejects(cliIdentity(call(token, 'POST', '/api/campaign/x?y=1', '{"a":2}'), repo), /difiere/);
-  await assert.rejects(cliIdentity(call(token, 'POST', '/api/campaign/z', body), repo), /fuera/);
-  await assert.rejects(cliIdentity(call(token, 'GET', '/api/admin'), repo), /fuera/);
-  // Rejected attempts do not consume it; the authorized write runs exactly once.
-  assert.deepEqual(await cliIdentity(call(token, 'POST', '/api/campaign/x?y=1', body), repo), identity);
-  const replays = await Promise.allSettled([
-    cliIdentity(call(token, 'POST', '/api/campaign/x?y=1', body), repo),
-    cliIdentity(call(token, 'POST', '/api/campaign/x?y=1', body), repo),
-  ]);
-  for (const replay of replays) assert.match(String((replay as PromiseRejectedResult).reason), /ya se envió/);
-  await assert.rejects(cliIdentity(call(token, 'GET', '/api/backup'), repo), /ya se envió/);
-  await assert.rejects(cliIdentity(call(token), repo), /ya se envió/);
-  const [consumed] = await repo.all('SELECT status,identity_json FROM cli_sessions WHERE token_hash=?', [
-    await cliTokenHash(token),
-  ]);
-  assert.deepEqual({ ...consumed }, { status: 'consumed', identity_json: null });
-  const { token: reader } = await authorize(repo);
-  await assert.rejects(cliIdentity(call(reader, 'GET', '/api/backup'), repo), /fuera/);
-  // Reads are idempotent and may be repeated within the authorization.
-  await cliIdentity(call(reader, 'GET', '/api/campaign/x'), repo);
-  await cliIdentity(call(reader, 'GET', '/api/campaign/x'), repo);
-  const delegated = await cliIdentity(call(reader), repo);
+  const { token } = await authorize(repo);
+  for (const [method, path, body] of [
+    ['GET', '/api/backup'],
+    ['GET', '/api/admin'],
+    ['POST', '/api/campaign/x?y=1', '{"a":1}'],
+    ['POST', '/api/campaign/z', '{"a":2}'],
+    ['POST', '/api/campaign/z', '{"a":2}'],
+  ])
+    assert.deepEqual(await cliIdentity(call(token, method, path, body), repo), identity);
+  const [row] = await repo.all('SELECT status FROM cli_sessions WHERE token_hash=?', [await cliTokenHash(token)]);
+  assert.equal(row.status, 'approved');
+  const delegated = await cliIdentity(call(token), repo);
   assert.equal((await principal(repo, delegated, identity.email)).role, 'superadmin');
   assert.equal((await principal(repo, delegated, '')).role, 'viewer');
   repo.db.close();
@@ -200,11 +171,11 @@ test('revocation works before and after approval and fences late joins and appro
   const code = newCode(),
     token = newToken();
   const { pairing } = await pairCli(browser(), repo, identity, actor, code);
-  await joinCli(terminal(token), repo, code, read);
+  await joinCli(terminal(token), repo, code);
   await revoke(token, code);
   await revoke(token, code);
   await assert.rejects(approveCli(browser(), repo, identity, actor, pairing), /cancelada/);
-  await assert.rejects(joinCli(terminal(token), repo, code, read), /canceló/);
+  await assert.rejects(joinCli(terminal(token), repo, code), /canceló/);
   assert.equal(await cliPairingStatus(browser(), repo, identity, actor, pairing).catch(() => null), null);
   // After approval: the token stops working; another token cannot revoke it.
   const approved = await authorize(repo);
@@ -213,6 +184,21 @@ test('revocation works before and after approval and fences late joins and appro
   await revoke(approved.token, approved.code);
   await assert.rejects(cliIdentity(call(approved.token), repo), /revocada/);
   await assert.rejects(revokeCli(terminal(token), repo, 'x'), /no válido/);
+  repo.db.close();
+});
+
+test('the pairing limit resets after 15 minutes, not after the 30-day session lifetime', async (t) => {
+  const repo = new SQLiteRepo();
+  const start = Date.now();
+  let now = start;
+  t.mock.method(Date, 'now', () => now);
+  for (let i = 0; i < 5; i++) await pairCli(browser(), repo, identity, actor, newCode());
+  await assert.rejects(pairCli(browser(), repo, identity, actor, newCode()), /Demasiados/);
+  now = start + CLI_PAIR_RATE_WINDOW_MS - 1000;
+  await assert.rejects(pairCli(browser(), repo, identity, actor, newCode()), /Demasiados/);
+  now = start + CLI_PAIR_RATE_WINDOW_MS + 1;
+  await pairCli(browser(), repo, identity, actor, newCode());
+  assert.ok(CLI_PAIR_RATE_WINDOW_MS < CLI_SESSION_MS);
   repo.db.close();
 });
 

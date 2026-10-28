@@ -5,17 +5,17 @@ import { append, appendIfChanged } from './audit-context.ts';
 import { cliHash, normalizeCliCode, CLI_TOKEN_HEADER, CLI_SESSION_MS, CLI_PAIRING_MS } from '../lib/cli-protocol.mjs';
 export { cliHash as cliTokenHash, CLI_TOKEN_HEADER, CLI_SESSION_MS } from '../lib/cli-protocol.mjs';
 
-export type CliScope = { method: 'GET' | 'POST'; path: string; bodyHash?: string; backup: boolean };
 type Session = {
   pairing_hash: string;
   token_hash: string | null;
   owner_key: string | null;
   identity_json: string | null;
-  scope_json: string | null;
   status: string;
   expires_at: number;
 };
 const digestPattern = /^[a-f0-9]{64}$/;
+/** Independent of the session lifetime: five pairings per administrator every 15 minutes. */
+export const CLI_PAIR_RATE_WINDOW_MS = 15 * 60 * 1000;
 
 /** Called on CLI traffic AND by the existing periodic notifications dispatcher. */
 export async function cleanupCliSessions(repo: Repository, now = Date.now()) {
@@ -52,29 +52,6 @@ function token(request: Request) {
   if (!value || !digestPattern.test(value)) throw new ApiError('Sesión CLI no válida', 401);
   return value;
 }
-function scope(value: unknown): CliScope {
-  const s = value as Partial<CliScope> | null;
-  if (
-    !s ||
-    !['GET', 'POST'].includes(s.method ?? '') ||
-    typeof s.path !== 'string' ||
-    s.path.length > 2048 ||
-    !s.path.startsWith('/api/') ||
-    /[\r\n#]/.test(s.path) ||
-    s.path.startsWith('/api/cli-auth') ||
-    (s.method === 'POST' && (typeof s.bodyHash !== 'string' || !digestPattern.test(s.bodyHash)))
-  )
-    throw new ApiError('Operación CLI no válida', 400);
-  const parsed = new URL(s.path, 'https://cli.invalid');
-  if (parsed.origin !== 'https://cli.invalid' || parsed.pathname + parsed.search !== s.path)
-    throw new ApiError('Ruta CLI no válida', 400);
-  return {
-    method: s.method as CliScope['method'],
-    path: s.path,
-    ...(s.method === 'POST' ? { bodyHash: s.bodyHash } : {}),
-    backup: s.method === 'POST' && s.backup === true,
-  };
-}
 function audit(actor: Principal, action: 'cli_authorization_rejected', after: object) {
   return append({
     id: crypto.randomUUID(),
@@ -91,7 +68,7 @@ export async function pairCli(request: Request, repo: Repository, identity: Iden
   origin(request);
   browser(request, identity, actor);
   await cleanupCliSessions(repo);
-  await limit(repo, 'pair:' + actor.id, 5, CLI_SESSION_MS);
+  await limit(repo, 'pair:' + actor.id, 5, CLI_PAIR_RATE_WINDOW_MS);
   const normalized = normalizeCliCode(code);
   if (!normalized) throw new ApiError('Introduce los 16 caracteres del código de tu terminal', 400);
   const pairing = await cliHash(normalized);
@@ -107,21 +84,20 @@ export async function pairCli(request: Request, repo: Repository, identity: Iden
   return { pairing, status: 'waiting' };
 }
 
-/** A code proves possession of the terminal. The browser still has to confirm its exact operation. */
-export async function joinCli(request: Request, repo: Repository, code: unknown, operation: unknown) {
+/** A code proves possession of the terminal. The browser still has to approve it. */
+export async function joinCli(request: Request, repo: Repository, code: unknown) {
   origin(request);
   await cleanupCliSessions(repo);
   await limit(repo, 'join:' + (request.headers.get('cf-connecting-ip') ?? 'local'), 120, 60_000);
   const normalized = normalizeCliCode(code),
     hash = await cliHash(token(request));
   if (!normalized) throw new ApiError('Código CLI no válido', 400);
-  const pairing = await cliHash(normalized),
-    json = JSON.stringify(scope(operation));
+  const pairing = await cliHash(normalized);
   await repo.batch([
     {
-      sql: `UPDATE cli_sessions SET token_hash=?,scope_json=?,status='joined'
+      sql: `UPDATE cli_sessions SET token_hash=?,status='joined'
       WHERE pairing_hash=? AND status='waiting' AND expires_at>?`,
-      args: [hash, json, pairing, Date.now()],
+      args: [hash, pairing, Date.now()],
     },
   ]);
   const [row] = await repo.all<Session>('SELECT * FROM cli_sessions WHERE pairing_hash=? AND expires_at>?', [
@@ -130,8 +106,7 @@ export async function joinCli(request: Request, repo: Repository, code: unknown,
   ]);
   if (!row) return { status: 'waiting' };
   if (row.status === 'revoked') throw new ApiError('La autorización se canceló', 409);
-  if (row.token_hash !== hash || row.scope_json !== json)
-    throw new ApiError('El código ya está emparejado con otra terminal', 409);
+  if (row.token_hash !== hash) throw new ApiError('El código ya está emparejado con otra terminal', 409);
   return { status: row.status };
 }
 
@@ -150,7 +125,7 @@ export async function cliPairingStatus(
     actor.id,
   ]);
   if (!row) throw new ApiError('El emparejamiento ha caducado o no pertenece a esta cuenta', 404);
-  return { status: row.status, operation: row.scope_json ? (JSON.parse(row.scope_json) as CliScope) : null };
+  return { status: row.status };
 }
 
 export async function approveCli(
@@ -170,7 +145,7 @@ export async function approveCli(
   const approved = await repo.batch([
     {
       sql: `UPDATE cli_sessions SET status='approved',identity_json=?,expires_at=?
-        WHERE pairing_hash=? AND owner_key=? AND status='joined' AND expires_at>? RETURNING scope_json`,
+        WHERE pairing_hash=? AND owner_key=? AND status='joined' AND expires_at>? RETURNING pairing_hash`,
       args: [JSON.stringify(identity), now + CLI_SESSION_MS, pairing, actor.id, now],
     },
     appendIfChanged({
@@ -186,10 +161,11 @@ export async function approveCli(
     await repo.batch([audit(actor, 'cli_authorization_rejected', { pairing })]);
     throw new ApiError('La terminal ya fue autorizada, cancelada, ha caducado o pertenece a otra cuenta', 409);
   }
-  return { ok: true, durationMinutes: CLI_SESSION_MS / 60_000 };
+  return { ok: true, durationDays: CLI_SESSION_MS / 86_400_000 };
 }
 
-/** No role is cached; the ordinary principal resolver rechecks rights on every request. */
+/** Full API access for the token's lifetime. No role is cached: the ordinary principal
+ * resolver rechecks rights on every request, so a demoted administrator loses it. */
 export async function cliIdentity(request: Request, repo: Repository): Promise<Identity> {
   if (!request.headers.has(CLI_TOKEN_HEADER)) return null;
   await cleanupCliSessions(repo);
@@ -198,32 +174,8 @@ export async function cliIdentity(request: Request, repo: Repository): Promise<I
     hash,
     Date.now(),
   ]);
-  if (row?.status === 'consumed')
-    throw new ApiError('La escritura autorizada ya se envió; inicia una orden nueva si debes repetirla', 409);
-  if (row?.status !== 'approved' || !row.identity_json || !row.scope_json)
+  if (row?.status !== 'approved' || !row.identity_json)
     throw new ApiError('Sesión CLI pendiente, caducada o revocada', 401);
-  const url = new URL(request.url),
-    path = url.pathname + url.search;
-  if (!(request.method === 'GET' && path === '/api/session')) {
-    const granted = scope(JSON.parse(row.scope_json));
-    const backup = request.method === 'GET' && path === '/api/backup' && granted.backup;
-    if (!backup && (request.method !== granted.method || path !== granted.path))
-      throw new ApiError('Operación fuera de la autorización CLI', 403);
-    if (!backup && request.method === 'POST' && (await cliHash(await request.clone().text())) !== granted.bodyHash)
-      throw new ApiError('El contenido difiere de la operación autorizada', 403);
-    // A write runs at most once: consumed before the handler, so a lost response is never replayed.
-    if (!backup && request.method === 'POST') {
-      const [consumed] = await repo.batch([
-        {
-          sql: `UPDATE cli_sessions SET status='consumed',identity_json=NULL
-            WHERE token_hash=? AND status='approved' AND expires_at>? RETURNING token_hash`,
-          args: [hash, Date.now()],
-        },
-      ]);
-      if (!consumed.results.length)
-        throw new ApiError('La escritura autorizada ya se envió; inicia una orden nueva si debes repetirla', 409);
-    }
-  }
   return JSON.parse(row.identity_json) as Identity;
 }
 
@@ -238,7 +190,7 @@ export async function revokeCli(request: Request, repo: Repository, code: unknow
   await repo.batch([
     {
       sql: `INSERT INTO cli_sessions(pairing_hash,token_hash,status,expires_at) VALUES(?,?,'revoked',?)
-      ON CONFLICT(pairing_hash) DO UPDATE SET status='revoked',identity_json=NULL,scope_json=NULL,owner_key=NULL,
+      ON CONFLICT(pairing_hash) DO UPDATE SET status='revoked',identity_json=NULL,owner_key=NULL,
         expires_at=MAX(cli_sessions.expires_at,excluded.expires_at)
       WHERE cli_sessions.token_hash IS NULL OR cli_sessions.token_hash=excluded.token_hash`,
       args: [await cliHash(normalized), hash, Date.now() + CLI_SESSION_MS + CLI_PAIRING_MS],

@@ -1,6 +1,8 @@
 # Site público con administración protegida
 
 URL: https://<site>.chatgpt.site
+
+El dominio anterior, `<site>.chatgpt.site`, solo redirige (307) al actual. Usa siempre el actual en `VACACIONES_URL`: el CLI no sigue redirecciones y falla con 307.
 Repositorio privado: https://github.com/jtoledo1974/vacaciones-web
 Proyecto de Sites: appgprj_6acd43ada448819191e64de437e92b74.
 

@@ -36,9 +36,7 @@ async function serve(request: Request) {
         throw new ApiError('Contenido JSON no válido');
       }
       return reply(
-        path[1] === 'join'
-          ? await joinCli(request, repo, body?.code, body?.operation)
-          : await revokeCli(request, repo, body?.code),
+        path[1] === 'join' ? await joinCli(request, repo, body?.code) : await revokeCli(request, repo, body?.code),
       );
     }
     if (path[0] === 'local-admin' && request.method === 'POST') {

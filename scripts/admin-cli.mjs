@@ -1,16 +1,19 @@
 #!/usr/bin/env node
-// Administración por API sin navegador. Inicia sesión como administrador
-// local o mediante el navegador, ejecuta una orden y revoca solo su propia sesión.
+// Administración por API sin navegador. Con administrador local inicia sesión,
+// ejecuta una orden y la cierra. Sin él, empareja la terminal una vez desde el
+// navegador y guarda en disco un acceso de 30 días que reutilizan las órdenes.
 //
 // Variables de entorno:
 //   VACACIONES_URL             origen de la aplicación, p. ej. https://vacaciones.example.com
 //   VACACIONES_ADMIN_USER      LOCAL_ADMIN_USERNAME del despliegue
 //   VACACIONES_ADMIN_PASSWORD  LOCAL_ADMIN_PASSWORD del despliegue
-// Sin usuario/contraseña, abre el navegador y usa tu cuenta actual de ChatGPT.
-//   --browser         fuerza la autorización mediante el navegador
+//   VACACIONES_CLI_TOKEN_FILE  fichero del acceso guardado (por defecto ~/.vacaciones-cli/<host>.json)
+// Sin usuario/contraseña, usa el acceso guardado o abre el navegador y usa tu cuenta de ChatGPT.
+//   --browser         fuerza el acceso del navegador aunque haya usuario/contraseña
 //   --no-open         no abre el navegador; abre /cli manualmente
 //
 // Órdenes:
+//   login | logout                     empareja la terminal (30 días) o revoca el acceso guardado
 //   session | index | admin | campaign <id>
 //   backup [--out fichero]
 //   get <ruta>                         GET /api/<ruta>
@@ -31,10 +34,11 @@
 // Cada login cuenta para el límite de 5 intentos en 15 minutos.
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { validateImportOrder } from '../domain/import-order.mjs';
-import { spawn } from 'node:child_process';
-import { cliHash, CLI_TOKEN_HEADER } from '../lib/cli-protocol.mjs';
+import { spawn, spawnSync } from 'node:child_process';
+import { CLI_SESSION_MS, CLI_TOKEN_HEADER } from '../lib/cli-protocol.mjs';
 
 class CliError extends Error {}
 
@@ -73,6 +77,30 @@ function writePrivate(file, data) {
     rmSync(temp, { force: true });
     throw e;
   }
+}
+
+// On Windows the mode bits above do not restrict reading: Node maps them to the
+// read-only flag only. The access folder gets an ACL with just the current user,
+// without inheritance, before any token is written, so new files inherit only it.
+function restrictToOwner(dir) {
+  if (process.platform !== 'win32') return;
+  // Absolute System32 paths: not a same-named tool earlier in PATH (Git Bash ships its own whoami).
+  const system32 = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
+  const who = spawnSync(path.join(system32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], {
+    encoding: 'utf8',
+    windowsHide: true,
+  });
+  const sid = who.stdout?.match(/"(S-1-[\d-]+)"/)?.[1];
+  if (who.status !== 0 || !sid) fail('No se pudo identificar al usuario de Windows; no se guarda el acceso');
+  const acl = spawnSync(
+    path.join(system32, 'icacls.exe'),
+    [dir, '/inheritance:r', '/grant:r', '*' + sid + ':(OI)(CI)F'],
+    {
+      encoding: 'utf8',
+      windowsHide: true,
+    },
+  );
+  if (acl.status !== 0) fail('No se pudo restringir el acceso a ' + dir + '; no se guarda el acceso');
 }
 
 // Same check the server applies on restore: a backup that fails it cannot be restored.
@@ -164,15 +192,43 @@ class Client {
     if (session.data?.principal?.role !== 'superadmin')
       fail('La sesión no tiene rol superadmin: ' + JSON.stringify(session.data));
   }
-  async logout() {
+  /** The saved browser access, if it belongs to this origin and has not expired. */
+  loadSaved(file) {
+    let saved;
+    try {
+      saved = JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+      return false;
+    }
+    if (saved?.origin !== this.origin || !(saved.expiresAt > Date.now()) || !saved.token || !saved.code) return false;
+    this.cliToken = saved.token;
+    this.cliCode = saved.code;
+    this.saved = true;
+    return true;
+  }
+  /** If it cannot be written privately the access is not kept: the run ends by revoking it. */
+  save(file) {
+    mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+    restrictToOwner(path.dirname(file));
+    const expiresAt = Date.now() + CLI_SESSION_MS;
+    writePrivate(file, JSON.stringify({ origin: this.origin, token: this.cliToken, code: this.cliCode, expiresAt }));
+    this.saved = true;
+    console.error('Acceso guardado hasta ' + new Date(expiresAt).toLocaleString() + ' en ' + file);
+  }
+  /** Ends this run. A saved browser access is kept; only `login` and `logout` revoke it.
+   * Returns false when a revocation was attempted and failed. */
+  async logout(revokeSaved = false) {
+    if (this.cliToken && this.saved && !revokeSaved) {
+      this.cliToken = '';
+      return true;
+    }
     if (this.cliToken) {
-      // Always revoked, approved or not: it also fences a late approval in the browser.
-      // Best effort: if the network keeps failing, the session expires in at most 15 minutes.
+      // Revoked, approved or not: it also fences a late approval in the browser.
       try {
         for (let attempt = 1; ; attempt++) {
           try {
             const r = await this.request('POST', 'cli-auth/logout', { code: this.cliCode }, 'cleanup');
-            if (r.ok) return;
+            if (r.ok) return true;
             if (!transient(r.status) || attempt === 3) throw new Error(String(r.status));
           } catch (e) {
             if (attempt === 3) throw e;
@@ -180,13 +236,13 @@ class Client {
           await sleep(500 * attempt);
         }
       } catch {
-        console.error('Aviso: no se pudo revocar el acceso CLI; caduca en un máximo de 15 minutos');
+        console.error('Aviso: no se pudo revocar el acceso CLI');
+        return false;
       } finally {
         this.cliToken = '';
       }
-      return;
     }
-    if (!this.cookie) return;
+    if (!this.cookie) return true;
     // A failed logout is only a warning: it must not mask the outcome of the operation.
     try {
       const r = await this.request('POST', 'local-admin/logout', {}, 'cleanup');
@@ -196,24 +252,18 @@ class Client {
     } finally {
       this.cookie = '';
     }
+    return true;
   }
-  /** The authorization covers exactly this request and, for writes, the previous backup. */
-  async operation(method, route, body, backup) {
-    const url = this.url(route);
-    return {
-      method,
-      path: url.pathname + url.search,
-      ...(method === 'POST' ? { bodyHash: await cliHash(JSON.stringify(body)), backup } : {}),
-    };
-  }
-  async loginBrowser(noOpen, operation) {
+  /** Pairs this terminal once: the approved access covers every command for 30 days. */
+  async loginBrowser(noOpen) {
     this.cliToken = randomBytes(32).toString('hex');
     // Independent of the token: the code typed in the browser never reveals the credential.
     this.cliCode = randomBytes(8).toString('hex').toUpperCase();
+    this.saved = false;
     const url = this.origin + '/cli';
     console.error('Código de la terminal: ' + this.cliCode.match(/.{4}/g).join('-'));
     console.error('Introdúcelo en: ' + url);
-    console.error('Operación solicitada: ' + operation.method + ' ' + operation.path);
+    console.error('Acceso solicitado: administración, lectura y escritura, durante 30 días');
     if (!noOpen) {
       // Fixed executable and arguments, never a shell command containing the URL.
       const [exe, args] =
@@ -232,7 +282,7 @@ class Client {
       checkCancelled();
       let r = null;
       try {
-        r = await this.request('POST', 'cli-auth/join', { code: this.cliCode, operation });
+        r = await this.request('POST', 'cli-auth/join', { code: this.cliCode });
       } catch {
         checkCancelled(); // otherwise a network error or timeout: retry until the deadline
       }
@@ -271,6 +321,7 @@ async function main() {
     route,
     body;
   if (routes[command]) route = routes[command];
+  else if (command === 'login' || command === 'logout') route = 'session';
   else if (command === 'campaign' && rest[0]) route = 'campaign/' + encodeURIComponent(rest[0]);
   else if (command === 'get' && rest[0]) route = rest[0];
   else if (command === 'post' && rest[0] && rest[1]) {
@@ -305,16 +356,53 @@ async function main() {
   if (!VACACIONES_URL) fail('Define VACACIONES_URL con el origen de la aplicación');
   if (!flags.browser && !!VACACIONES_ADMIN_USER !== !!VACACIONES_ADMIN_PASSWORD)
     fail('Define usuario y contraseña juntos, o usa --browser');
+  const browser = flags.browser || !VACACIONES_ADMIN_USER;
+  if (!browser && (command === 'login' || command === 'logout'))
+    fail('login y logout gestionan el acceso del navegador; usa --browser o quita usuario y contraseña');
 
   const client = new Client(VACACIONES_URL);
+  const tokenFile =
+    process.env.VACACIONES_CLI_TOKEN_FILE ??
+    path.join(homedir(), '.vacaciones-cli', new URL(client.origin).host.replace(/[^a-z0-9.-]/gi, '_') + '.json');
   process.on('SIGINT', onSignal);
   process.on('SIGTERM', onSignal);
   try {
+    // logout, and login over an existing access, revoke it first. If the server
+    // does not confirm it the file is kept, so the revocation can be retried.
+    if (command === 'logout' || command === 'login') {
+      if (client.loadSaved(tokenFile)) {
+        if (!(await client.logout(true)))
+          fail('El acceso guardado sigue activo; se conserva ' + tokenFile + '. Reintenta ' + command + '.');
+        client.saved = false;
+      } else if (command === 'logout') console.error('No hay acceso guardado para ' + client.origin);
+      rmSync(tokenFile, { force: true });
+      if (command === 'logout') {
+        console.error('Acceso de la terminal revocado y eliminado');
+        return;
+      }
+    }
     // Inside try: a cookie issued before a failed role check is still revoked.
     const writes = method === 'POST' && body?.action !== 'preview_import_roster' && !flags['no-backup'];
-    if (flags.browser || !VACACIONES_ADMIN_USER)
-      await client.loginBrowser(flags['no-open'], await client.operation(method, route, body, writes));
-    else await client.login(VACACIONES_ADMIN_USER, VACACIONES_ADMIN_PASSWORD);
+    if (browser) {
+      let ready = command !== 'login' && client.loadSaved(tokenFile);
+      if (ready) {
+        const session = await client.request('GET', 'session');
+        if (session.status === 401) {
+          // Expired or revoked on the server: pair again instead of failing.
+          rmSync(tokenFile, { force: true });
+          client.cliToken = '';
+          client.saved = false;
+          ready = false;
+        } else if (!session.ok) fail('No se pudo comprobar el acceso guardado (' + session.status + ')');
+        else if (session.data?.principal?.role !== 'superadmin')
+          fail('El acceso guardado ya no tiene rol superadmin: ejecuta logout y vuelve a emparejar');
+      }
+      if (!ready) {
+        checkCancelled();
+        await client.loginBrowser(flags['no-open']);
+        client.save(tokenFile);
+      }
+    } else await client.login(VACACIONES_ADMIN_USER, VACACIONES_ADMIN_PASSWORD);
     checkCancelled();
     if (writes) {
       const backup = await client.request('GET', 'backup');

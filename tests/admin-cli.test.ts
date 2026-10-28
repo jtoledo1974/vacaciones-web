@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -23,6 +23,8 @@ interface Fake {
   backup?: unknown;
   postStatus?: number;
   logoutDrops?: boolean;
+  /** Status of GET /api/session for a saved browser access. */
+  sessionStatus?: number;
 }
 
 function validBackup() {
@@ -60,6 +62,10 @@ async function withServer(
         return typeof next === 'number' ? json(next, { error: 'Fallo ' + next }) : json(200, { status: next });
       }
       if (route === 'POST /api/cli-auth/logout') return json(logouts.shift() ?? 200, {});
+      if (route === 'GET /api/session')
+        return (fake.sessionStatus ?? 200) === 200
+          ? json(200, { principal: { role: fake.role ?? 'superadmin' } })
+          : json(fake.sessionStatus!, { error: 'Sesión CLI pendiente, caducada o revocada' });
       if (route === 'GET /api/backup') return json(200, validBackup());
       if (req.method === 'POST' && fake.postDrops) return req.socket.destroy();
       if (req.method === 'POST') return json(fake.postStatus ?? 200, { ok: true, applied: req.url });
@@ -85,16 +91,20 @@ async function withServer(
 }
 
 // Windows cannot deliver SIGINT to a child: there the CLI emits it to itself once it
-// declares its operation, which runs the same handler a real Ctrl+C would.
+// declares the access it requests, which runs the same handler a real Ctrl+C would.
 const windowsInterrupt =
   'data:text/javascript,' +
   encodeURIComponent(`const write = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, ...rest) => {
-  if (String(chunk).includes('Operación solicitada')) setTimeout(() => process.emit('SIGINT'), 300);
+  if (String(chunk).includes('Acceso solicitado')) setTimeout(() => process.emit('SIGINT'), 300);
   return write(chunk, ...rest);
 };`);
 
-function cli(origin: string, args: string[], input = '{}', interruptWhen?: RegExp) {
+const scratch = () => mkdtempSync(path.join(tmpdir(), 'admin-cli-'));
+/** Never the real home directory: each test gets its own saved-access file unless it shares one. */
+const tokenFile = () => path.join(scratch(), 'acceso.json');
+
+function cli(origin: string, args: string[], input = '{}', interruptWhen?: RegExp, savedAccess = tokenFile()) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
     let seen = '';
     const child = execFile(
@@ -110,6 +120,7 @@ function cli(origin: string, args: string[], input = '{}', interruptWhen?: RegEx
           VACACIONES_URL: origin,
           VACACIONES_ADMIN_USER: 'cli',
           VACACIONES_ADMIN_PASSWORD: 'secreto',
+          VACACIONES_CLI_TOKEN_FILE: savedAccess,
         },
       },
       (error, stdout, stderr) =>
@@ -127,8 +138,6 @@ function cli(origin: string, args: string[], input = '{}', interruptWhen?: RegEx
       });
   });
 }
-
-const scratch = () => mkdtempSync(path.join(tmpdir(), 'admin-cli-'));
 
 test('CLI rejects an import without explicit order before login, including dry-run', async () => {
   await withServer({}, async (origin, calls) => {
@@ -177,41 +186,149 @@ test('CLI turns an unconfirmed ordered import into a preview, never a write', as
   });
 });
 
-test('browser authorization pairs by code, declares its operation, executes and revokes', async () => {
+test('browser authorization pairs once by code, saves the access privately and keeps it', async () => {
   await withServer({ browser: true, joins: ['waiting', 'joined', 'approved'] }, async (origin, calls, bodies) => {
     const dir = scratch();
+    const saved = tokenFile();
     const args = ['post', 'campaign/x?y=1', '-', '--browser', '--no-open', '--backup-dir', dir];
-    const r = await cli(origin, args, '{"a": 1}');
+    const r = await cli(origin, args, '{"a": 1}', undefined, saved);
     assert.equal(r.code, 0, r.stderr);
     const code = r.stderr.match(/Código de la terminal: ([A-F0-9]{4}(?:-[A-F0-9]{4}){3})/)![1].replaceAll('-', '');
     assert.ok(r.stderr.includes('Introdúcelo en: ' + origin + '/cli\n'));
-    assert.ok(r.stderr.includes('Operación solicitada: POST /api/campaign/x?y=1'));
-    const joined = bodies['POST /api/cli-auth/join'];
-    assert.equal(joined.length, 3);
-    assert.deepEqual(joined[0], {
-      code,
-      operation: {
-        method: 'POST',
-        path: '/api/campaign/x?y=1',
-        bodyHash: createHash('sha256').update('{"a":1}').digest('hex'),
-        backup: true,
-      },
-    });
-    assert.deepEqual(bodies['POST /api/cli-auth/logout'], [{ code }]);
-    assert.deepEqual(calls.slice(-3), ['GET /api/backup', 'POST /api/campaign/x?y=1', 'POST /api/cli-auth/logout']);
+    assert.match(r.stderr, /Acceso solicitado: .*30 días/);
+    assert.deepEqual(bodies['POST /api/cli-auth/join'], [{ code }, { code }, { code }]);
+    assert.equal(bodies['POST /api/cli-auth/logout'], undefined);
+    assert.deepEqual(calls.slice(-2), ['GET /api/backup', 'POST /api/campaign/x?y=1']);
     assert.ok(!calls.some((c) => c.includes('local-admin')));
     assert.deepEqual(JSON.parse(readFileSync(path.join(dir, readdirSync(dir)[0]), 'utf8')), validBackup());
+    const stored = JSON.parse(readFileSync(saved, 'utf8'));
+    assert.equal(stored.origin, origin);
+    assert.equal(stored.code, code);
+    assert.match(stored.token, /^[a-f0-9]{64}$/);
+    assert.ok(stored.expiresAt > Date.now() + 29 * 86_400_000);
+    if (process.platform !== 'win32') assert.equal(statSync(saved).mode & 0o777, 0o600);
   });
 });
 
-test('polling survives network errors, 429 and 5xx; logout is retried', async () => {
+test('later commands reuse the saved access without asking the browser again', async () => {
+  await withServer({ browser: true, joins: ['approved'] }, async (origin, calls) => {
+    const saved = tokenFile();
+    assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+    calls.length = 0;
+    const r = await cli(origin, ['post', 'campaign/x', '-', '--browser', '--no-backup'], '{}', undefined, saved);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(!r.stderr.includes('Código de la terminal'));
+    assert.deepEqual(calls, ['GET /api/session', 'POST /api/campaign/x']);
+  });
+});
+
+test('a saved access the server rejects, or for another origin, pairs again', async () => {
+  await withServer({ browser: true, joins: ['approved'], sessionStatus: 401 }, async (origin, calls) => {
+    const saved = tokenFile();
+    const expiresAt = Date.now() + 86_400_000;
+    writeFileSync(saved, JSON.stringify({ origin, token: 'a'.repeat(64), code: 'A'.repeat(16), expiresAt }));
+    const r = await cli(origin, ['campaign', 'x', '--browser', '--no-open'], '{}', undefined, saved);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(calls, ['GET /api/session', 'POST /api/cli-auth/join', 'GET /api/campaign/x']);
+    assert.notEqual(JSON.parse(readFileSync(saved, 'utf8')).token, 'a'.repeat(64));
+  });
+  await withServer({ browser: true, joins: ['approved'] }, async (origin, calls) => {
+    const saved = tokenFile();
+    const expiresAt = Date.now() + 86_400_000;
+    writeFileSync(
+      saved,
+      JSON.stringify({ origin: 'https://otro.example', token: 'a'.repeat(64), code: 'A', expiresAt }),
+    );
+    assert.equal((await cli(origin, ['campaign', 'x', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+    assert.equal(calls[0], 'POST /api/cli-auth/join');
+  });
+});
+
+test('a saved access that lost superadmin writes nothing', async () => {
+  await withServer({ browser: true, joins: ['approved'], role: 'team_admin' }, async (origin, calls) => {
+    const saved = tokenFile();
+    assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+    const r = await cli(origin, ['post', 'campaign/x', '-', '--browser', '--no-backup'], '{}', undefined, saved);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /superadmin/);
+    assert.ok(!calls.includes('POST /api/campaign/x'));
+  });
+});
+
+test('logout revokes the saved access with retries and deletes it', async () => {
   await withServer({ browser: true, joins: ['drop', 429, 503, 'approved'], logouts: [503] }, async (origin, calls) => {
-    const r = await cli(origin, ['campaign', 'x', '--browser', '--no-open']);
+    const saved = tokenFile();
+    assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+    const r = await cli(origin, ['logout', '--browser'], '{}', undefined, saved);
     assert.equal(r.code, 0, r.stderr);
     assert.equal(calls.filter((c) => c === 'POST /api/cli-auth/logout').length, 2);
     assert.ok(!/no se pudo revocar/.test(r.stderr));
+    assert.throws(() => statSync(saved));
   });
 });
+
+test('an unconfirmed revocation keeps the saved access so logout can be retried', async () => {
+  await withServer({ browser: true, joins: ['approved'], logouts: [500, 500, 500] }, async (origin, calls) => {
+    const saved = tokenFile();
+    await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved);
+    const stored = readFileSync(saved, 'utf8');
+    const r = await cli(origin, ['logout', '--browser'], '{}', undefined, saved);
+    assert.equal(r.code, 1);
+    assert.equal(calls.filter((c) => c === 'POST /api/cli-auth/logout').length, 3);
+    assert.match(r.stderr, /sigue activo; se conserva/);
+    assert.equal(readFileSync(saved, 'utf8'), stored);
+    const retry = await cli(origin, ['logout', '--browser'], '{}', undefined, saved);
+    assert.equal(retry.code, 0, retry.stderr);
+    assert.throws(() => statSync(saved));
+  });
+});
+
+test('login over a saved access revokes it before pairing a new one', async () => {
+  await withServer({ browser: true, joins: ['approved'] }, async (origin, calls, bodies) => {
+    const saved = tokenFile();
+    await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved);
+    const first = JSON.parse(readFileSync(saved, 'utf8'));
+    calls.length = 0;
+    const r = await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved);
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(calls.slice(0, 2), ['POST /api/cli-auth/logout', 'POST /api/cli-auth/join']);
+    assert.deepEqual(bodies['POST /api/cli-auth/logout'], [{ code: first.code }]);
+    assert.notEqual(JSON.parse(readFileSync(saved, 'utf8')).token, first.token);
+  });
+  await withServer({ browser: true, joins: ['approved'], logouts: [500, 500, 500] }, async (origin, calls) => {
+    const saved = tokenFile();
+    await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved);
+    const stored = readFileSync(saved, 'utf8');
+    const r = await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved);
+    assert.equal(r.code, 1);
+    assert.equal(calls.filter((c) => c === 'POST /api/cli-auth/join').length, 1);
+    assert.equal(readFileSync(saved, 'utf8'), stored);
+  });
+});
+
+test(
+  'on Windows the access folder grants only the current user, without inheritance',
+  { skip: process.platform !== 'win32' },
+  async () => {
+    await withServer({ browser: true, joins: ['approved'] }, async (origin) => {
+      const saved = tokenFile();
+      assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+      const whoami = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'whoami.exe');
+      const sid = execFileSync(whoami, ['/user', '/fo', 'csv', '/nh'], { encoding: 'utf8' }).match(
+        /"(S-1-[\d-]+)"/,
+      )![1];
+      for (const target of [path.dirname(saved), saved]) {
+        const sddl = execFileSync('powershell', ['-NoProfile', '-Command', `(Get-Acl -LiteralPath '${target}').Sddl`], {
+          encoding: 'utf8',
+        }).trim();
+        const aces = sddl.match(/\([^)]*\)/g) ?? [];
+        // The folder blocks inheritance; the token file inherits only the folder's single ACE.
+        if (target !== saved) assert.ok(sddl.includes('D:P'), 'herencia desactivada: ' + sddl);
+        assert.ok(aces.length > 0 && aces.every((ace) => ace.endsWith(';' + sid + ')')), 'solo el usuario: ' + sddl);
+      }
+    });
+  },
+);
 
 test('a refused or expired pairing stops polling and still revokes the unapproved token', async () => {
   await withServer({ browser: true, joins: [409] }, async (origin, calls) => {
@@ -222,44 +339,45 @@ test('a refused or expired pairing stops polling and still revokes the unapprove
   });
 });
 
-test('a failed write is not retried and revocation failures are only warnings', async () => {
-  const fake = { browser: true, joins: ['approved'], postStatus: 503, logouts: [500, 500, 500] };
+test('a failed write is not retried and keeps the saved access', async () => {
+  const fake = { browser: true, joins: ['approved'], postStatus: 503 };
   await withServer(fake, async (origin, calls) => {
     const r = await cli(origin, ['post', 'campaign/x', '-', '--browser', '--no-open', '--no-backup']);
     assert.equal(r.code, 1);
     assert.equal(calls.filter((c) => c === 'POST /api/campaign/x').length, 1);
-    assert.equal(calls.filter((c) => c === 'POST /api/cli-auth/logout').length, 3);
-    assert.match(r.stderr, /no se pudo revocar el acceso CLI/);
+    assert.ok(!calls.includes('POST /api/cli-auth/logout'));
   });
 });
 
-test('cancelling while waiting for approval revokes the pending pairing', async () => {
+test('cancelling while waiting for approval revokes the pending pairing and saves nothing', async () => {
   await withServer({ browser: true, joins: ['waiting'] }, async (origin, calls) => {
-    const r = await cli(origin, ['campaign', 'x', '--browser', '--no-open'], '{}', /Operación solicitada/);
+    const saved = tokenFile();
+    const r = await cli(origin, ['campaign', 'x', '--browser', '--no-open'], '{}', /Acceso solicitado/, saved);
     assert.equal(r.code, 130, r.stderr);
     assert.equal(calls.at(-1), 'POST /api/cli-auth/logout');
     assert.ok(!calls.includes('GET /api/campaign/x'));
+    assert.throws(() => statSync(saved));
   });
 });
 
-test('cancelling during the backup writes nothing and revokes', async () => {
+test('cancelling during the backup writes nothing', async () => {
   await withServer({ browser: true, joins: ['approved'], slow: 'GET /api/backup' }, async (origin, calls) => {
     const dir = scratch();
     const args = ['post', 'campaign/x', '-', '--browser', '--no-open', '--backup-dir', dir];
-    const r = await cli(origin, args, '{}', /Operación/);
+    const r = await cli(origin, args, '{}', /Acceso solicitado/);
     assert.equal(r.code, 130, r.stderr);
     assert.ok(!calls.includes('POST /api/campaign/x'));
-    assert.equal(calls.at(-1), 'POST /api/cli-auth/logout');
+    assert.equal(calls.at(-1), 'GET /api/backup');
     assert.deepEqual(readdirSync(dir), []);
   });
 });
 
-test('cancelling during a write waits for its outcome, reports it and revokes', async () => {
+test('cancelling during a write waits for its outcome and reports it', async () => {
   await withServer({ browser: true, joins: ['approved'], slow: 'POST /api/campaign/x' }, async (origin, calls) => {
     const args = ['post', 'campaign/x', '-', '--browser', '--no-open', '--no-backup'];
-    const r = await cli(origin, args, '{}', /Operación/);
+    const r = await cli(origin, args, '{}', /Acceso solicitado/);
     assert.deepEqual(JSON.parse(r.stdout), { ok: true, applied: '/api/campaign/x' });
-    assert.equal(calls.at(-1), 'POST /api/cli-auth/logout');
+    assert.equal(calls.at(-1), 'POST /api/campaign/x');
   });
 });
 
@@ -362,7 +480,7 @@ test('a lost response after sending a write reports an unknown outcome and is no
     assert.equal(r.code, 3, r.stderr);
     assert.match(r.stderr, /DESCONOCIDO/);
     assert.equal(calls.filter((c) => c === 'POST /api/campaign/x').length, 1);
-    assert.equal(calls.at(-1), 'POST /api/cli-auth/logout');
+    assert.equal(calls.at(-1), 'POST /api/campaign/x');
   });
 });
 
