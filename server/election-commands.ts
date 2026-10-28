@@ -24,14 +24,16 @@ import {
   activeList,
   choiceIssues,
   type ElectionContext,
+  sequenceFor,
 } from '../domain/election.ts';
 import { cycleTable } from '../domain/vacations.ts';
 import { earlyEntry, earlyProof } from '../domain/early-election.ts';
 import { occupancyFor } from '../domain/policy.ts';
+import { nextSlot } from '../domain/sequence.ts';
 import { restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { requestsForAwards } from './election-requests.ts';
-import { auditAfter } from './audit-context.ts';
+import { auditAfter, eventsFor } from './audit-context.ts';
 import type { Principal } from './permissions.ts';
 import type { Repository, Statement } from './repository.ts';
 import type { ElectionService } from './election-service.ts';
@@ -92,6 +94,8 @@ export type ElectionCommandContext = {
   recordUndo: boolean;
   /** Discreet early choices an undo took away, recorded so they stay unseen. */
   withdrawnEarly?: string[];
+  /** Early choices whose slot had been reached that an undo took along, as normal choices. */
+  enteredEarly?: string[];
   /** Throws unless the actor may act for this member (own member, or a manager). */
   authorizeMember: (memberId: string) => void;
 };
@@ -348,6 +352,52 @@ async function executeLinkAccount(x: ElectionCommandContext) {
   else ops.push({ sql: 'DELETE FROM controller_accounts WHERE person_id=?', args: [member.person_id] });
 }
 
+// An early choice stops being early once its slot is reached: it is a normal choice from
+// then on. Undoing the step before that slot restores a snapshot in which it was still
+// waiting, so it would reappear as a hidden pre-choice that nobody can see or edit and
+// that a redo or the next advance would apply on its own. Undo takes it along instead,
+// exactly as if it had been entered in turn order (Criterios 1.1 p.2).
+async function enteredEarlyChoices(
+  x: ElectionCommandContext,
+  prior: NonNullable<ReturnType<typeof validateSnapshot>>,
+  undone: string,
+) {
+  const now = x.raw.state;
+  const before = prior.state;
+  if (!before?.earlyChoices?.length || !now) return;
+  // Older snapshots still show those an earlier undo already took along as waiting. One
+  // that is live again (a redo brought it back) is judged by the current state instead.
+  const live = new Set([...x.ctx.awards.map((a) => a.id), ...(now.earlyChoices ?? []).map((e) => e.awardId)]);
+  const dropped = new Set<string>();
+  if (undone !== 'early_cancel')
+    for (const row of await eventsFor(x.repo, x.cid))
+      if (row.action === 'election_undo')
+        for (const id of auditAfter(row)?.enteredEarly ?? []) if (!live.has(id)) dropped.add(id);
+  // Same position currentTurn reaches, without its final-validity check: a finished
+  // sequence has reached every slot. Any other failure aborts the undo.
+  const reached = (state: ElectionState, ctx: ElectionContext, at: number) => {
+    if (state.status === 'complete') return true;
+    if (state.status !== 'active') return state.cursor >= at;
+    const slot = nextSlot(sequenceFor(ctx, state));
+    return 'complete' in slot || slot.cursor >= at;
+  };
+  const priorCtx = { ...x.ctx, awards: prior.awards };
+  const taken = new Set(
+    before.earlyChoices
+      .filter(
+        (e) =>
+          !reached(before, priorCtx, e.cursor) &&
+          (dropped.has(e.awardId) ||
+            (now.earlyChoices?.some((n) => n.awardId === e.awardId) && reached(now, x.ctx, e.cursor))),
+      )
+      .map((e) => e.awardId),
+  );
+  if (!taken.size) return;
+  x.enteredEarly = [...new Set([...(x.enteredEarly ?? []), ...taken])];
+  prior.awards = prior.awards.filter((a) => !taken.has(a.id));
+  prior.state = { ...before, earlyChoices: before.earlyChoices.filter((e) => !taken.has(e.awardId)) };
+}
+
 const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: ElectionCommandContext) => {
   const { body, d, c, cid, mine, actor, preferences } = x;
   const history = await x.service.managerHistory(cid, d, mine);
@@ -365,6 +415,7 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   if (!entry || entry.id !== body.historyId) throw new ApiError(unavailable, 409);
   const prior = validateSnapshot(JSON.parse(entry.before_json), 'election-undo-v1');
   if (!prior) throw new ApiError('La copia para deshacer no es válida', 409);
+  if (action === 'election_undo') await enteredEarlyChoices(x, prior, entry.action);
   // Restore the undone list edit itself and list flags (active) consumed by an
   // undone award; every other list keeps what its owner has saved since.
   const original = action === 'election_undo' ? entry : history.redoOriginal;
@@ -648,6 +699,7 @@ export const ELECTION_COMMANDS: Record<string, ElectionCommand> = {
     audited: (x) => ({
       undoTargetId: x.body.historyId,
       ...(x.withdrawnEarly ? { withdrawnEarly: x.withdrawnEarly } : {}),
+      ...(x.enteredEarly ? { enteredEarly: x.enteredEarly } : {}),
     }),
   },
   election_redo: {

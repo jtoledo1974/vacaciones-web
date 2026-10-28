@@ -298,13 +298,14 @@ test('undo y redo de una elección anticipada restauran adjudicación y estado',
   // Discreet: the manager's undo does not reach it, nor may it be named.
   assert.equal((await s.view(cid)).election.undo, hiddenUndo);
   await assert.rejects(run(s, { action: 'election_undo', historyId: early }), /ya no está disponible/);
-  // Once revealed, undoing the predecessor hides it again; redo brings both back.
+  // Once its slot is reached it is a normal choice: undoing the predecessor takes it along,
+  // as if it had been entered in turn order; redo brings both back.
   let view = await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
   assert.equal(view.awards.length, 2);
   view = await run(s, { action: 'election_undo', historyId: view.election.undo });
   assert.equal(view.awards.length, 0);
   assert.equal(view.election.state!.earlyChoices?.length ?? 0, 0);
-  assert.equal((await person.view(cid)).election.early?.choices.length, 1, 'B la conserva');
+  assert.equal((await person.view(cid)).election.early?.choices.length ?? 0, 0, 'B ya no la conserva oculta');
   view = await run(s, { action: 'election_redo', historyId: view.election.redo });
   assert.equal(view.awards.length, 2);
   assert.equal(view.election.state!.earlyChoices!.length, 1);
@@ -715,6 +716,57 @@ test('dos anticipadas seguidas se muestran en orden de turno tras el predecesor'
   const order = (timeline: { memberIds: string[] }[]) => timeline.map((item) => item.memberIds[0]);
   assert.deepEqual(order((await s.view(cid)).election.timeline), [c.id, b.id, a.id]);
   assert.deepEqual(order((await person.view(cid)).election.timeline), [c.id, b.id, a.id]);
+});
+
+test('deshacer pasos anteriores no resucita una anticipada cuyo turno ya había llegado', async () => {
+  const { s, person, run, cid, a, b, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
+  // A step taken while B's choice still waits keeps it in its snapshot.
+  await run(s, { action: 'pause' });
+  await run(s, { action: 'resume' });
+  let view = await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  assert.equal(view.awards.length, 2);
+  for (let i = 0; i < 3; i++) {
+    view = await run(s, { action: 'election_undo', historyId: view.election.undo });
+    assert.deepEqual(
+      view.awards.filter((x) => x.member_id === b.id),
+      [],
+      'tras deshacer ' + (i + 1),
+    );
+    assert.equal(view.election.state!.earlyChoices?.length ?? 0, 0);
+  }
+  assert.equal(view.election.turn.memberId, a.id);
+  assert.equal((await person.view(cid)).election.early?.choices.length ?? 0, 0);
+  // Redo restores step by step; B's choice comes back only with the step it travelled with.
+  view = await run(s, { action: 'election_redo', historyId: view.election.redo });
+  assert.equal(view.awards.filter((x) => x.member_id === b.id).length, 0);
+  view = await run(s, { action: 'election_redo', historyId: view.election.redo });
+  assert.equal(view.awards.filter((x) => x.member_id === b.id).length, 0);
+  view = await run(s, { action: 'election_redo', historyId: view.election.redo });
+  assert.equal(view.awards.filter((x) => x.member_id === b.id).length, 1);
+});
+
+test('deshacer desde una elección completa no resucita una anticipada ya entrada', async () => {
+  const { s, person, run, b, dates } = await election();
+  let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  for (let i = 0; i < 30 && view.election.state.status !== 'complete'; i++) {
+    const turn = view.election.turn;
+    const owned = new Set(view.awards.filter((w) => w.member_id === turn.memberId).map((w) => w.cycle_date));
+    const available = view.election.available.filter((d) => !owned.has(d));
+    view = await run(s, { action: 'choose', memberId: turn.memberId, dates: available.slice(0, turn.needed) });
+  }
+  assert.equal(view.election.state.status, 'complete');
+  for (let i = 0; i < 30 && view.election.undo; i++) {
+    view = await run(s, { action: 'election_undo', historyId: view.election.undo });
+    // Never back as a hidden pre-choice: an entered award, or gone with its step.
+    for (const e of view.election.state?.earlyChoices ?? [])
+      assert.ok(
+        view.awards.some((w) => w.id === e.awardId),
+        'tras deshacer ' + (i + 1),
+      );
+  }
+  assert.equal(view.awards.filter((x) => x.member_id === b.id).length, 0);
+  assert.equal(view.election.state?.earlyChoices?.length ?? 0, 0);
 });
 
 test('un deshacer que anula una anticipada discreta se lo avisa a su titular, sin que lo vea nadie', async () => {
