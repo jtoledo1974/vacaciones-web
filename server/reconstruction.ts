@@ -22,6 +22,7 @@ import { canWrite, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
+import { requestsForAwards, syncElectionRequests } from './election-requests.ts';
 import { AuditContext, appliedAudit, eventsFor } from './audit-context.ts';
 import {
   historical,
@@ -495,7 +496,7 @@ export class ReconstructionService {
       for (const p of previous.preferences) if (!working.some((q) => q.member_id === p.member_id)) working.push(p);
       const restoreTo: Snapshot = {
         ...previous,
-        requests: origin.requests,
+        requests: requestsForAwards(cid, previous.awards, previous.requests),
         preferences: working,
         state: { ...previous.state!, automaticPaused: true },
       };
@@ -603,6 +604,12 @@ export class ReconstructionService {
       s.impact = this.impact(d, s, d.awards, d.requests);
       ops.push(
         statement(cid, restartClock(ctx(d), raw.state, completedAt)),
+        ...syncElectionRequests(
+          cid,
+          d.awards,
+          d.requests,
+          d.members.map((m: any) => m.id),
+        ),
         this.write(cid, s),
         this.host.audit('reconstruction_finish', c, null, {
           version: c.version + 1,
@@ -669,33 +676,6 @@ export class ReconstructionService {
       choices.map((a) => a.member_id),
     );
     const awardRows = choices.map((a) => [crypto.randomUUID(), cid, a.member_id, a.cycle_date, 1]);
-    const newRequests: any[][] = [],
-      used = new Map<string, Set<number>>();
-    for (const [index, a] of choices.entries()) {
-      // An original request remains the scoring reference even when a reconstructed
-      // award changes to another cycle; do not silently overwrite or duplicate it.
-      const requested =
-        d.requests.filter((r: any) => r.member_id === a.member_id).length +
-        newRequests.filter((row) => row[2] === a.member_id).length;
-      const awarded =
-        d.awards.filter((r: any) => r.member_id === a.member_id).length +
-        choices.slice(0, index + 1).filter((r) => r.member_id === a.member_id).length;
-      if (requested >= awarded) continue;
-      if (
-        d.requests.some((r: any) => r.member_id === a.member_id && r.cycle_date === a.cycle_date) ||
-        newRequests.some((row) => row[2] === a.member_id && row[4] === a.cycle_date)
-      )
-        continue;
-      let slots = used.get(a.member_id);
-      if (!slots) {
-        slots = new Set(d.requests.filter((r: any) => r.member_id === a.member_id).map((r: any) => r.slot));
-        used.set(a.member_id, slots);
-      }
-      const slot = Array.from({ length: d.config.cyclesPerPerson }, (_, i) => i + 1).find((v) => !slots!.has(v));
-      if (slot === undefined) throw new ApiError('No quedan posiciones para guardar la solicitud original');
-      slots.add(slot);
-      newRequests.push([crypto.randomUUID(), cid, a.member_id, slot, a.cycle_date, 1]);
-    }
     const usedId = original?.id ?? null;
     s.applied.push({
       before,
@@ -716,7 +696,12 @@ export class ReconstructionService {
     ops.push(
       statement(cid, state),
       ...insertRows('awards', ['id', 'campaign_id', 'member_id', 'cycle_date', 'version'], awardRows),
-      ...insertRows('requests', ['id', 'campaign_id', 'member_id', 'slot', 'cycle_date', 'version'], newRequests),
+      ...syncElectionRequests(
+        cid,
+        [...d.awards, ...choices],
+        d.requests,
+        choices.map((a) => a.member_id),
+      ),
     );
     for (const p of preferences) {
       const previous = raw.preferences.find((q) => q.member_id === p.member_id);

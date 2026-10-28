@@ -4,8 +4,9 @@ Para 2027, las reglas vigentes están documentadas en [Política LECS 2027](poli
 
 ## Selección y puntuación
 
-- La elección secuencial escribe **requests (solicitudes originales)** y **awards (vacaciones vigentes)** en la misma transacción, incluido el sexto ciclo.
-- Si se modifica después una adjudicación, la solicitud original permanece: criterios, página 2. Las permutas pueden regirse por otro cómputo si así lo acuerda el equipo, decisión que ha de registrarse explícitamente.
+- Durante la elección, **requests** es una proyección provisional de las adjudicaciones vigentes (**awards**), incluido el sexto ciclo. Las decisiones anuladas o sustituidas no ocupan posiciones ni conservan puntos por haber sido elegidas antes.
+- Reconstruir, deshacer, rehacer y corregir una adjudicación antes del cierre actualiza esa proyección. La auditoría técnica conserva el historial de operaciones, separado de las vacaciones efectivas.
+- Al cerrar se fija la relación de adjudicaciones vigente como referencia de puntuación. La petición original que debe conservarse es la relación definitiva enviada a RRHH, frente a cambios posteriores durante el año; no son las elecciones provisionales descartadas. Véase la [auditoría y alcance de la primera corrección](AUDITORIA-PETICIONES-CIERRE-2026-10-28.md).
 - El orden es de menor a mayor puntuación del ejercicio anterior; el administrador confirma el orden y su origen. No se altera por los puntos de la elección abierta.
 
 ## Empates, aplazamientos y grupos
@@ -25,5 +26,5 @@ Para 2027, las reglas vigentes están documentadas en [Política LECS 2027](poli
 
 - tests/criterios-2025.test.ts verifica empates, elección triple, turno conjunto, cupo de uno y nuevos CTA.
 - Cada adjudicación automática se registra ahora mediante una operación `advance` individual, independiente de la elección manual que la precede. El cliente procesa consecutivamente esas operaciones mientras haya preferencias aplicables. Un undo de un turno automático deja el turno restaurado y suspende los automatismos hasta que un responsable pulse **Reanudar automatismos**. Los turnos conjuntos y las elecciones múltiples por aplazamiento siguen siendo decisiones atómicas.
-- tests/election-service.test.ts verifica la persistencia de las solicitudes originales, turnos conjuntos, varios undo/redo intercalados, cambios de rama y restauración de preferencias. El registro append-only de auditoría conserva las instantáneas anteriores al cambio; una selección nueva tras undo descarta la ruta de redo activa sin borrar las decisiones históricas. Una reconstrucción guiada entre diferentes rondas todavía requiere interfaz y control de sesión administrativos específicos.
+- tests/election-service.test.ts verifica la actualización de las peticiones provisionales, turnos conjuntos, varios undo/redo intercalados, cambios de rama y restauración de preferencias. El registro append-only de auditoría conserva las instantáneas anteriores al cambio; una selección nueva tras undo descarta la ruta de redo activa sin borrar las decisiones históricas. Una reconstrucción guiada entre diferentes rondas todavía requiere interfaz y control de sesión administrativos específicos.
 - GitHub Actions ejecuta Node tests, TypeScript typecheck y Playwright al abrir o actualizar el PR. Los casos históricos Excel se validan con un perfil específico (45 frente a 46 ciclos) y no se alteran silenciosamente las fórmulas heredadas.

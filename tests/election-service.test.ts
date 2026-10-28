@@ -583,7 +583,7 @@ test('el segundo ciclo se valida contra el primero y las opciones no modifican l
   );
 });
 
-test('Criterios 1.1 p.2: la elección guarda seis solicitudes de origen, que sobreviven una permuta posterior', async () => {
+test('corregir una elección abierta retira su petición provisional y actualiza sus puntos', async () => {
   const { s, cid, d } = await setup(),
     [a, b] = d.members,
     dates = d.result.cycles.map((c: any) => c.date);
@@ -595,11 +595,11 @@ test('Criterios 1.1 p.2: la elección guarda seis solicitudes de origen, que sob
   next = await s.view(cid);
   next = await s.mutate(cid, { action: 'delete_award', id: next.awards[0].id, version: next.campaign.version });
   assert.equal(next.awards.length, 0);
-  assert.equal(next.requests.length, 1);
-  assert.equal(next.result.ordering.find((p: any) => p.id === a.id).score, d.result.cycles[0].score);
+  assert.equal(next.requests.length, 0);
+  assert.equal(next.result.ordering.find((p: any) => p.id === a.id).score, 0);
   next = await s.mutate(cid, { action: 'award', memberId: a.id, date: dates[1], version: next.campaign.version });
   assert.equal(next.awards[0].cycle_date, dates[1]);
-  assert.equal(next.requests[0].cycle_date, dates[0]);
+  assert.equal(next.requests[0].cycle_date, dates[1]);
 });
 test('el resumen de ciclos y puntos contabiliza solo adjudicaciones, aunque existan solicitudes distintas', async () => {
   const { s, cid, d } = await setup(),
@@ -627,21 +627,87 @@ test('el resumen de ciclos y puntos contabiliza solo adjudicaciones, aunque exis
   assert.deepEqual(summary(a.id), { member_id: a.id, cycles: 1, points: score(aAwarded) });
   assert.deepEqual(summary(b.id), { member_id: b.id, cycles: 2, points: score(bAwarded) + score(bSecond) });
   assert.deepEqual(summary(c.id), { member_id: c.id, cycles: 0, points: 0 });
-  // El baremo histórico conserva las solicitudes originales y su puntuación.
+  // Antes del cierre, la petición anulada tampoco cuenta para el siguiente orden.
   assert.deepEqual(
     current.requests
       .filter((r: any) => r.member_id === a.id)
       .map((r: any) => r.cycle_date)
       .sort(),
-    [aAwarded, aExtra].sort(),
+    [aAwarded],
   );
   const historicalA = current.result.ordering.find((m: any) => m.id === a.id).score;
   // Mismo índice que calculate() en domain/vacations.ts: weights[(slot+4)%6].
   const weight = (slot: number) => d.config.weights[(slot + 4) % 6];
-  assert.equal(historicalA, score(aAwarded) * weight(1) + score(aExtra) * weight(2));
+  assert.equal(historicalA, score(aAwarded) * weight(1));
 });
 
-test('Criterios 1.1 p.2: turno conjunto: servidor confirma todas las selecciones y solicitudes o ninguna', async () => {
+for (const action of ['choose', 'advance']) {
+  test(`sexta elección ${action}: cinco adjudicaciones y seis peticiones antiguas no bloquean el guardado`, async () => {
+    const { repo, s, cid, d } = await setup();
+    const a = d.members[0];
+    const dates = d.result.cycles.slice(0, 7).map((c: { date: string }) => c.date);
+    await actOne(s, cid, start(d));
+    const state = JSON.parse((await repo.all('SELECT json FROM election_states WHERE campaign_id=?', [cid]))[0].json);
+    state.cursor = 15;
+    await repo.batch([
+      { sql: 'UPDATE election_states SET json=? WHERE campaign_id=?', args: [JSON.stringify(state), cid] },
+      ...dates.slice(0, 5).map((date: string, i: number) => ({
+        sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+        args: ['award-' + i, cid, a.id, date],
+      })),
+      ...[dates[5], ...dates.slice(0, 5)].map((date: string, i: number) => ({
+        sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1)',
+        args: ['request-' + i, cid, a.id, i + 1, date],
+      })),
+      {
+        sql: 'INSERT INTO preferences(member_id,campaign_id,dates_json,automatic) VALUES(?,?,?,1)',
+        args: [a.id, cid, JSON.stringify([dates[6]])],
+      },
+    ]);
+    const next = await actOne(s, cid, { action, memberId: a.id, dates: [dates[6]] });
+    assert.equal(next.awards.filter((v: { member_id: string }) => v.member_id === a.id).length, 6);
+    assert.deepEqual(
+      next.requests.map((r: { cycle_date: string }) => r.cycle_date),
+      [...dates.slice(0, 5), dates[6]],
+    );
+    assert.equal(next.election.turn.memberId, d.members[1].id);
+    // Undo/redo also repair legacy snapshots instead of reviving the obsolete request.
+    const undone = await actOne(s, cid, { action: 'election_undo', historyId: next.election.undo });
+    assert.equal(undone.requests.length, 5);
+    const redone = await actOne(s, cid, { action: 'election_redo', historyId: undone.election.redo });
+    assert.equal(redone.requests.length, 6);
+    assert.ok(!redone.requests.some((r: { cycle_date: string }) => r.cycle_date === dates[5]));
+  });
+}
+
+test('cerrar fija las adjudicaciones efectivas y no reescribe una campaña ya cerrada', async () => {
+  const { repo, s, cid, d } = await setup();
+  const a = d.members[0];
+  const [actual, obsolete] = d.result.cycles.map((c: { date: string }) => c.date);
+  await repo.batch([
+    {
+      sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+      args: ['actual', cid, a.id, actual],
+    },
+    {
+      sql: 'INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version) VALUES(?,?,?,?,?,1)',
+      args: ['obsolete', cid, a.id, 1, obsolete],
+    },
+  ]);
+  const closed = await s.mutate(cid, { action: 'close', version: d.campaign.version });
+  assert.deepEqual(
+    closed.requests.map((r: { cycle_date: string }) => r.cycle_date),
+    [actual],
+  );
+  const again = await s.mutate(cid, { action: 'close', version: closed.campaign.version });
+  assert.deepEqual(again.requests, closed.requests);
+  await assert.rejects(
+    s.mutate(cid, { action: 'delete_award', id: 'actual', version: again.campaign.version }),
+    /cerrada/,
+  );
+});
+
+test('turno conjunto: servidor confirma todas las selecciones y peticiones provisionales o ninguna', async () => {
   const { s, cid, d } = await setup(),
     [a, b, c] = d.members,
     dates = d.result.cycles.map((c: any) => c.date);

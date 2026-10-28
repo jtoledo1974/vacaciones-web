@@ -41,7 +41,12 @@ export function cycleTable(
   }));
 }
 
-/** Next year's election order: lowest weighted request score first, then seniority. */
+/** Next year's election order: lowest weighted request score first, then seniority.
+ * The weights come from the 2014 spreadsheet the calculation was imported from: its
+ * column J weighted the first selection with I5 and the next ones with D5–H5, hence
+ * `(slot + 4) % 6`. All six weights are currently 1, so the score is the plain sum of
+ * cycle scores. Reopening a campaign to fix an error recalculates it on purpose.
+ */
 export function nextYearOrdering(cycles: readonly CycleRow[], c: Config, members: Member[], requests: Request[]) {
   const byDate = new Map(cycles.map((s) => [s.date, s]));
   const requestsByMember = new Map<string, Request[]>();

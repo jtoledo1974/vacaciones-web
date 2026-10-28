@@ -747,14 +747,15 @@ test('una reconstrucción no revela la anticipada discreta de su origen', async 
     [second.id],
   );
   assert.ok(!JSON.stringify((await s.admin()).audit).includes(awardId), 'el registro global no la muestra');
-  // Its request survives the rewind (requests are restored), still unseen.
+  // Rewinding removes its provisional request along with the withdrawn award.
   const shown = (view: unknown) =>
     (view as { requests: { member_id: string; cycle_date: string }[] }).requests.some(
       (r) => r.member_id === second.id && r.cycle_date === offer[0],
     );
-  assert.ok(
+  assert.equal(
     (await repo.all('SELECT id FROM requests WHERE member_id=? AND cycle_date=?', [second.id, offer[0]])).length,
-    'la solicitud sigue guardada',
+    0,
+    'la petición provisional retirada no ocupa una posición durante la reconstrucción',
   );
   assert.ok(!shown(await s.view(cid)), 'ni su solicitud durante la reconstrucción');
   // Out of the effective history, its row is still recognised as discreet.

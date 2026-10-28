@@ -89,7 +89,11 @@ test('reconstruir una anticipada ya confirmada empieza en su turno y conserva am
   v = await act(s, cid, { action: 'reconstruction_finish' });
   assert.equal(v.awards.length, 4);
   assert.equal(v.awards.find((a: Award) => a.member_id === ids[2]).cycle_date, dates[5]);
-  assert.deepEqual(v.requests, original.requests, 'las solicitudes originales no se reescriben');
+  assert.deepEqual(
+    v.requests.map((r: Pick<Award, 'member_id' | 'cycle_date'>) => [r.member_id, r.cycle_date]).sort(),
+    v.awards.map((a: Award) => [a.member_id, a.cycle_date]).sort(),
+    'las peticiones provisionales siguen la elección reconstruida',
+  );
   assert.ok(v.election.timeline.some((e: HistoryCandidate) => e.choices.some((a: Award) => a.member_id === ids[0])));
   assert.ok(v.election.timeline.some((e: HistoryCandidate) => e.choices.some((a: Award) => a.member_id === ids[1])));
 });
@@ -203,8 +207,8 @@ test('reconstrucción guiada modifica tercera elección y recupera preferencia d
   assert.equal(v.requests.length, 4);
   assert.equal(
     v.requests.find((r: any) => r.member_id === ids[2]).cycle_date,
-    dates[2],
-    'La solicitud original permanece aunque cambie la adjudicación',
+    dates[3],
+    'La petición provisional cambia con la adjudicación antes del cierre',
   );
   assert.equal(v.awards.find((r: any) => r.member_id === ids[2]).cycle_date, dates[3]);
 });

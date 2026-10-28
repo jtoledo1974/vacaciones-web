@@ -30,6 +30,7 @@ import { earlyEntry, earlyProof } from '../domain/early-election.ts';
 import { occupancyFor } from '../domain/policy.ts';
 import { restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
+import { requestsForAwards } from './election-requests.ts';
 import { auditAfter } from './audit-context.ts';
 import type { Principal } from './permissions.ts';
 import type { Repository, Statement } from './repository.ts';
@@ -430,7 +431,11 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   x.state = state;
   x.preferences = next;
   x.ops.push(
-    ...restoreStatements(cid, { awards: prior.awards, requests: prior.requests ?? d.requests, preferences: next }),
+    ...restoreStatements(cid, {
+      awards: prior.awards,
+      requests: requestsForAwards(cid, prior.awards, prior.requests ?? d.requests),
+      preferences: next,
+    }),
   );
 };
 

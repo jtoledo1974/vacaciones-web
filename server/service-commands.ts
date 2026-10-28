@@ -5,6 +5,7 @@ import { captureVacations, restoreStatements, validateSnapshot } from './campaig
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
 import { auditAfter, auditBefore, eventById, type AuditRow } from './audit-context.ts';
 import { ApiError } from './errors.ts';
+import { requestsForAwards, syncElectionRequests } from './election-requests.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { validateRoster, rowStatements } from './roster.ts';
 import { electionStateStatement } from './election-service.ts';
@@ -277,14 +278,16 @@ const executeDeleteRequest =
     before = (action === 'delete_request' ? d.requests : d.awards).find((r) => r.id === body.id);
     if (!before) throw new ApiError('Registro no encontrado', 404);
     ops.push({ sql: `DELETE FROM ${table} WHERE id=? AND campaign_id=?`, args: [body.id, cid] });
-    // Original imported selections populated both relations. Keep their correction unified.
-    // Criterios 1.1 p.2: correcting a later award must not erase the original selection.
-    // Legacy imported grids without an election still behave as before.
-    if (action === 'delete_award' && !election.state)
-      ops.push({
-        sql: 'DELETE FROM requests WHERE campaign_id=? AND member_id=? AND cycle_date=?',
-        args: [cid, before.member_id, before.cycle_date],
-      });
+    // These edits require an open campaign: no definitive RRHH reference exists yet.
+    if (action === 'delete_award')
+      ops.push(
+        ...syncElectionRequests(
+          cid,
+          d.awards.filter((a) => a.id !== body.id),
+          d.requests,
+          [before.member_id],
+        ),
+      );
     after = { deleted: body.id };
     return { before, after };
   };
@@ -311,6 +314,7 @@ async function executeAward(ctx: CommandContext): Promise<CommandResult> {
     sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
     args: [candidate.id, cid, m.id, body.date],
   });
+  ops.push(...syncElectionRequests(cid, [...d.awards, candidate], d.requests, [m.id]));
   after = candidate;
   return { before, after };
 }
@@ -319,7 +323,8 @@ async function executeCalculate(ctx: CommandContext): Promise<CommandResult> {
   const { actor, cid, d, c, election, ops, body } = ctx;
   const before: any = null;
   let after: any = body;
-  const result = calculate(c.year, c.team_id, d.config, d.members, d.requests, d.awards);
+  const requests = requestsForAwards(cid, d.awards, d.requests);
+  const result = calculate(c.year, c.team_id, d.config, d.members, requests, d.awards);
   const runId = id();
   ops.push({
     sql: 'INSERT INTO runs(id,campaign_id,source_version,engine_version,result_json,created_by,created_at) VALUES(?,?,?,?,?,?,?)',
@@ -332,7 +337,7 @@ async function executeCalculate(ctx: CommandContext): Promise<CommandResult> {
         result,
         config: d.config,
         members: d.members,
-        requests: d.requests,
+        requests,
         awards: d.awards,
         election,
       }),
@@ -352,6 +357,15 @@ async function executePublish(ctx: CommandContext): Promise<CommandResult> {
   if (!run || run.source_version !== c.version)
     throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
   const savedResult = JSON.parse(run.result_json).result;
+  if (c.status === 'open')
+    ops.push(
+      ...syncElectionRequests(
+        cid,
+        d.awards,
+        d.requests,
+        d.members.map((m) => m.id),
+      ),
+    );
   // A review created with the withdrawn occupancy policy cannot
   // be acknowledged and published as if it had been calculated
   // under the current rules. Historical snapshots stay untouched.
@@ -393,9 +407,20 @@ async function executePublish(ctx: CommandContext): Promise<CommandResult> {
 const executeCloseClose =
   (action: string) =>
   async (ctx: CommandContext): Promise<CommandResult> => {
-    const { cid, c, ops, body } = ctx;
+    const { cid, c, d, ops, body } = ctx;
     let before: any = null;
     let after: any = body;
+    // Freeze the effective vacation relation, never provisional choices that were
+    // replaced during the election. Repeated close leaves an existing reference alone.
+    if (action === 'close' && c.status === 'open')
+      ops.push(
+        ...syncElectionRequests(
+          cid,
+          d.awards,
+          d.requests,
+          d.members.map((m) => m.id),
+        ),
+      );
     ops.push({
       sql: 'UPDATE campaigns SET status=? WHERE id=?',
       args: [action === 'close' ? 'closed' : 'open', cid],

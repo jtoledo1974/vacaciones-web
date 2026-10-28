@@ -24,6 +24,7 @@ import { cas, insertRows, type Repository, type Statement } from './repository.t
 import { capture, electionStateStatement } from './campaign-snapshot.ts';
 export { electionStateStatement } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
+import { requestsForAwards, syncElectionRequests } from './election-requests.ts';
 import {
   buildElectionTimeline,
   publicElectionTimeline,
@@ -464,7 +465,15 @@ export class ElectionService {
     const focus = manage ? turn?.memberId : mine;
     const result =
       options.result ??
-      calculate(ctx.year, ctx.team, ctx.config, ctx.members, ctx.requests, ctx.awards, { skipProof: options.restored });
+      calculate(
+        ctx.year,
+        ctx.team,
+        ctx.config,
+        ctx.members,
+        d.campaign.status === 'open' ? requestsForAwards(cid, ctx.awards, ctx.requests) : ctx.requests,
+        ctx.awards,
+        { skipProof: options.restored },
+      );
     const reconstruction = await this.reconstruction().view(
       d,
       raw,
@@ -862,25 +871,17 @@ export class ElectionService {
         choices.map((a) => [a.id ?? crypto.randomUUID(), cid, a.member_id, a.cycle_date, 1]),
       ),
     );
-    // Criterios 1.1 p.2: the original selection persists even if an award is
-    // later changed. Existing imported requests for the same cycle are reused.
-    const newRequests: any[][] = [],
-      usedByMember = new Map<string, Set<number>>();
-    for (const a of choices) {
-      if (d.requests.some((r: any) => r.member_id === a.member_id && r.cycle_date === a.cycle_date)) continue;
-      let used = usedByMember.get(a.member_id);
-      if (!used) {
-        used = new Set(d.requests.filter((r: any) => r.member_id === a.member_id).map((r: any) => r.slot));
-        usedByMember.set(a.member_id, used);
-      }
-      const slot = Array.from({ length: ctx.config.cyclesPerPerson }, (_, i) => i + 1).find((n) => !used!.has(n));
-      if (slot === undefined) throw new ApiError('No quedan posiciones para registrar la solicitud original');
-      used.add(slot);
-      newRequests.push([crypto.randomUUID(), cid, a.member_id, slot, a.cycle_date, 1]);
-    }
-    ops.push(
-      ...insertRows('requests', ['id', 'campaign_id', 'member_id', 'slot', 'cycle_date', 'version'], newRequests),
-    );
+    // Before closure only effective awards count. Superseded requests from older
+    // reconstructions must not consume a right or block the sixth choice.
+    if (choices.length)
+      ops.push(
+        ...syncElectionRequests(
+          cid,
+          [...d.awards, ...choices],
+          d.requests,
+          choices.map((a) => a.member_id),
+        ),
+      );
     // Snapshot the causal impact BEFORE committing the atomic batch. Undo/redo
     // retain the original immutable report in audit but the timeline replays only
     // currently effective decisions. An indeterminate solver proof stays explicit.

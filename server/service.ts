@@ -18,6 +18,7 @@ import { canWrite, requireSuper, requireWrite, type Identity, type Principal } f
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
 import { ApiError } from './errors.ts';
 import { ElectionService } from './election-service.ts';
+import { requestsForAwards } from './election-requests.ts';
 import { PersonalSimulationService } from './personal-simulation.ts';
 import { cloneSimulation } from './simulations.ts';
 import { projectAdminCampaignView, projectPublicCampaignView, projectPublishedCampaignView } from './projections.ts';
@@ -247,7 +248,8 @@ export class Service {
       ? await historicalAvailability(this.repo, cid, d.campaign.version)
       : { restored: false };
     const restored = recovery.restored;
-    const result = calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, d.requests, d.awards, {
+    const scoringRequests = d.campaign.status === 'open' ? requestsForAwards(cid, d.awards, d.requests) : d.requests;
+    const result = calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, scoringRequests, d.awards, {
       skipProof: restored,
     });
     const election = await this.election().view(d, {
