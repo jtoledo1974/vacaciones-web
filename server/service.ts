@@ -27,6 +27,7 @@ import { checkedConfig, runCommand } from './service-commands.ts';
 import { HrExportError, hrTeamCells, suggestHrNames, type HrCell } from '../domain/hr-export.ts';
 import { orderAwardsBySelection } from '../domain/award-display-order.ts';
 import { readHrWorkbook, writeHrWorkbook, type HrWorkbook } from './hr-xlsx.ts';
+import { vaVisibility } from './va-census.ts';
 export { ApiError } from './errors.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
@@ -67,6 +68,7 @@ export async function principal(repo: Repository, identity: Identity, superEmail
   return {
     id: key,
     role: user.role === 'team_admin' ? 'team_admin' : 'viewer',
+    vaAdmin: user.va_admin === 1,
     teams: (
       await repo.all('SELECT team_id FROM grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)', [
         user.id,
@@ -114,6 +116,7 @@ export class Service {
       campaigns,
       principal: this.actor,
       myCampaignIds: mine.map((m) => m.campaign_id).filter((id) => campaigns.some((c) => c.id === id)),
+      va: await vaVisibility(this.repo, this.actor),
     };
   }
   /** Every team's live campaign of the latest year, as anyone may follow it. */
@@ -461,6 +464,7 @@ export class Service {
       throw new ApiError('Usuario o permisos no válidos');
     if (body.role === 'team_admin' && !body.teams.length)
       throw new ApiError('Selecciona al menos un equipo para el responsable');
+    const vaAdmin = body.vaAdmin === true ? 1 : 0;
     if (body.expiresAt && (!Number.isFinite(Date.parse(body.expiresAt)) || Date.parse(body.expiresAt) <= Date.now()))
       throw new ApiError('Caducidad no válida');
     const uid = provider + ':' + subject;
@@ -477,14 +481,14 @@ export class Service {
       ops: Statement[] = old
         ? [
             {
-              sql: 'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?',
-              args: [body.role, sourceId, expected],
+              sql: 'UPDATE users SET role=?,va_admin=?,version=version+1 WHERE id=? AND version=?',
+              args: [body.role, vaAdmin, sourceId, expected],
             },
           ]
         : [
             {
-              sql: 'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)',
-              args: [uid, provider, subject, body.role],
+              sql: 'INSERT INTO users(id,provider,subject,role,va_admin,version) VALUES(?,?,?,?,?,1)',
+              args: [uid, provider, subject, body.role, vaAdmin],
             },
           ];
     ops.push(
@@ -508,7 +512,7 @@ export class Service {
         'permissions',
         null,
         { user: old, grants: oldGrants },
-        { provider, subject, role: body.role, teams: body.role === 'team_admin' ? body.teams : [] },
+        { provider, subject, role: body.role, teams: body.role === 'team_admin' ? body.teams : [], vaAdmin: !!vaAdmin },
       ),
     );
     await this.commit(ops);

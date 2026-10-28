@@ -10,7 +10,8 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
     [provider, setProvider] = useState('chatgpt');
   const [role, setRole] = useState('team_admin'),
     [teams, setTeams] = useState<string[]>([]),
-    [expires, setExpires] = useState('');
+    [expires, setExpires] = useState(''),
+    [vaAdmin, setVaAdmin] = useState(false);
   const ownGrants = (user: any) =>
     admin?.grants.filter((g: any) => g.user_id === user.id && (superuser || g.team_id === team)) ?? [];
   const users = (admin?.users ?? []).filter((u: any) => superuser || ownGrants(u).length > 0);
@@ -21,6 +22,7 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
     setRole('team_admin');
     setTeams([]);
     setExpires('');
+    setVaAdmin(false);
   };
   const edit = (u: any) => {
     const grants = ownGrants(u);
@@ -30,6 +32,7 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
     setRole(grants.length ? 'team_admin' : 'viewer');
     setTeams(grants.map((g: any) => g.team_id));
     setExpires(grants[0]?.expires_at?.slice(0, 10) ?? '');
+    setVaAdmin(u.va_admin === 1);
   };
   const submit = async (e: any) => {
     e.preventDefault();
@@ -47,6 +50,8 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
           teamId: team,
           version: existing?.version ?? 0,
           expiresAt: expires ? new Date(expires).toISOString() : null,
+          // Only superadmins assign it; a team administrator's save keeps the stored value.
+          ...(superuser ? { vaAdmin } : {}),
         })
       )?.ok
     )
@@ -73,7 +78,15 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
                   <br />
                   <small>{u.provider}</small>
                 </td>
-                <td>{u.role === 'team_admin' ? 'Responsable de equipo' : 'Solo lectura'}</td>
+                <td>
+                  {u.role === 'team_admin' ? 'Responsable de equipo' : u.va_admin === 1 ? 'Sin equipo' : 'Solo lectura'}
+                  {superuser && u.va_admin === 1 && (
+                    <>
+                      <br />
+                      <small>Administrador de VA</small>
+                    </>
+                  )}
+                </td>
                 <td>
                   {ownGrants(u)
                     .map((g: any) => g.team_id + (g.expires_at ? ' · hasta ' + g.expires_at.slice(0, 10) : ''))
@@ -142,13 +155,19 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
             Rol
             <select value={role} disabled={busy} onChange={(e) => setRole(e.target.value)}>
               <option value="team_admin">Responsable de equipo</option>
-              <option value="viewer">Retirar permisos de gestión</option>
+              <option value="viewer">{superuser ? 'Sin equipo' : 'Retirar permisos de gestión'}</option>
             </select>
           </label>
           <label>
             Caducidad opcional
             <input type="date" value={expires} disabled={busy} onChange={(e) => setExpires(e.target.value)} />
           </label>
+          {superuser && (
+            <label className="va-admin-check">
+              <input type="checkbox" checked={vaAdmin} disabled={busy} onChange={(e) => setVaAdmin(e.target.checked)} />
+              Administrador de VA
+            </label>
+          )}
           <button className="primary" disabled={busy || (superuser && role === 'team_admin' && !teams.length)}>
             Guardar permisos
           </button>

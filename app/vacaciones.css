@@ -1150,3 +1150,28 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .hr-export .hr-proposed { color: var(--muted); font-style: normal; font-size: 12px; }
 .hr-export ul.hr-summary { margin: 8px 0; padding-left: 18px; display: grid; gap: 4px; }
 .hr-export .hr-approximate { color: var(--amber); font-weight: 600; }
+/* Vacaciones de antigüedad: «Mi derecho» and the VA administrator's census. */
+.va-right-main{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:6px 0;flex-wrap:wrap}
+.va-right-main strong{font-size:1.4rem}
+.va-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 0 12px}
+.va-metrics div{background:#f3f6f4;border-radius:8px;padding:8px 10px}
+.va-metrics b{display:block;font-size:1.4rem}
+.va-metrics span{font-size:12px;color:#465d50}
+.va-metrics .va-warning{color:#8a5a00}.va-metrics .va-danger{color:#a32d2d}
+.va-census input[type=search]{width:100%;box-sizing:border-box}
+.va-heading{font-size:13px;color:#465d50;margin:14px 0 6px;font-weight:600}
+.va-list{list-style:none;margin:0;padding:0;border:1px solid #dfe5e1;border-radius:8px}
+.va-person+.va-person{border-top:1px solid #dfe5e1}
+.va-person-line{display:flex;align-items:center;gap:8px;width:100%;min-height:44px;padding:6px 10px;background:none;border:0;text-align:left;cursor:pointer;color:inherit}
+.va-person-line b{min-width:64px}
+.va-person-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#465d50;font-size:13px}
+.va-person-detail{padding:0 10px 10px;background:#f7f9f8}
+.va-access-fields{display:flex;gap:6px}
+.va-access-fields input{flex:1;min-width:0}
+.va-tag{font-size:11px;padding:2px 7px;border-radius:6px;white-space:nowrap}
+.va-tag-warning{background:#faeeda;color:#633806}.va-tag-danger{background:#fcebeb;color:#791f1f}.va-tag-ok{background:#eaf3de;color:#27500a}
+.va-team{border:1px solid #dfe5e1;border-radius:8px;margin-bottom:6px}
+.va-team summary{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 10px;cursor:pointer;min-height:44px;box-sizing:border-box}
+.va-team .va-list{border:0;border-top:1px solid #dfe5e1;border-radius:0}
+@media (max-width:420px){.va-metrics b{font-size:1.15rem}.va-access-fields{flex-direction:column}}
+.va-tag-muted{background:#f1efe8;color:#444441}

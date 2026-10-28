@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sectionFromPath, sectionPaths } from '../app/section-routes.ts';
 
-test('las tres secciones tienen URL directa y la pantalla principal conserva /', () => {
+test('las secciones tienen URL directa y la pantalla principal conserva /', () => {
   assert.deepEqual(sectionPaths, {
     eleccion: '/',
+    antiguedad: '/antiguedad',
     ayuda: '/ayuda',
     estadisticas: '/estadisticas',
     administracion: '/administracion',

@@ -40,7 +40,10 @@ import {
   BookOpen,
   Bell,
   BarChart3,
+  Award,
 } from 'lucide-react';
+import VaSection from './va-section';
+import VaCensusPanel from './va-census-panel';
 import CampaignStats from './campaign-stats';
 import { sectionFromPath, sectionPaths, type DashboardSection } from './section-routes';
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
@@ -432,11 +435,13 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
         ? 'Responsable de equipo'
         : data?.election?.myMemberId
           ? 'Controlador'
-          : index?.myCampaignIds?.length
-            ? 'Controlador (otro equipo)'
-            : identity
-              ? 'Cuenta sin vincular'
-              : 'Visitante';
+          : index?.principal.vaAdmin
+            ? 'Administrador de VA'
+            : index?.myCampaignIds?.length
+              ? 'Controlador (otro equipo)'
+              : identity
+                ? 'Cuenta sin vincular'
+                : 'Visitante';
   const accessNoticeRequired = requiresAccountLinkNotice({
     sessionLoaded,
     authenticated: !!identity,
@@ -474,7 +479,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   const sectionQuery = sectionParams.size ? '?' + sectionParams.toString() : '';
   const links = [
     ['eleccion', 'Vacaciones', CalendarDays],
-    ...(index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin'
+    // Only for VA participants and administrators (server/va-census.ts).
+    ...(index?.va?.entry ? [['antiguedad', 'Antigüedad', Award] as const] : []),
+    ...(index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin' || index?.va?.admin
       ? [['administracion', 'Administración', ShieldCheck] as const]
       : []),
     // Signed-in users only: the server refuses anonymous requests too.
@@ -673,11 +680,13 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
             <b>
               {nav === 'eleccion'
                 ? 'Vacaciones'
-                : nav === 'administracion'
-                  ? 'Administración'
-                  : nav === 'estadisticas'
-                    ? 'Estadísticas'
-                    : 'Ayuda'}
+                : nav === 'antiguedad'
+                  ? 'Antigüedad'
+                  : nav === 'administracion'
+                    ? 'Administración'
+                    : nav === 'estadisticas'
+                      ? 'Estadísticas'
+                      : 'Ayuda'}
             </b>
           </span>
           <HeaderSession
@@ -742,23 +751,29 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               <h1>
                 {nav === 'eleccion'
                   ? 'Vacaciones del equipo'
-                  : nav === 'ayuda'
-                    ? 'Ayuda y documentación'
-                    : nav === 'estadisticas'
-                      ? 'Estadísticas'
-                      : superuser
-                        ? 'Administración general'
-                        : 'Administración del equipo'}
+                  : nav === 'antiguedad'
+                    ? 'Vacaciones de antigüedad'
+                    : nav === 'ayuda'
+                      ? 'Ayuda y documentación'
+                      : nav === 'estadisticas'
+                        ? 'Estadísticas'
+                        : superuser
+                          ? 'Administración general'
+                          : index?.principal.role === 'team_admin'
+                            ? 'Administración del equipo'
+                            : 'Administración de VA'}
               </h1>
               <p>
                 {nav === 'eleccion'
                   ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.'
-                  : nav === 'estadisticas'
-                    ? 'Cómo avanza la elección en cada equipo y cuánto tarda cada turno.'
-                    : 'Cada cambio se guarda en la campaña seleccionada.'}
+                  : nav === 'antiguedad'
+                    ? 'Tus días por antigüedad. La elección se abrirá al terminar las vacaciones ordinarias.'
+                    : nav === 'estadisticas'
+                      ? 'Cómo avanza la elección en cada equipo y cuánto tarda cada turno.'
+                      : 'Cada cambio se guarda en la campaña seleccionada.'}
               </p>
             </div>
-            <div className="selectors">
+            <div className="selectors" style={nav === 'antiguedad' ? { display: 'none' } : undefined}>
               <label>
                 Ejercicio
                 <select
@@ -969,6 +984,10 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 <p>Inicia sesión para consultar las estadísticas de las campañas.</p>
               </section>
             )
+          ) : nav === 'antiguedad' ? (
+            <VaSection />
+          ) : nav === 'administracion' && !adminRole && index.va?.admin ? (
+            <VaCensusPanel />
           ) : nav === 'administracion' && !adminRole ? (
             <section className="panel empty">
               <ShieldCheck size={32} />
@@ -1313,6 +1332,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         )
                       }
                     />
+                    {superuser && <VaCensusPanel />}
                     <section className="panel">
                       <h2>Responsables y permisos</h2>
                       <p className="muted">

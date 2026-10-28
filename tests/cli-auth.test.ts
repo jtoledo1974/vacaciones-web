@@ -256,6 +256,7 @@ test('the real drizzle migrator applies 0013 and later to a database that alread
   db.exec('DROP TABLE cli_sessions; DROP TABLE cli_attempts');
   db.exec('ALTER TABLE awards DROP COLUMN selection_index; ALTER TABLE awards DROP COLUMN selection_round');
   db.exec('DROP INDEX person_controller_number; ALTER TABLE people DROP COLUMN controller_number');
+  db.exec('ALTER TABLE users DROP COLUMN va_admin');
   const hr = readMigrationFiles({ migrationsFolder: 'drizzle' }).find((m) => m.sql.join('').includes('hr_templates'))!;
   db.prepare('DELETE FROM __drizzle_migrations WHERE created_at>?').run(hr.folderMillis);
   await migrate(proxy, async (queries) => run(queries), { migrationsFolder: 'drizzle' });
