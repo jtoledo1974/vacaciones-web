@@ -1080,46 +1080,68 @@ test('reconstrucción lateral: deshacer, rehacer y cancelar restaura las adjudic
   expect(restartedClock.cursor).toBe(originalClock.cursor);
   expect(Date.parse(restartedClock.at)).toBeGreaterThan(Date.parse(originalClock.at));
 });
-test('un administrador puede iniciar reconstrucción desde una rama abandonada del historial', async ({
-  page,
-  request,
-}) => {
-  const s = await setup(request, page),
-    dates = s.data.result.cycles.map((c: any) => c.date),
-    ids = s.data.members.map((m: any) => m.id);
-  await election(request, s.id, {
-    action: 'start',
-    order: ids,
-    source: 'Orden ficticio para probar el historial de ramas',
-    rulesConfirmed: true,
-    allowDeferral: false,
-  });
-  for (let i = 0; i < 4; i++) await election(request, s.id, { action: 'choose', memberId: ids[i], dates: [dates[i]] });
-  let state = await read(request, s.id);
-  state = await election(request, s.id, { action: 'election_undo', historyId: state.election.undo });
-  state = await election(request, s.id, { action: 'election_undo', historyId: state.election.undo });
-  await election(request, s.id, { action: 'choose', memberId: ids[2], dates: [dates[6]] });
-  state = await read(request, s.id);
-  expect(state.election.redo).toBeNull();
-  const archived = state.election.reconstruction.candidates.find(
-    (candidate: any) => candidate.archived && candidate.memberIds.includes(ids[2]),
-  );
-  expect(archived).toBeTruthy();
-  await open(page, s.id);
-  const historyPanel = page.getByRole('region', { name: 'Historial de elección' });
-  await expect(historyPanel.getByText(/Decisiones de ramas anteriores/)).toHaveCount(0);
-  await historyPanel.locator('summary[aria-label="Más acciones del historial"]').click();
-  await historyPanel.getByRole('button', { name: 'Reconstruir desde un turno…' }).click();
-  await historyPanel.locator('.history-archived-choices summary').click();
-  await historyPanel.getByLabel('Elegir decisión de rama anterior').selectOption(archived.id);
-  await historyPanel.getByRole('button', { name: 'Reconstruir desde la decisión anterior' }).click();
-  await confirmSaved(page, s.id);
-  state = await read(request, s.id);
-  expect(state.election.reconstruction.active).toBe(true);
-  expect(state.election.reconstruction.current.memberId).toBe(ids[2]);
-  expect(state.awards).toHaveLength(2);
-  await expect(page.locator('.reconstruction-status')).toContainText('Elección congelada');
-});
+test(
+  'un administrador puede iniciar reconstrucción desde una rama abandonada del historial',
+  { tag: ['@both', '@smoke'] },
+  async ({ page, request }) => {
+    const s = await setup(request, page),
+      dates = s.data.result.cycles.map((c: any) => c.date),
+      ids = s.data.members.map((m: any) => m.id);
+    await election(request, s.id, {
+      action: 'start',
+      order: ids,
+      source: 'Orden ficticio para probar el historial de ramas',
+      rulesConfirmed: true,
+      allowDeferral: false,
+    });
+    for (let i = 0; i < 4; i++)
+      await election(request, s.id, { action: 'choose', memberId: ids[i], dates: [dates[i]] });
+    let state = await read(request, s.id);
+    state = await election(request, s.id, { action: 'election_undo', historyId: state.election.undo });
+    state = await election(request, s.id, { action: 'election_undo', historyId: state.election.undo });
+    await election(request, s.id, { action: 'choose', memberId: ids[2], dates: [dates[6]] });
+    state = await read(request, s.id);
+    expect(state.election.redo).toBeNull();
+    const archived = state.election.reconstruction.candidates.find(
+      (candidate: any) => candidate.archived && candidate.memberIds.includes(ids[2]),
+    );
+    expect(archived).toBeTruthy();
+    await open(page, s.id);
+    const historyPanel = page.getByRole('region', { name: 'Historial de elección' });
+    await expect(historyPanel.getByText(/Recuperación excepcional/)).toHaveCount(0);
+    await historyPanel.locator('summary[aria-label="Más acciones del historial"]').click();
+    await historyPanel.getByRole('button', { name: 'Reconstruir desde un turno…' }).click();
+    const recovery = historyPanel.locator('.history-archived-choices');
+    await expect(recovery).not.toHaveAttribute('open');
+    await expect(historyPanel.getByRole('button', { name: 'Reconstruir desde QA_C (ronda 1)' })).toBeVisible();
+    expect(
+      await historyPanel
+        .locator('.election-log')
+        .evaluate(
+          (history) =>
+            !!(
+              history.compareDocumentPosition(history.parentElement!.querySelector('.history-archived-choices')!) &
+              Node.DOCUMENT_POSITION_FOLLOWING
+            ),
+        ),
+    ).toBe(true);
+    await expect(recovery.getByRole('button', { name: 'Recuperar esta decisión anterior' })).not.toBeVisible();
+    await historyPanel.locator('.history-archived-choices summary').click();
+    await expect(recovery.getByRole('button', { name: 'Recuperar esta decisión anterior' })).toBeDisabled();
+    await expect(historyPanel.getByLabel('Elegir decisión de rama anterior')).toHaveValue('');
+    await expect(recovery).toContainText(
+      'Para corregir una elección actual, busca su ronda arriba y pulsa «Desde aquí»',
+    );
+    await historyPanel.getByLabel('Elegir decisión de rama anterior').selectOption(archived.id);
+    await historyPanel.getByRole('button', { name: 'Recuperar esta decisión anterior' }).click();
+    await confirmSaved(page, s.id);
+    state = await read(request, s.id);
+    expect(state.election.reconstruction.active).toBe(true);
+    expect(state.election.reconstruction.current.memberId).toBe(ids[2]);
+    expect(state.awards).toHaveLength(2);
+    await expect(page.locator('.reconstruction-status')).toContainText('Elección congelada');
+  },
+);
 test('bloqueo, descarga y restauración de backup completo', async ({ page, request }, info) => {
   const s = await setup(request, page);
   await open(page, s.id);

@@ -23,11 +23,12 @@ import { cas, insertRows, type Repository, type Statement } from './repository.t
 import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { requestsForAwards, syncElectionRequests } from './election-requests.ts';
-import { AuditContext, appliedAudit, eventsFor } from './audit-context.ts';
+import { AuditContext, appliedAudit, auditAfter, eventsFor, type AuditRow } from './audit-context.ts';
 import {
   historical,
   effectiveReconstruction,
   eventCursor,
+  isEffectiveDecision,
   type Snapshot,
   type Historical,
 } from './reconstruction-history.ts';
@@ -82,6 +83,25 @@ const snap = (state: ElectionState | null, preferences: Preference[], d: any): S
   capture(d, { state, preferences });
 const statement = electionStateStatement;
 const restore = (cid: string, s: Snapshot): Statement[] => restoreStatements(cid, s);
+
+/** A restore must not retain an audited award while discarding its decision.
+ * Imports without a turn event remain valid; exact award IDs avoid guessing
+ * provenance from a repeated member/date on an abandoned branch.
+ */
+function assertTraceable(snapshot: Snapshot, rows: AuditRow[], retained: AuditRow[]) {
+  const awardIds = (events: AuditRow[]) =>
+    new Set(
+      events.flatMap((row) => (auditAfter(row)?.choices ?? []).flatMap((a: { id?: string }) => (a.id ? [a.id] : []))),
+    );
+  const recorded = awardIds(rows),
+    kept = awardIds(retained);
+  const anticipated = new Set(snapshot.state?.earlyChoices?.map((e) => e.awardId) ?? []);
+  if (snapshot.awards.some((a) => (recorded.has(a.id) || anticipated.has(a.id)) && !kept.has(a.id)))
+    throw new ApiError(
+      'La reconstrucción dejaría una elección sin historial. Reconstruye desde un turno anterior o cancela para conservar la situación actual.',
+      409,
+    );
+}
 /**
  * The turn left open by a reconstruction starts waiting when it ends, not before it began.
  * Steps move the cursor without the clock, so stamp the turn that is open now.
@@ -153,7 +173,7 @@ export class ReconstructionService {
         memberIds: entry.participants,
         choices: entry.after.choices ?? [],
         cursor: eventCursor(entry),
-        archived: !currentIds.has(entry.id),
+        archived: !currentIds.has(entry.id) || !isEffectiveDecision(entry, d.awards),
       }))
       .reverse();
   }
@@ -435,18 +455,21 @@ export class ReconstructionService {
     if (action === 'reconstruction_start') {
       if (existing && existing.status !== 'completed') throw new ApiError('Ya existe una reconstrucción abierta', 409);
       const audit = await this.auditRows(cid),
-        applied = appliedAudit(audit),
-        index = applied.done.findIndex((row) => row.id === body.historyId);
+        applied = appliedAudit(audit);
+      let index = applied.done.findIndex((row) => row.id === body.historyId);
       const pos = audit.findIndex((row) => row.id === body.historyId);
       if (pos < 0) throw new ApiError('La decisión no existe en la auditoría', 409);
       const target = historical(d, applied.done.find((row) => row.id === body.historyId) ?? audit[pos]);
       if (!target?.before.state) throw new ApiError('Selecciona un turno de elección recuperable');
+      // Undo can take a reached early award along with its predecessor while its
+      // immutable event remains in the chronological replay. A replaced award is
+      // an archived reference, even when that old event still belongs to done.
+      if (!isEffectiveDecision(target, d.awards)) index = -1;
       const pendingEarly = raw.state
         ? concealPendingEarly(ctx(d), raw.state, null, d.awards).hidden
         : new Set<string>();
       if ((target.after.choices ?? []).some((choice: { id?: string }) => !!choice.id && pendingEarly.has(choice.id)))
         throw new ApiError('La decisión todavía no está disponible para reconstruir', 409);
-      const effective = index >= 0 ? effectiveReconstruction(d, before, applied.done, target) : null;
       // After undo + a new choice, old decisions form an archived branch. The guided
       // recovery must still find them, even though normal redo has been invalidated.
       const breakpoint = audit.findIndex(
@@ -462,6 +485,14 @@ export class ReconstructionService {
       );
       const records =
         index >= 0 ? applied.done.slice(index) : audit.slice(pos, breakpoint < 0 ? undefined : breakpoint);
+      const effective = effectiveReconstruction(
+        d,
+        before,
+        applied.done,
+        target,
+        index >= 0 ? applied.done : records,
+        audit,
+      );
       const originalEvents = (
         effective?.events ?? records.map((row) => historical(d, row)).filter((e): e is Historical => !!e)
       )
@@ -500,6 +531,12 @@ export class ReconstructionService {
         preferences: working,
         state: { ...previous.state!, automaticPaused: true },
       };
+      const retainedHistory = effective
+        ? effective.retainedIds.map(
+            (id) => applied.done.find((row) => row.id === id) ?? audit.find((row) => row.id === id)!,
+          )
+        : applied.done.slice(0, keepCount);
+      assertTraceable(restoreTo, audit, retainedHistory);
       const lastCursor = Math.max(
         ...originalEvents.map(
           (event) =>
@@ -598,6 +635,8 @@ export class ReconstructionService {
     }
     if (action === 'reconstruction_finish') {
       if (s.status !== 'review') throw new ApiError('Quedan turnos anteriores por reconstruir');
+      const rows = await this.auditRows(cid);
+      assertTraceable(before, rows, appliedAudit(rows).done);
       s.status = 'completed';
       const completedAt = new Date().toISOString();
       s.completedAt = completedAt;

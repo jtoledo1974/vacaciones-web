@@ -272,7 +272,7 @@ export default function ElectionWorkspace({
     if (!candidate || busy || !canOpenReconstruction) return;
     const names = candidate.memberIds.map(codeFor).join(' + ');
     const subject = candidate.action === 'resolve_tie' ? 'el sorteo de ' + names : 'la decisión de ' + names;
-    const source = candidate.archived ? ' (rama anterior)' : '';
+    const source = candidate.archived ? ' (decisión anulada o sustituida; no está vigente)' : '';
     if (
       !(await confirm(
         '¿Reconstruir desde ' +
@@ -1540,56 +1540,9 @@ export default function ElectionWorkspace({
                     </button>
                   </div>
                   <p>
-                    Busca el turno en este historial y pulsa «Desde aquí». No se cambiará ninguna adjudicación hasta que
-                    confirmes.
+                    Busca la ronda y el controlador en el historial vigente de abajo y pulsa «Desde aquí». No se
+                    cambiará ninguna adjudicación hasta que confirmes.
                   </p>
-                  {archivedCandidates.length > 0 && (
-                    <details className="history-archived-choices">
-                      <summary>Decisiones de ramas anteriores ({archivedCandidates.length})</summary>
-                      <p>
-                        Estas decisiones fueron deshechas o sustituidas y ya no están vigentes. Puedes recuperarlas como
-                        referencia para una nueva reconstrucción.
-                      </p>
-                      <label>
-                        Decisión anterior
-                        <select
-                          aria-label="Elegir decisión de rama anterior"
-                          value={
-                            archivedCandidates.some((candidate: any) => candidate.id === archivedTarget)
-                              ? archivedTarget
-                              : archivedCandidates[0].id
-                          }
-                          onChange={(event) => setArchivedTarget(event.target.value)}
-                        >
-                          {archivedCandidates.map((candidate: any) => (
-                            <option key={candidate.id} value={candidate.id}>
-                              Ronda {candidate.round} · {candidate.memberIds.map(codeFor).join(' + ')} ·{' '}
-                              {candidate.action === 'defer'
-                                ? 'Aplazamiento'
-                                : candidate.action === 'resolve_tie'
-                                  ? 'Sorteo'
-                                  : 'Elección'}{' '}
-                              · {candidate.choices.map((choice: any) => formatDate(choice.cycle_date)).join(' + ')}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() =>
-                          startReconstructionFrom(
-                            archivedCandidates.find(
-                              (candidate: any) => candidate.id === (archivedTarget || archivedCandidates[0].id),
-                            ),
-                          )
-                        }
-                      >
-                        Reconstruir desde la decisión anterior
-                      </button>
-                    </details>
-                  )}
                 </div>
               )}
               <p className="muted">
@@ -1629,6 +1582,51 @@ export default function ElectionWorkspace({
                 />
               ) : (
                 <p className="muted">Todavía no hay turnos registrados ni ciclos adjudicados.</p>
+              )}
+              {choosingReconstructionStart && canOpenReconstruction && archivedCandidates.length > 0 && (
+                <details className="history-archived-choices">
+                  <summary>Recuperación excepcional: decisiones anuladas o sustituidas</summary>
+                  <p>
+                    Usa esta opción solo para recuperar una elección que deshiciste o sustituiste y que ya no aparece en
+                    el historial vigente. Para corregir una elección actual, busca su ronda arriba y pulsa «Desde aquí».
+                    Hay {archivedCandidates.length} decisiones anteriores disponibles.
+                  </p>
+                  <label>
+                    Decisión anulada o sustituida
+                    <select
+                      aria-label="Elegir decisión de rama anterior"
+                      value={archivedTarget}
+                      onChange={(event) => setArchivedTarget(event.target.value)}
+                    >
+                      <option value="" disabled>
+                        Selecciona la decisión que necesitas recuperar
+                      </option>
+                      {archivedCandidates.map((candidate: any) => (
+                        <option key={candidate.id} value={candidate.id}>
+                          Ronda {candidate.round} · {candidate.memberIds.map(codeFor).join(' + ')} ·{' '}
+                          {candidate.action === 'defer'
+                            ? 'Aplazamiento'
+                            : candidate.action === 'resolve_tie'
+                              ? 'Sorteo'
+                              : 'Elección'}{' '}
+                          · {candidate.choices.map((choice: any) => formatDate(choice.cycle_date)).join(' + ')}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy || !archivedTarget}
+                    onClick={() =>
+                      startReconstructionFrom(
+                        archivedCandidates.find((candidate: any) => candidate.id === archivedTarget),
+                      )
+                    }
+                  >
+                    Recuperar esta decisión anterior
+                  </button>
+                </details>
               )}
               {election.reconstruction?.status === 'completed' && state?.automaticPaused && (
                 <details className="election-last-reconstruction">

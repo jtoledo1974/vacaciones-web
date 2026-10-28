@@ -4,7 +4,10 @@ import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import type { Award } from '../domain/vacations.ts';
+import { appliedAudit, eventsFor } from '../server/audit-context.ts';
 type HistoryCandidate = {
+  kind?: string;
+  archived?: boolean;
   id: string;
   cursor: number;
   memberIds: string[];
@@ -68,6 +71,133 @@ async function anticipatedFixture() {
   return { ...f, original: v, target };
 }
 
+async function archivedAnticipatedFixture() {
+  const f = await anticipatedFixture();
+  const { s, cid, ids, dates, original } = f;
+  const target = original.election.reconstruction.candidates.find((e: HistoryCandidate) =>
+    e.memberIds.includes(ids[0]),
+  );
+  let v = await act(s, cid, { action: 'election_undo', historyId: original.election.undo });
+  v = await act(s, cid, { action: 'election_undo', historyId: v.election.undo });
+  for (let i = 0; i < ids.length; i++)
+    v = await act(s, cid, { action: 'choose', memberId: ids[i], dates: [dates[i === 0 ? 4 : i === 1 ? 5 : i]] });
+  return { ...f, target, branch: v };
+}
+
+test('una rama archivada revisa las anticipadas posteriores y no deja adjudicaciones sin historial', async () => {
+  const { s, cid, ids, dates, target, branch } = await archivedAnticipatedFixture();
+  let v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  assert.equal(v.awards.length, 0, 'retira también las anticipadas presentes en la instantánea archivada');
+  for (let i = 0; i < ids.length; i++) {
+    assert.equal(v.election.reconstruction.current.memberId, ids[i], 'no salta a nadie');
+    v = await act(s, cid, {
+      action: 'reconstruction_step',
+      kind: 'choose',
+      mode: i === 1 ? 'manual' : 'original',
+      ...(i === 1 ? { dates: [dates[5]] } : {}),
+    });
+  }
+  v = await act(s, cid, { action: 'reconstruction_finish' });
+  assert.equal(v.election.timeline.filter((e: HistoryCandidate) => e.kind === 'legacy').length, 0);
+  assert.equal(v.awards.find((a: Award) => a.member_id === ids[1]).cycle_date, dates[5]);
+  assert.equal(v.awards.length, branch.awards.length);
+  const next = v.election.reconstruction.candidates.find(
+    (e: HistoryCandidate) => !e.archived && e.memberIds.includes(ids[0]),
+  );
+  v = await act(s, cid, { action: 'reconstruction_start', historyId: next.id });
+  for (let i = 0; i < ids.length; i++) {
+    assert.equal(v.election.reconstruction.current.memberId, ids[i]);
+    v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  }
+  v = await act(s, cid, { action: 'reconstruction_finish' });
+  assert.equal(v.awards.find((a: Award) => a.member_id === ids[1]).cycle_date, dates[5]);
+  assert.equal(
+    v.election.timeline.some((e: HistoryCandidate) => e.kind === 'legacy'),
+    false,
+  );
+});
+
+test('cancelar la recuperación de una rama con anticipadas restaura IDs e historial exactos', async () => {
+  const { s, cid, ids, target, branch } = await archivedAnticipatedFixture();
+  const history = branch.election.timeline;
+  let v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  assert.equal(v.election.reconstruction.current.memberId, ids[1]);
+  v = await act(s, cid, { action: 'reconstruction_back' });
+  assert.equal(v.election.reconstruction.current.memberId, ids[0]);
+  v = await act(s, cid, { action: 'reconstruction_forward' });
+  assert.equal(v.election.reconstruction.current.memberId, ids[1]);
+  v = await act(s, cid, { action: 'reconstruction_cancel' });
+  assert.deepEqual(v.awards, branch.awards);
+  assert.deepEqual(v.election.timeline, history);
+  assert.equal(v.election.undo, branch.election.undo);
+});
+
+test('recuperar una anticipada archivada retira la elección distinta que hoy ocupa su turno', async () => {
+  const { s, cid, ids, dates, original, branch } = await archivedAnticipatedFixture();
+  const target = original.election.reconstruction.candidates.find((e: HistoryCandidate) =>
+    e.memberIds.includes(ids[1]),
+  );
+  let v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  assert.equal(v.election.reconstruction.current.memberId, ids[1]);
+  assert.deepEqual(v.election.reconstruction.current.originalChoice[0].dates, [dates[1]]);
+  assert.equal(
+    v.awards.some((a: Award) => a.member_id === ids[1]),
+    false,
+  );
+  assert.deepEqual(
+    v.awards.filter((a: Award) => a.member_id === ids[0]),
+    branch.awards.filter((a: Award) => a.member_id === ids[0]),
+  );
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  assert.equal(v.awards.find((a: Award) => a.member_id === ids[1]).cycle_date, dates[1]);
+  v = await act(s, cid, { action: 'reconstruction_cancel' });
+  assert.deepEqual(v.awards, branch.awards);
+});
+
+test('reconstruir un estado antiguo recupera los eventos de anticipadas vivas que habían quedado archivados', async () => {
+  const { s, repo, cid, ids, original } = await anticipatedFixture();
+  const rows = await eventsFor(repo, cid);
+  const done = appliedAudit(rows).done;
+  const removed = original.election.reconstruction.candidates
+    .filter((e: HistoryCandidate) => [ids[1], ids[2]].some((id) => e.memberIds.includes(id)))
+    .map((e: HistoryCandidate) => e.id);
+  // Persist the inconsistency left by older versions: awards and state are live,
+  // but the completed reconstruction removed their early decision events.
+  await repo.batch([
+    {
+      sql: 'INSERT INTO audit(id,campaign_id,actor,action,before_json,after_json,created_at) VALUES(?,?,?,?,NULL,?,?)',
+      args: [
+        crypto.randomUUID(),
+        cid,
+        owner.id,
+        'reconstruction_start',
+        JSON.stringify({
+          retainedIds: done.filter((e: HistoryCandidate) => !removed.includes(e.id)).map((e: HistoryCandidate) => e.id),
+        }),
+        new Date().toISOString(),
+      ],
+    },
+  ]);
+  let v = await s.view(cid);
+  assert.equal(v.election.timeline.filter((e: HistoryCandidate) => e.kind === 'legacy').length, 2);
+  const target = v.election.reconstruction.candidates.find(
+    (e: HistoryCandidate) => !e.archived && e.memberIds.includes(ids[3]),
+  );
+  v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  assert.equal(v.election.reconstruction.current.memberId, ids[3]);
+  v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  v = await act(s, cid, { action: 'reconstruction_finish' });
+  assert.deepEqual(
+    v.awards.map((a: Award) => [a.member_id, a.cycle_date]).sort(),
+    original.awards.map((a: Award) => [a.member_id, a.cycle_date]).sort(),
+  );
+  assert.equal(
+    v.election.timeline.some((e: HistoryCandidate) => e.kind === 'legacy'),
+    false,
+  );
+});
+
 test('reconstruir una anticipada ya confirmada empieza en su turno y conserva ambos predecesores', async () => {
   const { s, cid, ids, dates, original, target } = await anticipatedFixture();
   assert.deepEqual(target.memberIds, [ids[2]], 'el candidato nombra al adjudicatario, no al turno abierto');
@@ -96,6 +226,64 @@ test('reconstruir una anticipada ya confirmada empieza en su turno y conserva am
   );
   assert.ok(v.election.timeline.some((e: HistoryCandidate) => e.choices.some((a: Award) => a.member_id === ids[0])));
   assert.ok(v.election.timeline.some((e: HistoryCandidate) => e.choices.some((a: Award) => a.member_id === ids[1])));
+});
+
+test('una anticipada sin evento recuperable bloquea el retroceso sin modificar datos', async () => {
+  const { s, repo, cid, ids, original } = await anticipatedFixture();
+  const target = original.election.reconstruction.candidates.find((e: HistoryCandidate) =>
+    e.memberIds.includes(ids[3]),
+  );
+  const missing = original.election.reconstruction.candidates.find((e: HistoryCandidate) =>
+    e.memberIds.includes(ids[1]),
+  );
+  // Simulate a damaged historical export whose early event lost its payload.
+  await repo.batch([
+    { sql: 'UPDATE audit SET after_json=? WHERE id=?', args: [JSON.stringify({ choices: [] }), missing.id] },
+  ]);
+  const before = await s.load(cid);
+  const stateBefore = await repo.all('SELECT * FROM election_states WHERE campaign_id=?', [cid]);
+  await assert.rejects(act(s, cid, { action: 'reconstruction_start', historyId: target.id }), /sin historial/);
+  assert.deepEqual(await s.load(cid), before);
+  assert.deepEqual(await repo.all('SELECT * FROM election_states WHERE campaign_id=?', [cid]), stateBefore);
+  assert.deepEqual(await repo.all('SELECT * FROM reconstruction_sessions WHERE campaign_id=?', [cid]), []);
+});
+
+test('finalizar rechaza una sesión antigua que perdería la trazabilidad y permite cancelarla', async () => {
+  const { s, repo, cid, ids, original } = await anticipatedFixture();
+  const target = original.election.reconstruction.candidates.find((e: HistoryCandidate) =>
+    e.memberIds.includes(ids[3]),
+  );
+  const missing = original.election.reconstruction.candidates.find((e: HistoryCandidate) =>
+    e.memberIds.includes(ids[1]),
+  );
+  await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  // An old session may already have an inconsistent retained prefix.
+  const rows = await eventsFor(repo, cid);
+  const effective = appliedAudit(rows).done;
+  await repo.batch([
+    {
+      sql: 'INSERT INTO audit(id,campaign_id,actor,action,before_json,after_json,created_at) VALUES(?,?,?,?,NULL,?,?)',
+      args: [
+        crypto.randomUUID(),
+        cid,
+        owner.id,
+        'reconstruction_start',
+        JSON.stringify({
+          retainedIds: effective.filter((e: { id: string }) => e.id !== missing.id).map((e: { id: string }) => e.id),
+        }),
+        new Date().toISOString(),
+      ],
+    },
+  ]);
+  const before = await s.load(cid);
+  const session = await repo.all('SELECT * FROM reconstruction_sessions WHERE campaign_id=?', [cid]);
+  await assert.rejects(act(s, cid, { action: 'reconstruction_finish' }), /sin historial/);
+  assert.deepEqual(await s.load(cid), before);
+  assert.deepEqual(await repo.all('SELECT * FROM reconstruction_sessions WHERE campaign_id=?', [cid]), session);
+  const cancelled = await act(s, cid, { action: 'reconstruction_cancel' });
+  assert.equal(cancelled.election.reconstruction.active, false);
+  assert.deepEqual(cancelled.awards, original.awards);
 });
 
 test('cancelar una reconstrucción lógica restaura adjudicaciones, auditoría vigente y undo/redo', async () => {

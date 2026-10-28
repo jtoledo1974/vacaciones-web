@@ -50,6 +50,11 @@ const decisions = new Set([
 const early = (e: Historical) => e.action === 'early_choose' || e.after?.early === true;
 const choiceKey = (a: { member_id: string; cycle_date: string }) => a.member_id + '|' + a.cycle_date;
 export const eventCursor = (e: Historical) => e.cursor ?? e.before.state?.cursor ?? 0;
+export const isEffectiveDecision = (e: Historical, awards: readonly Award[]) =>
+  !early(e) ||
+  e.after.choices.some((choice: Choice) =>
+    awards.some((award) => (choice.id ? award.id === choice.id : choiceKey(award) === choiceKey(choice))),
+  );
 const context = (d: HistoryData, awards: Award[], requests: ElectionContext['requests']): ElectionContext => ({
   year: d.campaign.year,
   team: d.campaign.team_id,
@@ -107,31 +112,66 @@ export function historical(d: HistoryData, row: AuditRow): Historical | null {
  * had been chosen there. Audit remains chronological and immutable; an explicit
  * retained prefix preserves predecessors recorded AFTER that anticipated choice.
  */
-export function effectiveReconstruction(d: HistoryData, origin: Snapshot, done: AuditRow[], target: Historical) {
+export function effectiveReconstruction(
+  d: HistoryData,
+  origin: Snapshot,
+  done: AuditRow[],
+  target: Historical,
+  records = done,
+  rows = done,
+) {
   const start = eventCursor(target);
-  const entries = done.map((row) => historical(d, row)).filter((e): e is Historical => !!e);
+  const archived = !done.some((row) => row.id === target.id) || !isEffectiveDecision(target, origin.awards);
+  const entries = records.map((row) => historical(d, row)).filter((e): e is Historical => !!e);
   const hidden = origin.state
     ? concealPendingEarly(context(d, origin.awards, origin.requests), origin.state, null, origin.awards).hidden
     : new Set<string>();
-  const liveKeys = new Set(origin.awards.map(choiceKey));
   const liveIds = new Set(origin.awards.map((a) => a.id));
-  const active = (e: Historical) =>
-    !early(e) || (e.after.choices ?? []).some((a: Choice) => (a.id ? liveIds.has(a.id) : liveKeys.has(choiceKey(a))));
-  const pending = (e: Historical) =>
-    early(e) && (e.after.choices ?? []).some((a: Choice) => !!a.id && hidden.has(a.id));
-  if (!entries.some((e) => early(e) && active(e) && !pending(e) && eventCursor(e) >= start)) return null;
-  const suffix = entries.filter((e) => eventCursor(e) >= start);
-  const removed = new Set(suffix.filter(active).flatMap((e) => (e.after.choices ?? []).map(choiceKey)));
-  // A skipped slot has no physical before-snapshot. The next recorded cursor
-  // contains its confirmed predecessors; remove the logical suffix from it.
+  // An archived predecessor's snapshot can contain an early choice registered
+  // BEFORE that predecessor. Recover its own decision, not just its award. Also
+  // recognize live early awards orphaned by older reconstructions: their exact
+  // immutable award IDs are still recorded in the state's earlyChoices.
   const anchor = early(target)
     ? (done.map((row) => auditBefore(row) as Snapshot | null).find((s) => s?.state && s.state.cursor > start) ?? origin)
     : target.before;
-  // A retained predecessor may still carry an obsolete anticipated suffix in
-  // its immutable snapshot, even after that suffix was rebuilt once already.
+  const anchorIds = new Set(anchor.awards.map((a) => a.id));
+  const references = new Set([
+    ...(anchor.state?.earlyChoices ?? []).filter((e) => anchorIds.has(e.awardId)).map((e) => e.awardId),
+    ...(origin.state?.earlyChoices ?? []).filter((e) => liveIds.has(e.awardId)).map((e) => e.awardId),
+  ]);
+  const recovered = rows
+    .map((row) => historical(d, row))
+    .filter((e): e is Historical => !!e && early(e))
+    .filter((e) => (e.after.choices ?? []).some((a: Choice) => !!a.id && references.has(a.id)));
+  for (const e of recovered) {
+    if (entries.some((entry) => entry.id === e.id)) continue;
+    // A historical branch keeps its own choices when today's branch has changed
+    // the same turn; never combine two alternative choices into a double turn.
+    if (archived && !e.after.choices.some((a: Choice) => !!a.id && anchorIds.has(a.id)) && eventCursor(e) >= start)
+      continue;
+    entries.push(e);
+  }
+  const referenceIds = new Set(archived ? entries.map((e) => e.id) : []);
+  const active = (e: Historical) => referenceIds.has(e.id) || isEffectiveDecision(e, origin.awards);
+  const pending = (e: Historical) =>
+    early(e) && (e.after.choices ?? []).some((a: Choice) => !!a.id && hidden.has(a.id));
   const anticipatedSuffix = new Set(
     (anchor.state?.earlyChoices ?? []).filter((e) => e.cursor >= start).map((e) => e.awardId),
   );
+  if (!anticipatedSuffix.size && !entries.some((e) => early(e) && active(e) && !pending(e))) return null;
+  const suffix = entries.filter((e) => eventCursor(e) >= start);
+  // Recovering an old alternative must also remove today's different choice at
+  // that slot; otherwise the anchor would keep it and skip the selected turn.
+  const currentSuffix = archived
+    ? done.map((row) => historical(d, row)).filter((e): e is Historical => !!e && eventCursor(e) >= start)
+    : [];
+  const removed = new Set(
+    [...suffix.filter(active), ...currentSuffix].flatMap((e) => (e.after.choices ?? []).map(choiceKey)),
+  );
+  // A skipped slot has no physical before-snapshot. The next recorded cursor
+  // contains its confirmed predecessors; remove the logical suffix from it.
+  // A retained predecessor may still carry an obsolete anticipated suffix in
+  // its immutable snapshot, even after that suffix was rebuilt once already.
   const awards = anchor.awards.filter((a) => !removed.has(choiceKey(a)) && !anticipatedSuffix.has(a.id));
   const keptAwardIds = new Set(awards.map((a) => a.id));
   const anchorState = upgradeElectionState(anchor.state)!;
@@ -163,8 +203,19 @@ export function effectiveReconstruction(d: HistoryData, origin: Snapshot, done: 
       earlyChoices: (anchorState.earlyChoices ?? []).filter((e) => keptAwardIds.has(e.awardId) && e.cursor < start),
     },
   };
-  const byId = new Map(entries.map((e) => [e.id, e]));
-  const retainedIds = done
+  const retainedRows = [...done];
+  for (const e of recovered)
+    if (
+      eventCursor(e) < start &&
+      !hidden.has(e.after.choices[0]?.id ?? '') &&
+      e.after.choices.some((a: Choice) => !!a.id && keptAwardIds.has(a.id)) &&
+      !retainedRows.some((row) => row.id === e.id)
+    ) {
+      const row = rows.find((row) => row.id === e.id);
+      if (row) retainedRows.push(row);
+    }
+  const byId = new Map(retainedRows.map((row) => [row.id, historical(d, row)]));
+  const retainedIds = retainedRows
     .filter((row) => {
       const entry = byId.get(row.id);
       if (entry) return eventCursor(entry) < start;

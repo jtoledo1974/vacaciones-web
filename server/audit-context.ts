@@ -94,8 +94,10 @@ export function appliedAudit(rows: any[]) {
       if (Array.isArray(after.retainedIds)) {
         const retained = new Set(after.retainedIds);
         const removed = new Set(after.removedAwardIds ?? []);
-        const prefix = done
-          .filter((event) => retained.has(event.id))
+        const effective = new Map(done.map((event) => [event.id, event]));
+        const prefix = [...retained]
+          .map((id) => effective.get(id) ?? byId.get(id))
+          .filter(Boolean)
           .map((event) => {
             const before = auditBefore(event);
             if (!before?.awards?.some((award: { id: string }) => removed.has(award.id))) return event;
