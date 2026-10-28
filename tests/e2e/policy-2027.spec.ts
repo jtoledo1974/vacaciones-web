@@ -210,6 +210,8 @@ test('2027: los periodos son estancos y el verano fija lo que corresponde al res
   page,
   request,
 }) => {
+  // ~56 sequential adjudications: ~30 s locally, too close to the default 45 s on CI.
+  test.slow();
   const { id, data } = await setup2027(request, page);
   const pre = preCycles(data),
     last = pre[pre.length - 1];
@@ -224,7 +226,13 @@ test('2027: los periodos son estancos y el verano fija lo que corresponde al res
         !d.awards.some((a: any) => a.member_id === member && a.cycle_date === x),
     );
     if (!date) break;
-    d = await election(request, id, { action: 'choose', memberId: member, dates: [date] });
+    // A POST already returns the next campaign version; avoid a redundant GET.
+    d = await post(request, 'election/' + id, {
+      action: 'choose',
+      version: d.campaign.version,
+      memberId: member,
+      dates: [date],
+    });
   }
   expect(pre.every((x: string) => d.awards.filter((a: any) => a.cycle_date === x).length === target.get(x))).toBe(true);
   const before = d.awards.length;
