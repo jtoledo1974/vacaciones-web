@@ -110,3 +110,15 @@ test('el rol de administrador de VA lo asigna un superadministrador y se suma al
   });
   assert.equal((await principal(repo, identity, '')).vaAdmin, false);
 });
+
+test('«ver como»: la administración consulta los días de otra persona; un controlador no', async () => {
+  const repo = await setup();
+  const seen = await myVa(repo, vaAdmin, { team: 'E', code: 'E01' });
+  assert.equal(seen.me?.years, 25);
+  assert.equal(seen.me?.days, 2);
+  assert.equal((await myVa(repo, teamAdmin, { team: 'A', code: 'A03' })).me?.days, 1);
+  await assert.rejects(myVa(repo, teamAdmin, { team: 'B', code: 'B03' }), /administración/);
+  const controller: Principal = { id: 'chatgpt:c', role: 'viewer', teams: [] };
+  await assert.rejects(myVa(repo, controller, { team: 'A', code: 'A01' }), /administración/);
+  assert.equal((await myVa(repo, vaAdmin, { team: 'A', code: 'NADIE' })).me, null);
+});

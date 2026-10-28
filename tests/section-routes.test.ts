@@ -6,6 +6,7 @@ test('las secciones tienen URL directa y la pantalla principal conserva /', () =
   assert.deepEqual(sectionPaths, {
     eleccion: '/',
     antiguedad: '/antiguedad',
+    'antiguedad-admin': '/administracion/antiguedad',
     ayuda: '/ayuda',
     estadisticas: '/estadisticas',
     administracion: '/administracion',

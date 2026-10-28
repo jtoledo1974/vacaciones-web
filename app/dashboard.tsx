@@ -488,6 +488,8 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     ...(index?.principal.id ? [['estadisticas', 'Estadísticas', BarChart3] as const] : []),
     ['ayuda', 'Ayuda', BookOpen],
   ] as const;
+  // VA administration is a tab of «Administración», not a menu entry of its own.
+  const isCurrent = (key: DashboardSection) => nav === key || (key === 'administracion' && nav === 'antiguedad-admin');
   async function go(n: DashboardSection, updateHistory = true) {
     if (n !== currentSection.current && !(await canNavigate())) return false;
     currentSection.current = n;
@@ -506,6 +508,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     return true;
   }
   const adminRole = index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin';
+  // Who only administers VA lands on it straight from «Administración».
+  const vaAdmin = !!index?.va?.admin && !previewCode,
+    vaAdminView = vaAdmin && (nav === 'antiguedad-admin' || (nav === 'administracion' && !adminRole));
   useEffect(() => {
     // Direct /administracion loads and browser Back/Forward both use the same
     // path as a sidebar click. Do not fetch from go(): it would miss initial loads.
@@ -606,10 +611,10 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
         <div className="nav-caption">ESPACIO DE TRABAJO</div>
         <nav>
           {links.map(([key, label, Icon]) => (
-            <button key={key} className={nav === key ? 'active' : ''} onClick={() => go(key)}>
+            <button key={key} className={isCurrent(key) ? 'active' : ''} onClick={() => go(key)}>
               <Icon size={19} />
               {label}
-              {nav === key && <ChevronRight size={15} />}
+              {isCurrent(key) && <ChevronRight size={15} />}
             </button>
           ))}
           <a href="/notificaciones" className="notification-nav-link">
@@ -682,7 +687,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 ? 'Vacaciones'
                 : nav === 'antiguedad'
                   ? 'Antigüedad'
-                  : nav === 'administracion'
+                  : nav === 'administracion' || nav === 'antiguedad-admin'
                     ? 'Administración'
                     : nav === 'estadisticas'
                       ? 'Estadísticas'
@@ -702,7 +707,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
             <a
               key={key}
               href={sectionPaths[key] + sectionQuery}
-              aria-current={nav === key ? 'page' : undefined}
+              aria-current={isCurrent(key) ? 'page' : undefined}
               onClick={(event) => {
                 if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
                 event.preventDefault();
@@ -753,27 +758,29 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                   ? 'Vacaciones del equipo'
                   : nav === 'antiguedad'
                     ? 'Vacaciones de antigüedad'
-                    : nav === 'ayuda'
-                      ? 'Ayuda y documentación'
-                      : nav === 'estadisticas'
-                        ? 'Estadísticas'
-                        : superuser
-                          ? 'Administración general'
-                          : index?.principal.role === 'team_admin'
-                            ? 'Administración del equipo'
-                            : 'Administración de VA'}
+                    : vaAdminView
+                      ? 'Administración de VA'
+                      : nav === 'ayuda'
+                        ? 'Ayuda y documentación'
+                        : nav === 'estadisticas'
+                          ? 'Estadísticas'
+                          : superuser
+                            ? 'Administración general'
+                            : 'Administración del equipo'}
               </h1>
               <p>
                 {nav === 'eleccion'
                   ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.'
                   : nav === 'antiguedad'
                     ? 'Tus días por antigüedad. La elección se abrirá al terminar las vacaciones ordinarias.'
-                    : nav === 'estadisticas'
-                      ? 'Cómo avanza la elección en cada equipo y cuánto tarda cada turno.'
-                      : 'Cada cambio se guarda en la campaña seleccionada.'}
+                    : vaAdminView
+                      ? 'Censo de toda LECS, accesos y cupos de RRHH. No depende de ningún equipo.'
+                      : nav === 'estadisticas'
+                        ? 'Cómo avanza la elección en cada equipo y cuánto tarda cada turno.'
+                        : 'Cada cambio se guarda en la campaña seleccionada.'}
               </p>
             </div>
-            <div className="selectors" style={nav === 'antiguedad' ? { display: 'none' } : undefined}>
+            <div className="selectors" style={nav === 'antiguedad' || vaAdminView ? { display: 'none' } : undefined}>
               <label>
                 Ejercicio
                 <select
@@ -970,6 +977,29 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               {notice}
             </div>
           )}
+          {adminRole && vaAdmin && (nav === 'administracion' || nav === 'antiguedad-admin') && (
+            <nav className="va-tabs" aria-label="Tipo de administración">
+              {(
+                [
+                  ['administracion', 'Ordinarias'],
+                  ['antiguedad-admin', 'Antigüedad'],
+                ] as const
+              ).map(([key, label]) => (
+                <a
+                  key={key}
+                  href={sectionPaths[key] + sectionQuery}
+                  aria-current={nav === key ? 'page' : undefined}
+                  onClick={(event) => {
+                    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+                    event.preventDefault();
+                    void go(key);
+                  }}
+                >
+                  {label}
+                </a>
+              ))}
+            </nav>
+          )}
           {nav === 'ayuda' ? (
             <Help />
           ) : !index ? (
@@ -985,8 +1015,8 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               </section>
             )
           ) : nav === 'antiguedad' ? (
-            <VaSection />
-          ) : nav === 'administracion' && !adminRole && index.va?.admin ? (
+            <VaSection admin={vaAdmin} viewAs={previewCode && team ? { team, code: previewCode } : null} />
+          ) : vaAdminView ? (
             <VaCensusPanel />
           ) : nav === 'administracion' && !adminRole ? (
             <section className="panel empty">
@@ -1332,7 +1362,6 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         )
                       }
                     />
-                    {superuser && <VaCensusPanel />}
                     <section className="panel">
                       <h2>Responsables y permisos</h2>
                       <p className="muted">

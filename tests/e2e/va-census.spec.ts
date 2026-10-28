@@ -5,9 +5,11 @@ const origin = 'http://127.0.0.1:5199';
 const section = (page: import('@playwright/test').Page, name: string) =>
   page.getByRole('button', { name, exact: true }).or(page.getByRole('link', { name, exact: true }));
 
-/** Demo seed: 2026 campaigns; C-6 has seniority 2006, so 20 years and 1 VA day in 2026. */
+/** Explicit 2027 fixture: C06 has seniority 2006, so 21 years and 1 VA day.
+ * Other specs also create 2027 campaigns; this test must work alone or after them.
+ */
 test(
-  'el administrador vincula un acceso en el censo de VA y esa persona ve «Mi derecho»',
+  'el administrador vincula un acceso en Administración › Antigüedad, sin elegir equipo, y esa persona ve sus días',
   { tag: '@both' },
   async ({ page, request }) => {
     await request.get('/signin-with-chatgpt?return_to=/');
@@ -17,13 +19,23 @@ test(
       expect(initialized.ok(), await initialized.text()).toBeTruthy();
       index = await (await request.get('/api/index')).json();
     }
-    expect(index.va).toMatchObject({ year: 2026, entry: true, admin: true });
+    if (!index.campaigns.some((c: { year: number }) => c.year === 2027)) {
+      const created = await request.post('/api/campaigns', {
+        data: { year: 2027, copyYear: 2026 },
+        headers: { Origin: origin },
+      });
+      expect(created.ok(), await created.text()).toBeTruthy();
+      index = await (await request.get('/api/index')).json();
+    }
+    expect(index.va).toMatchObject({ year: 2027, entry: true, admin: true });
     await page.context().addCookies((await request.storageState()).cookies);
     const email = 'va-e2e@sites.test';
     try {
-      await page.goto('/administracion?equipo=C&year=2026');
+      await page.goto('/administracion/antiguedad');
+      await expect(page.getByRole('heading', { name: 'Administración de VA' })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'Tipo de administración' })).toContainText('Ordinarias');
       const panel = page.getByRole('region', { name: 'Censo y accesos de VA' });
-      await expect(panel.getByRole('heading', { name: 'Censo y accesos de VA · 2026' })).toBeVisible();
+      await expect(panel.getByRole('heading', { name: 'Censo y accesos de VA · 2027' })).toBeVisible();
       await expect(panel).toContainText('Cupos de RRHH sin cargar');
       await panel.getByLabel('Buscar en el censo de VA').fill('C06');
       await panel.getByRole('button', { name: /^C06/ }).click();
@@ -36,8 +48,8 @@ test(
       await page.goto('/');
       await expect(section(page, 'Antigüedad').first()).toBeVisible();
       await page.goto('/antiguedad');
-      const right = page.getByRole('region', { name: 'Mi derecho' });
-      await expect(right).toContainText('20 años de antigüedad');
+      const right = page.getByRole('region', { name: 'Tus días de VA' });
+      await expect(right).toContainText('21 años de antigüedad');
       await expect(right).toContainText('1 día');
       await expect(right).toContainText('01/01/2006');
       const width = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);

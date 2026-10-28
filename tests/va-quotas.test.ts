@@ -17,8 +17,15 @@ async function setup() {
   await new Service(repo, superadmin).init();
   return repo;
 }
-const load = (repo: SQLiteRepo, days: Record<string, number>, actor = vaAdmin) =>
-  loadVaQuotas(repo, actor, { action: 'preview', year: 2026, source, days });
+const load = (
+  repo: SQLiteRepo,
+  days: Record<string, number>,
+  actor = vaAdmin,
+): Promise<{ reviewToken: string } & Record<string, unknown>> =>
+  // A preview always carries its token; the apply branch of the union does not.
+  loadVaQuotas(repo, actor, { action: 'preview', year: 2026, source, days }) as unknown as Promise<
+    { reviewToken: string } & Record<string, unknown>
+  >;
 
 test('carga el calendario con vista previa, token y auditoría; un día ausente no tiene plazas', async () => {
   const repo = await setup();

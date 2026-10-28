@@ -83,7 +83,11 @@ async function serve(request: Request) {
         });
       if (path[0] === 'notifications') return reply(await notificationSettings(repo, actor, bindings));
       if (path[0] === 'va' && path[1] === 'census' && path.length === 2) return reply(await vaCensus(repo, actor));
-      if (path[0] === 'va' && path[1] === 'me' && path.length === 2) return reply(await myVa(repo, actor));
+      if (path[0] === 'va' && path[1] === 'me' && path.length === 2) {
+        const team = url.searchParams.get('equipo'),
+          code = url.searchParams.get('persona');
+        return reply(await myVa(repo, actor, team && code ? { team, code } : undefined));
+      }
       if (path[0] === 'va' && path[1] === 'quotas' && path.length === 2)
         return reply(await vaQuotas(repo, actor, Number(url.searchParams.get('year'))));
       if (path[0] === 'revision') {

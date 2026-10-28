@@ -1,4 +1,4 @@
-import { canAdminVa, requireVaAdmin, type Principal } from './permissions.ts';
+import { canAdminVa, canWrite, requireVaAdmin, type Principal } from './permissions.ts';
 import { type Repository } from './repository.ts';
 import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
@@ -104,17 +104,25 @@ export async function vaCensus(repo: Repository, actor: Principal) {
 }
 
 /** The signed-in controller's own entitlement, read-only. */
-export async function myVa(repo: Repository, actor: Principal) {
+export async function myVa(repo: Repository, actor: Principal, viewAs?: { team: string; code: string }) {
   const year = await vaYear(repo);
   const keys = [actor.id, actor.emailKey].filter((k): k is string => !!k);
   const admin = canAdminVa(actor);
-  if (!year || !keys.length) return { year, admin, me: null };
-  const linked = await repo.all(
-    `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
-    keys,
-  );
-  const ids = new Set(linked.map((r) => r.person_id));
-  const me = (await rows(repo, year)).find((r) => ids.has(r.personId)) ?? null;
+  // «Ver como»: VA administrators for anyone, team administrators for their own team.
+  if (viewAs && !admin && !canWrite(actor, viewAs.team))
+    throw new ApiError('Solo la administración puede ver los días de VA de otra persona', 403);
+  if (!year || (!keys.length && !viewAs)) return { year, admin, me: null };
+  const census = await rows(repo, year);
+  let me: VaRow | null;
+  if (viewAs) me = census.find((r) => r.team === viewAs.team && r.code === viewAs.code) ?? null;
+  else {
+    const linked = await repo.all(
+      `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
+      keys,
+    );
+    const ids = new Set(linked.map((r) => r.person_id));
+    me = census.find((r) => ids.has(r.personId)) ?? null;
+  }
   return {
     year,
     admin,
