@@ -36,6 +36,7 @@ const problemFields = {
 };
 const resultFields = {
   engineVersion: scalar,
+  scoringVersion: scalar, // Public normative version only; no personal or saved-configuration data.
   occupancyPolicyVersion: scalar,
   cycles: [
     {

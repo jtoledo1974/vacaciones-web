@@ -72,6 +72,10 @@ La ayuda que sirve `server/documentation.ts` (`docs/CONSULTA.md`, `docs/GESTION.
 - `tests/policy-pluggable.test.ts` debe seguir pasando: protege que el código genérico no dependa de 2027.
 - Para la e2e, `tests/e2e/policy-2027.spec.ts` es la referencia.
 
+## 8. Baremo anual de puntos
+
+Consulta [BAREMO-ANUAL.md](BAREMO-ANUAL.md). El registro `domain/policy.ts` incorpora el baremo en `VacationPolicy.scoring`; `domain/scoring.ts` ofrece su consulta genérica, sin importar directamente módulos anuales. El módulo de 2027 está cotejado contra FINAL2 V22 de BRAVO: 397 días, 46 ciclos y 20 acumulados. La inicialización y la copia seleccionan el baremo del destino; el cálculo de campañas existentes también usa la autoridad anual, sin migrar adjudicaciones. Los años sin registro mantienen la compatibilidad heredada, pero **no se consideran validados**.
+
 ## Pendiente: lo que todavía no es enchufable
 
 Suposiciones de 2027, o del libro Excel de origen, que siguen en código genérico y no se han cambiado porque alterarían el comportamiento:
@@ -79,7 +83,7 @@ Suposiciones de 2027, o del libro Excel de origen, que siguen en código genéri
 - `domain/vacations.ts:109`: con motor de ocupación, cada ciclo informa `min:1` y `base:2` fijos, en lugar de pedírselos al motor o tomarlos de la configuración.
 - `domain/hr-calendars.ts:20`: las excepciones individuales de ciclos dependen de que haya calendario de RRHH (`year in WORKBOOKS`) y no de la política. Deberían ser una propiedad de `VacationPolicy`.
 - `domain/calendar.ts:99`: una excepción individual admite de 0 a 6 ciclos, el máximo de 2027.
-- `domain/defaults.ts:5`: el baremo por defecto viene del libro de 2026 y marca como `nextYear` las fechas de 2027. Para cualquier otro año se interpreta como «enero del año siguiente», que es lo esperado, pero los valores son los de ese libro.
+- Los ejercicios sin baremo registrado conservan como respaldo el libro de 2026. Antes de habilitar un año nuevo hay que registrar y cotejar su baremo, incluidos los días del año siguiente alcanzados por sus ciclos y los ajustes bisiestos.
 - Los supuestos de forma de la sección 5.
 
 Arreglado al hacer la prueba de 2099:

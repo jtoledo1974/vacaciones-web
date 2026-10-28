@@ -1,5 +1,6 @@
 import { hrCalendar, grantsIndividualEntitlements } from './hr-calendars.ts';
-export const ENGINE_VERSION = 'excel-v21.1.3x-port-1';
+import { hasAnnualScoring, scoringBaseScores, scoringHolidays } from './scoring.ts';
+export const ENGINE_VERSION = 'excel-v21.1.3x-port-2-annual-scoring';
 export const dayMs = 86400000;
 export function serial(iso: string) {
   const d = new Date(iso + 'T00:00:00Z');
@@ -226,14 +227,15 @@ export function validateConfig(c: Config, y: number) {
   return c;
 }
 export function holidayDates(y: number, c: Config) {
-  return c.holidays.map((h) => {
+  return scoringHolidays(y, c.holidays).map((h) => {
     let n = h.offset !== undefined ? easter(y) + h.offset : serial(date(y + (h.nextYear ? 1 : 0), h.month!, h.day!));
     if (h.shiftSunday && weekday(n) === 7) n++;
     return { ...h, date: iso(n), serial: n };
   });
 }
 export function dailyScorer(y: number, c: Config) {
-  const scores = c.baseScores
+  const annual = hasAnnualScoring(y);
+  const scores = scoringBaseScores(y, c.baseScores)
       .map((s) => ({ ...s, n: serial(date(y + (s.nextYear ? 1 : 0), s.month, s.day)) }))
       .sort((a, b) => a.n - b.n),
     hs = holidayDates(y, c);
@@ -248,7 +250,8 @@ export function dailyScorer(y: number, c: Config) {
       base = s.score;
     }
     if (base === undefined) throw new Error('Falta baremo base para la fecha');
-    for (const { a, b } of intervals) if (a && b && n >= a.serial && n <= b.serial) return a.score;
+    for (const { a, b } of intervals)
+      if (a && b && n >= a.serial && n <= b.serial) return annual ? Math.max(base, a.score) : a.score;
     const specials = hs
       .filter((h) => h.serial === n)
       .reduce(
@@ -265,7 +268,7 @@ export function dailyScorer(y: number, c: Config) {
               : h.score),
         0,
       );
-    return specials > 0 ? specials : base;
+    return annual ? Math.max(base, specials) : specials > 0 ? specials : base;
   };
 }
 export function dailyScore(n: number, y: number, c: Config) {

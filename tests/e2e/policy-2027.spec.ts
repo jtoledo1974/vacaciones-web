@@ -106,6 +106,54 @@ test(
 );
 
 test(
+  '2027: baremo oficial efectivo de solo lectura y API rechaza cambios ignorados',
+  { tag: ['@both', '@smoke'] },
+  async ({ page, request }) => {
+    const { id, data } = await setup2027(request, page, false);
+    await open(page, id);
+    if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
+      await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+    await page.getByRole('button', { name: 'Administración', exact: true }).click();
+    const panel = page.locator('#campaign-config-panel');
+    await panel.locator('> summary').click();
+    await expect(panel).toContainText(`Baremo oficial de 2027 · ${data.result.scoringVersion}`);
+    await expect(panel).not.toContainText('Miércoles de Feria utiliza +18');
+    await panel.getByText('Baremo diario por tramos', { exact: true }).click();
+    const base = panel.locator('details').filter({ has: page.getByText('Baremo diario por tramos', { exact: true }) });
+    await expect(base.locator('input').first()).toBeDisabled();
+    await expect(base.locator('input').first()).toHaveValue('10');
+    const holiday = panel.getByRole('row').filter({ hasText: 'Día del Trabajo' }).getByRole('spinbutton');
+    await expect(holiday).toBeDisabled();
+    await expect(holiday).toHaveValue('8');
+    await expect(panel.getByLabel(/^Columna [1-6]$/)).toHaveCount(0);
+    await expect(panel).toContainText('El acumulado suma los seis ciclos');
+    await expect(panel.getByLabel('Ciclos por persona', { exact: true })).toBeEnabled();
+    await panel.getByText('Configuración avanzada: fechas, rotación y baremos', { exact: true }).click();
+    await expect(panel.getByLabel('Parámetros completos')).toHaveAttribute('readonly', '');
+    const edited = structuredClone(data.config);
+    edited.holidays[0].score++;
+    const response = await request.post('/api/campaign/' + id, {
+      headers: { Origin: origin },
+      data: { action: 'config', version: data.campaign.version, config: edited },
+    });
+    expect(response.status()).toBe(400);
+    expect(await response.text()).toContain('solo lectura');
+    expect((await read(request, id)).campaign.version).toBe(data.campaign.version);
+    const weighted = structuredClone(data.config);
+    weighted.weights[0] = 2;
+    const weightResponse = await request.post('/api/campaign/' + id, {
+      headers: { Origin: origin },
+      data: { action: 'config', version: data.campaign.version, config: weighted },
+    });
+    expect(weightResponse.status()).toBe(400);
+    expect(await weightResponse.text()).toContain('solo lectura');
+    const unchanged = await read(request, id);
+    expect(unchanged.campaign.version).toBe(data.campaign.version);
+    expect(unchanged.config.weights).toEqual([1, 1, 1, 1, 1, 1]);
+  },
+);
+
+test(
   '2027: el motivo de una plaza bloqueada se consulta con teclado o toque, no solo por color',
   { tag: '@both' },
   async ({ page, request }) => {

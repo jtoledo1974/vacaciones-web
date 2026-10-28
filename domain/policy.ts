@@ -1,4 +1,6 @@
 import type { Config } from './calendar.ts';
+import type { AnnualScoring } from './scoring.ts';
+import { BASE_SCORES_2027, SCORING_2027, SCORING_VERSION_2027, SCORING_WEIGHTS_2027 } from './scoring-2027.ts';
 import type { Member, Award } from './vacations.ts';
 import type {
   OccupancyRules,
@@ -34,6 +36,8 @@ import { hr2027FourthExcluded } from './hr-2027.ts';
 export type * from './occupancy.ts';
 
 export type VacationPolicy = {
+  /** Approved annual base and holiday scoring, registered alongside the year's rules. */
+  scoring?: AnnualScoring;
   /** Text displayed at activation, provided by the same policy selected on the server. */
   activationRulesName?: string;
   /** Cycles a member must take this year. */
@@ -118,6 +122,12 @@ const OCCUPANCY_2027: OccupancyRules = {
 };
 
 const LECS_2027: VacationPolicy = {
+  scoring: {
+    version: SCORING_VERSION_2027,
+    baseScores: BASE_SCORES_2027,
+    holidays: SCORING_2027,
+    weights: SCORING_WEIGHTS_2027,
+  },
   activationRulesName: 'la Guía de elección de vacaciones LECS 2027 v1.3',
   entitlement: cyclesEntitlement2027,
   occupancy: OCCUPANCY_2027,

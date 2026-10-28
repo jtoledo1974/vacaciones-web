@@ -1308,6 +1308,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         <ConfigForm
                           key={cid}
                           config={data.config}
+                          scoringVersion={data.result.scoringVersion}
                           year={year}
                           disabled={!write}
                           busy={busy}

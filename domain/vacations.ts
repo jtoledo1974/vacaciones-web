@@ -1,5 +1,6 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
+import { scoringVersion, scoringWeights } from './scoring.ts';
 import { policyFor, type VacationPolicy } from './policy.ts';
 export type Member = {
   id: string;
@@ -41,13 +42,21 @@ export function cycleTable(
   }));
 }
 
-/** Next year's election order: lowest weighted request score first, then seniority.
- * The weights come from the 2014 spreadsheet the calculation was imported from: its
- * column J weighted the first selection with I5 and the next ones with D5–H5, hence
- * `(slot + 4) % 6`. All six weights are currently 1, so the score is the plain sum of
- * cycle scores. Reopening a campaign to fix an error recalculates it on purpose.
+/** Next year's election order: lowest request score first, then seniority.
+ * Registered years use the weights of their annual authority, never arbitrary
+ * stored parameters. FINAL2 2027 fixes all six to one: a plain sum of six cycles.
+ * Legacy configurations retain the imported 2014 column mapping: the first
+ * selection used I5 and the next ones D5–H5, hence `(slot + 4) % 6`.
+ * Reopening a campaign to fix an error recalculates it on purpose.
  */
-export function nextYearOrdering(cycles: readonly CycleRow[], c: Config, members: Member[], requests: Request[]) {
+export function nextYearOrdering(
+  y: number,
+  cycles: readonly CycleRow[],
+  c: Config,
+  members: Member[],
+  requests: Request[],
+) {
+  const weights = scoringWeights(y, c.weights);
   const byDate = new Map(cycles.map((s) => [s.date, s]));
   const requestsByMember = new Map<string, Request[]>();
   for (const request of requests) {
@@ -59,7 +68,7 @@ export function nextYearOrdering(cycles: readonly CycleRow[], c: Config, members
     .map((m) => ({
       ...m,
       score: (requestsByMember.get(m.id) ?? []).reduce(
-        (s, r) => s + (byDate.get(r.cycle_date)?.score ?? 0) * c.weights[(r.slot + 4) % 6],
+        (s, r) => s + (byDate.get(r.cycle_date)?.score ?? 0) * weights[(r.slot + 4) % 6],
         0,
       ),
     }))
@@ -200,7 +209,7 @@ export function calculate(
     rules = policy.occupancy,
     campaign = { year: y, team, config: c };
   const cycles = cycleTable(y, team, c, requests, awards);
-  const ordering = nextYearOrdering(cycles, c, members, requests);
+  const ordering = nextYearOrdering(y, cycles, c, members, requests);
   const planning = planningTotals(cycles, c, members, policy);
   const byDate = new Map(cycles.map((s) => [s.date, s]));
   const totals = {
@@ -227,6 +236,7 @@ export function calculate(
     });
     return {
       engineVersion: ENGINE_VERSION,
+      scoringVersion: scoringVersion(y),
       occupancyPolicyVersion: rules.version,
       cycles: cycles.map((s, i) => {
         const { min, base, max } = review.limits[i];
@@ -244,6 +254,7 @@ export function calculate(
   const legacy = legacyReview(cycles, c, members, awards, structural, planning);
   return {
     engineVersion: ENGINE_VERSION,
+    scoringVersion: scoringVersion(y),
     cycles: legacy.cycles,
     ordering,
     issues: legacy.issues,

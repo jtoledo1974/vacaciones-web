@@ -1,5 +1,6 @@
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
+import { assertAnnualScoringConfig, effectiveScoringConfig, scoringVersion } from '../domain/scoring.ts';
 import { occupancyFor, campaignOf } from '../domain/policy.ts';
 import { captureVacations, restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
@@ -17,7 +18,9 @@ const id = () => crypto.randomUUID(),
 
 export function checkedConfig(config: Config, year: number) {
   try {
-    return validateConfig(config, year);
+    validateConfig(config, year);
+    assertAnnualScoringConfig(year, config);
+    return config;
   } catch (e: any) {
     throw new ApiError(e.message ?? 'Parámetros no válidos');
   }
@@ -335,7 +338,7 @@ async function executeCalculate(ctx: CommandContext): Promise<CommandResult> {
       ENGINE_VERSION,
       JSON.stringify({
         result,
-        config: d.config,
+        config: effectiveScoringConfig(c.year, d.config),
         members: d.members,
         requests,
         awards: d.awards,
@@ -357,6 +360,17 @@ async function executePublish(ctx: CommandContext): Promise<CommandResult> {
   if (!run || run.source_version !== c.version)
     throw new ApiError('Calcula una revisión con los datos actuales antes de publicar', 409);
   const savedResult = JSON.parse(run.result_json).result;
+  // Pre-registry legacy reviews may omit this field; annual reviews must match exactly.
+  if ((savedResult.scoringVersion ?? 'legacy-config') !== scoringVersion(c.year))
+    throw new ApiError(
+      'La revisión utiliza otra versión del baremo anual. Calcula una nueva revisión antes de publicar.',
+      409,
+    );
+  if (savedResult.engineVersion !== ENGINE_VERSION)
+    throw new ApiError(
+      'La revisión utiliza otro baremo o versión del motor. Calcula una nueva revisión antes de publicar.',
+      409,
+    );
   if (c.status === 'open')
     ops.push(
       ...syncElectionRequests(

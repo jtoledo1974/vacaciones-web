@@ -1,6 +1,7 @@
 // Frozen copy of calculate() before it was split (equivalence reference only).
 import { calendar, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { relationQuotas } from '../domain/quotas.ts';
+import { scoringVersion } from '../domain/scoring.ts';
 import { policyFor } from '../domain/policy.ts';
 import type { Member, Request, Award } from '../domain/vacations.ts';
 
@@ -162,6 +163,7 @@ export function referenceCalculate(
       : (partial?.completion.status ?? 'not-checked');
     return {
       engineVersion: ENGINE_VERSION,
+      scoringVersion: scoringVersion(y),
       occupancyPolicyVersion: rules.version,
       cycles: detailed,
       ordering,
@@ -184,6 +186,7 @@ export function referenceCalculate(
   }
   return {
     engineVersion: ENGINE_VERSION,
+    scoringVersion: scoringVersion(y),
     cycles: result,
     ordering,
     issues,

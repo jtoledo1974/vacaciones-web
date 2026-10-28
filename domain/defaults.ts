@@ -1,4 +1,5 @@
 import { officialHolidays } from './official-holidays.ts';
+import { hasAnnualScoring, scoringBaseScores, scoringHolidays, scoringWeights } from './scoring.ts';
 import type { Config, Holiday } from './calendar';
 import reference from '../tests/excel-reference.json' with { type: 'json' };
 const fixed = (label: string, month: number, day: number, score: number, nextYear = false): Holiday => ({
@@ -47,19 +48,22 @@ export function defaultConfig(y: number): Config {
     commonGrace: false,
     commonConvention: true,
     conventionJanuary: 0,
-    weights: [1, 1, 1, 1, 1, 1],
+    weights: scoringWeights(y, [1, 1, 1, 1, 1, 1]),
     relation: { minimum: 1, base: 2, maximum: 3, graceJanuary: 0, graceOctober: 0 },
-    baseScores: reference.base
-      .filter((s) => s.date >= '2026-01-01')
-      .map((s) => ({
-        month: Number(s.date.slice(5, 7)),
-        day: Number(s.date.slice(8)),
-        score: s.score,
-        nextYear: s.date.startsWith('2027'),
-      })),
+    baseScores: scoringBaseScores(
+      y,
+      reference.base
+        .filter((s) => s.date >= '2026-01-01')
+        .map((s) => ({
+          month: Number(s.date.slice(5, 7)),
+          day: Number(s.date.slice(8)),
+          score: s.score,
+          nextYear: s.date.startsWith('2027'),
+        })),
+    ),
     specialCycles: [],
     rotation: reference.rotation,
-    holidays: structuredClone(holidays),
+    holidays: scoringHolidays(y, holidays),
     calendarHolidays: officialHolidays(y),
   };
 }
@@ -72,6 +76,10 @@ export function copyConfig(c: Config, from: number, to: number): Config {
   delete n.individualEntitlements;
   // Labour holidays cannot be copied between years: local dates and transfers change.
   n.calendarHolidays = officialHolidays(to);
+  // Do not carry an approved year's fixed dates into a different exercise.
+  n.holidays = scoringHolidays(to, hasAnnualScoring(from) ? holidays : n.holidays);
+  n.baseScores = scoringBaseScores(to, hasAnnualScoring(from) ? defaultConfig(to).baseScores : n.baseScores);
+  n.weights = scoringWeights(to, n.weights);
   for (const k of ['summerStart', 'summerEnd', 'correturnos'] as const) n[k] = String(to) + n[k].slice(4);
   n.specialCycles = n.specialCycles.map((d) => String(Number(d.slice(0, 4)) - from + to) + d.slice(4));
   return n;

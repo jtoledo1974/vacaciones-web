@@ -1,4 +1,5 @@
 import type { Config } from '../domain/calendar.ts';
+import { effectiveScoringConfig } from '../domain/scoring.ts';
 import type { Award, Member, Request, calculate } from '../domain/vacations.ts';
 import type { ElectionService } from './election-service.ts';
 import type { ElectionState, Preference, roundQueue, automaticChain } from '../domain/election.ts';
@@ -99,6 +100,7 @@ export function projectAdminCampaignView(
 ): AdminCampaignView {
   return {
     ...data,
+    config: effectiveScoringConfig(data.campaign.year, data.config),
     election,
     undo: entry && entry.action !== 'undo_vacations' ? { id: entry.id, action: entry.action } : null,
     redo: entry?.action === 'undo_vacations' ? { id: entry.id } : null,

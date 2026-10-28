@@ -58,7 +58,8 @@ const configDraft = (config: any) => ({
   relation: config.relation ?? { minimum: 1, base: 2, maximum: 3, graceJanuary: 0, graceOctober: 0 },
 });
 /** Follows remote changes while the draft is clean; a dirty draft is kept and flagged. */
-export function ConfigForm({ config, year, disabled, busy, save }: any) {
+export function ConfigForm({ config, year, disabled, busy, save, scoringVersion = 'legacy-config' }: any) {
+  const officialScoring = scoringVersion !== 'legacy-config';
   const [c, setC] = useState(() => configDraft(config));
   const [base, setBase] = useState(() => configDraft(config));
   const dirty = JSON.stringify(c) !== JSON.stringify(base);
@@ -232,21 +233,14 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
         </div>
       </section>
       <section className="panel">
-        <h2>Ponderación del baremo</h2>
-        <div className="form-grid">
-          {c.weights.map((n: number, i: number) => (
-            <label key={i}>
-              Columna {i + 1}
-              <input
-                type="number"
-                min={0}
-                value={n}
-                disabled={disabled}
-                onChange={(e) => arr('weights', i, Number(e.target.value))}
-              />
-            </label>
-          ))}
-        </div>
+        <h2>Baremo de puntos</h2>
+        {officialScoring && (
+          <p className="muted" role="status">
+            Baremo oficial de {year} · {scoringVersion}. Tramos y festivos de solo lectura: estos son los valores
+            efectivos del motor, no las reglas antiguas almacenadas. El acumulado suma los seis ciclos, con todos los
+            pesos fijados a 1. Los cambios del baremo se realizan en código.
+          </p>
+        )}
         <details>
           <summary>Baremo diario por tramos</summary>
           <div className="table-wrap">
@@ -269,7 +263,7 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
                       <input
                         type="number"
                         min={0}
-                        disabled={disabled}
+                        disabled={disabled || officialScoring}
                         value={s.score}
                         onChange={(e) => {
                           const a = structuredClone(c.baseScores);
@@ -393,7 +387,9 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
       <section className="panel">
         <h2>Festivos y períodos especiales</h2>
         <p className="muted">
-          Se conservan las fechas y desplazamientos del original. Miércoles de Feria utiliza +18 días respecto a Pascua.
+          {officialScoring
+            ? `Fechas corregidas y puntuaciones oficiales de ${year} (${scoringVersion}). La puntuación diaria es el máximo entre el baremo base y el festivo, incluidos los intervalos de Semana Santa y Feria.`
+            : 'Se conservan las fechas y desplazamientos del original. Miércoles de Feria utiliza +18 días respecto a Pascua.'}
         </p>
         <div className="table-wrap">
           <table>
@@ -417,7 +413,7 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
                     <input
                       type="number"
                       min={0}
-                      disabled={disabled}
+                      disabled={disabled || officialScoring}
                       value={h.score}
                       onChange={(e) => {
                         const a = structuredClone(c.holidays);
@@ -434,8 +430,9 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
         <details>
           <summary>Configuración avanzada: fechas, rotación y baremos</summary>
           <p className="muted">
-            Exporta y conserva los parámetros antes de cambiar las reglas. La validación del servidor revisa el
-            contenido.
+            {officialScoring
+              ? 'Los parámetros exportados contienen el baremo efectivo. El JSON completo es de solo lectura; usa los controles anteriores para editar los demás parámetros. El servidor rechaza modificaciones de los tramos y festivos oficiales.'
+              : 'Exporta y conserva los parámetros antes de cambiar las reglas. La validación del servidor revisa el contenido.'}
           </p>
           <button
             type="button"
@@ -451,6 +448,7 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
             aria-label="Parámetros completos"
             rows={16}
             disabled={disabled}
+            readOnly={officialScoring}
             defaultValue={JSON.stringify(c, null, 2)}
             onBlur={(e) => {
               try {
