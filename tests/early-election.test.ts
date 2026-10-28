@@ -186,6 +186,43 @@ test('elegir por adelantado: comprobación en servidor, vista propia y turno sal
   assert.equal(view.election.turn.memberId, c.id);
 });
 
+test('solo se anuncia como anticipada mientras espera su turno, incluso en rondas posteriores', async () => {
+  const { s, person, run, cid, a, b, c, dates } = await election();
+  let view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[3] });
+  const firstId = view.election.early.choices[0].awardId;
+  assert.deepEqual(
+    view.election.early.choices.map((choice: { date: string; cancellable: boolean }) => [
+      choice.date,
+      choice.cancellable,
+    ]),
+    [[dates[3], true]],
+    'antes del turno sí se muestra el aviso de elección anticipada',
+  );
+
+  await run(s, { action: 'choose', memberId: a.id, dates: [dates[0]] });
+  view = await person.view(cid);
+  assert.equal(view.election.turn.memberId, c.id, 'el turno anticipado de B ya pasó');
+  assert.equal(view.election.early?.choices.length ?? 0, 0, 'no se vuelve a anunciar como anticipada');
+  assert.ok(
+    view.awards.some((award: { id: string; member_id: string }) => award.id === firstId && award.member_id === b.id),
+    'el ciclo confirmado sigue en Mis vacaciones',
+  );
+
+  await run(s, { action: 'choose', memberId: c.id, dates: [dates[1]] });
+  view = await person.view(cid);
+  assert.ok(view.election.early?.guaranteed.includes(dates[4]), 'B puede adelantar otro ciclo en ronda 2');
+  view = await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });
+  assert.deepEqual(
+    view.election.early.choices.map((choice: { date: string; cancellable: boolean }) => [
+      choice.date,
+      choice.cancellable,
+    ]),
+    [[dates[4], true]],
+    'solo la nueva anticipada pendiente se muestra, no la de la ronda anterior',
+  );
+  assert.ok(view.awards.some((award: { id: string }) => award.id === firstId));
+});
+
 test('la anticipada manual confirmada se reconstruye en su posición ordinaria, sin reabrir al predecesor', async () => {
   const { s, person, run, cid, repo, a, b, c, dates } = await election();
   await run(person, { action: 'early_choose', memberId: b.id, date: dates[4] });

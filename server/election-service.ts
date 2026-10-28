@@ -623,11 +623,12 @@ export class ElectionService {
             result.cycles.map((c) => c.date),
           );
       const cursor = turn?.state?.cursor ?? raw.state.cursor;
+      // Entries remain in election state after their turn for traceability.
+      // Only pending choices are still "early"; confirmed ones appear as ordinary awards.
       const choices = (raw.state.earlyChoices ?? []).flatMap((e) => {
+        if (e.memberId !== mine || e.cursor <= cursor) return [];
         const award = ctx.awards.find((a) => a.id === e.awardId);
-        return e.memberId === mine && award
-          ? [{ awardId: e.awardId, date: award.cycle_date, cancellable: e.cursor > cursor }]
-          : [];
+        return award ? [{ awardId: e.awardId, date: award.cycle_date, cancellable: true }] : [];
       });
       if (proof || choices.length)
         early = {
