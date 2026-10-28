@@ -1,6 +1,7 @@
 'use client';
 import type { ImportReview } from '../domain/import-review-types';
 import { download } from './download';
+import PersonalCalendarDownload from './personal-calendar-download';
 import { useEffect, useRef, useState } from 'react';
 import { buildInfo } from './build-info';
 import {
@@ -1097,6 +1098,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                       superuser={canManage}
                       signinUrl={signinUrl}
                     />
+                    <PersonalCalendarDownload data={data} />
                     <section className="panel">
                       <h2>Situación actual en PDF</h2>
                       <p className="muted">
