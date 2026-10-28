@@ -49,7 +49,7 @@ export function cas(campaignId: string, version: number): Statement[] {
 }
 export const tableColumns: Record<string, string[]> = {
   teams: ['id', 'name', 'version'],
-  people: ['id', 'team_id', 'code', 'label', 'position', 'seniority', 'active', 'version'],
+  people: ['id', 'team_id', 'code', 'label', 'position', 'seniority', 'active', 'version', 'controller_number'],
   users: ['id', 'provider', 'subject', 'role', 'version'],
   grants: ['id', 'user_id', 'team_id', 'expires_at'],
   campaigns: [

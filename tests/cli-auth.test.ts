@@ -255,6 +255,7 @@ test('the real drizzle migrator applies 0013 and later to a database that alread
   // Simulate production before this change: 0012 applied and recorded, later ones not.
   db.exec('DROP TABLE cli_sessions; DROP TABLE cli_attempts');
   db.exec('ALTER TABLE awards DROP COLUMN selection_index; ALTER TABLE awards DROP COLUMN selection_round');
+  db.exec('DROP INDEX person_controller_number; ALTER TABLE people DROP COLUMN controller_number');
   const hr = readMigrationFiles({ migrationsFolder: 'drizzle' }).find((m) => m.sql.join('').includes('hr_templates'))!;
   db.prepare('DELETE FROM __drizzle_migrations WHERE created_at>?').run(hr.folderMillis);
   await migrate(proxy, async (queries) => run(queries), { migrationsFolder: 'drizzle' });
@@ -262,5 +263,9 @@ test('the real drizzle migrator applies 0013 and later to a database that alread
   assert.deepEqual(tables.map((t) => t.name).sort(), ['cli_attempts', 'cli_sessions']);
   const columns = db.prepare("SELECT name FROM pragma_table_info('awards') WHERE name LIKE 'selection_%'").all();
   assert.equal(columns.length, 2);
+  assert.equal(
+    db.prepare("SELECT name FROM pragma_table_info('people') WHERE name='controller_number'").all().length,
+    1,
+  );
   db.close();
 });

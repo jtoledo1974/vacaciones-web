@@ -105,7 +105,7 @@ async function setup() {
 }
 
 test('la vista administrativa y la pública mantienen exactamente el contrato anterior', async () => {
-  const { admin, viewer, cid } = await setup();
+  const { repo, admin, viewer, cid } = await setup();
   let state = await admin.view(cid);
   const memberId = state.members[0].id,
     date = state.result.cycles[0].date;
@@ -130,6 +130,15 @@ test('la vista administrativa y la pública mantienen exactamente el contrato an
     result: legacyResult,
     runs: data.runs.map((run: any) => ({ ...run, result_json: undefined })),
     editable: true,
+    // Master dates are added beside the snapshot, read straight from people.
+    masterSeniority: Object.fromEntries(
+      (
+        await repo.all(
+          "SELECT m.id,p.seniority FROM campaign_members m JOIN people p ON p.id=m.person_id WHERE m.campaign_id=? AND p.seniority<>''",
+          [cid],
+        )
+      ).map((p) => [p.id, p.seniority]),
+    ),
   });
 
   const publicView = await viewer.view(cid);

@@ -263,7 +263,13 @@ export class Service {
     });
     if (canWrite(this.actor, d.campaign.team_id)) {
       const entry = await this.vacationUndo(cid, d.campaign.version);
-      return projectAdminCampaignView(d, election, result, entry);
+      // Master dates (ENAIRE) are shown beside the roster; the campaign snapshot stays as it is.
+      const people = await this.repo.all(
+        'SELECT m.id,p.seniority FROM campaign_members m JOIN people p ON p.id=m.person_id WHERE m.campaign_id=?',
+        [cid],
+      );
+      const masterSeniority = Object.fromEntries(people.filter((p) => p.seniority).map((p) => [p.id, p.seniority]));
+      return { ...projectAdminCampaignView(d, election, result, entry), masterSeniority };
     }
     return projectPublicCampaignView(d, cid, election, result, this.actor.preview);
   }

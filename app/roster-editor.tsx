@@ -39,6 +39,8 @@ function accountKey(row: Pick<Row, 'provider' | 'subject' | 'legacyKey'>): strin
       ? 'firebase:' + subject
       : '';
 }
+// Read-only: the master date is loaded through people/seniority with its source.
+const formatSeniority = (date?: string) => (date ? date.split('-').reverse().join('/') : '—');
 function initialRows(data: any): Row[] {
   return data.members.map((m: any) => {
     const account = data.election.accounts.find((a: any) => a.member_id === m.id);
@@ -357,6 +359,7 @@ export default function RosterEditor({
             <tr>
               <th>Nick</th>
               <th>Nombre</th>
+              <th>Antigüedad</th>
               <th>Puntos {data.campaign.year - 1}</th>
               {live && manageAccounts && (
                 <>
@@ -391,6 +394,9 @@ export default function RosterEditor({
                     disabled={locked}
                     onChange={(e) => change(i, 'label', e.target.value)}
                   />
+                </td>
+                <td data-label="Antigüedad" className="roster-seniority">
+                  {formatSeniority(r.memberId ? data.masterSeniority?.[r.memberId] : undefined)}
                 </td>
                 <td data-label={'Puntos ' + (data.campaign.year - 1)}>
                   <input
