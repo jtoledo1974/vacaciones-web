@@ -1,9 +1,11 @@
 import { test } from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { Service } from '../server/service.ts';
 import type { Repository, Statement } from '../server/repository.ts';
+import { orderAwardsBySelection } from '../domain/award-display-order.ts';
 class Repo implements Repository {
   db = new DatabaseSync(':memory:');
   constructor() {
@@ -34,6 +36,87 @@ class Repo implements Repository {
   }
 }
 const owner = { id: 'chatgpt:owner', role: 'superadmin' as const, teams: [] };
+
+test('imported cycle columns survive reversed SQL scans for admin and public readers', async () => {
+  const repo = new Repo(),
+    s = new Service(repo, owner);
+  await s.init();
+  const cid = (await s.list()).campaigns.find((c) => c.team_id === 'C' && c.year === 2026).id;
+  const before = await s.view(cid);
+  const cycles = before.result.cycles;
+  const dates = [cycles.at(-3)!.date, cycles[0].date, cycles[8].date];
+  const source = {
+    format: 'vacaciones-roster-v1',
+    team: 'C',
+    year: 2026,
+    copySelections: true,
+    selectionOrder: [
+      { round: 1, code: 'PRIMERO', date: dates[0] },
+      { round: 1, code: 'SEGUNDO', date: dates[2] },
+      { round: 2, code: 'PRIMERO', date: dates[1] },
+      { round: 2, code: 'SEGUNDO', date: dates[1] },
+      { round: 3, code: 'PRIMERO', date: dates[2] },
+    ],
+    rows: [
+      { code: 'PRIMERO', label: 'Prueba uno', seniority: '', dates },
+      { code: 'SEGUNDO', label: 'Prueba dos', seniority: '', dates: [dates[2], dates[1]] },
+    ],
+  };
+  const review = await s.mutate(cid, { action: 'preview_import_roster', version: before.campaign.version, source });
+  await importRoster(s, cid, {
+    action: 'import_roster',
+    version: before.campaign.version,
+    source,
+    reviewToken: review.reviewToken,
+    acceptViolations: true,
+  });
+  // No chronology exists for this import. Deliberately change row insertion
+  // order and reverse unordered scans, as a D1 index/restore can do in production.
+  const raw = await repo.all('SELECT * FROM awards WHERE campaign_id=?', [cid]);
+  await repo.batch([
+    {
+      sql: `INSERT INTO requests(id,campaign_id,member_id,slot,cycle_date,version)
+      SELECT 'duplicate-request',campaign_id,member_id,6,cycle_date,1
+      FROM requests WHERE campaign_id=? AND slot=1 LIMIT 1`,
+      args: [cid],
+    },
+    { sql: 'DELETE FROM awards WHERE campaign_id=?', args: [cid] },
+    ...raw.reverse().map((a) => ({
+      sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version,selection_index,selection_round) VALUES(?,?,?,?,?,?,?)',
+      args: [a.id, a.campaign_id, a.member_id, a.cycle_date, a.version, a.selection_index, a.selection_round],
+    })),
+  ]);
+  repo.db.exec('PRAGMA reverse_unordered_selects=ON');
+  for (const reader of [s, new Service(repo, { id: null, role: 'viewer', teams: [] })]) {
+    const view = await reader.view(cid);
+    const awards = orderAwardsBySelection(view.awards, view.election.timeline);
+    for (const row of source.rows) {
+      const member = view.members.find((m) => m.code === row.code)!;
+      assert.deepEqual(
+        awards.filter((a) => a.member_id === member.id).map((a) => a.cycle_date),
+        row.dates,
+      );
+    }
+    assert.deepEqual(
+      awards.filter((a) => a.cycle_date === dates[2]).map((a) => view.members.find((m) => m.id === a.member_id)!.code),
+      ['SEGUNDO', 'PRIMERO'],
+      'occupants follow the selection sequence: round 1 before round 3, regardless of roster position',
+    );
+    assert.equal(awards.length, 5, 'joins must neither duplicate nor lose awards');
+  }
+  await repo.batch([
+    { sql: 'UPDATE awards SET selection_index=NULL,selection_round=NULL WHERE campaign_id=?', args: [cid] },
+  ]);
+  const legacy = await s.view(cid);
+  assert.equal(legacy.awards.length, 5, 'duplicate restored requests do not duplicate legacy awards either');
+  for (const row of source.rows) {
+    const member = legacy.members.find((m) => m.code === row.code)!;
+    assert.deepEqual(
+      legacy.awards.filter((a) => a.member_id === member.id).map((a) => a.cycle_date),
+      row.dates,
+    );
+  }
+});
 test('retirar trabajador conserva el ejercicio anterior y no lo copia a futuros', async () => {
   const repo = new Repo(),
     s = new Service(repo, owner);
@@ -71,12 +154,20 @@ test('importación atómica conserva nombre, orden, antigüedad vacía y selecci
     team: 'C',
     year: 2026,
     copySelections: true,
+    selectionOrder: [{ round: 1, code: 'PEÑA', date }],
     rows: [
       { code: 'PEÑA', label: 'Nombre ficticio uno', seniority: '', dates: [date] },
       { code: 'DOS', label: 'Nombre ficticio dos', seniority: '', dates: [] },
     ],
   };
-  const imported = await s.mutate(cid, { action: 'import_roster', version: d.campaign.version, source });
+  const review = await s.mutate(cid, { action: 'preview_import_roster', version: d.campaign.version, source });
+  const imported = await importRoster(s, cid, {
+    action: 'import_roster',
+    version: d.campaign.version,
+    source,
+    reviewToken: review.reviewToken,
+    acceptViolations: true,
+  });
   assert.equal(imported.members.length, 2);
   assert.equal(imported.members[0].code, 'PEÑA');
   assert.equal(imported.members[0].label, 'Nombre ficticio uno');

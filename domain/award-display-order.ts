@@ -5,7 +5,8 @@
  * Timeline events arrive newest first. Undo, redo and reconstruction are
  * already reflected in that effective timeline. Untraced imports/manual
  * awards cannot be dated reliably: keep their incoming order before the
- * traced choices instead of inventing their history.
+ * traced choices instead of inventing their history. The campaign loader
+ * orders imported awards by persisted request slot and roster position.
  */
 export type AwardReference = { member_id: string; cycle_date: string };
 export type ChoiceTimelineEvent = { kind: string; choices: AwardReference[]; selectionCursor?: number };

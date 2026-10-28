@@ -25,7 +25,8 @@ async function fixture(api: APIRequestContext, page: Page) {
     version: baseline.campaign.version,
   });
   let data = await read(api, clone.id);
-  data = await post(api, 'campaign/' + clone.id, {
+  // Every import is previewed first; its token confirms exactly that report.
+  const roster = {
     action: 'import_roster',
     version: data.campaign.version,
     source: {
@@ -35,7 +36,9 @@ async function fixture(api: APIRequestContext, page: Page) {
       copySelections: false,
       rows: ['QA_A', 'QA_B', 'QA_C', 'QA_D'].map((code) => ({ code, label: 'Ficticio ' + code, seniority: '' })),
     },
-  });
+  };
+  const review = await post(api, 'campaign/' + clone.id, { ...roster, action: 'preview_import_roster' });
+  data = await post(api, 'campaign/' + clone.id, { ...roster, reviewToken: review.reviewToken });
   data = await post(api, 'campaign/' + clone.id, {
     action: 'config',
     version: data.campaign.version,

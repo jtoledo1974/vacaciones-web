@@ -21,6 +21,9 @@
 //   --backup-dir dir   carpeta de la copia previa (por defecto ./admin-backups)
 //   --no-backup        no guarda copia antes de escribir
 //   --out fichero      guarda la respuesta en un fichero
+//   --review-token hash   confirma una previsualización de importación anterior
+//   --accept-violations   acepta explícitamente las incidencias de progresión revisadas
+// Una importación sin --review-token solo devuelve el informe; no escribe.
 //
 // Código de salida 2: el post se aplicó pero no se pudo guardar --out.
 // Código de salida 3: se perdió la respuesta del post; puede haberse aplicado.
@@ -29,6 +32,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { validateImportOrder } from '../domain/import-order.mjs';
 import { spawn } from 'node:child_process';
 import { cliHash, CLI_TOKEN_HEADER } from '../lib/cli-protocol.mjs';
 
@@ -87,8 +91,9 @@ function parseArgs(argv) {
   const flags = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (['--dry-run', '--no-backup', '--browser', '--no-open'].includes(a)) flags[a.slice(2)] = true;
-    else if (a === '--out' || a === '--backup-dir') {
+    if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations'].includes(a))
+      flags[a.slice(2)] = true;
+    else if (a === '--out' || a === '--backup-dir' || a === '--review-token') {
       if (i + 1 >= argv.length) fail('Falta el valor de ' + a);
       flags[a.slice(2)] = argv[++i];
     } else if (a.startsWith('--')) fail('Opción desconocida: ' + a);
@@ -279,6 +284,19 @@ async function main() {
         .replace(/^#!.*\n/, ''),
     );
 
+  const importing = method === 'POST' && ['import_roster', 'preview_import_roster'].includes(body?.action);
+  if (importing) {
+    validateImportOrder(body.source ?? {});
+    if (body.action === 'import_roster') {
+      body.reviewToken = flags['review-token'] ?? body.reviewToken;
+      if (flags['accept-violations']) body.acceptViolations = true;
+      if (!body.reviewToken) {
+        if (flags['accept-violations'])
+          console.error('Aviso: --accept-violations se ignora sin --review-token; solo se previsualiza.');
+        body = { ...body, action: 'preview_import_roster' };
+      }
+    }
+  }
   if (method === 'POST' && flags['dry-run']) {
     emit({ method, route: '/api/' + route, body });
     return;
@@ -293,14 +311,12 @@ async function main() {
   process.on('SIGTERM', onSignal);
   try {
     // Inside try: a cookie issued before a failed role check is still revoked.
+    const writes = method === 'POST' && body?.action !== 'preview_import_roster' && !flags['no-backup'];
     if (flags.browser || !VACACIONES_ADMIN_USER)
-      await client.loginBrowser(
-        flags['no-open'],
-        await client.operation(method, route, body, method === 'POST' && !flags['no-backup']),
-      );
+      await client.loginBrowser(flags['no-open'], await client.operation(method, route, body, writes));
     else await client.login(VACACIONES_ADMIN_USER, VACACIONES_ADMIN_PASSWORD);
     checkCancelled();
-    if (method === 'POST' && !flags['no-backup']) {
+    if (writes) {
       const backup = await client.request('GET', 'backup');
       if (!backup.ok) fail('No se pudo obtener la copia previa (' + backup.status + '); no se escribe nada');
       if (!validBackup(backup.data))
@@ -330,7 +346,7 @@ async function main() {
       console.error('Error ' + r.status + ': ' + (r.data?.error ?? JSON.stringify(r.data)));
       return;
     }
-    if (method !== 'POST') return emit(r.data, flags.out);
+    if (method !== 'POST' || body?.action === 'preview_import_roster') return emit(r.data, flags.out);
     try {
       emit(r.data, flags.out);
     } catch (e) {

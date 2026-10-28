@@ -130,6 +130,53 @@ function cli(origin: string, args: string[], input = '{}', interruptWhen?: RegEx
 
 const scratch = () => mkdtempSync(path.join(tmpdir(), 'admin-cli-'));
 
+test('CLI rejects an import without explicit order before login, including dry-run', async () => {
+  await withServer({}, async (origin, calls) => {
+    const input = JSON.stringify({
+      action: 'import_roster',
+      source: { rows: [{ code: 'AA', dates: ['2027-01-03'] }] },
+    });
+    for (const extra of [[], ['--dry-run']]) {
+      const r = await cli(origin, ['post', 'campaign/x', '-', ...extra], input);
+      assert.equal(r.code, 1);
+      assert.match(r.stderr, /selectionOrder/);
+    }
+    assert.deepEqual(calls, []);
+  });
+});
+
+test('CLI turns an unconfirmed ordered import into a preview, never a write', async () => {
+  const source = {
+    rows: [{ code: 'AA', dates: ['2027-01-03'] }],
+    selectionOrder: [{ round: 1, code: 'AA', date: '2027-01-03' }],
+  };
+  const r = await cli(
+    'http://127.0.0.1',
+    ['post', 'campaign/x', '-', '--dry-run'],
+    JSON.stringify({ action: 'import_roster', source }),
+  );
+  assert.equal(r.code, 0);
+  assert.equal(JSON.parse(r.stdout).body.action, 'preview_import_roster');
+  const confirmed = await cli(
+    'http://127.0.0.1',
+    ['post', 'campaign/x', '-', '--dry-run', '--review-token', 'reviewed', '--accept-violations'],
+    JSON.stringify({ action: 'import_roster', source }),
+  );
+  assert.equal(confirmed.code, 0);
+  assert.equal(JSON.parse(confirmed.stdout).body.reviewToken, 'reviewed');
+  assert.equal(JSON.parse(confirmed.stdout).body.acceptViolations, true);
+  await withServer({}, async (origin, calls) => {
+    const preview = await cli(origin, ['post', 'campaign/x', '-'], JSON.stringify({ action: 'import_roster', source }));
+    assert.equal(preview.code, 0);
+    assert.deepEqual(calls, [
+      'POST /api/local-admin/login',
+      'GET /api/session',
+      'POST /api/campaign/x',
+      'POST /api/local-admin/logout',
+    ]);
+  });
+});
+
 test('browser authorization pairs by code, declares its operation, executes and revokes', async () => {
   await withServer({ browser: true, joins: ['waiting', 'joined', 'approved'] }, async (origin, calls, bodies) => {
     const dir = scratch();

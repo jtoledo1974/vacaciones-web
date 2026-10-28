@@ -20,6 +20,7 @@ test('tabla de comandos: acciones de administración conocidas y nada heredado d
     'delete_request',
     'import_roster',
     'member',
+    'preview_import_roster',
     'publish',
     'redo_vacations',
     'reopen',
@@ -147,7 +148,14 @@ test('efecto sobre la elección y copia para deshacer declarados por comando', (
     .filter(([, command]) => command.election === 'keep')
     .map(([action]) => action);
   // Undo/redo restore the saved election inside execute; the pipeline must keep it.
-  assert.deepEqual(keeps.sort(), ['calculate', 'publish', 'redo_vacations', 'reopen', 'undo_vacations']);
+  assert.deepEqual(keeps.sort(), [
+    'calculate',
+    'preview_import_roster',
+    'publish',
+    'redo_vacations',
+    'reopen',
+    'undo_vacations',
+  ]);
   const undoable = Object.entries(COMMANDS)
     .filter(([, command]) => command.vacationsUndo)
     .map(([action]) => action);

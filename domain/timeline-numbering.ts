@@ -5,7 +5,7 @@ export function numberTimelineCycles(events: ElectionTimelineItem[]) {
   const rounds = new Map<number, number>();
   const numbers = new Map<string, number[]>();
   for (const event of [...events].reverse()) {
-    if (event.round === null || event.kind !== 'choice') continue;
+    if (event.round === null || (event.kind !== 'choice' && event.kind !== 'legacy')) continue;
     const start = rounds.get(event.round) ?? 0;
     numbers.set(
       event.id,

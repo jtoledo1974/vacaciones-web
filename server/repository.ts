@@ -68,7 +68,7 @@ export const tableColumns: Record<string, string[]> = {
   campaign_members: ['id', 'campaign_id', 'person_id', 'code', 'label', 'position', 'seniority', 'version'],
   requests: ['id', 'campaign_id', 'member_id', 'slot', 'cycle_date', 'version'],
   runs: ['id', 'campaign_id', 'source_version', 'engine_version', 'result_json', 'created_by', 'created_at'],
-  awards: ['id', 'campaign_id', 'member_id', 'cycle_date', 'version'],
+  awards: ['id', 'campaign_id', 'member_id', 'cycle_date', 'version', 'selection_index', 'selection_round'],
   audit: ['id', 'actor', 'action', 'team_id', 'campaign_id', 'before_json', 'after_json', 'created_at'],
 };
 

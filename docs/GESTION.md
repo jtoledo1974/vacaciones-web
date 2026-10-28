@@ -5,11 +5,13 @@ La vista **Vacaciones** sustituye las páginas separadas de solicitudes y asigna
 
 ## Mesa de elección y dispositivos móviles
 
+Las importaciones con selecciones exigen un orden explícito y una revisión antes de guardar, tanto desde la pantalla como desde el CLI. Consulta el [contrato de importación ordenada](IMPORTACION-ORDENADA.md).
+
 La pantalla de elección tiene tres vistas que comparten los mismos ciclos y cupos:
 
 - **Mapa:** año completo, ciclos agrupados por mes de comienzo; color según plazas libres (0, 1, 2, 3 o 4+) y códigos abreviados de ocupantes.
 - **Calendario:** días de cada mes, puntos en el detalle del ciclo y relación de códigos que ya eligieron; en móvil se navega mes a mes.
-- **Por CTA:** seis columnas de ciclos adjudicados por CTA, con fichas desplegables en móvil. Dos selectores independientes ordenan los CTA por petición (predeterminado) o puntos acumulados ascendentes, y los ciclos cronológicamente (predeterminado) o según el historial efectivo de adjudicaciones. Las adjudicaciones importadas sin historial mantienen su orden de entrada.
+- **Por CTA:** seis columnas de ciclos adjudicados por CTA, con fichas desplegables en móvil. Dos selectores independientes ordenan los CTA por petición (predeterminado) o puntos acumulados ascendentes, y los ciclos por petición (predeterminado) o cronológicamente. Las elecciones siguen su historial efectivo; las nuevas importaciones conservan su secuencia explícita. Los registros antiguos sin secuencia usan como respaldo la columna original y la posición del CTA. Dentro de un ciclo, quien lo pidió en la ronda 1 precede a quien lo pidió en la ronda 3, aunque su posición en plantilla sea posterior.
 
 El borde dorado identifica los ciclos de verano según las fechas de la configuración anual. El borde es visual; cambiar las fechas configuradas sí afecta al cálculo de cupos adicionales por período, sin cambiar la prioridad de las personas. Los colores interiores solo indican disponibilidad. Si un ciclo cruza meses, la ocupación también puede aparecer en el detalle del mes al que se extiende.
 

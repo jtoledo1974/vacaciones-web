@@ -1,4 +1,5 @@
 'use client';
+import type { ImportReview } from '../domain/import-review-types';
 
 import { useEffect, useRef, useState } from 'react';
 import { Ellipsis } from 'lucide-react';
@@ -81,6 +82,7 @@ export default function RosterEditor({
   busy,
   save,
   importRoster,
+  previewImportRoster,
   retire,
   transfer,
   teams,
@@ -568,17 +570,44 @@ export default function RosterEditor({
                       throw new Error('Usa el archivo de plantilla exportado del Excel');
                     if (source.team !== data.campaign.team_id || source.year !== data.campaign.year)
                       throw new Error('El archivo corresponde a otro equipo o ejercicio');
+                    const review: ImportReview = await previewImportRoster(source);
+                    if (review.blockingIssues.length) throw new Error(review.blockingIssues.join('; '));
+                    const details = review.findings.length
+                      ? '\nIncidencias detectadas (puedes cancelar):\n' +
+                        review.findings
+                          .map(
+                            (f) =>
+                              `Paso ${f.step}, ronda ${f.round}, ${f.code}, ${f.deferred ? 'aplaza' : f.date}: ${f.message}`,
+                          )
+                          .join('\n')
+                      : '\nLa comprobación paso a paso no ha detectado incidencias.';
+                    const sequence =
+                      '\nOrden que se registrará:\n' +
+                      review.sequence
+                        .map((s, i) => `${i + 1}. R${s.round} ${s.code}: ${s.deferred ? 'aplaza' : s.date}`)
+                        .join('\n');
                     if (
                       !(await confirm(
-                        '¿Importar ' +
-                          source.rows.length +
-                          ' controladores del equipo ' +
-                          source.team +
-                          ' con sus selecciones originales? Sustituirá la plantilla y el borrador de esta campaña. Los históricos publicados se conservan.',
+                        <span
+                          style={{ display: 'block', maxHeight: '50vh', overflowY: 'auto', whiteSpace: 'pre-wrap' }}
+                        >
+                          {'¿Importar ' +
+                            source.rows.length +
+                            ' controladores del equipo ' +
+                            source.team +
+                            ' con sus selecciones originales? Sustituirá la plantilla y el borrador de esta campaña. Los históricos publicados se conservan.' +
+                            details +
+                            sequence}
+                        </span>,
+                        review.findings.length ? `${source.team}-${source.year}` : undefined,
+                        {
+                          title: 'Revisar importación',
+                          confirmLabel: review.findings.length ? 'Aceptar incidencias e importar' : 'Importar',
+                        },
                       ))
                     )
                       return;
-                    await importRoster(source);
+                    await importRoster(source, review);
                     setError('');
                   } catch (err: any) {
                     setError(err.message);

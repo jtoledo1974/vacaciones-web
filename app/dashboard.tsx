@@ -1,4 +1,5 @@
 'use client';
+import type { ImportReview } from '../domain/import-review-types';
 import { download } from './download';
 import { useEffect, useRef, useState } from 'react';
 import { buildInfo } from './build-info';
@@ -1235,8 +1236,23 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         )
                       }
                       save={saveRoster}
-                      importRoster={(source: any) =>
-                        mutate({ action: 'import_roster', source }, 'Plantilla y selecciones originales importadas')
+                      previewImportRoster={(source: unknown) =>
+                        api('campaign/' + cid, {
+                          action: 'preview_import_roster',
+                          source,
+                          version: data.campaign.version,
+                        })
+                      }
+                      importRoster={(source: unknown, review: ImportReview) =>
+                        mutate(
+                          {
+                            action: 'import_roster',
+                            source,
+                            reviewToken: review.reviewToken,
+                            acceptViolations: review.findings.length > 0,
+                          },
+                          'Plantilla y selecciones originales importadas',
+                        )
                       }
                     />
                     <section className="panel">

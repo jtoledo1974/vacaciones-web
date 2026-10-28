@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
@@ -18,7 +19,7 @@ test('existing 2027 campaign and simulation use the same policy without losing s
   );
   const cid = d.campaign.id;
   const codes = Array.from({ length: 20 }, (_, i) => 'P' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -188,7 +189,7 @@ test('2027 administrative roster edits cannot strand existing awards; denial is 
   const cid = (await service.list()).campaigns.find((c: any) => c.year === 2027 && c.team_id === 'A').id;
   let d = await service.view(cid);
   const roster = Array.from({ length: 20 }, (_, i) => 'CTA' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -229,7 +230,7 @@ test('2027 administrative undo and redo restore saved awards without any expensi
   const cid = (await service.list()).campaigns.find((c: any) => c.year === 2027 && c.team_id === 'A').id;
   let d = await service.view(cid);
   const codes = Array.from({ length: 20 }, (_, i) => 'UNDO' + i);
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -275,7 +276,7 @@ test('2027 guided reconstruction previews and replays a joint award through the 
   const cid = (await service.list()).campaigns.find((c: any) => c.year === 2027 && c.team_id === 'A').id;
   let d = await service.view(cid);
   const codes = Array.from({ length: 20 }, (_, i) => 'J' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -376,7 +377,7 @@ test('2027 publication refuses unreviewed allowed warnings and retains the revie
   const cid = (await service.list()).campaigns.find((c: any) => c.year === 2027 && c.team_id === 'A').id;
   let d = await service.view(cid);
   const codes = Array.from({ length: 20 }, (_, i) => 'V' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -455,7 +456,7 @@ test('2027 automatic preference transient responses skip solver table but final/
   const cid = (await service.list()).campaigns.find((c: any) => c.year === 2027 && c.team_id === 'A').id;
   let d = await service.view(cid);
   const codes = Array.from({ length: 20 }, (_, i) => 'FAST' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -514,7 +515,7 @@ test('2027 joint turn of three, each recovering two deferrals, previews and comm
   );
   const cid = d.campaign.id,
     codes = Array.from({ length: 20 }, (_, i) => 'P' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -589,7 +590,7 @@ test('renombrar un nick con la elección 2027 activa traslada su excepción de R
   );
   const cid = d.campaign.id,
     codes = Array.from({ length: 20 }, (_, i) => 'P' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {

@@ -183,7 +183,7 @@ export default function CycleCalendar({
   }
   const [activeMonth, setActiveMonth] = useState(0);
   const [memberOrder, setMemberOrder] = useState<MemberOrder>('request');
-  const [cycleOrder, setCycleOrder] = useState<CycleOrder>('chronological');
+  const [cycleOrder, setCycleOrder] = useState<CycleOrder>('request');
   const byDate = useMemo(() => new Map(cycles.map((c) => [c.date, c])), [cycles]);
   const byId = useMemo(() => new Map(members.map((m) => [m.id, m.code])), [members]);
   const holders = useMemo(() => {

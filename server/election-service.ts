@@ -442,6 +442,8 @@ export class ElectionService {
       hidden?: Set<string>;
       /** Lists a waiting early choice consumed, shown as they were (unconsumed). */
       consumed?: Map<string, string>;
+      /** The stored campaign when `d` is concealed: automatic steps are decided on it. */
+      unconcealed?: Parameters<typeof context>[0];
     } = {},
   ) {
     const cid = d.campaign.id,
@@ -474,14 +476,26 @@ export class ElectionService {
     // preferences BEFORE starting the table-wide global availability searches.
     // The intermediate POST response is not rendered: the client immediately
     // sends the next advance request. Normal GET and final POST stay complete.
+    // Decided on the stored data, as `advance` is: concealed early choices would
+    // otherwise look still pending and make the client advance forever.
+    const realCtx = options.unconcealed ? context(options.unconcealed) : ctx;
+    let realTurn: ReturnType<typeof currentTurn> | null = turn;
+    if (options.unconcealed && stored.state) {
+      try {
+        realTurn = currentTurn(realCtx, stored.state);
+      } catch {
+        realTurn = null;
+      }
+    }
+    const realState = options.unconcealed ? stored.state : raw.state;
     const pendingAutomatic =
       !options.restored &&
       !reconstruction.active &&
       !!(
-        raw.state &&
-        turn &&
-        (preferredChoice(ctx, turn.state, raw.preferences, Date.now()) ||
-          pendingEarlyListChoice(ctx, raw.state, raw.preferences))
+        realState &&
+        realTurn &&
+        (preferredChoice(realCtx, realTurn.state, raw.preferences, Date.now()) ||
+          pendingEarlyListChoice(realCtx, realState, raw.preferences))
       );
     const skipFullAvailability = !!options.skipAvailabilityForPendingAutomatic && pendingAutomatic;
     // A single source of truth per snapshot. Previous code evaluated rejected

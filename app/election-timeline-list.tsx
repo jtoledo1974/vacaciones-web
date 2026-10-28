@@ -155,7 +155,11 @@ export default function ElectionTimelineList({
                       );
                     })}
                     {event.kind === 'legacy' && (
-                      <p className="election-log-note">Adjudicación importada o anterior al registro de turnos.</p>
+                      <p className="election-log-note">
+                        {event.round != null
+                          ? 'Adjudicación importada con ronda y orden explícitos.'
+                          : 'Adjudicación importada o anterior al registro de turnos.'}
+                      </p>
                     )}
                     {event.automatic && (
                       <p className="election-log-note election-log-automatic">

@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service, advanceExpiredTurns, WAIT_EXPIRY_ACTOR } from '../server/service.ts';
 import { notificationText, waitDeadline } from '../server/notifications.ts';
@@ -12,7 +13,7 @@ async function setup() {
   await s.init();
   const cid = (await s.list()).campaigns.find((c: any) => c.team_id === 'C').id;
   let d = await s.view(cid);
-  d = await s.mutate(cid, {
+  d = await importRoster(s, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {

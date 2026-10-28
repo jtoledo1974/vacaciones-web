@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import {
@@ -360,7 +361,7 @@ test('integración: anónimo, titular y responsable conservan visibilidad de pre
   allowlisted(empty.election, viewShape);
   assert.equal(empty.election.state, null);
   let current = await admin.view(cid);
-  current = await admin.mutate(cid, {
+  current = await importRoster(admin, cid, {
     action: 'import_roster',
     version: current.campaign.version,
     source: {

@@ -16,6 +16,8 @@ export type Award = {
   id: string;
   member_id: string;
   cycle_date: string;
+  selection_index?: number | null;
+  selection_round?: number | null;
 };
 type CycleRow = ReturnType<typeof calendar>[number] & { occupied: number; requested: number };
 

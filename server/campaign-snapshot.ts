@@ -23,10 +23,25 @@ import {
 } from '../domain/events.ts';
 import { insertRows, type Statement } from './repository.ts';
 
-export const AWARD_COLUMNS = ['id', 'campaign_id', 'member_id', 'cycle_date', 'version'];
+export const AWARD_COLUMNS = [
+  'id',
+  'campaign_id',
+  'member_id',
+  'cycle_date',
+  'version',
+  'selection_index',
+  'selection_round',
+];
 export const REQUEST_COLUMNS = ['id', 'campaign_id', 'member_id', 'slot', 'cycle_date', 'version'];
 
-type AwardRow = { id: string; member_id: string; cycle_date: string; version: number };
+type AwardRow = {
+  id: string;
+  member_id: string;
+  cycle_date: string;
+  version: number;
+  selection_index?: number | null;
+  selection_round?: number | null;
+};
 type RequestRow = AwardRow & { slot: number };
 type StoredSnapshot = {
   format?: string;
@@ -78,7 +93,18 @@ export function captureVacations(
 const isText = (v: unknown) => typeof v === 'string' && v !== '';
 const isAward = (value: unknown): value is AwardRow => {
   const a = value as AwardRow | null;
-  return !!a && isText(a.id) && isText(a.member_id) && isText(a.cycle_date) && Number.isInteger(a.version);
+  return (
+    !!a &&
+    isText(a.id) &&
+    isText(a.member_id) &&
+    isText(a.cycle_date) &&
+    Number.isInteger(a.version) &&
+    ((a.selection_index == null && a.selection_round == null) ||
+      (Number.isSafeInteger(a.selection_index) &&
+        a.selection_index! > 0 &&
+        Number.isSafeInteger(a.selection_round) &&
+        a.selection_round! > 0))
+  );
 };
 const isRequest = (r: unknown): r is RequestRow => isAward(r) && Number.isInteger((r as RequestRow).slot);
 const isPreference = (value: unknown): value is Preference => {
@@ -146,7 +172,15 @@ export function restoreStatements(cid: string, s: CampaignSnapshot): Statement[]
       ...insertRows(
         'awards',
         AWARD_COLUMNS,
-        s.awards.map((a) => [a.id, cid, a.member_id, a.cycle_date, a.version]),
+        s.awards.map((a) => [
+          a.id,
+          cid,
+          a.member_id,
+          a.cycle_date,
+          a.version,
+          a.selection_index ?? null,
+          a.selection_round ?? null,
+        ]),
       ),
     );
   if (s.requests)

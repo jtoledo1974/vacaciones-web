@@ -201,7 +201,22 @@ export class Service {
       { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] },
       { sql: 'SELECT * FROM campaign_members WHERE campaign_id=? ORDER BY position,code', args: [cid] },
       { sql: 'SELECT * FROM requests WHERE campaign_id=? ORDER BY slot', args: [cid] },
-      { sql: 'SELECT * FROM awards WHERE campaign_id=?', args: [cid] },
+      // Explicit imports carry their global sequence. Legacy grids fall back to
+      // request column then roster position (earlier round wins within a cycle).
+      // MIN(slot) prevents corrupt/legacy duplicate requests multiplying awards.
+      {
+        sql: `SELECT a.* FROM awards a
+          LEFT JOIN (
+            SELECT campaign_id, member_id, cycle_date, MIN(slot) AS slot
+            FROM requests WHERE campaign_id=? GROUP BY campaign_id, member_id, cycle_date
+          ) r ON r.campaign_id=a.campaign_id
+            AND r.member_id=a.member_id AND r.cycle_date=a.cycle_date
+          LEFT JOIN campaign_members m ON m.campaign_id=a.campaign_id AND m.id=a.member_id
+          WHERE a.campaign_id=?
+          ORDER BY a.selection_index IS NULL, a.selection_index,
+            r.slot IS NULL, r.slot, m.position, m.code, a.cycle_date, a.id`,
+        args: [cid, cid],
+      },
       { sql: 'SELECT * FROM runs WHERE campaign_id=? ORDER BY created_at DESC LIMIT 20', args: [cid] },
     ]);
     const campaign = rows[0].results[0];
@@ -241,6 +256,7 @@ export class Service {
       recordedAvailability: concealing ? null : recovery.recordedAvailability,
       ...options,
       ...(state !== undefined ? { state, hidden, consumed } : {}),
+      ...(concealing ? { unconcealed: loaded } : {}),
       auditContext,
     });
     if (canWrite(this.actor, d.campaign.team_id)) {
@@ -412,7 +428,8 @@ export class Service {
     return this.list();
   }
   async mutate(cid: string, body: any) {
-    await runCommand(this, this.repo, cid, body);
+    const review = await runCommand(this, this.repo, cid, body);
+    if (body.action === 'preview_import_roster') return review;
     return this.view(cid);
   }
   async configureUser(body: any) {

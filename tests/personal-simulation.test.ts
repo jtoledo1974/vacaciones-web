@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
@@ -25,7 +26,7 @@ async function setup() {
   ).id;
   let d = await s.view(cid);
   const codes = Array.from({ length: 20 }, (_, i) => 'P' + String(i + 1).padStart(2, '0'));
-  d = await s.mutate(cid, {
+  d = await importRoster(s, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {

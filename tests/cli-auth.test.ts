@@ -253,7 +253,7 @@ test('backups never export delegated sessions or attempts', async () => {
   repo.db.close();
 });
 
-test('the real drizzle migrator applies 0013 to a database that already recorded 0012', async () => {
+test('the real drizzle migrator applies 0013 and later to a database that already recorded 0012', async () => {
   const db = new DatabaseSync(':memory:');
   const proxy = drizzle(async (sql, params, method) => {
     const query = db.prepare(sql);
@@ -266,12 +266,15 @@ test('the real drizzle migrator applies 0013 to a database that already recorded
     return Promise.resolve();
   };
   await migrate(proxy, async (queries) => run(queries), { migrationsFolder: 'drizzle' });
-  // Simulate production before this change: 0012 applied and recorded, 0013 not.
+  // Simulate production before this change: 0012 applied and recorded, later ones not.
   db.exec('DROP TABLE cli_sessions; DROP TABLE cli_attempts');
-  const cli = readMigrationFiles({ migrationsFolder: 'drizzle' }).find((m) => m.sql.join('').includes('cli_sessions'))!;
-  db.prepare('DELETE FROM __drizzle_migrations WHERE created_at=?').run(cli.folderMillis);
+  db.exec('ALTER TABLE awards DROP COLUMN selection_index; ALTER TABLE awards DROP COLUMN selection_round');
+  const hr = readMigrationFiles({ migrationsFolder: 'drizzle' }).find((m) => m.sql.join('').includes('hr_templates'))!;
+  db.prepare('DELETE FROM __drizzle_migrations WHERE created_at>?').run(hr.folderMillis);
   await migrate(proxy, async (queries) => run(queries), { migrationsFolder: 'drizzle' });
   const tables = db.prepare("SELECT name FROM sqlite_master WHERE name LIKE 'cli_%' AND type='table'").all();
   assert.deepEqual(tables.map((t) => t.name).sort(), ['cli_attempts', 'cli_sessions']);
+  const columns = db.prepare("SELECT name FROM pragma_table_info('awards') WHERE name LIKE 'selection_%'").all();
+  assert.equal(columns.length, 2);
   db.close();
 });

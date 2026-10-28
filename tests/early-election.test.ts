@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { defaultConfig } from '../domain/defaults.ts';
 import { cycleTable } from '../domain/vacations.ts';
@@ -123,7 +124,7 @@ async function election(order = 3) {
   const cid = (await s.list()).campaigns.find((c) => c.team_id === 'C').id;
   let d = await s.view(cid);
   const rows = ['AA', 'BB', 'CC'].slice(0, order).map((code) => ({ code, label: code, seniority: '' }));
-  d = await s.mutate(cid, {
+  d = await importRoster(s, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: { format: 'vacaciones-roster-v1', team: 'C', year: 2026, copySelections: false, rows },
@@ -615,7 +616,7 @@ test('la disponibilidad, las opciones y el impacto tampoco revelan la anticipada
   const cid = (await s.list()).campaigns.find((c) => c.year === 2027 && c.team_id === 'A').id;
   let d = await s.view(cid);
   const codes = Array.from({ length: 20 }, (_, i) => 'P' + String(i + 1).padStart(2, '0'));
-  d = await s.mutate(cid, {
+  d = await importRoster(s, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {

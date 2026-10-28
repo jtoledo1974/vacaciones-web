@@ -10,6 +10,7 @@ import { validateRoster, rowStatements } from './roster.ts';
 import { electionStateStatement } from './election-service.ts';
 import { requireWrite, type Principal } from './permissions.ts';
 import type { Service } from './service.ts';
+import { reviewImport } from './import-review.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
 
@@ -432,6 +433,22 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
   } catch (e: any) {
     throw new ApiError(e.message);
   }
+  let review;
+  try {
+    review = await reviewImport(source, rows, importedConfig, c.version);
+  } catch (e) {
+    throw new ApiError(e instanceof Error ? e.message : String(e));
+  }
+  if (body.action === 'preview_import_roster') return { before: null, after: review };
+  if (review.blockingIssues.length) throw new ApiError('Revisa la plantilla: ' + review.blockingIssues.join('; '));
+  // Even an empty template replaces the roster and erases requests and awards.
+  if (body.reviewToken !== review.reviewToken)
+    throw new ApiError('Previsualiza la importación y confirma su reviewToken antes de guardar', 409);
+  if (review.findings.length && body.acceptViolations !== true)
+    throw new ApiError(
+      'La progresión contiene incidencias: revisa el informe y confirma explícitamente o cancela',
+      409,
+    );
   if (grantsIndividualEntitlements(c.year)) {
     const rosterCodes = new Set(rows.map((r) => r.code));
     for (const code of Object.keys(importedConfig.individualEntitlements ?? {}))
@@ -446,7 +463,15 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
   );
   // The original selection grid drives both the request and the vacation relation.
   const importedAwards = source.copySelections
-    ? selections.map((r) => ({ id: id(), member_id: r.member_id, cycle_date: r.cycle_date }))
+    ? review.sequence
+        .filter((step) => !step.deferred)
+        .map((step, index) => ({
+          id: id(),
+          member_id: imported.find((m) => m.code === step.code)!.id,
+          cycle_date: step.date!,
+          selection_index: index + 1,
+          selection_round: step.round,
+        }))
     : [];
   const check = calculate(c.year, c.team_id, importedConfig, imported, selections, importedAwards);
   if (check.issues.length) throw new ApiError('Revisa la plantilla: ' + check.issues.join('; '));
@@ -475,8 +500,8 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
     });
   for (const a of importedAwards)
     ops.push({
-      sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
-      args: [a.id, cid, a.member_id, a.cycle_date],
+      sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version,selection_index,selection_round) VALUES(?,?,?,?,1,?,?)',
+      args: [a.id, cid, a.member_id, a.cycle_date, a.selection_index, a.selection_round],
     });
   ops.push({ sql: "UPDATE campaigns SET data_kind='imported' WHERE id=?", args: [cid] });
   if (source.config)
@@ -491,6 +516,8 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
     selections: selections.length,
     awards: importedAwards.length,
     configurationImported: !!source.config,
+    importReview: review,
+    acceptedViolations: review.findings.length > 0 && body.acceptViolations === true,
   };
   return { before, after };
 }
@@ -755,6 +782,7 @@ export const COMMANDS: Record<string, Command> = {
     execute: executeCloseClose('reopen'),
   },
   import_roster: { preconditions: editing, election: 'reset', execute: executeImportRoster },
+  preview_import_roster: { preconditions: editing, election: 'keep', execute: executeImportRoster },
   bulk_members: {
     preconditions: {
       ...editing,
@@ -819,6 +847,7 @@ export async function runCommand(service: Service, repo: Repository, cid: string
     ops: cas(cid, body.version),
   };
   let { before, after } = await command.execute(ctx);
+  if (action === 'preview_import_roster') return after;
   if (command.vacationsUndo) {
     before = captureVacations(d, election);
     after = { ...after, version: c.version + 1 };

@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
@@ -199,7 +200,7 @@ test('team administrator reset removes linked preferences but roster import resp
     rows: [{ code: 'B_TEST', label: 'Ficticio', seniority: '' }],
   };
   await assert.rejects(
-    team.mutate(live.id, { action: 'import_roster', version: d.campaign.version, source: roster }),
+    importRoster(team, live.id, { action: 'import_roster', version: d.campaign.version, source: roster }),
     /preferencias privadas/,
   );
   assert.equal((await global.view(live.id)).members.length, d.members.length);

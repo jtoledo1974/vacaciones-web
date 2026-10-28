@@ -298,7 +298,8 @@ async function setup(api: APIRequestContext, page: Page) {
     version: baseline.campaign.version,
   });
   let d = await read(api, clone.id);
-  d = await post(api, 'campaign/' + clone.id, {
+  // Every import is previewed first; its token confirms exactly that report.
+  const roster = {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -308,7 +309,9 @@ async function setup(api: APIRequestContext, page: Page) {
       copySelections: false,
       rows: ['QA_A', 'QA_B', 'QA_C', 'QA_D'].map((code) => ({ code, label: 'Ficticio ' + code, seniority: '' })),
     },
-  });
+  };
+  const review = await post(api, 'campaign/' + clone.id, { ...roster, action: 'preview_import_roster' });
+  d = await post(api, 'campaign/' + clone.id, { ...roster, reviewToken: review.reviewToken });
   d = await post(api, 'campaign/' + clone.id, {
     action: 'config',
     version: d.campaign.version,
@@ -1408,7 +1411,7 @@ test(
     const memberSelect = controls.getByLabel('Orden de CTA'),
       cycleSelect = controls.getByLabel('Orden de ciclos');
     await expect(memberSelect).toHaveValue('request');
-    await expect(cycleSelect).toHaveValue('chronological');
+    await expect(cycleSelect).toHaveValue('request');
     const rows = page.locator('.vac2-members-desktop tbody tr');
     const getRows = () =>
       rows.evaluateAll((items) =>
@@ -1419,8 +1422,11 @@ test(
       );
     const initial = await getRows();
     expect(initial.map((r) => r.code)).toEqual(members.map((m: any) => m.code));
+    const requested = await rows.first().locator('.vac2-date-link').allTextContents();
+    await cycleSelect.selectOption('chronological');
     const chronological = await rows.first().locator('.vac2-date-link').allTextContents();
     expect(chronological).toHaveLength(2);
+    expect(requested).toEqual([...chronological].reverse());
     await cycleSelect.selectOption('request');
     expect(await rows.first().locator('.vac2-date-link').allTextContents()).toEqual([...chronological].reverse());
     expect((await getRows()).map((r) => r.code)).toEqual(initial.map((r) => r.code));

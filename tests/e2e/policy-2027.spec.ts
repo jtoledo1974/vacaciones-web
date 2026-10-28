@@ -35,7 +35,8 @@ async function setup2027(api: APIRequestContext, page: Page, startElection = tru
     version: baseline.campaign.version,
   });
   let d = await read(api, clone.id);
-  d = await post(api, 'campaign/' + clone.id, {
+  // Every import is previewed first; its token confirms exactly that report.
+  const roster = {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -45,7 +46,9 @@ async function setup2027(api: APIRequestContext, page: Page, startElection = tru
       copySelections: false,
       rows: codes.map((code) => ({ code, label: 'Ficticio ' + code, seniority: '' })),
     },
-  });
+  };
+  const review = await post(api, 'campaign/' + clone.id, { ...roster, action: 'preview_import_roster' });
+  d = await post(api, 'campaign/' + clone.id, { ...roster, reviewToken: review.reviewToken });
   d = await post(api, 'campaign/' + clone.id, {
     action: 'config',
     version: d.campaign.version,

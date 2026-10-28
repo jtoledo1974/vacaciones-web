@@ -215,15 +215,18 @@ export function buildElectionTimeline(
       });
     }
   }
+  // Imported awards sit below every unindexed one (range [-N, -1]), so a manual
+  // award added after an import never shares a sequence with an imported one.
+  const maxIndex = Math.max(0, ...ctx.awards.map((a) => a.selection_index ?? 0));
   for (const [i, award] of ctx.awards.entries()) {
     const key = award.member_id + '|' + award.cycle_date;
     if (accounted.has(key)) continue;
     events.push({
-      sequence: -i - 1,
+      sequence: award.selection_index != null ? award.selection_index - maxIndex - ctx.awards.length - 1 : -i - 1,
       item: {
         id: 'legacy-' + award.id,
         kind: 'legacy',
-        round: null,
+        round: award.selection_round ?? null,
         createdAt: '',
         memberIds: [award.member_id],
         choices: [{ member_id: award.member_id, cycle_date: award.cycle_date }],

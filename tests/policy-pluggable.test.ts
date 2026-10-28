@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
@@ -51,7 +52,7 @@ test('a fictitious 2099 policy runs the whole generic election flow without 2027
   );
   const cid = d.campaign.id;
   const codes = Array.from({ length: 8 }, (_, i) => 'P' + String(i + 1).padStart(2, '0'));
-  d = await service.mutate(cid, {
+  d = await importRoster(service, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {

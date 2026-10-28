@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
@@ -16,7 +17,7 @@ async function fixture() {
   await s.init();
   const cid = (await s.list()).campaigns.find((c) => c.team_id === 'C').id;
   let d = await s.view(cid);
-  d = await s.mutate(cid, {
+  d = await importRoster(s, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
@@ -386,7 +387,7 @@ test('reconstruir y deshacer con mÃ¡s de 11 listas de preferencias respeta el lÃ
   const cid = (await s.list()).campaigns.find((c) => c.team_id === 'C').id;
   const codes = Array.from({ length: 14 }, (_, i) => 'M' + String(i).padStart(2, '0'));
   let d = await s.view(cid);
-  d = await s.mutate(cid, {
+  d = await importRoster(s, cid, {
     action: 'import_roster',
     version: d.campaign.version,
     source: {
