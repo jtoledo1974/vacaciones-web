@@ -674,6 +674,18 @@ test('integración: administración agrupada y navegación pública en escritori
   await expect(page.getByRole('button', { name: 'Ver PDF de la situación' })).toBeVisible();
   const pdf = await page.request.get('/api/campaign/' + s.id + '/pdf');
   expect(pdf.headers()['content-type']).toBe('application/pdf');
+  const ctaPicker = page.getByRole('combobox', { name: 'Controlador para calendario PDF' });
+  await expect(ctaPicker).toBeVisible();
+  await ctaPicker.selectOption({ index: 1 });
+  await expect(page.getByRole('button', { name: 'Ver calendario individual en PDF' })).toBeEnabled();
+  const cta = await ctaPicker.inputValue();
+  const individualPdf = await page.request.get(
+    '/api/campaign/' + s.id + '/individual-pdf?cta=' + encodeURIComponent(cta),
+  );
+  expect(individualPdf.headers()['content-type']).toBe('application/pdf');
+  expect((await individualPdf.text()).includes('/MediaBox [0 0 842 595]')).toBeTruthy();
+  const badCta = await page.request.get('/api/campaign/' + s.id + '/individual-pdf?cta=no-existe');
+  expect(badCta.status()).toBe(400);
   if (await page.getByRole('button', { name: 'Abrir menú', exact: true }).isVisible())
     await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Configuración', exact: true })).toHaveCount(0);

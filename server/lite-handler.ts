@@ -1,3 +1,4 @@
+import { renderIndividualCalendarPdf } from './individual-calendar-pdf.ts';
 import { D1Repository } from './repository';
 import { Service, principal } from './service';
 import { liteSummary, pdfFilename, renderLiteHtml, renderLitePdf, type LiteIndex } from './lite';
@@ -34,7 +35,7 @@ async function load(request: Request, bindings: LiteBindings) {
     year = Number(url.searchParams.get('year'));
   const campaign = team && campaigns.find((c) => c.team_id === team && Number(c.year) === year);
   const summary = campaign ? liteSummary(await service.view(campaign.id)) : null;
-  return { index, summary, requested: !!team };
+  return { index, summary, campaignId: campaign?.id ?? null, requested: !!team };
 }
 
 export const serveLite = guarded(async (request: Request, bindings: LiteBindings) => {
@@ -57,6 +58,26 @@ export const serveLitePdf = guarded(async (request: Request, bindings: LiteBindi
       'Content-Type': 'application/pdf',
       // Inline: the browser shows it; the user decides whether to save or share it.
       'Content-Disposition': `inline; filename="${pdfFilename(summary)}"`,
+    },
+  });
+});
+
+/** Public read-only individual PDF. Uses the visible projection, never raw awards. */
+export const serveLiteIndividualPdf = guarded(async (request: Request, bindings: LiteBindings) => {
+  if (!bindings.DB) return new Response('El almacenamiento todavía no está disponible', { status: 503, headers });
+  const { summary, campaignId } = await load(request, bindings);
+  if (!summary || !campaignId) return new Response('Campaña no encontrada', { status: 404, headers });
+  const code = new URL(request.url).searchParams.get('cta') ?? '';
+  if (!summary.members.some((m) => m.code === code))
+    return new Response('Selecciona un controlador válido de la campaña', { status: 400, headers });
+  const repo = new D1Repository(bindings.DB);
+  const service = new Service(repo, await principal(repo, null, ''));
+  const { config } = await service.load(campaignId);
+  return new Response(renderIndividualCalendarPdf(summary, code, config), {
+    headers: {
+      ...headers,
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="calendario-${summary.team}-${code.replace(/[^A-Za-z0-9_-]/g, '_')}-${summary.year}.pdf"`,
     },
   });
 });

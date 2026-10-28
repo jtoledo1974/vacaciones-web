@@ -1,5 +1,6 @@
 'use client';
 import { download } from './download';
+import { officialHolidays, type CalendarHoliday } from '../domain/official-holidays';
 import { useEffect, useState } from 'react';
 import { CheckCheck, Plus } from 'lucide-react';
 
@@ -283,6 +284,111 @@ export function ConfigForm({ config, year, disabled, busy, save }: any) {
             </table>
           </div>
         </details>
+      </section>
+      <section className="panel">
+        <h2>Festivos laborales de Sevilla · {year}</h2>
+        <p className="muted">
+          Festivos nacionales, autonómicos y dos locales. Se usan exclusivamente para mostrar el calendario individual,
+          no para modificar el baremo de vacaciones. Las fechas se fijan por ejercicio y no se copian a otros años.
+        </p>
+        {(c.calendarHolidays ?? officialHolidays(year)).length === 0 && (
+          <p className="alert warning" role="status">
+            Este ejercicio no tiene festivos laborales configurados. Comprueba las publicaciones oficiales antes de
+            distribuir calendarios individuales.
+          </p>
+        )}
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Festividad</th>
+                <th>Local</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {(c.calendarHolidays ?? officialHolidays(year)).map((holiday: CalendarHoliday, i: number) => (
+                <tr key={i}>
+                  <td>
+                    <input
+                      aria-label={'Fecha del festivo ' + (i + 1)}
+                      type="date"
+                      value={holiday.date}
+                      disabled={disabled}
+                      onChange={(e) => {
+                        const items = structuredClone(c.calendarHolidays ?? officialHolidays(year));
+                        items[i].date = e.target.value;
+                        change('calendarHolidays', items);
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label={'Nombre del festivo ' + (i + 1)}
+                      value={holiday.label}
+                      disabled={disabled}
+                      onChange={(e) => {
+                        const items = structuredClone(c.calendarHolidays ?? officialHolidays(year));
+                        items[i].label = e.target.value;
+                        change('calendarHolidays', items);
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      aria-label={'Festivo local ' + (i + 1)}
+                      type="checkbox"
+                      checked={!!holiday.local}
+                      disabled={disabled}
+                      onChange={(e) => {
+                        const items = structuredClone(c.calendarHolidays ?? officialHolidays(year));
+                        items[i].local = e.target.checked;
+                        change('calendarHolidays', items);
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={disabled}
+                      onClick={() =>
+                        change(
+                          'calendarHolidays',
+                          (c.calendarHolidays ?? officialHolidays(year)).filter(
+                            (_: CalendarHoliday, index: number) => index !== i,
+                          ),
+                        )
+                      }
+                    >
+                      Quitar
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!disabled && (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              const items: CalendarHoliday[] = c.calendarHolidays ?? officialHolidays(year);
+              // First free day of the year, so repeated clicks never create duplicate dates.
+              const used = new Set(items.map((h) => h.date));
+              const day = new Date(Date.UTC(year, 0, 2));
+              while (used.has(day.toISOString().slice(0, 10))) day.setUTCDate(day.getUTCDate() + 1);
+              change('calendarHolidays', [
+                ...items,
+                { date: day.toISOString().slice(0, 10), label: 'Nuevo festivo', local: false },
+              ]);
+            }}
+          >
+            Añadir festivo
+          </button>
+        )}
       </section>
       <section className="panel">
         <h2>Festivos y períodos especiales</h2>

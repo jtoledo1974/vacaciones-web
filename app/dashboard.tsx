@@ -58,6 +58,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     [identity, setIdentity] = useState(''),
     [signinUrl, setSigninUrl] = useState('/signin-with-chatgpt?return_to=/');
   const [yearChoice, setYearChoice] = useState<number | null>(null);
+  const [individualPdfCode, setIndividualPdfCode] = useState('');
   const [previewCode, setPreviewCode] = useState('');
   const [jumpToActivation, setJumpToActivation] = useState(false);
   const [firebaseEnabled, setFirebaseEnabled] = useState(false);
@@ -1140,6 +1141,57 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                             Ver PDF de la situación
                           </button>
                         )}
+                      </div>
+                      <div className="button-row">
+                        <label>
+                          Calendario individual de
+                          <select
+                            aria-label="Controlador para calendario PDF"
+                            value={
+                              data.members.some((m: { code: string }) => m.code === individualPdfCode)
+                                ? individualPdfCode
+                                : ''
+                            }
+                            onChange={(event) => setIndividualPdfCode(event.target.value)}
+                          >
+                            <option value="">Selecciona un controlador</option>
+                            {data.members.map((member: { id: string; code: string }) => (
+                              <option key={member.id} value={member.code}>
+                                {member.code}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          className="secondary"
+                          disabled={!data.members.some((m: { code: string }) => m.code === individualPdfCode)}
+                          onClick={async () => {
+                            const code = individualPdfCode;
+                            const tab = window.open('', '_blank');
+                            try {
+                              if (data.campaign.scope_key === 'live') {
+                                const href = `/lite/individual-pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}&cta=${encodeURIComponent(code)}`;
+                                if (tab) tab.location.href = href;
+                                else window.location.href = href;
+                              } else {
+                                // A simulation remains behind the authenticated API.
+                                const response = await apiFetch(
+                                  'campaign/' + cid + '/individual-pdf?cta=' + encodeURIComponent(code),
+                                );
+                                if (!response.ok) throw new Error('No se pudo generar el calendario individual');
+                                const url = URL.createObjectURL(await response.blob());
+                                if (tab) tab.location.href = url;
+                                else window.location.href = url;
+                                setTimeout(() => URL.revokeObjectURL(url), 60_000);
+                              }
+                            } catch (e: unknown) {
+                              tab?.close();
+                              setError(e instanceof Error ? e.message : 'No se pudo generar el calendario individual');
+                            }
+                          }}
+                        >
+                          Ver calendario individual en PDF
+                        </button>
                       </div>
                     </section>
                   </>

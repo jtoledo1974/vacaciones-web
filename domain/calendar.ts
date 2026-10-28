@@ -48,6 +48,8 @@ export type Holiday = {
   corpus?: boolean;
 };
 export type Config = {
+  /** Labour holidays used only by the individual calendar PDF (not by scores). */
+  calendarHolidays?: import('./official-holidays.ts').CalendarHoliday[];
   previousScores?: Record<string, number>;
   previousScoresSource?: string;
   cycleLength: number;
@@ -160,6 +162,27 @@ export function validateConfig(c: Config, y: number) {
       (h.offset !== undefined && (!Number.isInteger(h.offset) || Math.abs(h.offset) > 400))
     )
       throw new Error('Festivo no válido');
+  if (c.calendarHolidays !== undefined) {
+    if (!Array.isArray(c.calendarHolidays) || c.calendarHolidays.length > 30)
+      throw new Error('Calendario de festivos laborales no válido');
+    const seen = new Set<string>();
+    for (const h of c.calendarHolidays) {
+      if (
+        !h ||
+        typeof h !== 'object' ||
+        typeof h.date !== 'string' ||
+        typeof h.label !== 'string' ||
+        !h.label.trim() ||
+        h.label.length > 80 ||
+        (h.local !== undefined && typeof h.local !== 'boolean')
+      )
+        throw new Error('Festivo laboral no válido');
+      serial(h.date);
+      if (!h.date.startsWith(y + '-') || seen.has(h.date))
+        throw new Error('Festivos laborales repetidos o fuera del ejercicio');
+      seen.add(h.date);
+    }
+  }
   if (c.relation) {
     for (const n of Object.values(c.relation))
       if (!Number.isInteger(n) || n < 0 || n > 100) throw new Error('Cupo de relación no válido');

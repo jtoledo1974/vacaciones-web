@@ -1,3 +1,4 @@
+import { officialHolidays } from './official-holidays.ts';
 import type { Config, Holiday } from './calendar';
 import reference from '../tests/excel-reference.json' with { type: 'json' };
 const fixed = (label: string, month: number, day: number, score: number, nextYear = false): Holiday => ({
@@ -59,6 +60,7 @@ export function defaultConfig(y: number): Config {
     specialCycles: [],
     rotation: reference.rotation,
     holidays: structuredClone(holidays),
+    calendarHolidays: officialHolidays(y),
   };
 }
 export function copyConfig(c: Config, from: number, to: number): Config {
@@ -68,6 +70,8 @@ export function copyConfig(c: Config, from: number, to: number): Config {
   // RRHH exceptions are dated campaign-specific permissions, never inherited.
   delete n.specialQuotas;
   delete n.individualEntitlements;
+  // Labour holidays cannot be copied between years: local dates and transfers change.
+  n.calendarHolidays = officialHolidays(to);
   for (const k of ['summerStart', 'summerEnd', 'correturnos'] as const) n[k] = String(to) + n[k].slice(4);
   n.specialCycles = n.specialCycles.map((d) => String(Number(d.slice(0, 4)) - from + to) + d.slice(4));
   return n;

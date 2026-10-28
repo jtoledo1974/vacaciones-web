@@ -72,12 +72,16 @@ const n = (v: number) => String(Math.round(v * 100) / 100);
 const rgb = (c: RGB) => c.map(n).join(' ');
 
 /** Drawing in top-left coordinates, as the web lays it out. */
-class Page {
+export class Page {
+  constructor(
+    readonly width = W,
+    readonly height = H,
+  ) {}
   ops = '';
   rect(x: number, y: number, w: number, h: number, fill: RGB | null, stroke: RGB | null = null, lw = 0.5) {
     if (fill) this.ops += `${rgb(fill)} rg `;
     if (stroke) this.ops += `${rgb(stroke)} RG ${n(lw)} w `;
-    this.ops += `${n(x)} ${n(H - y - h)} ${n(w)} ${n(h)} re ${fill && stroke ? 'B' : fill ? 'f' : 'S'}\n`;
+    this.ops += `${n(x)} ${n(this.height - y - h)} ${n(w)} ${n(h)} re ${fill && stroke ? 'B' : fill ? 'f' : 'S'}\n`;
   }
   /** A cycle's availability box exactly as the web paints it; returns its text colour. */
   swatch(x: number, y: number, w: number, h: number, status: string, border = true) {
@@ -85,17 +89,18 @@ class Page {
     this.rect(x, y, w, h, c.bg);
     if (status === 'vac2-free-0') {
       // Diagonal stripes, clipped to the box.
-      this.ops += `q ${n(x)} ${n(H - y - h)} ${n(w)} ${n(h)} re W n ${rgb(STRIPE)} RG 1.6 w `;
-      for (let d = -h; d < w; d += 5) this.ops += `${n(x + d)} ${n(H - y - h)} m ${n(x + d + h)} ${n(H - y)} l `;
+      this.ops += `q ${n(x)} ${n(this.height - y - h)} ${n(w)} ${n(h)} re W n ${rgb(STRIPE)} RG 1.6 w `;
+      for (let d = -h; d < w; d += 5)
+        this.ops += `${n(x + d)} ${n(this.height - y - h)} m ${n(x + d + h)} ${n(this.height - y)} l `;
       this.ops += 'S Q\n';
     }
     if (status === 'vac2-unknown')
-      this.ops += `[2 1.5] 0 d ${rgb(DASHED)} RG 1 w ${n(x + 0.5)} ${n(H - y - h + 0.5)} ${n(w - 1)} ${n(h - 1)} re S [] 0 d\n`;
+      this.ops += `[2 1.5] 0 d ${rgb(DASHED)} RG 1 w ${n(x + 0.5)} ${n(this.height - y - h + 0.5)} ${n(w - 1)} ${n(h - 1)} re S [] 0 d\n`;
     else if (border) this.rect(x, y, w, h, null, EDGE, 0.5);
     return c.fg;
   }
   line(x1: number, y1: number, x2: number, y2: number, color: RGB, lw = 0.5) {
-    this.ops += `${rgb(color)} RG ${n(lw)} w ${n(x1)} ${n(H - y1)} m ${n(x2)} ${n(H - y2)} l S\n`;
+    this.ops += `${rgb(color)} RG ${n(lw)} w ${n(x1)} ${n(this.height - y1)} m ${n(x2)} ${n(this.height - y2)} l S\n`;
   }
   /** `y` is the baseline. */
   text(
@@ -110,7 +115,7 @@ class Page {
     if (o.max) while (str.length > 1 && textWidth(str, size, bold) > o.max) str = str.slice(0, -2) + '.';
     const w = textWidth(str, size, bold);
     const left = o.align === 'right' ? x - w : o.align === 'center' ? x - w / 2 : x;
-    this.ops += `${rgb(o.color ?? INK)} rg BT /${bold ? 'F2' : 'F1'} ${n(size)} Tf 1 0 0 1 ${n(left)} ${n(H - y)} Tm ${pdfText(str)} Tj ET\n`;
+    this.ops += `${rgb(o.color ?? INK)} rg BT /${bold ? 'F2' : 'F1'} ${n(size)} Tf 1 0 0 1 ${n(left)} ${n(this.height - y)} Tm ${pdfText(str)} Tj ET\n`;
     if (o.align === undefined || o.align === 'left') return left + w;
     return left;
   }
@@ -359,17 +364,24 @@ export function renderLitePdf(s: LiteSummary): string {
   const pages = views.map(([title, draw], i) => {
     const p = new Page();
     draw(p, s, header(p, s, title, i + 1, views.length));
-    return p.ops;
+    return p;
   });
+  return writePdf(pages);
+}
+
+/** Shared no-dependency PDF encoder used by both the team and individual reports. */
+export function writePdf(pages: Page[]): string {
+  if (!pages.length) throw new Error('El PDF debe contener al menos una página');
   const objects: string[] = [];
   const pageIds = pages.map((_, i) => 5 + i * 2);
   objects[1] = '<< /Type /Catalog /Pages 2 0 R >>';
   objects[2] = `<< /Type /Pages /Kids [${pageIds.map((id) => id + ' 0 R').join(' ')}] /Count ${pages.length} >>`;
   objects[3] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>';
   objects[4] = '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>';
-  pages.forEach((stream, i) => {
+  pages.forEach((page, i) => {
+    const stream = page.ops;
     objects[pageIds[i]] =
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] ` +
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${page.width} ${page.height}] ` +
       `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${pageIds[i] + 1} 0 R >>`;
     objects[pageIds[i] + 1] = `<< /Length ${stream.length} >>\nstream\n${stream}endstream`;
   });
