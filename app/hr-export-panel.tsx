@@ -93,6 +93,35 @@ export default function HrExportPanel({
     );
   };
 
+  // Uploading is a one-off step: it leads the panel only while no template is stored.
+  const upload = (
+    <label className="hr-upload">
+      {status?.template ? 'Sustituir por otra plantilla' : 'Subir la plantilla de RRHH'} ({status?.year ?? '…'})
+      <input
+        type="file"
+        accept=".xlsm"
+        disabled={busy || !status}
+        onChange={async (e) => {
+          const file = e.currentTarget.files?.[0];
+          e.currentTarget.value = '';
+          if (!file || !status) return;
+          const bytes = new Uint8Array(await file.arrayBuffer());
+          let binary = '';
+          for (let i = 0; i < bytes.length; i += 0x8000)
+            binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+          await perform(
+            async () => {
+              await api('hr', { body: { action: 'template', year: status.year, data: btoa(binary) } });
+              show(await api<HrStatus>('hr/' + cid));
+            },
+            'Plantilla de RRHH guardada',
+            { refreshIndex: false },
+          );
+        }}
+      />
+    </label>
+  );
+
   return (
     <section className="panel hr-export">
       <h2>Excel de RRHH</h2>
@@ -101,33 +130,7 @@ export default function HrExportPanel({
         los demás equipos quedan como están.
       </p>
       {error && <p className="alert error">{error}</p>}
-      {superuser && (
-        <label className="hr-upload">
-          {status?.template ? 'Sustituir la plantilla de RRHH' : 'Subir la plantilla de RRHH'} ({status?.year ?? '…'})
-          <input
-            type="file"
-            accept=".xlsm"
-            disabled={busy || !status}
-            onChange={async (e) => {
-              const file = e.currentTarget.files?.[0];
-              e.currentTarget.value = '';
-              if (!file || !status) return;
-              const bytes = new Uint8Array(await file.arrayBuffer());
-              let binary = '';
-              for (let i = 0; i < bytes.length; i += 0x8000)
-                binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-              await perform(
-                async () => {
-                  await api('hr', { body: { action: 'template', year: status.year, data: btoa(binary) } });
-                  show(await api<HrStatus>('hr/' + cid));
-                },
-                'Plantilla de RRHH guardada',
-                { refreshIndex: false },
-              );
-            }}
-          />
-        </label>
-      )}
+      {superuser && status && !status.template && upload}
       {status && !status.template && (
         <p>
           {superuser
@@ -257,6 +260,18 @@ export default function HrExportPanel({
               </div>
               {note && <p className="alert warning">{note}</p>}
             </>
+          )}
+          {superuser && (
+            <details className="hr-template">
+              <summary>
+                Plantilla de RRHH {status.year} · subida el{' '}
+                {new Date(status.template.uploadedAt).toLocaleDateString('es-ES')}
+              </summary>
+              <p className="muted">
+                Queda guardada en el servidor y se usa en todas las descargas. Sustitúyela solo si RRHH envía una nueva.
+              </p>
+              {upload}
+            </details>
           )}
         </>
       )}
