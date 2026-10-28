@@ -15,7 +15,13 @@ type Row = {
   status: 'entitled' | 'missing_date';
   account: { provider: 'chatgpt' | 'firebase'; subject: string; version: number } | null;
 };
-type Census = { year: number | null; people: Row[]; notEntitled: number; totalDays: number };
+type Census = {
+  year: number | null;
+  people: Row[];
+  notEntitled: number;
+  totalDays: number;
+  quotas: { title: string; receivedAt: string; updatedAt: string; places: number; days: number } | null;
+};
 
 // Recent joiners have no date and no right yet: they are listed, not pending.
 const pending = (r: Row) => r.status === 'entitled' && !r.account;
@@ -142,6 +148,19 @@ export default function VaCensusPanel() {
   return (
     <section className="panel va-census" aria-label="Censo y accesos de VA">
       <h2>Censo y accesos de VA · {census.year}</h2>
+      <p className="va-quotas-line">
+        {census.quotas ? (
+          <>
+            Cupos de RRHH: <b>{census.quotas.places} plazas</b> en {census.quotas.days} días para {census.totalDays}{' '}
+            días reconocidos · {census.quotas.title}, recibido el{' '}
+            {census.quotas.receivedAt.split('-').reverse().join('/')}
+          </>
+        ) : (
+          <>
+            Cupos de RRHH sin cargar. Se cargan por CLI: <code>admin-cli.mjs va-cupos importar calendario.xlsm</code>
+          </>
+        )}
+      </p>
       <div className="va-metrics">
         <div>
           <b>{entitled.length}</b>

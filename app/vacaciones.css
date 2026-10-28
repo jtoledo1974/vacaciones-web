@@ -1175,3 +1175,4 @@ html:has(.preference-dock){scroll-padding-bottom:185px}
 .va-team .va-list{border:0;border-top:1px solid #dfe5e1;border-radius:0}
 @media (max-width:420px){.va-metrics b{font-size:1.15rem}.va-access-fields{flex-direction:column}}
 .va-tag-muted{background:#f1efe8;color:#444441}
+.va-quotas-line{font-size:13px;color:#465d50;margin:0 0 8px}.va-quotas-line code{font-size:12px;word-break:break-all}

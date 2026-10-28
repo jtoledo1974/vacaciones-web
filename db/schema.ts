@@ -48,3 +48,5 @@ export const cliAttempts = sqliteTable('cli_attempts', {
 export const hrTemplates=sqliteTable('hr_templates',{year:integer('year').primaryKey(),data:text('data').notNull(),sha256:text('sha256').notNull(),uploadedBy:text('uploaded_by').notNull(),uploadedAt:text('uploaded_at').notNull()});
 // Each person's name exactly as column J of their team sheet spells it.
 export const hrNames=sqliteTable('hr_names',{year:integer('year').notNull(),personId:text('person_id').notNull().references(()=>people.id),hrName:text('hr_name').notNull()},t=>[primaryKey({columns:[t.year,t.personId]})]);
+export const vaQuotas=sqliteTable('va_quotas',{year:integer('year').notNull(),date:text('date').notNull(),places:integer('places').notNull()},t=>[primaryKey({columns:[t.year,t.date]})]);
+export const vaQuotaSources=sqliteTable('va_quota_sources',{year:integer('year').primaryKey(),title:text('title').notNull(),sha256:text('sha256').notNull(),receivedAt:text('received_at').notNull(),version:integer('version').notNull().default(1),updatedAt:text('updated_at').notNull()});

@@ -1,4 +1,4 @@
-import type { Identity, Principal } from './permissions.ts';
+import { canAdminVa, type Identity, type Principal } from './permissions.ts';
 import type { Repository } from './repository.ts';
 import { ApiError } from './errors.ts';
 import { append, appendIfChanged } from './audit-context.ts';
@@ -45,7 +45,8 @@ function origin(request: Request) {
 function browser(request: Request, identity: Identity, actor: Principal) {
   if (request.headers.has(CLI_TOKEN_HEADER) || !identity || !['chatgpt', 'firebase'].includes(identity.provider))
     throw new ApiError('Autoriza desde tu sesión del navegador', 403);
-  if (!actor.id || actor.role !== 'superadmin') throw new ApiError('Esta operación requiere superadministrador', 403);
+  // VA administrators load RRHH's places only by CLI; every request still checks its own rights.
+  if (!canAdminVa(actor)) throw new ApiError('Esta operación requiere superadministrador o administrador de VA', 403);
 }
 function token(request: Request) {
   const value = request.headers.get(CLI_TOKEN_HEADER);

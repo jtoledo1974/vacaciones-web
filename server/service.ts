@@ -938,7 +938,15 @@ export class Service {
     )
       throw new ApiError('Copia inválida o integridad incorrecta');
     const tables = { ...b.payload.tables };
-    for (const key of ['preferences', 'election_states', 'controller_accounts', 'reconstruction_sessions', 'hr_names'])
+    for (const key of [
+      'preferences',
+      'election_states',
+      'controller_accounts',
+      'reconstruction_sessions',
+      'hr_names',
+      'va_quotas',
+      'va_quota_sources',
+    ])
       if (tables[key] === undefined) tables[key] = [];
     // Local admin sessions are not backed up. Older backups kept them (and login
     // attempts) in audit: drop those rows so a restore never resurrects a session.

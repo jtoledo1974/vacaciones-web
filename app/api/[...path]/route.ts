@@ -14,6 +14,7 @@ import { documentation } from '../../../server/documentation';
 import { liteSummary, pdfFilename, renderLitePdf } from '../../../server/lite';
 import { XLSM_TYPE } from '../../../server/hr-xlsx';
 import { masterSeniority } from '../../../server/master-seniority';
+import { loadVaQuotas, vaQuotas } from '../../../server/va-quotas';
 import { myVa, vaCensus, vaLinkAccount } from '../../../server/va-census';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
 import { approveCli, revokeCli, pairCli, joinCli, cliPairingStatus } from '../../../server/cli-auth';
@@ -83,6 +84,8 @@ async function serve(request: Request) {
       if (path[0] === 'notifications') return reply(await notificationSettings(repo, actor, bindings));
       if (path[0] === 'va' && path[1] === 'census' && path.length === 2) return reply(await vaCensus(repo, actor));
       if (path[0] === 'va' && path[1] === 'me' && path.length === 2) return reply(await myVa(repo, actor));
+      if (path[0] === 'va' && path[1] === 'quotas' && path.length === 2)
+        return reply(await vaQuotas(repo, actor, Number(url.searchParams.get('year'))));
       if (path[0] === 'revision') {
         const rows = await repo.all("SELECT revision FROM app_state WHERE id='main'");
         return reply({ revision: rows[0]?.revision ?? 0 });
@@ -282,6 +285,7 @@ async function serve(request: Request) {
       return reply(await (b.action === 'delete' ? service.deleteUser(b) : service.configureUser(b)));
     if (path[0] === 'va' && path[1] === 'account' && path.length === 2)
       return reply(await vaLinkAccount(repo, actor, b));
+    if (path[0] === 'va' && path[1] === 'quotas' && path.length === 2) return reply(await loadVaQuotas(repo, actor, b));
     if (path[0] === 'people' && path[1] === 'seniority' && path.length === 2)
       return reply(await masterSeniority(repo, actor, b));
     if (path[0] === 'restore') return reply(await service.restore(b.backup, b.revision));

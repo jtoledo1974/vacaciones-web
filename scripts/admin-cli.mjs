@@ -18,6 +18,8 @@
 //   backup [--out fichero]
 //   get <ruta>                         GET /api/<ruta>
 //   post <ruta> <fichero.json|->       POST /api/<ruta> con ese cuerpo
+//   va-cupos importar|aplicar|cambiar|ver   plazas diarias de VA que publica RRHH
+//   help [orden]                       ayuda detallada: permisos, si escribe, formatos y ejemplo
 //
 // Opciones de post:
 //   --dry-run          muestra la petición y no la envía
@@ -39,6 +41,8 @@ import path from 'node:path';
 import { validateImportOrder } from '../domain/import-order.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { CLI_SESSION_MS, CLI_TOKEN_HEADER } from '../lib/cli-protocol.mjs';
+import { helpText } from './admin-cli-help.mjs';
+import { vaQuotaPlan, vaQuotaSummary } from './va-cupos.mjs';
 
 class CliError extends Error {}
 
@@ -119,9 +123,10 @@ function parseArgs(argv) {
   const flags = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations'].includes(a))
+    if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations', '--help'].includes(a))
       flags[a.slice(2)] = true;
-    else if (a === '--out' || a === '--backup-dir' || a === '--review-token') {
+    else if (a === '-h') flags.help = true;
+    else if (['--out', '--backup-dir', '--review-token', '--year', '--title', '--received'].includes(a)) {
       if (i + 1 >= argv.length) fail('Falta el valor de ' + a);
       flags[a.slice(2)] = argv[++i];
     } else if (a.startsWith('--')) fail('Opción desconocida: ' + a);
@@ -316,24 +321,28 @@ function stamp() {
 async function main() {
   const { positional, flags } = parseArgs(process.argv.slice(2));
   const [command, ...rest] = positional;
+  const general = readFileSync(new URL(import.meta.url), 'utf8')
+    .split('\nimport ')[0]
+    .replace(/^#!.*\n/, '');
+  if (command === 'help' || flags.help) {
+    console.log(helpText(command === 'help' ? rest[0] : command, general));
+    return;
+  }
   const routes = { session: 'session', index: 'index', admin: 'admin', backup: 'backup' };
   let method = 'GET',
     route,
-    body;
+    body,
+    prepare;
   if (routes[command]) route = routes[command];
   else if (command === 'login' || command === 'logout') route = 'session';
   else if (command === 'campaign' && rest[0]) route = 'campaign/' + encodeURIComponent(rest[0]);
   else if (command === 'get' && rest[0]) route = rest[0];
+  else if (command === 'va-cupos') ({ method, route, body, prepare } = vaQuotaPlan(rest, flags, fail));
   else if (command === 'post' && rest[0] && rest[1]) {
     method = 'POST';
     route = rest[0];
     body = readBody(rest[1]);
-  } else
-    fail(
-      readFileSync(new URL(import.meta.url), 'utf8')
-        .split('\nimport ')[0]
-        .replace(/^#!.*\n/, ''),
-    );
+  } else fail(helpText(undefined, general));
 
   const importing = method === 'POST' && ['import_roster', 'preview_import_roster'].includes(body?.action);
   if (importing) {
@@ -348,7 +357,7 @@ async function main() {
       }
     }
   }
-  if (method === 'POST' && flags['dry-run']) {
+  if (method === 'POST' && flags['dry-run'] && !prepare) {
     emit({ method, route: '/api/' + route, body });
     return;
   }
@@ -382,7 +391,15 @@ async function main() {
       }
     }
     // Inside try: a cookie issued before a failed role check is still revoked.
-    const writes = method === 'POST' && body?.action !== 'preview_import_roster' && !flags['no-backup'];
+    checkCancelled();
+    if (prepare) body = await prepare(client);
+    if (method === 'POST' && flags['dry-run']) {
+      emit({ method, route: '/api/' + route, body });
+      return;
+    }
+    // Previews write nothing: no backup before them.
+    const writes =
+      method === 'POST' && !['preview_import_roster', 'preview'].includes(body?.action) && !flags['no-backup'];
     if (browser) {
       let ready = command !== 'login' && client.loadSaved(tokenFile);
       if (ready) {
@@ -394,8 +411,10 @@ async function main() {
           client.saved = false;
           ready = false;
         } else if (!session.ok) fail('No se pudo comprobar el acceso guardado (' + session.status + ')');
-        else if (session.data?.principal?.role !== 'superadmin')
-          fail('El acceso guardado ya no tiene rol superadmin: ejecuta logout y vuelve a emparejar');
+        else if (session.data?.principal?.role !== 'superadmin' && session.data?.principal?.vaAdmin !== true)
+          fail(
+            'El acceso guardado ya no tiene rol superadmin ni de administrador de VA: ejecuta logout y vuelve a emparejar',
+          );
       }
       if (!ready) {
         checkCancelled();
@@ -434,7 +453,9 @@ async function main() {
       console.error('Error ' + r.status + ': ' + (r.data?.error ?? JSON.stringify(r.data)));
       return;
     }
-    if (method !== 'POST' || body?.action === 'preview_import_roster') return emit(r.data, flags.out);
+    if (command === 'va-cupos' && method === 'POST') console.error(vaQuotaSummary(r.data, rest[0]));
+    if (method !== 'POST' || ['preview_import_roster', 'preview'].includes(body?.action))
+      return emit(r.data, flags.out);
     try {
       emit(r.data, flags.out);
     } catch (e) {

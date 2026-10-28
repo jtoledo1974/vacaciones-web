@@ -492,3 +492,38 @@ test('a write slower than the 30 s read timeout is awaited, not aborted', async 
     assert.deepEqual(JSON.parse(r.stdout), { ok: true, applied: '/api/campaign/x' });
   });
 });
+
+test('cada orden tiene ayuda suficiente para usarla sin el código: propósito, permisos, escritura y ejemplo', async () => {
+  const { HELP } = await import('../scripts/admin-cli-help.mjs');
+  for (const [order, h] of Object.entries(HELP) as [string, Record<string, unknown>][])
+    for (const field of ['summary', 'usage', 'permissions', 'writes', 'example'])
+      assert.ok(typeof h[field] === 'string' && (h[field] as string).trim().length > 1, order + ' sin ' + field);
+  const out = execFileSync(process.execPath, ['scripts/admin-cli.mjs', 'help', 'va-cupos'], { encoding: 'utf8' });
+  assert.match(out, /review-token/);
+  assert.match(out, /Administrador de VA/);
+  const general = execFileSync(process.execPath, ['scripts/admin-cli.mjs', '--help'], { encoding: 'utf8' });
+  assert.match(general, /va-cupos/);
+});
+
+test('va-cupos importar solo previsualiza, sin copia previa; aplicar envía el token tras la copia', async () => {
+  const dir = scratch();
+  const file = path.join(dir, 'cupos.json');
+  writeFileSync(file, JSON.stringify({ days: { '2027-02-01': 3, '2027-02-02': 2 } }));
+  await withServer({}, async (origin, calls, bodies) => {
+    const preview = await cli(origin, ['va-cupos', 'importar', file, '--backup-dir', dir]);
+    assert.equal(preview.code, 0, preview.stderr);
+    assert.ok(!calls.includes('GET /api/backup'));
+    const sent = bodies['POST /api/va/quotas'][0] as { action: string; year: number; days: object; source: object };
+    assert.equal(sent.action, 'preview');
+    assert.equal(sent.year, 2027);
+    assert.deepEqual(sent.days, { '2027-02-01': 3, '2027-02-02': 2 });
+    assert.equal((sent.source as { title: string }).title, 'cupos.json');
+    const apply = await cli(origin, ['va-cupos', 'aplicar', file, '--review-token', 'abc', '--backup-dir', dir]);
+    assert.equal(apply.code, 0, apply.stderr);
+    assert.ok(calls.includes('GET /api/backup'));
+    assert.deepEqual((bodies['POST /api/va/quotas'][1] as { action: string; reviewToken: string }).reviewToken, 'abc');
+  });
+  const missing = await cli('http://127.0.0.1:9', ['va-cupos', 'aplicar', file]);
+  assert.equal(missing.code, 1);
+  assert.match(missing.stderr, /review-token/);
+});

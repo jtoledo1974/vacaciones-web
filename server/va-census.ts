@@ -75,14 +75,31 @@ async function rows(repo: Repository, year: number): Promise<VaRow[]> {
 export async function vaCensus(repo: Repository, actor: Principal) {
   requireVaAdmin(actor);
   const year = await vaYear(repo);
-  if (!year) return { year: null, people: [], notEntitled: 0, totalDays: 0 };
+  if (!year) return { year: null, people: [], notEntitled: 0, totalDays: 0, quotas: null };
   const all = await rows(repo, year);
   const people = all.filter((r) => r.status !== 'not_entitled');
+  // RRHH's places are loaded by CLI (server/va-quotas.ts); the panel only shows them.
+  const [source] = await repo.all(
+    `SELECT s.title,s.received_at,s.updated_at,
+       (SELECT COALESCE(SUM(places),0) FROM va_quotas q WHERE q.year=s.year) AS places,
+       (SELECT COUNT(*) FROM va_quotas q WHERE q.year=s.year AND q.places>0) AS days
+     FROM va_quota_sources s WHERE s.year=?`,
+    [year],
+  );
   return {
     year,
     people,
     notEntitled: all.length - people.length,
     totalDays: people.reduce((sum, r) => sum + r.days, 0),
+    quotas: source
+      ? {
+          title: source.title as string,
+          receivedAt: source.received_at as string,
+          updatedAt: source.updated_at as string,
+          places: Number(source.places),
+          days: Number(source.days),
+        }
+      : null,
   };
 }
 
