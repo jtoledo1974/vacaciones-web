@@ -1110,6 +1110,10 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                             href={`/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}`}
                             target="_blank"
                             rel="noopener"
+                            // Fresh URL per click: phone PDF viewers key their copy on the URL.
+                            onClick={(e) => {
+                              e.currentTarget.href = `/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}&t=${Date.now()}`;
+                            }}
                           >
                             Ver PDF de la situación
                           </a>

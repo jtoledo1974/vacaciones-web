@@ -10,7 +10,7 @@ import { D1Repository } from '../../../server/repository';
 import { Service, principal, ApiError, advanceExpiredTurns } from '../../../server/service';
 import { resolveControllerPreview } from '../../../server/controller-preview';
 import { documentation } from '../../../server/documentation';
-import { liteSummary, renderLitePdf } from '../../../server/lite';
+import { liteSummary, pdfFilename, renderLitePdf } from '../../../server/lite';
 import { XLSM_TYPE } from '../../../server/hr-xlsx';
 import { masterSeniority } from '../../../server/master-seniority';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
@@ -145,8 +145,10 @@ async function serve(request: Request) {
         return new Response(renderLitePdf(summary), {
           headers: {
             'Content-Type': 'application/pdf',
-            'Content-Disposition': `inline; filename="vacaciones-equipo-${summary.team}-${summary.year}.pdf"`,
+            'Content-Disposition': `inline; filename="${pdfFilename(summary)}"`,
             'Cache-Control': 'no-store',
+            Pragma: 'no-cache',
+            Expires: '0',
             'X-Content-Type-Options': 'nosniff',
           },
         });

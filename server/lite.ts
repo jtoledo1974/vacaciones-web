@@ -146,6 +146,9 @@ const MONTHS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sept', 
 export const dayMonth = (iso: string) => Number(iso.slice(8, 10)) + ' ' + MONTHS[Number(iso.slice(5, 7)) - 1];
 export const stamp = (iso: string) =>
   new Date(iso).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', dateStyle: 'short', timeStyle: 'short' });
+/** Unique per generation, so a phone never reopens an older saved copy under the same name. */
+export const pdfFilename = (s: LiteSummary) =>
+  `vacaciones-equipo-${s.team}-${s.year}-${s.generatedAt.slice(0, 16).replace(/[-:]/g, '').replace('T', '-')}.pdf`;
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
@@ -199,6 +202,8 @@ export function renderLiteHtml(index: LiteIndex, summary: LiteSummary | null, me
       q(s.team, s.year) +
       '">Recargar</a> · <a href="/lite/pdf' +
       q(s.team, s.year) +
+      '&amp;t=' +
+      Date.parse(s.generatedAt) +
       '">Ver PDF</a></p>' +
       '<h3>Ciclos y plazas libres</h3><table><tr><th>Pts</th><th>Ciclo</th><th>Libres</th><th>Quién</th></tr>' +
       s.cycles

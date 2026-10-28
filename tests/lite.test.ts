@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { liteSummary, renderLiteHtml, renderLitePdf } from '../server/lite.ts';
+import { liteSummary, renderLiteHtml, renderLitePdf, pdfFilename } from '../server/lite.ts';
 
 const view = {
   campaign: { team_id: 'A', year: 2027 },
@@ -165,4 +165,13 @@ test('occupants follow the election history, not the storage order of the award 
     s.cycles[0].slots.slice(0, 2).map((x) => x.code),
     ['ÁNGEL', 'B<2>'],
   );
+});
+
+test('pdf filename and lite link change with every generation so phones never reopen an old copy', () => {
+  const a = liteSummary(view, new Date('2026-10-28T09:05:00Z'));
+  const b = liteSummary(view, new Date('2026-10-28T09:06:00Z'));
+  assert.ok(pdfFilename(a).endsWith('-20261028-0905.pdf'));
+  assert.notEqual(pdfFilename(a), pdfFilename(b));
+  assert.notEqual(renderLiteHtml([], a, ''), renderLiteHtml([], b, ''));
+  assert.ok(renderLiteHtml([], a, '').includes('&amp;t=' + Date.parse(a.generatedAt)));
 });

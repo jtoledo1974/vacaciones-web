@@ -1,10 +1,15 @@
 import { D1Repository } from './repository';
 import { Service, principal } from './service';
-import { liteSummary, renderLiteHtml, renderLitePdf, type LiteIndex } from './lite';
+import { liteSummary, pdfFilename, renderLiteHtml, renderLitePdf, type LiteIndex } from './lite';
 
 type LiteBindings = { DB?: D1Database };
 
-const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+const headers = {
+  'Cache-Control': 'no-store',
+  Pragma: 'no-cache',
+  Expires: '0',
+  'X-Content-Type-Options': 'nosniff',
+};
 
 function guarded(fn: (request: Request, bindings: LiteBindings) => Promise<Response>) {
   return (request: Request, bindings: LiteBindings) =>
@@ -51,7 +56,7 @@ export const serveLitePdf = guarded(async (request: Request, bindings: LiteBindi
       ...headers,
       'Content-Type': 'application/pdf',
       // Inline: the browser shows it; the user decides whether to save or share it.
-      'Content-Disposition': `inline; filename="vacaciones-equipo-${summary.team}-${summary.year}.pdf"`,
+      'Content-Disposition': `inline; filename="${pdfFilename(summary)}"`,
     },
   });
 });
