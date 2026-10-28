@@ -769,6 +769,77 @@ test('deshacer desde una elección completa no resucita una anticipada ya entrad
   assert.equal(view.election.state?.earlyChoices?.length ?? 0, 0);
 });
 
+test('anticipada del último turno: cerrar la campaña, deshacer y rehacer no la resucita oculta', async () => {
+  const { s, run, account, cid, b, c } = await election();
+  const last = await account(c, 'last');
+  let view = await s.view(cid);
+  const total = view.config.cyclesPerPerson * view.members.length;
+  // Reach the final two ordinary turns through real commands, without editing snapshots.
+  for (let i = 0; i < total && view.awards.length < total - 2; i++) {
+    const turn = view.election.turn;
+    assert.equal(turn.needed, 1);
+    assert.ok(view.election.available.length);
+    view = await run(s, { action: 'choose', memberId: turn.memberId, dates: [view.election.available[0]] });
+  }
+  assert.equal(view.awards.length, total - 2);
+  assert.equal(view.election.turn.memberId, b.id);
+  const own = await last.view(cid);
+  const date = own.election.early?.guaranteed[0];
+  assert.ok(date, 'el último controlador puede anticipar su último ciclo');
+  await run(last, { action: 'early_choose', memberId: c.id, date });
+  const pending = await last.view(cid);
+  assert.equal(pending.election.early.choices.length, 1);
+  const early = pending.election.early.choices[0];
+  assert.ok(early?.cancellable, 'la anticipada sigue pendiente antes del cierre');
+  assert.equal(pending.election.state.status, 'active');
+  assert.equal(pending.election.turn.memberId, b.id);
+  // These older snapshots contain the still-private choice: undo must not revive it.
+  await run(s, { action: 'pause' });
+  view = await run(s, { action: 'resume' });
+  const finalDate = view.election.available[0];
+  assert.ok(finalDate);
+  view = await run(s, { action: 'choose', memberId: b.id, dates: [finalDate] });
+  assert.equal(view.election.state.status, 'complete');
+  assert.equal(view.awards.length, total);
+  assert.ok(
+    view.awards.some((a) => a.id === early.awardId),
+    'la anticipada se ha hecho definitiva al cerrar',
+  );
+  assert.equal((await last.view(cid)).election.early?.choices.length ?? 0, 0);
+
+  const absent = async () => {
+    const raw = await s.load(cid);
+    assert.ok(!raw.awards.some((a) => a.id === early.awardId), 'tampoco queda oculta en la base de datos');
+    assert.ok(!view.election.state.earlyChoices?.some((e) => e.awardId === early.awardId));
+    assert.equal((await last.view(cid)).election.early?.choices.length ?? 0, 0);
+  };
+  for (let i = 0; i < 3; i++) {
+    assert.ok(view.election.undo);
+    view = await run(s, { action: 'election_undo', historyId: view.election.undo });
+    await absent();
+  }
+  for (let i = 0; i < 2; i++) {
+    assert.ok(view.election.redo);
+    view = await run(s, { action: 'election_redo', historyId: view.election.redo });
+    await absent();
+  }
+  assert.equal(view.election.turn.memberId, b.id);
+  view = await run(s, { action: 'election_redo', historyId: view.election.redo });
+  assert.equal(view.election.state.status, 'complete');
+  assert.equal(view.awards.length, total);
+  assert.ok(
+    view.awards.some((a) => a.id === early.awardId),
+    'solo el rehacer del cierre la devuelve',
+  );
+  view = await run(s, { action: 'election_undo', historyId: view.election.undo });
+  await absent();
+  // Choosing again instead of redoing must leave the last controller's turn editable.
+  view = await run(s, { action: 'choose', memberId: b.id, dates: [finalDate] });
+  assert.equal(view.election.state.status, 'active');
+  assert.equal(view.election.turn.memberId, c.id);
+  await absent();
+});
+
 test('un deshacer que anula una anticipada discreta se lo avisa a su titular, sin que lo vea nadie', async () => {
   const { s, person, run, cid, repo, b, dates } = await election();
   await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
