@@ -8,6 +8,7 @@ import {
 import { env, waitUntil } from 'cloudflare:workers';
 import { federatedAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
+import { databaseDiagnostics, logServerFailure } from '../../../server/database-diagnostics';
 import { Service, principal, ApiError, advanceExpiredTurns } from '../../../server/service';
 import { resolveControllerPreview } from '../../../server/controller-preview';
 import { documentation } from '../../../server/documentation';
@@ -24,12 +25,38 @@ export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) =>
   Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
 async function serve(request: Request) {
+  const started = performance.now();
+  const requestId = crypto.randomUUID();
+  const family = new URL(request.url).pathname.split('/')[2];
+  const knownFamilies = [
+    'diagnostics',
+    'auth-config',
+    'session',
+    'revision',
+    'index',
+    'campaign',
+    'election',
+    'notifications',
+    'local-admin',
+    'cli-auth',
+    'va',
+    'hr',
+    'users',
+    'people',
+    'restore',
+  ];
+  const route = '/api/' + (knownFamilies.includes(family) ? family : 'other');
+  const context = { requestId, route, method: request.method };
+  let phase = 'binding';
   try {
     const url = new URL(request.url),
       path = url.pathname.slice(5).split('/');
     const bindings = env as any;
-    if (!bindings.DB) return reply({ error: 'El almacenamiento todavía no está disponible' }, 503);
-    const repo = new D1Repository(bindings.DB);
+    if (!bindings.DB) {
+      logServerFailure(new Error('Missing database binding'), context, 'binding', performance.now() - started);
+      return reply({ error: 'El almacenamiento todavía no está disponible', requestId }, 503);
+    }
+    const repo = new D1Repository(bindings.DB, context);
     if (path[0] === 'cli-auth' && ['join', 'logout'].includes(path[1]) && request.method === 'POST') {
       if (!request.headers.get('content-type')?.startsWith('application/json'))
         throw new ApiError('Usa contenido JSON', 415);
@@ -58,8 +85,15 @@ async function serve(request: Request) {
       const vaExpired = await advanceVaElections(repo).catch(() => ({ applied: 0, errors: 1 }));
       return reply({ ...(await dispatchNotifications(repo, bindings)), expired, vaExpired });
     }
+    phase = 'authentication';
     const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '', bindings, repo).authenticate(request);
+    phase = 'authorization';
     const actor = await principal(repo, user, bindings.SUPERADMIN_EMAILS ?? '');
+    phase = 'handler';
+    if (path[0] === 'diagnostics' && path[1] === 'database' && path.length === 2 && request.method === 'GET') {
+      const result = await databaseDiagnostics(repo, actor, context);
+      return reply(result, result.ok ? 200 : 503);
+    }
     const service = new Service(repo, actor);
     const previewCode = url.searchParams.get('verComo');
     if (previewCode !== null && (!path[1] || !['campaign', 'election'].includes(path[0])))
@@ -309,10 +343,12 @@ async function serve(request: Request) {
     throw new ApiError('Ruta no encontrada', 404);
   } catch (e: any) {
     const status = e.status ?? 500;
+    if (status >= 500) logServerFailure(e, context, phase, performance.now() - started);
     return reply(
       {
         error:
           status === 500 ? 'No se pudo guardar la operación. Tus cambios anteriores siguen protegidos.' : e.message,
+        ...(status >= 500 ? { requestId } : {}),
       },
       status,
     );

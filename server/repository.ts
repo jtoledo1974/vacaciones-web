@@ -1,3 +1,5 @@
+import { logServerFailure, type DiagnosticContext } from './database-diagnostics.ts';
+
 export type Statement = {
   sql: string;
   args?: unknown[];
@@ -11,17 +13,32 @@ export interface Repository {
   >;
 }
 export class D1Repository implements Repository {
-  constructor(private db: D1Database) {}
+  constructor(
+    private db: D1Database,
+    private diagnostic?: DiagnosticContext,
+  ) {}
   async all<T = any>(sql: string, args: unknown[] = []) {
-    return (
-      await this.db
-        .prepare(sql)
-        .bind(...args)
-        .all<T>()
-    ).results;
+    const started = performance.now();
+    try {
+      return (
+        await this.db
+          .prepare(sql)
+          .bind(...args)
+          .all<T>()
+      ).results;
+    } catch (error) {
+      if (this.diagnostic) logServerFailure(error, this.diagnostic, 'database_read', performance.now() - started);
+      throw error;
+    }
   }
   async batch(statements: Statement[]) {
-    return this.db.batch(statements.map((s) => this.db.prepare(s.sql).bind(...(s.args ?? []))));
+    const started = performance.now();
+    try {
+      return await this.db.batch(statements.map((s) => this.db.prepare(s.sql).bind(...(s.args ?? []))));
+    } catch (error) {
+      if (this.diagnostic) logServerFailure(error, this.diagnostic, 'database_batch', performance.now() - started);
+      throw error;
+    }
   }
 }
 // D1 rejects any query with more than 100 bound parameters (SQLite allows far more).
