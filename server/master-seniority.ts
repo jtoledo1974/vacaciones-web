@@ -4,7 +4,7 @@ import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
 
 const READ_BLOCK = 100;
-type Entry = { personId: string; date: string; controllerNumber: number; page: number };
+type Entry = { personId: string; date: string; employeeNumber?: number; controllerNumber?: number; page: number };
 // Untrusted request: every field is validated below before use.
 type Body = {
   action?: string;
@@ -41,7 +41,8 @@ export async function masterSeniority(repo: Repository, actor: Principal, body: 
     !dateOK(source.asOf)
   )
     throw new ApiError('Indica título, fecha y SHA-256 de la fuente');
-  const entries: Entry[] = body.entries.map((r) => {
+  const entries = body.entries.map((r) => {
+    const number = r?.employeeNumber ?? r?.controllerNumber;
     if (
       !r ||
       typeof r.personId !== 'string' ||
@@ -49,20 +50,22 @@ export async function masterSeniority(repo: Repository, actor: Principal, body: 
       r.personId.length > 100 ||
       !dateOK(r.date) ||
       r.date > source.asOf ||
-      !Number.isSafeInteger(r.controllerNumber) ||
-      r.controllerNumber < 1 ||
+      typeof number !== 'number' ||
+      !Number.isSafeInteger(number) ||
+      number < 1 ||
+      (r.employeeNumber !== undefined && r.controllerNumber !== undefined && r.employeeNumber !== r.controllerNumber) ||
       !Number.isSafeInteger(r.page) ||
       r.page < 1 ||
       r.page > 10000
     )
       throw new ApiError('Ficha, fecha o referencia del escalafón no válida');
-    return { personId: r.personId, date: r.date, controllerNumber: r.controllerNumber, page: r.page };
+    return { personId: r.personId, date: r.date, controllerNumber: number, page: r.page };
   });
   if (
     new Set(entries.map((r) => r.personId)).size !== entries.length ||
     new Set(entries.map((r) => r.controllerNumber)).size !== entries.length
   )
-    throw new ApiError('Hay personas o números CTA duplicados');
+    throw new ApiError('Hay personas o números de empleado duplicados');
   entries.sort((a, b) => a.personId.localeCompare(b.personId));
   // Block reads keep a 300-row load well under D1's per-invocation query limit.
   const people = new Map<string, { seniority: string; version: number; controller_number: number | null }>();
@@ -76,7 +79,9 @@ export async function masterSeniority(repo: Repository, actor: Principal, body: 
         args: block.map((r) => r.personId),
       },
       {
-        sql: `SELECT id,controller_number FROM people WHERE controller_number IN (${marks})`,
+        sql: `WITH wanted(number) AS (VALUES ${block.map(() => '(?)').join(',')})
+          SELECT id,controller_number FROM people WHERE controller_number IN (SELECT number FROM wanted)
+          UNION SELECT id,controller_number FROM va_external_people WHERE controller_number IN (SELECT number FROM wanted)`,
         args: block.map((r) => r.controllerNumber),
       },
     ]);
@@ -91,10 +96,10 @@ export async function masterSeniority(repo: Repository, actor: Principal, body: 
     if (person.seniority && person.seniority !== entry.date)
       throw new ApiError('Existe una antigüedad distinta: requiere revisión individual', 409);
     if (person.controller_number !== null && person.controller_number !== entry.controllerNumber)
-      throw new ApiError('Existe un número CTA distinto: requiere revisión individual', 409);
+      throw new ApiError('Existe un número de empleado distinto: requiere revisión individual', 409);
     const owner = owners.get(entry.controllerNumber);
     if (owner && owner !== entry.personId)
-      throw new ApiError('El número CTA ' + entry.controllerNumber + ' ya pertenece a otra ficha', 409);
+      throw new ApiError('El número de empleado ' + entry.controllerNumber + ' ya pertenece a otra ficha', 409);
     rows.push({
       ...entry,
       previous: person.seniority,

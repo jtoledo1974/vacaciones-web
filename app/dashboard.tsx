@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import VaSection from './va-section';
 import VaCensusPanel from './va-census-panel';
+import VaElectionPanel from './va-election-panel';
 import CampaignStats from './campaign-stats';
 import { sectionFromPath, sectionPaths, type DashboardSection } from './section-routes';
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
@@ -772,9 +773,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 {nav === 'eleccion'
                   ? 'Elige en tu turno o prepara tu lista. Consulta lo que va quedando libre.'
                   : nav === 'antiguedad'
-                    ? 'Tus días por antigüedad. La elección se abrirá al terminar las vacaciones ordinarias.'
+                    ? 'Tus días por antigüedad. Consulta el calendario, prepara tus preferencias y elige en tu turno.'
                     : vaAdminView
-                      ? 'Censo de toda LECS, accesos y cupos de RRHH. No depende de ningún equipo.'
+                      ? 'Censo de toda LECS, accesos, cupos de RRHH y turnos de elección.'
                       : nav === 'estadisticas'
                         ? 'Cómo avanza la elección en cada equipo y cuánto tarda cada turno.'
                         : 'Cada cambio se guarda en la campaña seleccionada.'}
@@ -1017,7 +1018,10 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
           ) : nav === 'antiguedad' ? (
             <VaSection admin={vaAdmin} viewAs={previewCode && team ? { team, code: previewCode } : null} />
           ) : vaAdminView ? (
-            <VaCensusPanel />
+            <>
+              <VaElectionPanel administration />
+              <VaCensusPanel />
+            </>
           ) : nav === 'administracion' && !adminRole ? (
             <section className="panel empty">
               <ShieldCheck size={32} />

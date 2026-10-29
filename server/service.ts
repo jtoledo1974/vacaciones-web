@@ -303,12 +303,22 @@ export class Service {
     });
   }
   async commit(statements: Statement[]) {
+    const { vaOrdinaryGuards } = await import('./va-election.ts');
+    const vaGuards = await vaOrdinaryGuards(this.repo, statements);
     try {
       return await this.repo.batch([
         ...statements,
+        ...vaGuards,
         { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" },
       ]);
     } catch (e) {
+      if (String(e).includes('va_ordinary_overlap'))
+        throw new ApiError(
+          'El cambio coincide con días de VA ya elegidos. La administración debe resolver el conflicto antes de aplicarlo.',
+          409,
+        );
+      if (/va_duplicate_account|va_duplicate_controller_number/.test(String(e)))
+        throw new ApiError('La cuenta o el número CTA ya pertenece a una persona del censo VA', 409);
       if (String(e).includes('transaction_assertions'))
         throw new ApiError('Otra persona ha actualizado la campaña. Recarga antes de guardar.', 409);
       if (String(e).includes('UNIQUE constraint'))
@@ -946,6 +956,11 @@ export class Service {
       'hr_names',
       'va_quotas',
       'va_quota_sources',
+      'va_campaigns',
+      'va_election_history',
+      'va_reconstructions',
+      'va_external_people',
+      'va_external_accounts',
     ])
       if (tables[key] === undefined) tables[key] = [];
     // Local admin sessions are not backed up. Older backups kept them (and login

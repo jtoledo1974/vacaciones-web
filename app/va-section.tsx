@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from './api-client';
+import VaElectionPanel from './va-election-panel';
 
 type Me = {
   code: string;
@@ -14,7 +15,7 @@ type Me = {
 
 const spanishDate = (iso: string) => iso.split('-').reverse().join('/');
 
-/** The person's VA days, read-only for now. `viewAs` mirrors «ver como» for administrators. */
+/** The person's entitlement details. `viewAs` mirrors «ver como» for administrators. */
 function VaDays({ viewAs, admin }: { viewAs: { team: string; code: string } | null; admin: boolean }) {
   const [va, setVa] = useState<{ year: number | null; me: Me | null } | null>(null),
     [error, setError] = useState('');
@@ -49,19 +50,18 @@ function VaDays({ viewAs, admin }: { viewAs: { team: string; code: string } | nu
           <div className="va-right-main">
             <span>
               {me.years} años de antigüedad
-              {me.controllerNumber !== null && <> · CTA {me.controllerNumber.toLocaleString('es-ES')}</>}
+              {me.controllerNumber !== null && <> · Nº empleado {me.controllerNumber.toLocaleString('es-ES')}</>}
             </span>
             <strong>{me.days ? me.days + (me.days === 1 ? ' día' : ' días') : 'Sin días de VA'}</strong>
           </div>
           <p className="muted">
             Antigüedad en ENAIRE desde el {spanishDate(me.seniority!)}.{' '}
             {me.status === 'entitled'
-              ? `Saldo ${me.days} · todavía no se ha elegido ningún día.`
+              ? `Días reconocidos para el ejercicio: ${me.days}. El saldo y las elecciones se muestran en el calendario de VA.`
               : `Los días de VA empiezan en ${me.firstYear}, el año en que se cumplen 20 años de antigüedad.`}
           </p>
         </>
       )}
-      <p className="muted">La elección de días se abrirá al terminar las vacaciones ordinarias.</p>
     </section>
   );
 }
@@ -74,5 +74,10 @@ export default function VaSection({
   admin: boolean;
   viewAs: { team: string; code: string } | null;
 }) {
-  return <VaDays viewAs={viewAs} admin={admin} />;
+  return (
+    <>
+      {!viewAs && <VaElectionPanel />}
+      <VaDays viewAs={viewAs} admin={admin} />
+    </>
+  );
 }

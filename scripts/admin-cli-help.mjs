@@ -63,6 +63,37 @@ export const HELP = {
     writes: 'No.',
     example: 'node scripts/admin-cli.mjs get va/census',
   },
+  'va-censo': {
+    summary: 'Censo anual de VA en el orden explícito de RRHH, con antigüedad y días congelados al abrir.',
+    usage:
+      'admin-cli.mjs va-censo importar|aplicar fichero.json --year AAAA [--title texto] [--review-token token]\n  admin-cli.mjs va-censo ver --year AAAA',
+    permissions:
+      'Administrador de VA o superadministrador. La copia completa previa requiere superadministrador; el administrador de VA puede usar --no-backup.',
+    writes:
+      'importar solo previsualiza. aplicar requiere el token de esa revisión y crea o sustituye el censo en preparación, nunca una campaña ya abierta.',
+    details: [
+      'JSON: {"year":2027,"people":["id-persona-1","id-persona-2"]}. El orden de people es el de RRHH.',
+      'Las fichas deben tener número de empleado y fecha validados. La vista previa muestra las personas con derecho omitidas y las discrepancias con el número de empleado; no reordena.',
+      'El contenido exacto del fichero se identifica por SHA-256. Las preferencias solo las edita cada titular.',
+    ],
+    example: 'node scripts/admin-cli.mjs va-censo importar censo.json --year 2027 --out revision.json',
+  },
+  'va-personas': {
+    summary: 'Altas y correcciones de TCA, jefes de sala y personal de pasillo sin equipo ordinario.',
+    usage:
+      'admin-cli.mjs va-personas importar|aplicar personas.json [--title texto] [--review-token token]\n  admin-cli.mjs va-personas ver',
+    permissions:
+      'Administrador de VA o superadministrador. La copia completa previa requiere superadministrador; el administrador de VA puede usar --no-backup.',
+    writes:
+      'importar previsualiza; aplicar crea o actualiza las fichas revisadas, sin crear equipos ni campañas ordinarias.',
+    details: [
+      'JSON: {"entries":[{"code":"NICK","label":"Nombre validado","seniority":"2000-01-01","employeeNumber":1234,"category":"tca"}]}',
+      'category admite tca, jefe_sala, pasillo u otro. active:false da de baja la ficha para futuros censos; no reescribe campañas ya abiertas.',
+      'Para corregir un número de empleado usa el id existente. La vista previa y su token vinculan exactamente los datos revisados.',
+      'Tras dar de alta, vincula su acceso en Administración › Antigüedad e incluye su id en va-censo, en el orden de RRHH.',
+    ],
+    example: 'node scripts/admin-cli.mjs va-personas importar personas-sin-equipo.json --out revision.json',
+  },
   post: {
     summary: 'POST /api/<ruta> genérico con un cuerpo JSON.',
     usage: 'admin-cli.mjs post <ruta> <fichero.json|-> [--dry-run] [--no-backup] [--backup-dir dir] [--out fichero]',

@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import CycleTable from './cycle-table';
+import { AvailabilityScale, MonthNavigation } from './calendar-controls';
 import { orderMemberAwards, orderMemberIds, type CycleOrder, type MemberOrder } from '../domain/member-display-order';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
 import { splitPreferences } from './own-cycles';
@@ -552,13 +553,7 @@ export default function CycleCalendar({
           </>
         ) : (
           <>
-            <b>Plazas libres</b>
-            {[4, 3, 2, 1, 0].map((n) => (
-              <span key={n}>
-                <i className={'vac2-key vac2-free-' + n} />
-                {n}
-              </span>
-            ))}
+            <AvailabilityScale />
           </>
         )}
         {ruled && (
@@ -650,15 +645,7 @@ export default function CycleCalendar({
       {view === 'map' && <div className="vac2-month-grid vac2-map">{months.map((_, m) => renderMonth(m, false))}</div>}
       {view === 'calendar' && (
         <>
-          <div className="vac2-month-nav">
-            <button type="button" disabled={activeMonth === 0} onClick={() => setActiveMonth((m) => m - 1)}>
-              ← Anterior
-            </button>
-            <b>{months[activeMonth]}</b>
-            <button type="button" disabled={activeMonth === 11} onClick={() => setActiveMonth((m) => m + 1)}>
-              Siguiente →
-            </button>
-          </div>
+          <MonthNavigation month={activeMonth} label={months[activeMonth]} onChange={setActiveMonth} />
           <div className="vac2-month-grid vac2-calendar">
             {months.map((_, m) => (
               <div className={m === activeMonth ? 'vac2-active-mobile' : 'vac2-hidden-mobile'} key={m}>

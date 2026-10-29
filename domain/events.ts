@@ -68,6 +68,7 @@ export const CAMPAIGN_ACTIONS = [
   'hr_export',
 ] as const;
 export const ADMIN_ACTIONS = [
+  'va_election',
   'va_quotas',
   'va_account',
   'master_seniority',

@@ -45,13 +45,19 @@ async function withServer(
     const route = req.method + ' ' + req.url;
     calls.push(route);
     const json = (status: number, body: unknown, headers: Record<string, string> = {}) => {
-      res.writeHead(status, { 'content-type': 'application/json', ...headers });
+      if (!res.headersSent) res.writeHead(status, { 'content-type': 'application/json', ...headers });
       res.end(JSON.stringify(body));
     };
     let text = '';
     for await (const chunk of req) text += chunk;
     if (text) (bodies[route] ??= []).push(JSON.parse(text));
-    if (fake.slow === route) await new Promise((resolve) => setTimeout(resolve, fake.slowMs ?? 1500));
+    if (fake.slow === route) {
+      // An explicit boundary for cancellation tests: the request reached the
+      // server, but its body/outcome is still pending. No startup-speed guesses.
+      res.writeHead(200, { 'content-type': 'application/json', 'x-test-slow-request': '1' });
+      res.flushHeaders();
+      await new Promise((resolve) => setTimeout(resolve, fake.slowMs ?? 1500));
+    }
     if (fake.browser) {
       const token = req.headers['x-vacaciones-cli-token'];
       assert.equal(req.headers.cookie, undefined);
@@ -94,23 +100,40 @@ async function withServer(
 // declares the access it requests, which runs the same handler a real Ctrl+C would.
 const windowsInterrupt =
   'data:text/javascript,' +
-  encodeURIComponent(`const write = process.stderr.write.bind(process.stderr);
+  encodeURIComponent(`if (process.env.VACACIONES_TEST_INTERRUPT_SLOW === '1') {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (...args) => {
+    const response = await originalFetch(...args);
+    if (response.headers.get('x-test-slow-request') === '1') process.emit('SIGINT');
+    return response;
+  };
+} else {
+const write = process.stderr.write.bind(process.stderr);
 process.stderr.write = (chunk, ...rest) => {
   if (String(chunk).includes('Acceso solicitado')) setTimeout(() => process.emit('SIGINT'), 300);
   return write(chunk, ...rest);
-};`);
+};
+}`);
 
 const scratch = () => mkdtempSync(path.join(tmpdir(), 'admin-cli-'));
 /** Never the real home directory: each test gets its own saved-access file unless it shares one. */
 const tokenFile = () => path.join(scratch(), 'acceso.json');
 
-function cli(origin: string, args: string[], input = '{}', interruptWhen?: RegExp, savedAccess = tokenFile()) {
+function cli(
+  origin: string,
+  args: string[],
+  input = '{}',
+  interruptWhen?: RegExp | 'slow-request',
+  savedAccess = tokenFile(),
+) {
   return new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
     let seen = '';
     const child = execFile(
       process.execPath,
       [
-        ...(interruptWhen && process.platform === 'win32' ? ['--import', windowsInterrupt] : []),
+        ...(interruptWhen && (process.platform === 'win32' || interruptWhen === 'slow-request')
+          ? ['--import', windowsInterrupt]
+          : []),
         'scripts/admin-cli.mjs',
         ...args,
       ],
@@ -121,16 +144,17 @@ function cli(origin: string, args: string[], input = '{}', interruptWhen?: RegEx
           VACACIONES_ADMIN_USER: 'cli',
           VACACIONES_ADMIN_PASSWORD: 'secreto',
           VACACIONES_CLI_TOKEN_FILE: savedAccess,
+          VACACIONES_TEST_INTERRUPT_SLOW: interruptWhen === 'slow-request' ? '1' : '0',
         },
       },
       (error, stdout, stderr) =>
         resolve({ code: error ? ((error as { code?: number }).code ?? 1) : 0, stdout, stderr }),
     );
     child.stdin!.end(input);
-    if (interruptWhen && process.platform !== 'win32')
+    if (interruptWhen && interruptWhen !== 'slow-request' && process.platform !== 'win32')
       child.stderr!.on('data', (chunk) => {
         seen += chunk;
-        if (interruptWhen && interruptWhen.test(seen)) {
+        if (interruptWhen && interruptWhen !== 'slow-request' && interruptWhen.test(seen)) {
           interruptWhen = undefined;
           // Lets the request reach the (slow) fake server before interrupting.
           setTimeout(() => child.kill('SIGINT'), 300);
@@ -364,7 +388,7 @@ test('cancelling during the backup writes nothing', async () => {
   await withServer({ browser: true, joins: ['approved'], slow: 'GET /api/backup' }, async (origin, calls) => {
     const dir = scratch();
     const args = ['post', 'campaign/x', '-', '--browser', '--no-open', '--backup-dir', dir];
-    const r = await cli(origin, args, '{}', /Acceso solicitado/);
+    const r = await cli(origin, args, '{}', 'slow-request');
     assert.equal(r.code, 130, r.stderr);
     assert.ok(!calls.includes('POST /api/campaign/x'));
     assert.equal(calls.at(-1), 'GET /api/backup');
@@ -375,7 +399,7 @@ test('cancelling during the backup writes nothing', async () => {
 test('cancelling during a write waits for its outcome and reports it', async () => {
   await withServer({ browser: true, joins: ['approved'], slow: 'POST /api/campaign/x' }, async (origin, calls) => {
     const args = ['post', 'campaign/x', '-', '--browser', '--no-open', '--no-backup'];
-    const r = await cli(origin, args, '{}', /Acceso solicitado/);
+    const r = await cli(origin, args, '{}', 'slow-request');
     assert.deepEqual(JSON.parse(r.stdout), { ok: true, applied: '/api/campaign/x' });
     assert.equal(calls.at(-1), 'POST /api/campaign/x');
   });

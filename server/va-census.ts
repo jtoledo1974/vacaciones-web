@@ -3,11 +3,12 @@ import { type Repository } from './repository.ts';
 import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
 import { vaDays, vaFirstYear, vaYears } from '../domain/va-entitlement.ts';
+import type { VaElection } from '../domain/va-election.ts';
 
 /**
  * Census for vacaciones de antigüedad (VA): the people of the year's live ordinary
- * campaigns, with seniority and access read from their master records. People outside
- * the eight teams are not modelled yet and will be added by CLI.
+ * campaigns plus external people added by CLI, with seniority and access read from
+ * their master records. Open elections use their frozen participants for myVa.
  */
 export type VaStatus = 'entitled' | 'not_entitled' | 'missing_date';
 export type VaRow = {
@@ -26,7 +27,9 @@ export type VaRow = {
 
 /** Year of the latest live ordinary campaigns: VA are chosen right after them. */
 export async function vaYear(repo: Repository): Promise<number | null> {
-  const rows = await repo.all("SELECT MAX(year) AS year FROM campaigns WHERE scope_key='live'");
+  const rows = await repo.all(
+    "SELECT MAX(year) AS year FROM (SELECT year FROM campaigns WHERE scope_key='live' UNION SELECT year FROM va_campaigns)",
+  );
   return rows[0]?.year ?? null;
 }
 
@@ -51,6 +54,11 @@ async function rows(repo: Repository, year: number): Promise<VaRow[]> {
      WHERE c.scope_key='live' AND c.year=?
      ORDER BY c.team_id,m.position,m.code`,
     [year],
+  );
+  people.push(
+    ...(await repo.all(`SELECT p.id,'' AS team_id,p.code,p.label,p.seniority,p.controller_number,
+    a.principal_key,a.version AS account_version,NULL AS hr_name
+    FROM va_external_people p LEFT JOIN va_external_accounts a ON a.person_id=p.id WHERE p.active=1 ORDER BY p.controller_number`)),
   );
   return people.map((p) => {
     const years = vaYears(p.seniority, year),
@@ -112,13 +120,35 @@ export async function myVa(repo: Repository, actor: Principal, viewAs?: { team: 
   if (viewAs && !admin && !canWrite(actor, viewAs.team))
     throw new ApiError('Solo la administración puede ver los días de VA de otra persona', 403);
   if (!year || (!keys.length && !viewAs)) return { year, admin, me: null };
-  const census = await rows(repo, year);
+  let census = await rows(repo, year);
+  const [campaign] = await repo.all<{ json: string }>('SELECT json FROM va_campaigns WHERE year=?', [year]);
+  const frozen = campaign ? (JSON.parse(campaign.json) as VaElection) : null;
+  if (frozen && frozen.status !== 'preparation') {
+    // Identity links remain current, but a changed/inactive master record must not
+    // change the entitlement or hide an already admitted participant.
+    census = frozen.people.map(
+      (p): VaRow => ({
+        personId: p.id,
+        team: p.team,
+        code: p.code,
+        label: p.label,
+        hrName: null,
+        seniority: p.seniority,
+        controllerNumber: p.controllerNumber,
+        years: vaYears(p.seniority, year),
+        days: p.days,
+        status: p.days > 0 ? 'entitled' : 'not_entitled',
+        account: null,
+      }),
+    );
+  }
   let me: VaRow | null;
   if (viewAs) me = census.find((r) => r.team === viewAs.team && r.code === viewAs.code) ?? null;
   else {
     const linked = await repo.all(
-      `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
-      keys,
+      `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})
+       UNION SELECT person_id FROM va_external_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
+      [...keys, ...keys],
     );
     const ids = new Set(linked.map((r) => r.person_id));
     me = census.find((r) => ids.has(r.personId)) ?? null;
@@ -161,17 +191,18 @@ export async function vaLinkAccount(repo: Repository, actor: Principal, body: Li
   const key = subject ? (provider === 'chatgpt' ? 'chatgpt-email:' + email : 'firebase:' + subject) : null;
   const token = crypto.randomUUID();
   const expected = body.accountVersion;
+  const table = person.personId.startsWith('va-external:') ? 'va_external_accounts' : 'controller_accounts';
   const write = key
     ? expected
       ? {
-          sql: 'UPDATE controller_accounts SET principal_key=?,version=version+1 WHERE person_id=? AND version=?',
+          sql: `UPDATE ${table} SET principal_key=?,version=version+1 WHERE person_id=? AND version=?`,
           args: [key, person.personId, expected],
         }
       : {
-          sql: 'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO NOTHING',
+          sql: `INSERT INTO ${table}(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO NOTHING`,
           args: [person.personId, key],
         }
-    : { sql: 'DELETE FROM controller_accounts WHERE person_id=? AND version=?', args: [person.personId, expected] };
+    : { sql: `DELETE FROM ${table} WHERE person_id=? AND version=?`, args: [person.personId, expected] };
   try {
     await repo.batch([
       write,
@@ -184,7 +215,7 @@ export async function vaLinkAccount(repo: Repository, actor: Principal, body: Li
         id: crypto.randomUUID(),
         actor: actor.id,
         action: 'va_account',
-        teamId: person.team,
+        teamId: person.team || null,
         before: { personId: person.personId, account: person.account },
         after: { personId: person.personId, account: key },
         createdAt: new Date().toISOString(),
@@ -192,6 +223,8 @@ export async function vaLinkAccount(repo: Repository, actor: Principal, body: Li
       { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" },
     ]);
   } catch (e) {
+    if (/va_duplicate_account|UNIQUE/.test(String(e)))
+      throw new ApiError('Esta cuenta ya está vinculada a otra persona', 409);
     if (String(e).includes('transaction_assertions'))
       throw new ApiError('La vinculación cambió. Recarga antes de guardar.', 409);
     throw e;

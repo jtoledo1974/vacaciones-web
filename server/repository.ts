@@ -90,3 +90,26 @@ tableColumns.reconstruction_sessions = ['campaign_id', 'json'];
 tableColumns.hr_names = ['year', 'person_id', 'hr_name'];
 tableColumns.va_quotas = ['year', 'date', 'places'];
 tableColumns.va_quota_sources = ['year', 'title', 'sha256', 'received_at', 'version', 'updated_at'];
+tableColumns.va_campaigns = ['year', 'version', 'json'];
+tableColumns.va_election_history = [
+  'id',
+  'year',
+  'action',
+  'actor',
+  'before_json',
+  'after_json',
+  'created_at',
+  'undone',
+];
+tableColumns.va_reconstructions = ['year', 'working_json', 'steps_json', 'created_at', 'actor'];
+tableColumns.va_external_people = [
+  'id',
+  'code',
+  'label',
+  'seniority',
+  'controller_number',
+  'category',
+  'active',
+  'version',
+];
+tableColumns.va_external_accounts = ['person_id', 'principal_key', 'version'];

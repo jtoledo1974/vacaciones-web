@@ -26,6 +26,17 @@ test('carga fichas maestras con auditoría sin tocar campañas cerradas, eleccio
   const before = await Promise.all(tables.map((t) => repo.all('SELECT * FROM ' + t)));
   const review = await masterSeniority(repo, actor, body);
   assert.equal(review.changed, 2);
+  const modern = {
+    ...body,
+    entries: body.entries.map(({ controllerNumber, ...entry }) => ({ ...entry, employeeNumber: controllerNumber })),
+  };
+  assert.equal((await masterSeniority(repo, actor, modern)).reviewToken, review.reviewToken);
+  await assert.rejects(
+    masterSeniority(repo, actor, {
+      ...body,
+      entries: [{ ...body.entries[0], employeeNumber: body.entries[0].controllerNumber + 1 }],
+    }),
+  );
   assert.equal(
     (await masterSeniority(repo, actor, { ...body, action: 'apply', reviewToken: review.reviewToken })).updated,
     2,
@@ -112,7 +123,7 @@ test('el número CTA se guarda y no puede repetirse en una carga posterior', asy
   };
   await assert.rejects(masterSeniority(repo, actor, later), /ya pertenece a otra ficha/);
   const renumber = { ...body, entries: [{ ...body.entries[0], controllerNumber: 2600 }] };
-  await assert.rejects(masterSeniority(repo, actor, renumber), /número CTA distinto/);
+  await assert.rejects(masterSeniority(repo, actor, renumber), /número de empleado distinto/);
 });
 test('un lote grande se lee en bloques, sin una consulta por ficha', async () => {
   const { repo, body } = await setup();

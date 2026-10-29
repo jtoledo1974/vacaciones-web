@@ -110,10 +110,10 @@ function PersonRow({ row, onSaved }: { row: Row; onSaved: () => Promise<void> })
       {open && (
         <div className="va-person-detail">
           <p className="muted">
-            Equipo {row.team}
+            {row.team ? 'Equipo ' + row.team : 'Sin equipo'}
             {row.seniority && <> · antigüedad {row.seniority.split('-').reverse().join('/')}</>}
             {row.years !== null && <> · {row.years} años</>}
-            {row.controllerNumber !== null && <> · CTA {row.controllerNumber.toLocaleString('es-ES')}</>}
+            {row.controllerNumber !== null && <> · Nº empleado {row.controllerNumber.toLocaleString('es-ES')}</>}
           </p>
           {row.status === 'missing_date' && (
             <p className="muted">La fecha se completa por CLI con la carga de antigüedad maestra.</p>
@@ -214,7 +214,7 @@ export default function VaCensusPanel() {
                 <details className="va-team">
                   <summary>
                     <span>
-                      <b>Equipo {team}</b> · {rows.length} personas
+                      <b>{team ? 'Equipo ' + team : 'Sin equipo'}</b> · {rows.length} personas
                     </span>
                     <span className={'va-tag ' + (left ? 'va-tag-warning' : 'va-tag-ok')}>
                       {left ? left + ' pendientes' : 'Todo listo'}
@@ -230,8 +230,8 @@ export default function VaCensusPanel() {
             );
           })}
           <p className="muted">
-            {census.notEntitled} personas de los equipos no alcanzan los 20 años de antigüedad en {census.year}. Quien
-            no pertenece a ningún equipo se dará de alta por CLI.
+            {census.notEntitled} personas del censo no alcanzan los 20 años de antigüedad en {census.year}. Las altas de
+            personas sin equipo se cargan con sus datos validados y aparecen aquí en «Sin equipo».
           </p>
         </>
       )}

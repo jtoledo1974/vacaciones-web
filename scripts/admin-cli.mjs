@@ -19,6 +19,7 @@
 //   get <ruta>                         GET /api/<ruta>
 //   post <ruta> <fichero.json|->       POST /api/<ruta> con ese cuerpo
 //   va-cupos importar|aplicar|cambiar|ver   plazas diarias de VA que publica RRHH
+//   va-censo importar|aplicar|ver          censo anual en el orden de RRHH
 //   help [orden]                       ayuda detallada: permisos, si escribe, formatos y ejemplo
 //
 // Opciones de post:
@@ -43,6 +44,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { CLI_SESSION_MS, CLI_TOKEN_HEADER } from '../lib/cli-protocol.mjs';
 import { helpText } from './admin-cli-help.mjs';
 import { vaQuotaPlan, vaQuotaSummary } from './va-cupos.mjs';
+import { vaCensusPlan } from './va-censo.mjs';
+import { vaExternalPlan } from './va-personas.mjs';
 
 class CliError extends Error {}
 
@@ -338,6 +341,8 @@ async function main() {
   else if (command === 'campaign' && rest[0]) route = 'campaign/' + encodeURIComponent(rest[0]);
   else if (command === 'get' && rest[0]) route = rest[0];
   else if (command === 'va-cupos') ({ method, route, body, prepare } = vaQuotaPlan(rest, flags, fail));
+  else if (command === 'va-censo') ({ method, route, body } = vaCensusPlan(rest, flags, fail));
+  else if (command === 'va-personas') ({ method, route, body } = vaExternalPlan(rest, flags, fail));
   else if (command === 'post' && rest[0] && rest[1]) {
     method = 'POST';
     route = rest[0];
