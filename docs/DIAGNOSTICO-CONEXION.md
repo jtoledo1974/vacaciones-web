@@ -26,3 +26,12 @@ Las categorías distinguen cuotas diarias, almacenamiento, esquema, restriccione
 Una misma excepción propagada por varias capas de una petición se registra una sola vez, conservando el identificador, fase y duración del primer registro. El seguimiento vive en el contexto de esa petición, sin modificar la excepción ni suprimir errores de otras peticiones. Las causas específicas de conexión tienen prioridad sobre el indicador genérico `D1_ERROR`.
 
 Estos registros permiten acotar futuros fallos; no reconstruyen la excepción de una incidencia anterior ni demuestran por sí solos que el proveedor sea responsable.
+
+## Medición manual de almacenamiento
+
+`GET /api/diagnostics/storage`, solo para superadministradores, devuelve filas y bytes lógicos por tabla y columna, además del tamaño de la fila mayor. Usa agregados SQL: no descarga ni devuelve el contenido de las filas. Recorre las tablas de usuario una sola vez por petición; no hay sondeo automático ni escrituras. Puede consumir lecturas proporcionales al tamaño de la base, por lo que debe ejecutarse manualmente durante una investigación.
+
+Cada petición mide como máximo diez tablas y devuelve `nextOffset`; para continuar se usa `?offset=nextOffset` hasta recibir null. `totalBytes` suma solo la página actual. Así se acota el número de consultas por petición. Los bytes se calculan con `length(CAST(columna AS BLOB))`: incluyen la representación de cada valor, pero no índices, cabeceras, páginas vacías ni otros costes físicos de SQLite. Las tablas se miden por separado; si hay cambios simultáneos, el informe no representa una instantánea transaccional. Un fallo de tabla se señala por categoría y no impide medir las demás.
+
+Los límites de resultado, tamaño de fila y número de consultas tienen categorías diferenciadas. La familia `/api/backup` se identifica en los registros y el CLI conserva el `requestId` que devuelve un error HTTP.
+`GET /api/diagnostics/backup?table=audit` reproduce una sola lectura de la copia (solo tablas incluidas en el backup). Requiere superadministrador y devuelve únicamente éxito, número de filas, duración, categoría y requestId; nunca las filas. Puede leer toda la tabla elegida y debe usarse manualmente después de medir su tamaño.

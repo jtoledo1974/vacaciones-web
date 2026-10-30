@@ -16,6 +16,11 @@ export function databaseFailure(error: unknown): string {
   if (/daily row read limit/i.test(message)) return 'd1_read_limit';
   if (/daily row write limit/i.test(message)) return 'd1_write_limit';
   if (/maximum.*storage|maximum DB size|SQLITE_FULL/i.test(message)) return 'd1_storage_limit';
+  if (/response.*(too large|size limit|exceed)|result.*(too large|size limit)|serialization.*limit/i.test(message))
+    return 'd1_result_limit';
+  if (/SQLITE_TOOBIG|string or blob too big|row.*too (large|big)/i.test(message)) return 'd1_row_limit';
+  if (/too many SQL variables|too many (statements|queries)|maximum.*(queries|statements)/i.test(message))
+    return 'd1_query_limit';
   if (/no such table|no such column|SQLITE_SCHEMA/i.test(message)) return 'schema_error';
   if (/SQLITE_CONSTRAINT|constraint failed/i.test(message)) return 'constraint_error';
   if (/syntax error|SQLITE_ERROR/i.test(message)) return 'query_error';

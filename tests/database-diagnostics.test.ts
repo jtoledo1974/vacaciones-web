@@ -84,6 +84,9 @@ test('clasifica cuotas, almacenamiento, reinicio y errores SQL a través de caus
     ['D1_ERROR: connection reset', 'connection_error'],
     ['D1_EXEC_ERROR: fetch failed', 'connection_error'],
     ['D1_ERROR: internal failure', 'd1_error'],
+    ['D1_ERROR: response size limit exceeded', 'd1_result_limit'],
+    ['D1_ERROR: SQLITE_TOOBIG', 'd1_row_limit'],
+    ['D1_ERROR: too many SQL variables', 'd1_query_limit'],
   ])
     assert.equal(databaseFailure(new Error('wrapper', { cause: new Error(message) })), category);
   const cyclic = new Error('private unexpected message');

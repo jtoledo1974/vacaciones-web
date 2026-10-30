@@ -9,6 +9,7 @@ import { env, waitUntil } from 'cloudflare:workers';
 import { federatedAuthenticator } from '../../../server/auth';
 import { D1Repository } from '../../../server/repository';
 import { databaseDiagnostics, logServerFailure } from '../../../server/database-diagnostics';
+import { storageDiagnostics, backupTableDiagnostics } from '../../../server/storage-diagnostics';
 import { Service, principal, ApiError, advanceExpiredTurns } from '../../../server/service';
 import { resolveControllerPreview } from '../../../server/controller-preview';
 import { documentation } from '../../../server/documentation';
@@ -44,6 +45,7 @@ async function serve(request: Request) {
     'users',
     'people',
     'restore',
+    'backup',
   ];
   const route = '/api/' + (knownFamilies.includes(family) ? family : 'other');
   const context = { requestId, route, method: request.method };
@@ -92,6 +94,14 @@ async function serve(request: Request) {
     phase = 'handler';
     if (path[0] === 'diagnostics' && path[1] === 'database' && path.length === 2 && request.method === 'GET') {
       const result = await databaseDiagnostics(repo, actor, context);
+      return reply(result, result.ok ? 200 : 503);
+    }
+    if (path[0] === 'diagnostics' && path[1] === 'storage' && path.length === 2 && request.method === 'GET') {
+      const result = await storageDiagnostics(repo, actor, context, Number(url.searchParams.get('offset') ?? 0));
+      return reply(result, result.ok ? 200 : 503);
+    }
+    if (path[0] === 'diagnostics' && path[1] === 'backup' && path.length === 2 && request.method === 'GET') {
+      const result = await backupTableDiagnostics(repo, actor, context, url.searchParams.get('table') ?? '');
       return reply(result, result.ok ? 200 : 503);
     }
     const service = new Service(repo, actor);

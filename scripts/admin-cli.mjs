@@ -455,7 +455,13 @@ async function main() {
     }
     if (!r.ok) {
       process.exitCode = 1;
-      console.error('Error ' + r.status + ': ' + (r.data?.error ?? JSON.stringify(r.data)));
+      console.error(
+        'Error ' +
+          r.status +
+          ': ' +
+          (r.data?.error ?? JSON.stringify(r.data)) +
+          (r.data?.requestId ? ' [requestId: ' + r.data.requestId + ']' : ''),
+      );
       return;
     }
     if (command === 'va-cupos' && method === 'POST') console.error(vaQuotaSummary(r.data, rest[0]));
