@@ -265,6 +265,24 @@ export function appendIfChanged(event: AppendInput): Statement {
   const { sql, args } = append(event);
   return { sql: sql.replace(/ VALUES\((.*)\)$/, ' SELECT $1 WHERE changes()=1'), args };
 }
+/** SQL-only eligibility guard: never discard a session's sole surviving copy. */
+export function originalEventCopiesMatchSQL(event: string): string {
+  return `EXISTS (SELECT 1 FROM audit a WHERE a.id=json_extract(${event},'$.id')
+    AND json_valid(a.before_json) AND json_valid(a.after_json)
+    AND json_extract(a.before_json,'$.awards') IS json_extract(${event},'$.before.awards')
+    AND json_extract(a.before_json,'$.requests') IS json_extract(${event},'$.before.requests')
+    AND json_extract(a.before_json,'$.preferences') IS json_extract(${event},'$.before.preferences')
+    AND json_extract(a.after_json,'$.impact') IS json_extract(${event},'$.after.impact'))`;
+}
+
+/** Maintenance metadata contains the confirmed plan, not historical snapshot data. */
+export function maintenanceCleanupEvent(actor: string | null, plan: unknown, token: string): Statement {
+  return {
+    sql: "INSERT INTO audit(id,actor,action,before_json,after_json,created_at) VALUES(?,?,'maintenance_cleanup',NULL,?,?)",
+    args: [crypto.randomUUID(), actor, JSON.stringify({ plan, token }), new Date().toISOString()],
+  };
+}
+
 export function deleteEventsFor(campaignId: string): Statement {
   return { sql: 'DELETE FROM audit WHERE campaign_id=?', args: [campaignId] };
 }

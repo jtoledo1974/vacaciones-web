@@ -5,6 +5,14 @@ import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import type { Award } from '../domain/vacations.ts';
 import { appliedAudit, eventsFor } from '../server/audit-context.ts';
+import { previewCleanup, applyCleanup } from '../server/cleanup.ts';
+import { backupManifest, backupPage } from '../server/backup-v2.ts';
+import { downloadBackup } from '../lib/backup-v2.mjs';
+import { restoreArchive } from '../scripts/restore-backup-v2.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 type HistoryCandidate = {
   kind?: string;
   archived?: boolean;
@@ -83,6 +91,79 @@ async function archivedAnticipatedFixture() {
     v = await act(s, cid, { action: 'choose', memberId: ids[i], dates: [dates[i === 0 ? 4 : i === 1 ? 5 : i]] });
   return { ...f, target, branch: v };
 }
+
+test('compactar duplicados y restaurar v2 conserva reconstrucción activa, ida/vuelta, cancelación y undo/redo', async () => {
+  const { repo, s, cid, ids, target, branch } = await archivedAnticipatedFixture();
+  const dir = mkdtempSync(path.join(tmpdir(), 'vac-reconstruction-v2-'));
+  let restored: SQLiteRepo | undefined;
+  try {
+    await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+    const session = JSON.parse(
+      (await repo.all('SELECT json FROM reconstruction_sessions WHERE campaign_id=?', [cid]))[0].json,
+    );
+    for (const event of session.originalEvents) {
+      const [source] = await repo.all('SELECT before_json,after_json FROM audit WHERE id=?', [event.id]);
+      const before = JSON.parse(source.before_json),
+        after = JSON.parse(source.after_json);
+      Object.assign(event.before, {
+        awards: before.awards,
+        requests: before.requests,
+        preferences: before.preferences,
+      });
+      if (after.impact) event.after.impact = after.impact;
+    }
+    await repo.batch([
+      { sql: 'UPDATE reconstruction_sessions SET json=? WHERE campaign_id=?', args: [JSON.stringify(session), cid] },
+    ]);
+    const before = await s.view(cid);
+    const preview = await previewCleanup(repo, owner, Date.now(), 'compact-reconstruction-events');
+    assert.equal(preview.plan.categories[0].rows, 1);
+    await applyCleanup(repo, owner, { mode: preview.plan.mode, cutoff: preview.plan.cutoff, token: preview.token });
+    assert.deepEqual(await s.view(cid), before);
+    const records: unknown[] = [];
+    await downloadBackup(
+      async (method: string, _route: string, body: unknown) =>
+        method === 'GET' ? backupManifest(repo, owner) : backupPage(repo, owner, body),
+      async (line: string) => {
+        records.push(JSON.parse(line));
+      },
+    );
+    const file = path.join(dir, 'restored.sqlite');
+    await restoreArchive(
+      (async function* () {
+        yield* records;
+      })(),
+      file,
+    );
+    restored = new SQLiteRepo();
+    restored.db.close();
+    restored.db = new DatabaseSync(file);
+    restored.db.exec('PRAGMA foreign_keys=ON');
+    const recovered = new Service(restored, owner);
+    assert.deepEqual(await recovered.view(cid), await s.view(cid));
+    const currentMember = (view: Awaited<ReturnType<Service['view']>>) => {
+      const reconstruction = view.election.reconstruction;
+      assert.ok('current' in reconstruction);
+      assert.ok(reconstruction.current);
+      return reconstruction.current.memberId;
+    };
+    let v = await act(recovered, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+    assert.equal(currentMember(v), ids[1]);
+    v = await act(recovered, cid, { action: 'reconstruction_back' });
+    assert.equal(currentMember(v), ids[0]);
+    v = await act(recovered, cid, { action: 'reconstruction_forward' });
+    assert.equal(currentMember(v), ids[1]);
+    v = await act(recovered, cid, { action: 'reconstruction_cancel' });
+    assert.deepEqual(v.awards, branch.awards);
+    v = await act(recovered, cid, { action: 'election_undo', historyId: v.election.undo });
+    v = await act(recovered, cid, { action: 'election_redo', historyId: v.election.redo });
+    assert.deepEqual(v.awards, branch.awards);
+  } finally {
+    restored?.db.close();
+    repo.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('una rama archivada revisa las anticipadas posteriores y no deja adjudicaciones sin historial', async () => {
   const { s, cid, ids, dates, target, branch } = await archivedAnticipatedFixture();

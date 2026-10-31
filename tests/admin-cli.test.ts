@@ -30,10 +30,35 @@ interface Fake {
   sessionStatus?: number;
 }
 
+const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 function validBackup() {
-  const payload = { format: 'vacaciones-backup-v1', revision: 7, tables: { teams: [{ id: 'D' }] } };
-  return { payload, sha256: createHash('sha256').update(JSON.stringify(payload)).digest('hex') };
+  const payload = { format: 'vacaciones-backup-v2', revision: 7, tables: {}, schema: [], inventory: [] };
+  return { payload, sha256: digest(payload) };
 }
+function finalPage() {
+  const payload = {
+    revision: 7,
+    cursor: { table: 0, row: 0, offset: 1 },
+    chunks: [],
+    next: null,
+    schemaSha256: digest([]),
+  };
+  return { payload, sha256: digest(payload) };
+}
+function validArchive() {
+  const manifest = validBackup(),
+    page = finalPage();
+  return [
+    { kind: 'manifest', ...manifest },
+    { kind: 'page', ...page },
+    { kind: 'complete', chain: digest([manifest.sha256, page.sha256]), pages: 1 },
+  ];
+}
+const readArchive = (file: string) =>
+  readFileSync(file, 'utf8')
+    .trimEnd()
+    .split('\n')
+    .map((line) => JSON.parse(line));
 
 /** Minimal stand-in for the API: records every request the CLI makes. */
 async function withServer(
@@ -44,7 +69,12 @@ async function withServer(
   const bodies: Record<string, unknown[]> = {};
   const joins = [...(fake.joins ?? ['waiting', 'approved'])];
   const logouts = [...(fake.logouts ?? [])];
-  const principal = () => ({ id: 'chatgpt:admin', role: fake.role ?? 'superadmin', teams: fake.teams ?? [], vaAdmin: fake.vaAdmin ?? false });
+  const principal = () => ({
+    id: 'chatgpt:admin',
+    role: fake.role ?? 'superadmin',
+    teams: fake.teams ?? [],
+    vaAdmin: fake.vaAdmin ?? false,
+  });
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const route = req.method + ' ' + req.url;
     calls.push(route);
@@ -76,8 +106,9 @@ async function withServer(
         return (fake.sessionStatus ?? 200) === 200
           ? json(200, { principal: principal() })
           : json(fake.sessionStatus!, { error: 'Sesión CLI pendiente, caducada o revocada' });
-      if (route === 'GET /api/backup')
+      if (route === 'GET /api/backup-v2')
         return json(fake.backupStatus ?? 200, fake.backupStatus ? { error: 'Forbidden' } : validBackup());
+      if (route === 'POST /api/backup-v2/page') return json(200, finalPage());
       if (route === 'GET /api/va/quotas?year=2027')
         return json(200, {
           source: { title: 'Calendario VA 2027', sha256: 'a'.repeat(64) },
@@ -94,7 +125,8 @@ async function withServer(
     if (req.headers.cookie !== COOKIE) return json(401, { error: 'Sin sesión' });
     if (route === 'POST /api/local-admin/logout') return fake.logoutDrops ? req.socket.destroy() : json(200, {});
     if (route === 'GET /api/session') return json(200, { principal: principal() });
-    if (route === 'GET /api/backup') return json(200, fake.backup ?? validBackup());
+    if (route === 'GET /api/backup-v2') return json(200, fake.backup ?? validBackup());
+    if (route === 'POST /api/backup-v2/page') return json(200, finalPage());
     if (req.method === 'POST') return json(fake.postStatus ?? 200, { ok: true, applied: req.url });
     return json(200, { ok: true });
   });
@@ -232,9 +264,9 @@ test('browser authorization pairs once by code, saves the access privately and k
     assert.match(r.stderr, /Acceso solicitado: .*30 días/);
     assert.deepEqual(bodies['POST /api/cli-auth/join'], [{ code }, { code }, { code }]);
     assert.equal(bodies['POST /api/cli-auth/logout'], undefined);
-    assert.deepEqual(calls.slice(-2), ['GET /api/backup', 'POST /api/campaign/x?y=1']);
+    assert.deepEqual(calls.slice(-3), ['GET /api/backup-v2', 'POST /api/backup-v2/page', 'POST /api/campaign/x?y=1']);
     assert.ok(!calls.some((c) => c.includes('local-admin')));
-    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, readdirSync(dir)[0]), 'utf8')), validBackup());
+    assert.deepEqual(readArchive(path.join(dir, readdirSync(dir)[0])), validArchive());
     const stored = JSON.parse(readFileSync(saved, 'utf8'));
     assert.equal(stored.origin, origin);
     assert.equal(stored.code, code);
@@ -323,7 +355,7 @@ test('scoped administrators must explicitly opt out of the superadmin-only full 
       const r = await cli(origin, ['post', 'campaign/x', '-', '--browser'], '{}', undefined, saved);
       assert.equal(r.code, 1);
       assert.match(r.stderr, /--no-backup/);
-      assert.ok(calls.includes('GET /api/backup'));
+      assert.ok(calls.includes('GET /api/backup-v2'));
       assert.ok(!calls.includes('POST /api/campaign/x'));
     },
   );
@@ -435,13 +467,13 @@ test('cancelling while waiting for approval revokes the pending pairing and save
 });
 
 test('cancelling during the backup writes nothing', async () => {
-  await withServer({ browser: true, joins: ['approved'], slow: 'GET /api/backup' }, async (origin, calls) => {
+  await withServer({ browser: true, joins: ['approved'], slow: 'GET /api/backup-v2' }, async (origin, calls) => {
     const dir = scratch();
     const args = ['post', 'campaign/x', '-', '--browser', '--no-open', '--backup-dir', dir];
     const r = await cli(origin, args, '{}', 'slow-request');
     assert.equal(r.code, 130, r.stderr);
     assert.ok(!calls.includes('POST /api/campaign/x'));
-    assert.equal(calls.at(-1), 'GET /api/backup');
+    assert.equal(calls.at(-1), 'GET /api/backup-v2');
     assert.deepEqual(readdirSync(dir), []);
   });
 });
@@ -500,9 +532,14 @@ test('a valid backup is saved privately before the write', async () => {
     const dir = scratch();
     const r = await cli(origin, ['post', 'campaign/x', '-', '--backup-dir', dir]);
     assert.equal(r.code, 0);
-    assert.deepEqual(calls.slice(-3), ['GET /api/backup', 'POST /api/campaign/x', 'POST /api/local-admin/logout']);
+    assert.deepEqual(calls.slice(-4), [
+      'GET /api/backup-v2',
+      'POST /api/backup-v2/page',
+      'POST /api/campaign/x',
+      'POST /api/local-admin/logout',
+    ]);
     const [file] = readdirSync(dir);
-    assert.deepEqual(JSON.parse(readFileSync(path.join(dir, file), 'utf8')), validBackup());
+    assert.deepEqual(readArchive(path.join(dir, file)), validArchive());
     if (process.platform !== 'win32') assert.equal(statSync(path.join(dir, file)).mode & 0o777, 0o600);
   });
 });
@@ -586,7 +623,7 @@ test('va-cupos importar solo previsualiza, sin copia previa; aplicar envía el t
   await withServer({}, async (origin, calls, bodies) => {
     const preview = await cli(origin, ['va-cupos', 'importar', file, '--backup-dir', dir]);
     assert.equal(preview.code, 0, preview.stderr);
-    assert.ok(!calls.includes('GET /api/backup'));
+    assert.ok(!calls.includes('GET /api/backup-v2'));
     const sent = bodies['POST /api/va/quotas'][0] as { action: string; year: number; days: object; source: object };
     assert.equal(sent.action, 'preview');
     assert.equal(sent.year, 2027);
@@ -594,7 +631,7 @@ test('va-cupos importar solo previsualiza, sin copia previa; aplicar envía el t
     assert.equal((sent.source as { title: string }).title, 'cupos.json');
     const apply = await cli(origin, ['va-cupos', 'aplicar', file, '--review-token', 'abc', '--backup-dir', dir]);
     assert.equal(apply.code, 0, apply.stderr);
-    assert.ok(calls.includes('GET /api/backup'));
+    assert.ok(calls.includes('GET /api/backup-v2'));
     assert.deepEqual((bodies['POST /api/va/quotas'][1] as { action: string; reviewToken: string }).reviewToken, 'abc');
   });
   const missing = await cli('http://127.0.0.1:9', ['va-cupos', 'aplicar', file]);

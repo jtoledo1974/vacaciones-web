@@ -83,7 +83,7 @@ test('CLI delegation accepts only scoped administrators and rejects viewers or s
   const va = { id: 'chatgpt:va', role: 'viewer' as const, teams: [], vaAdmin: true };
   for (const delegated of [team, va]) {
     const code = newCode();
-  const token = newToken();
+    const token = newToken();
     assert.equal(canAuthorizeCli(delegated), true);
     const { pairing } = await pairCli(browser(), repo, identity, delegated, code);
     assert.deepEqual(await joinCli(terminal(token), repo, code), { status: 'joined' });
@@ -114,7 +114,8 @@ test('a delegated CLI token never widens team and VA rights, including after gra
   ]);
   const scoped = await principal(repo, teamIdentity, '');
   assert.equal(canAuthorizeCli(scoped), true);
-  const code = newCode(), token = newToken();
+  const code = newCode(),
+    token = newToken();
   const { pairing } = await pairCli(browser(), repo, teamIdentity, scoped, code);
   await joinCli(terminal(token), repo, code);
   await approveCli(browser(), repo, teamIdentity, scoped, pairing);
@@ -138,10 +139,7 @@ test('rejects anonymous, unprivileged, cross-origin, local-admin and recursive p
   const repo = new SQLiteRepo(),
     code = newCode();
   await assert.rejects(pairCli(browser(), repo, null, actor, code), /navegador/);
-  await assert.rejects(
-    pairCli(browser(), repo, identity, { ...actor, role: 'viewer' }, code),
-    /superadministrador/,
-  );
+  await assert.rejects(pairCli(browser(), repo, identity, { ...actor, role: 'viewer' }, code), /superadministrador/);
   await assert.rejects(
     pairCli(new Request(origin, { headers: { Origin: 'https://evil.test' } }), repo, identity, actor, code),
     /Origen/,

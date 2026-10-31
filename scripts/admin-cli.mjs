@@ -15,7 +15,9 @@
 // Órdenes:
 //   login | logout                     empareja la terminal (30 días) o revoca el acceso guardado
 //   session | index | admin | campaign <id>
-//   backup [--out fichero]
+//   backup --out copia.ndjson          copia v2 acotada, con cierre e integridad verificables
+//   cleanup preview [--out plan.json]   solo superadmin; no escribe
+//   cleanup apply plan.json            aplica exactamente el token del plan (máximo 500 por categoría)
 //   get <ruta>                         GET /api/<ruta>
 //   post <ruta> <fichero.json|->       POST /api/<ruta> con ese cuerpo
 //   va-cupos importar|aplicar|cambiar|ver   plazas diarias de VA que publica RRHH
@@ -35,8 +37,21 @@
 // Código de salida 3: se perdió la respuesta del post; puede haberse aplicado.
 // Código de salida 130: cancelado con Ctrl+C o SIGTERM.
 // Cada login cuenta para el límite de 5 intentos en 15 minutos.
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { randomBytes, randomUUID } from 'node:crypto';
+import {
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  linkSync,
+  rmSync,
+  writeFileSync,
+  openSync,
+  closeSync,
+  writeSync,
+  fsyncSync,
+  existsSync,
+} from 'node:fs';
+import { downloadBackup } from '../lib/backup-v2.mjs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { validateImportOrder } from '../domain/import-order.mjs';
@@ -111,17 +126,6 @@ function restrictToOwner(dir) {
   if (acl.status !== 0) fail('No se pudo restringir el acceso a ' + dir + '; no se guarda el acceso');
 }
 
-// Same check the server applies on restore: a backup that fails it cannot be restored.
-function validBackup(b) {
-  return (
-    b?.payload?.format === 'vacaciones-backup-v1' &&
-    b.payload.tables &&
-    typeof b.payload.tables === 'object' &&
-    typeof b.sha256 === 'string' &&
-    b.sha256 === createHash('sha256').update(JSON.stringify(b.payload)).digest('hex')
-  );
-}
-
 function parseArgs(argv) {
   const positional = [];
   const flags = {};
@@ -130,7 +134,7 @@ function parseArgs(argv) {
     if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations', '--help'].includes(a))
       flags[a.slice(2)] = true;
     else if (a === '-h') flags.help = true;
-    else if (['--out', '--backup-dir', '--review-token', '--year', '--title', '--received'].includes(a)) {
+    else if (['--out', '--backup-dir', '--review-token', '--year', '--title', '--received', '--mode'].includes(a)) {
       if (i + 1 >= argv.length) fail('Falta el valor de ' + a);
       flags[a.slice(2)] = argv[++i];
     } else if (a.startsWith('--')) fail('Opción desconocida: ' + a);
@@ -344,7 +348,14 @@ async function main() {
   else if (command === 'va-cupos') ({ method, route, body, prepare } = vaQuotaPlan(rest, flags, fail));
   else if (command === 'va-censo') ({ method, route, body } = vaCensusPlan(rest, flags, fail));
   else if (command === 'va-personas') ({ method, route, body } = vaExternalPlan(rest, flags, fail));
-  else if (command === 'post' && rest[0] && rest[1]) {
+  else if (command === 'cleanup' && rest[0] === 'preview')
+    route = 'cleanup' + (flags.mode ? '?mode=' + encodeURIComponent(flags.mode) : '');
+  else if (command === 'cleanup' && rest[0] === 'apply' && rest[1]) {
+    route = 'cleanup';
+    method = 'POST';
+    const preview = readBody(rest[1]);
+    body = { cutoff: preview.plan?.cutoff, mode: preview.plan?.mode, token: preview.token };
+  } else if (command === 'post' && rest[0] && rest[1]) {
     method = 'POST';
     route = rest[0];
     body = readBody(rest[1]);
@@ -419,7 +430,7 @@ async function main() {
       }
     } else await client.login(VACACIONES_ADMIN_USER, VACACIONES_ADMIN_PASSWORD);
     checkCancelled();
-    // Calendar correction needs a GET of existing data; do it only after authentication.
+    // Calendar correction needs existing data; prepare only after authentication.
     if (prepare) body = await prepare(client);
     if (method === 'POST' && flags['dry-run']) {
       emit({ method, route: '/api/' + route, body });
@@ -428,22 +439,59 @@ async function main() {
     // Previews write nothing: no backup before them.
     const writes =
       method === 'POST' && !['preview_import_roster', 'preview'].includes(body?.action) && !flags['no-backup'];
-    if (writes) {
-      const backup = await client.request('GET', 'backup');
-      if (!backup.ok)
-        fail(
-          'No se pudo obtener la copia previa (' + backup.status + '); no se escribe nada.' +
-            (backup.status === 403
-              ? ' La copia global requiere superadministrador. Para escribir con permisos limitados, usa --no-backup de forma explícita.'
-              : ''),
+    const saveBackup = async (file) => {
+      const partial = file + '.partial';
+      if (existsSync(file)) fail('El destino ya existe: ' + file);
+      const fd = openSync(partial, 'wx', 0o600);
+      try {
+        const result = await downloadBackup(
+          async (method, route, body) => {
+            checkCancelled();
+            const response = await client.request(method, route, body, 'read');
+            if (!response.ok)
+              fail(
+                'Backup HTTP ' +
+                  response.status +
+                  ': ' +
+                  (response.data?.error ?? '') +
+                  (response.data?.requestId ? ' [requestId: ' + response.data.requestId + ']' : '') +
+                  (response.status === 403
+                    ? ' La copia global requiere superadministrador. Para escribir con permisos limitados, usa --no-backup de forma explícita.'
+                    : ''),
+              );
+            return response.data;
+          },
+          async (line) => {
+            const bytes = Buffer.from(line);
+            let offset = 0;
+            while (offset < bytes.length) offset += writeSync(fd, bytes, offset, bytes.length - offset);
+          },
         );
-      if (!validBackup(backup.data))
-        fail('La copia previa no supera la comprobación de integridad; no se escribe nada');
+        fsyncSync(fd);
+        closeSync(fd);
+        linkSync(partial, file);
+        rmSync(partial);
+        console.error('Copia completa: ' + file + ' (cadena SHA-256 ' + result.chain + ')');
+        return result;
+      } catch (e) {
+        try {
+          closeSync(fd);
+        } catch {
+          /* already closed */
+        }
+        rmSync(partial, { force: true });
+        throw e;
+      }
+    };
+    if (command === 'backup') {
+      if (!flags.out) fail('Usa backup --out copia.ndjson para guardar sin acumular la copia en memoria');
+      await saveBackup(flags.out);
+      return;
+    }
+    if (writes) {
       const dir = flags['backup-dir'] ?? 'admin-backups';
       mkdirSync(dir, { recursive: true, mode: 0o700 });
-      const file = path.join(dir, 'antes-' + stamp() + '.json');
-      writePrivate(file, JSON.stringify(backup.data) + '\n');
-      console.error('Copia previa: ' + file + ' (sha256 ' + backup.data.sha256 + ')');
+      await saveBackup(path.join(dir, 'antes-' + stamp() + '.ndjson'));
     }
     checkCancelled();
     // Never retried, and not aborted once sent: the write may already be applied.

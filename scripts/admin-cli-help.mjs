@@ -51,11 +51,28 @@ export const HELP = {
     example: 'node scripts/admin-cli.mjs campaign 385fe18a-391f-4ac9-8056-365136dcf47a --out campana.json',
   },
   backup: {
-    summary: 'Copia de seguridad completa con su huella SHA-256.',
-    usage: 'admin-cli.mjs backup [--out fichero]',
+    summary: 'Copia completa v2 fragmentada con inventario y cadena SHA-256.',
+    usage: 'admin-cli.mjs backup --out copia.ndjson',
     permissions: 'Superadministrador.',
     writes: 'No. Contiene datos personales: guárdala en un lugar privado.',
-    example: 'node scripts/admin-cli.mjs backup --out copia.json',
+    details: [
+      'Escribe en disco sin acumular la base en memoria. Si cambia la base, aborta y elimina el parcial.',
+      'Restauración fuera de línea: node scripts/restore-backup-v2.mjs copia.ndjson destino-nuevo.sqlite. No sobrescribe producción ni un fichero existente.',
+    ],
+    example: 'node scripts/admin-cli.mjs backup --out copia.ndjson',
+  },
+  cleanup: {
+    summary: 'Previsualiza y confirma limpieza conservadora en lotes.',
+    usage:
+      'admin-cli.mjs cleanup preview [--mode compact-reconstruction-events|expired-auth-only] [--out plan.json]\n  admin-cli.mjs cleanup apply plan.json',
+    permissions: 'Exclusivamente superadministrador.',
+    writes:
+      'preview no escribe; apply confirma el token exacto, caduca en 15 minutos y requiere revisión sin cambios. Guarda una copia previa salvo --no-backup.',
+    details: [
+      'No borra audit, sesiones de reconstrucción ni negocio vigente. La compactación solo retira duplicados comprobados contra audit.',
+      'La categoría bytes mide ahorro lógico bruto del lote, no páginas físicas liberadas ni el coste de su nueva auditoría. Solicita otro preview para cada lote.',
+    ],
+    example: 'node scripts/admin-cli.mjs cleanup preview --mode compact-reconstruction-events --out plan.json',
   },
   get: {
     summary: 'GET /api/<ruta> genérico.',

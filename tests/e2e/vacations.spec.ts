@@ -1,6 +1,19 @@
 import { test, expect, type APIRequestContext, type Page, type Request } from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin = 'http://127.0.0.1:5199';
+type BackupTestWindow = Window &
+  typeof globalThis & {
+    __backupLines: string[];
+    __backupClosed: boolean;
+    __backupAborted: boolean;
+    showSaveFilePicker: () => Promise<{
+      createWritable: () => Promise<{
+        write: (line: string) => Promise<void>;
+        close: () => Promise<void>;
+        abort: () => Promise<void>;
+      }>;
+    }>;
+  };
 
 test(
   'se elimina el filtro redundante «Ver vacaciones de» y se conserva la vista Por CTA',
@@ -693,12 +706,12 @@ test('integración: administración agrupada y navegación pública en escritori
   // Global work for all teams is not offered inside a simulation (#65).
   await expect(page.getByRole('heading', { name: 'Estado de la campaña' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Campañas anuales' })).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Descargar copia completa' })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Descargar copia completa v2' })).toBeHidden();
   await page.getByText('Parámetros del ejercicio', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Guardar parámetros' })).toBeVisible();
   await page.getByText('Parámetros del ejercicio', { exact: true }).click();
   await page.getByText('Herramientas avanzadas', { exact: true }).click();
-  await expect(page.getByRole('link', { name: 'Descargar copia completa' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Descargar copia completa v2' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   if (!process.env.CI) await page.screenshot({ path: info.outputPath('administracion-integrada.png'), fullPage: true });
   const anonymous = await browser.newContext({ baseURL: origin });
@@ -1150,10 +1163,54 @@ test('bloqueo, descarga y restauración de backup completo', async ({ page, requ
     await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
   await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByText('Herramientas avanzadas', { exact: true }).click();
-  const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('link', { name: 'Descargar copia completa' }).click();
-  const download = await downloadPromise;
-  await download.saveAs(info.outputPath('backup.json'));
+  // Test-only disk writer shim: production never falls back to an in-memory Blob.
+  await page.evaluate(() => {
+    const w = window as BackupTestWindow;
+    w.__backupLines = [];
+    w.__backupClosed = false;
+    w.__backupAborted = false;
+    w.showSaveFilePicker = async () => ({
+      createWritable: async () => ({
+        write: async (line: string) => {
+          w.__backupLines.push(line);
+        },
+        close: async () => {
+          w.__backupClosed = true;
+        },
+        abort: async () => {
+          w.__backupLines = [];
+          w.__backupAborted = true;
+        },
+      }),
+    });
+  });
+  await page.getByRole('button', { name: 'Descargar copia completa v2' }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as BackupTestWindow).__backupClosed), { timeout: 60000 })
+    .toBe(true);
+  const lines = await page.evaluate(() =>
+    (window as BackupTestWindow).__backupLines.map((line: string) => JSON.parse(line)),
+  );
+  expect(lines[0].payload.format).toBe('vacaciones-backup-v2');
+  expect(lines.at(-1).kind).toBe('complete');
+  await page.evaluate(() => {
+    (window as BackupTestWindow).__backupClosed = false;
+  });
+  await page.route(
+    '**/api/backup-v2/page',
+    (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Escritura concurrente sintética' }),
+      }),
+    { times: 1 },
+  );
+  await page.getByRole('button', { name: 'Descargar copia completa v2' }).click();
+  await expect.poll(() => page.evaluate(() => (window as BackupTestWindow).__backupAborted)).toBe(true);
+  expect(await page.evaluate(() => (window as BackupTestWindow).__backupClosed)).toBe(false);
+  expect(await page.evaluate(() => (window as BackupTestWindow).__backupLines.length)).toBe(0);
+  await expect(page.getByText(/Escritura concurrente sintética/)).toBeVisible();
   const backup = await (await request.get('/api/backup')).json();
   await confirm(page, 'Cerrar equipo C');
   await expect(page.getByText('Campaña cerrada', { exact: true })).toBeVisible();

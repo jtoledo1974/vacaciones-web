@@ -17,6 +17,7 @@ import { HeaderSession, SidebarSession } from './session-identity';
 import CampaignAccessNotice from './campaign-access-notice';
 import { requiresAccountLinkNotice } from './campaign-access-state';
 import { api as apiJson, apiFetch } from './api-client';
+import { downloadBackup } from '../lib/backup-v2.mjs';
 import { resolveLandingCampaign } from './landing-campaign';
 import { runElectionCommand } from './election-command';
 import RosterEditor from './roster-editor';
@@ -1489,33 +1490,52 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         <section className="panel">
                           <h2>Copias de seguridad</h2>
                           <p className="muted">
-                            Descarga una copia JSON con todos los datos y su huella SHA-256. La restauración verifica la
-                            integridad y se aplica en una sola transacción.
+                            La copia completa v2 se escribe por fragmentos en disco y conserva todo el historial. Si hay
+                            cambios durante la descarga se cancela, sin presentar el parcial como una copia válida.
+                            Requiere un navegador con guardado directo a disco (o el CLI). La restauración v2 se
+                            verifica fuera de línea con scripts/restore-backup-v2.mjs; el formulario inferior solo
+                            admite copias v1 pequeñas.
                           </p>
                           <div className="button-row">
-                            {firebaseUser() ? (
-                              <button
-                                className="primary"
-                                disabled={busy}
-                                onClick={async () => {
-                                  try {
-                                    const b = await api('backup');
-                                    download(
-                                      'vacaciones-copia-' + new Date().toISOString().slice(0, 10) + '.json',
-                                      JSON.stringify(b, null, 2),
+                            <button
+                              className="primary"
+                              disabled={busy}
+                              onClick={async () => {
+                                let writable: FileSystemWritableFileStream | undefined;
+                                try {
+                                  const picker = (
+                                    window as Window & {
+                                      showSaveFilePicker?: (options: {
+                                        suggestedName: string;
+                                      }) => Promise<FileSystemFileHandle>;
+                                    }
+                                  ).showSaveFilePicker;
+                                  if (!picker)
+                                    throw new Error(
+                                      'Usa el CLI: node scripts/admin-cli.mjs backup --out copia.ndjson. Este navegador no permite escritura acotada a disco.',
                                     );
-                                  } catch (e: any) {
-                                    setError(e.message);
-                                  }
-                                }}
-                              >
-                                <Download size={16} /> Descargar copia completa
-                              </button>
-                            ) : (
-                              <a className="primary" href="/api/backup?download=1">
-                                <Download size={16} /> Descargar copia completa
-                              </a>
-                            )}
+                                  const handle = await picker({
+                                    suggestedName:
+                                      'vacaciones-copia-' + new Date().toISOString().slice(0, 10) + '.ndjson',
+                                  });
+                                  const writer = await handle.createWritable();
+                                  writable = writer;
+                                  setBusy(true);
+                                  await downloadBackup(
+                                    async (_method: string, path: string, body: unknown) => api(path, body),
+                                    async (line: string) => writer.write(line),
+                                  );
+                                  await writer.close();
+                                } catch (e: unknown) {
+                                  if (writable) await writable.abort().catch(() => {});
+                                  setError(e instanceof Error ? e.message : String(e));
+                                } finally {
+                                  setBusy(false);
+                                }
+                              }}
+                            >
+                              <Download size={16} /> Descargar copia completa v2
+                            </button>
                             <label className="secondary file-label">
                               Restaurar copia
                               <input

@@ -61,3 +61,8 @@ next-env.d.ts
 /*.tsbuildinfo
 
 /admin-backups/
+# Personal backups and offline restored databases must never be committed.
+*.ndjson
+*.sqlite
+*.sqlite-*
+*.partial

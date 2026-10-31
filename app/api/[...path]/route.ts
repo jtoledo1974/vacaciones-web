@@ -22,6 +22,8 @@ import { importVaExternal, vaExternalPeople } from '../../../server/va-external'
 import { vaElectionView, mutateVaElection, importVaElection, advanceVaElections } from '../../../server/va-election';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
 import { approveCli, revokeCli, pairCli, joinCli, cliPairingStatus } from '../../../server/cli-auth';
+import { backupManifest, backupPage } from '../../../server/backup-v2';
+import { previewCleanup, applyCleanup } from '../../../server/cleanup';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) =>
   Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -46,6 +48,8 @@ async function serve(request: Request) {
     'people',
     'restore',
     'backup',
+    'backup-v2',
+    'cleanup',
   ];
   const route = '/api/' + (knownFamilies.includes(family) ? family : 'other');
   const context = { requestId, route, method: request.method };
@@ -113,6 +117,9 @@ async function serve(request: Request) {
     if (preview && request.method === 'POST' && (path[0] !== 'election' || !preview.writable))
       throw new ApiError('La campaña real es de solo lectura en la vista previa', 403);
     if (request.method === 'GET') {
+      if (path[0] === 'backup-v2' && path.length === 1) return reply(await backupManifest(repo, actor));
+      if (path[0] === 'cleanup' && path.length === 1)
+        return reply(await previewCleanup(repo, actor, Date.now(), url.searchParams.get('mode') ?? undefined));
       if (path[0] === 'va' && path[1] === 'external' && path.length === 2)
         return reply(await vaExternalPeople(repo, actor));
       if (path[0] === 'va' && path[1] === 'election' && path.length === 3)
@@ -290,6 +297,9 @@ async function serve(request: Request) {
     } catch {
       throw new ApiError('Contenido JSON no válido');
     }
+    if (path[0] === 'backup-v2' && path[1] === 'page' && path.length === 2)
+      return reply(await backupPage(repo, actor, b));
+    if (path[0] === 'cleanup' && path.length === 1) return reply(await applyCleanup(repo, actor, b));
     if (path[0] === 'notifications' && b.action === 'test')
       return reply(await sendTestPush(repo, actor, b.endpoint, bindings));
     if (path[0] === 'cli-auth' && path[1] === 'approve')
