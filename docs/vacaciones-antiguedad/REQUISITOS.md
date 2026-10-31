@@ -1,6 +1,8 @@
 # Campaña de vacaciones de antigüedad (VA)
 
-Estado: descubrimiento de requisitos. PR inicial; las decisiones de producto se resolverán en entrevista antes de implementar el flujo operativo.
+Estado: **registro histórico de fuentes, requisitos y decisiones tomadas el 28/10/2026**. Los apartados de «pendientes de entrevista», «plan» y «encaje técnico observado» reproducen el estado inicial del descubrimiento, no el funcionamiento actual.
+
+**Estado del producto (31/10/2026):** la campaña VA, los cupos diarios, el censo global, los turnos de dos rondas, las preferencias y los controles administrativos ya están implementados. La documentación del comportamiento vigente está en [GUI.md](GUI.md), el flujo técnico en [ELECCION.md](ELECCION.md) y la operativa real del CLI de cupos en [CUPOS-RRHH.md](CUPOS-RRHH.md). Aún faltan la elección conjunta autogestionada y el cierre/exportación VA al Excel definitivo de RRHH. No debe interpretarse la lista de preguntas históricas como tareas aún sin decidir.
 
 ## Fuentes y trazabilidad
 
@@ -93,7 +95,7 @@ Base inspeccionada: `main`, commit `15f5c3d` (28/10/2026).
 - Las campañas ordinarias conservan su comportamiento y datos.
 - Los permisos reflejan el alcance aprobado; un permiso de equipo no concede implícitamente administración global.
 
-El PR incluye también la operación administrativa de antigüedad maestra descrita en `../ANTIGUEDAD-MAESTRA.md`, publicada para la carga solicitada. Esta operación solo completa `people.seniority`: conserva las instantáneas de campañas ordinarias y no activa VA. Su validación incluye pruebas de permisos, concurrencia, auditoría y conservación de campañas. El motor de VA sigue pendiente de las decisiones de entrevista.
+En esa fase inicial se había publicado la operación administrativa de antigüedad maestra descrita en [ANTIGUEDAD-MAESTRA.md](../ANTIGUEDAD-MAESTRA.md). Posteriormente se implementó el motor VA independiente, documentado en [ELECCION.md](ELECCION.md). Las referencias anteriores a «pendiente de implementar» pertenecen exclusivamente a esta fase histórica.
 
 
 ## Avance del descubrimiento (28/10/2026)
@@ -105,3 +107,60 @@ Se ha localizado el escalafón ordinal de ENAIRE a 31/12/2025, en una fuente de 
 Se cruzó el censo de las campañas reales de 2027 de los ocho equipos con el escalafón, por nombres RRHH y número CTA cuando estaba disponible. El número de empleado de RRHH y el número CTA son identificadores distintos. Los casos sin correspondencia quedaron sin fecha inferida. Este censo de elecciones no representa necesariamente toda la plantilla LECS fuera de los ocho equipos.
 
 La operación de fichas maestras se publicó en Sites v76; la carga solo completa fechas vacías de `people.seniority`. Los datos personales, el PDF y los cruces permanecen fuera del repositorio. Las campañas ordinarias mantienen sus instantáneas independientes.
+
+## Primera ronda de entrevista (28/10/2026)
+
+1. **Alcance:** campaña anual común a toda LECS, con una sola cola por número CTA y un único cupo diario de RRHH.
+2. **Administración:** nuevo rol global de administrador de VA, distinto del responsable de equipo y asignado por un superadministrador.
+3. **Primera versión:** censo y derecho, cupos y dos rondas, y exportación para RRHH. La elección conjunta queda para después; entretanto la gestiona el administrador de VA aplazando turnos y eligiendo en nombre de los afectados, con auditoría.
+
+La interfaz implementada se documenta en [GUI.md](GUI.md), ya no como propuesta.
+4. **Cupos:** los huecos diarios se cargan y corrigen por CLI, sin pantalla. El administrador de VA tiene derecho a editarlos. Ver [CUPOS-RRHH.md](CUPOS-RRHH.md).
+5. **CLI:** su ayuda debe bastar para que un agente lo use sin acceso al código del repositorio.
+
+## Segunda ronda de entrevista (28/10/2026)
+
+1. **Tramos:** la escala de la plantilla es la correcta: 1 día al cumplir 20 años de antigüedad, 2 a los 25, 3 a los 30 y 4 a los 35. Sin tope: un día más cada 5 años (5 a los 40, 6 a los 45), aunque en la práctica nadie llega a 45.
+2. **Corte:** el derecho se tiene en el año natural en que se cumplen los años (corte al 31/12 del ejercicio de las VA). Como las VA se eligen en octubre del año anterior, quien cumple 20 años en 2027 ya elige en la campaña de octubre de 2026.
+3. **Caso de comprobación:** un controlador que pide VA por segunda vez en la campaña de 2026 para 2027 cumplió 20 años en 2026. El cálculo debe reproducirlo con su fecha cargada.
+4. **Participantes (decidido):** toda LECS con derecho, no solo los ocho equipos. El cruce por nombre de la plantilla v1.2 con las campañas de 2027 muestra personas fuera de los equipos: los jefes de sala de `Hoja1` y al menos un TCA. Habrá que darlas de alta en el censo VA con su fecha y número CTA del escalafón; no tienen campaña ordinaria.
+5. Las personas de 2027 sin fecha son incorporaciones recientes: no figuran en el escalafón a 31/12/2025 y no tienen derecho a VA en 2027. Su fecha se completará con el escalafón siguiente.
+6. **Pendiente:** si la fecha base es siempre la antigüedad en ENAIRE del escalafón (la cargada).
+
+## Tercera ronda de entrevista (28/10/2026): turnos
+
+1. **Orden:** el que determina RRHH en su hoja. En la plantilla v1.2 las 69 filas están ordenadas por número CTA ascendente, que en la práctica es antigüedad y, a igual antigüedad, número CTA. La app importa ese orden y avisa si no coincide con el número CTA; no lo recalcula por su cuenta.
+2. **Mecánica:** la de las vacaciones ordinarias, adaptada a días: turnos por orden y lista de preferencias opcional del propio controlador. Con esa lista elige él mismo cómo se usa al llegar su turno: al momento, tras una espera que fija él (1 minuto a 24 horas, para poder elegir antes a mano) o nunca. No hay plazo impuesto: el administrador no salta a nadie ni elige por su cuenta.
+3. **Sin aplazamiento individual:** las normas de VA no lo prevén; solo la elección conjunta de la norma 6. Todos eligen en su turno de la ronda 1.
+
+## Cuarta ronda de entrevista (28/10/2026)
+
+1. Días sin tope: uno más cada 5 años a partir de 20.
+2. El administrador de VA no accede a las ordinarias salvo que también sea responsable de equipo.
+3. Se pueden reabrir las ordinarias; los choques con días VA elegidos se avisan y no se aplican hasta resolverlos.
+4. Un cambio de cupo por debajo de lo ya elegido se rechaza; primero se corrige la elección afectada, con auditoría.
+5. La elección conjunta gestionada por el administrador no exige anotar el consentimiento.
+6. Ningún mes recibe trato especial: si falta en el calendario de RRHH, se trata como cualquier día sin cupo.
+7. La exportación rellena el Excel oficial de RRHH, como en las ordinarias. Falta la versión definitiva de ese Excel.
+
+
+## Situación implementada y pendientes (31/10/2026)
+
+Esta sección sustituye al plan inicial a efectos operativos:
+
+| Área | Situación actual |
+| --- | --- |
+| Derecho y censo | Escala de 20 años y +1 día cada cinco, cálculo al 31/12 del ejercicio; censo global en el orden importado de RRHH, vinculación de cuentas y altas de personas sin equipo por CLI |
+| Cupos | Importación y corrección por CLI con vista previa y token; capacidad por día, sin editor web |
+| Rondas | Primera ronda: un día. Segunda: todo el saldo restante **de una vez, sin selección parcial**; transición automática |
+| Preferencias | Lista personal y privada, aplicación manual, inmediata o con espera configurable de 1 a 1440 minutos |
+| GUI y administración | Calendario diario y mapa anual; elección propia o delegada; pausa, salto motivado, aplazamiento, historial, deshacer/rehacer y reconstrucción |
+| Elección conjunta | El administrador puede aplazar turnos y elegir por otros (hasta tres participantes), pero **no existen invitaciones/aceptaciones entre usuarios** |
+| Exportación VA | **Pendiente** la exportación final al Excel oficial de RRHH; no confundir con la de ordinarias |
+| Ejecución sin navegador | El despacho de elecciones automáticas está integrado en el servidor; su ejecución periódica requiere configuración externa, no acreditada por estos documentos |
+
+La denominación mostrada en la interfaz es «Nº empleado». El antiguo identificador de código `controllerNumber` actúa como alias de `employeeNumber` por compatibilidad; este contrato técnico posterior no debe confundirse con las distinciones de fuentes discutidas durante el descubrimiento.
+
+La norma de dos rondas procede de las fuentes originales, pero **no habilita** que el usuario confirme un saldo parcial en la segunda ronda: la implementación actual lo rechaza. Los cupos no se copian de otro ejercicio y ningún mes ausente se considera disponible.
+
+**Fuentes de verdad para mantenimiento:** [GUI.md](GUI.md), [ELECCION.md](ELECCION.md), [CUPOS-RRHH.md](CUPOS-RRHH.md), el CLI y los módulos `server/va-*.ts` y `domain/va-*.ts`. Esta documentación describe el código; no certifica la activación de VA en producción.
