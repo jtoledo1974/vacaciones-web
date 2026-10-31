@@ -42,6 +42,7 @@ import path from 'node:path';
 import { validateImportOrder } from '../domain/import-order.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { CLI_SESSION_MS, CLI_TOKEN_HEADER } from '../lib/cli-protocol.mjs';
+import { canAuthorizeCli } from '../lib/cli-access.mjs';
 import { helpText } from './admin-cli-help.mjs';
 import { vaQuotaPlan, vaQuotaSummary } from './va-cupos.mjs';
 import { vaCensusPlan } from './va-censo.mjs';
@@ -397,14 +398,6 @@ async function main() {
     }
     // Inside try: a cookie issued before a failed role check is still revoked.
     checkCancelled();
-    if (prepare) body = await prepare(client);
-    if (method === 'POST' && flags['dry-run']) {
-      emit({ method, route: '/api/' + route, body });
-      return;
-    }
-    // Previews write nothing: no backup before them.
-    const writes =
-      method === 'POST' && !['preview_import_roster', 'preview'].includes(body?.action) && !flags['no-backup'];
     if (browser) {
       let ready = command !== 'login' && client.loadSaved(tokenFile);
       if (ready) {
@@ -416,10 +409,8 @@ async function main() {
           client.saved = false;
           ready = false;
         } else if (!session.ok) fail('No se pudo comprobar el acceso guardado (' + session.status + ')');
-        else if (session.data?.principal?.role !== 'superadmin' && session.data?.principal?.vaAdmin !== true)
-          fail(
-            'El acceso guardado ya no tiene rol superadmin ni de administrador de VA: ejecuta logout y vuelve a emparejar',
-          );
+        else if (!canAuthorizeCli(session.data?.principal))
+          fail('El acceso guardado ya no tiene permisos de administración: ejecuta logout y vuelve a emparejar');
       }
       if (!ready) {
         checkCancelled();
@@ -428,9 +419,24 @@ async function main() {
       }
     } else await client.login(VACACIONES_ADMIN_USER, VACACIONES_ADMIN_PASSWORD);
     checkCancelled();
+    // Calendar correction needs a GET of existing data; do it only after authentication.
+    if (prepare) body = await prepare(client);
+    if (method === 'POST' && flags['dry-run']) {
+      emit({ method, route: '/api/' + route, body });
+      return;
+    }
+    // Previews write nothing: no backup before them.
+    const writes =
+      method === 'POST' && !['preview_import_roster', 'preview'].includes(body?.action) && !flags['no-backup'];
     if (writes) {
       const backup = await client.request('GET', 'backup');
-      if (!backup.ok) fail('No se pudo obtener la copia previa (' + backup.status + '); no se escribe nada');
+      if (!backup.ok)
+        fail(
+          'No se pudo obtener la copia previa (' + backup.status + '); no se escribe nada.' +
+            (backup.status === 403
+              ? ' La copia global requiere superadministrador. Para escribir con permisos limitados, usa --no-backup de forma explícita.'
+              : ''),
+        );
       if (!validBackup(backup.data))
         fail('La copia previa no supera la comprobación de integridad; no se escribe nada');
       const dir = flags['backup-dir'] ?? 'admin-backups';

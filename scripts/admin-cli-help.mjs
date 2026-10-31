@@ -5,11 +5,12 @@ export const HELP = {
   login: {
     summary: 'Empareja esta terminal con tu cuenta durante 30 días.',
     usage: 'admin-cli.mjs login [--no-open]',
-    permissions: 'Superadministrador o administrador de VA.',
+    permissions: 'Superadministrador, responsable de equipo con concesión vigente o administrador de VA.',
     writes: 'No toca datos de vacaciones; guarda el acceso en ~/.vacaciones-cli/<host>.json.',
     details: [
       'Abre el navegador en /cli: inicia sesión y aprueba el código que muestra la terminal.',
       'Con --no-open, abre tú esa dirección. El emparejamiento caduca a los cinco minutos.',
+      'Las rutas API siguen comprobando los permisos de cada equipo y función. La copia global requiere superadmin; para escribir como administrador limitado hay que indicar expresamente --no-backup.',
     ],
     example: 'VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs login',
   },
@@ -102,6 +103,7 @@ export const HELP = {
       'Sí, salvo las vistas previas. Antes de escribir guarda una copia previa en ./admin-backups (o --backup-dir).',
     details: [
       'Prefiere las órdenes específicas (va-cupos) cuando existan: validan y explican el resultado.',
+      'Sin rol superadmin no podrás obtener una copia global previa; --no-backup permite escrituras autorizadas sin ella, bajo tu responsabilidad.',
       'Importación de plantilla: sin --review-token solo devuelve el informe.',
     ],
     example: 'node scripts/admin-cli.mjs post people/seniority carga.json --dry-run',

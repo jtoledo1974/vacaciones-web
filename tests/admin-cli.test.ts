@@ -20,6 +20,9 @@ interface Fake {
   postDrops?: boolean;
   loginStatus?: number;
   role?: string;
+  teams?: string[];
+  vaAdmin?: boolean;
+  backupStatus?: number;
   backup?: unknown;
   postStatus?: number;
   logoutDrops?: boolean;
@@ -41,6 +44,7 @@ async function withServer(
   const bodies: Record<string, unknown[]> = {};
   const joins = [...(fake.joins ?? ['waiting', 'approved'])];
   const logouts = [...(fake.logouts ?? [])];
+  const principal = () => ({ id: 'chatgpt:admin', role: fake.role ?? 'superadmin', teams: fake.teams ?? [], vaAdmin: fake.vaAdmin ?? false });
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const route = req.method + ' ' + req.url;
     calls.push(route);
@@ -70,9 +74,15 @@ async function withServer(
       if (route === 'POST /api/cli-auth/logout') return json(logouts.shift() ?? 200, {});
       if (route === 'GET /api/session')
         return (fake.sessionStatus ?? 200) === 200
-          ? json(200, { principal: { role: fake.role ?? 'superadmin' } })
+          ? json(200, { principal: principal() })
           : json(fake.sessionStatus!, { error: 'Sesión CLI pendiente, caducada o revocada' });
-      if (route === 'GET /api/backup') return json(200, validBackup());
+      if (route === 'GET /api/backup')
+        return json(fake.backupStatus ?? 200, fake.backupStatus ? { error: 'Forbidden' } : validBackup());
+      if (route === 'GET /api/va/quotas?year=2027')
+        return json(200, {
+          source: { title: 'Calendario VA 2027', sha256: 'a'.repeat(64) },
+          days: { '2027-02-01': 2 },
+        });
       if (req.method === 'POST' && fake.postDrops) return req.socket.destroy();
       if (req.method === 'POST') return json(fake.postStatus ?? 200, { ok: true, applied: req.url });
       return json(200, { ok: true });
@@ -83,7 +93,7 @@ async function withServer(
         : json(fake.loginStatus!, { error: 'Credenciales no válidas' });
     if (req.headers.cookie !== COOKIE) return json(401, { error: 'Sin sesión' });
     if (route === 'POST /api/local-admin/logout') return fake.logoutDrops ? req.socket.destroy() : json(200, {});
-    if (route === 'GET /api/session') return json(200, { principal: { role: fake.role ?? 'superadmin' } });
+    if (route === 'GET /api/session') return json(200, { principal: principal() });
     if (route === 'GET /api/backup') return json(200, fake.backup ?? validBackup());
     if (req.method === 'POST') return json(fake.postStatus ?? 200, { ok: true, applied: req.url });
     return json(200, { ok: true });
@@ -268,15 +278,55 @@ test('a saved access the server rejects, or for another origin, pairs again', as
   });
 });
 
-test('a saved access that lost superadmin writes nothing', async () => {
-  await withServer({ browser: true, joins: ['approved'], role: 'team_admin' }, async (origin, calls) => {
-    const saved = tokenFile();
-    assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
-    const r = await cli(origin, ['post', 'campaign/x', '-', '--browser', '--no-backup'], '{}', undefined, saved);
-    assert.equal(r.code, 1);
-    assert.match(r.stderr, /superadmin/);
-    assert.ok(!calls.includes('POST /api/campaign/x'));
-  });
+test('saved CLI access works for team and VA administrators with their current grants', async () => {
+  for (const fake of [
+    { browser: true, joins: ['approved'], role: 'team_admin', teams: ['A'] },
+    { browser: true, joins: ['approved'], role: 'viewer', vaAdmin: true },
+  ]) {
+    await withServer(fake, async (origin, calls) => {
+      const saved = tokenFile();
+      assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+      const r = await cli(origin, ['post', 'campaign/x', '-', '--browser', '--no-backup'], '{}', undefined, saved);
+      assert.equal(r.code, 0, r.stderr);
+      assert.ok(calls.includes('POST /api/campaign/x'));
+      assert.ok(!calls.includes('GET /api/backup'));
+    });
+  }
+});
+
+test('saved CLI access stops before writing when all administrator rights are revoked', async () => {
+  const cases: Fake[] = [
+    { browser: true, joins: ['approved'], role: 'team_admin', teams: ['A'] },
+    { browser: true, joins: ['approved'], role: 'viewer', vaAdmin: true },
+  ];
+  for (const fake of cases) {
+    await withServer(fake, async (origin, calls) => {
+      const saved = tokenFile();
+      assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+      fake.teams = [];
+      fake.vaAdmin = false;
+      fake.role = 'viewer';
+      const r = await cli(origin, ['post', 'campaign/x', '-', '--browser', '--no-backup'], '{}', undefined, saved);
+      assert.equal(r.code, 1);
+      assert.match(r.stderr, /permisos de administración/);
+      assert.ok(!calls.includes('POST /api/campaign/x'));
+    });
+  }
+});
+
+test('scoped administrators must explicitly opt out of the superadmin-only full backup', async () => {
+  await withServer(
+    { browser: true, joins: ['approved'], role: 'team_admin', teams: ['A'], backupStatus: 403 },
+    async (origin, calls) => {
+      const saved = tokenFile();
+      assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
+      const r = await cli(origin, ['post', 'campaign/x', '-', '--browser'], '{}', undefined, saved);
+      assert.equal(r.code, 1);
+      assert.match(r.stderr, /--no-backup/);
+      assert.ok(calls.includes('GET /api/backup'));
+      assert.ok(!calls.includes('POST /api/campaign/x'));
+    },
+  );
 });
 
 test('logout revokes the saved access with retries and deletes it', async () => {
@@ -550,4 +600,20 @@ test('va-cupos importar solo previsualiza, sin copia previa; aplicar envía el t
   const missing = await cli('http://127.0.0.1:9', ['va-cupos', 'aplicar', file]);
   assert.equal(missing.code, 1);
   assert.match(missing.stderr, /review-token/);
+});
+
+test('va-cupos cambiar reads the existing calendar only after browser authorization', async () => {
+  await withServer({ browser: true, joins: ['approved'] }, async (origin, calls, bodies) => {
+    const saved = tokenFile();
+    const r = await cli(
+      origin,
+      ['va-cupos', 'cambiar', '2027-02-01', '3', '--browser', '--no-open', '--no-backup'],
+      '{}',
+      undefined,
+      saved,
+    );
+    assert.equal(r.code, 0, r.stderr);
+    assert.deepEqual(calls.slice(-2), ['GET /api/va/quotas?year=2027', 'POST /api/va/quotas']);
+    assert.equal((bodies['POST /api/va/quotas'][0] as { action: string }).action, 'preview');
+  });
 });

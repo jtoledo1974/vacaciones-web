@@ -21,6 +21,8 @@ import {
 import { principal, Service } from '../server/service.ts';
 import { dispatchNotifications } from '../server/notifications.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
+import { canAuthorizeCli } from '../lib/cli-access.mjs';
+import { requireWrite, requireVaAdmin } from '../server/permissions.ts';
 
 const identity = { provider: 'chatgpt', subject: 'owner', email: 'owner@example.test', emailVerified: true };
 const actor = { id: 'chatgpt:owner', role: 'superadmin' as const, teams: [] };
@@ -75,12 +77,69 @@ test('pairing, join and approval delegate the browser identity; secrets are stor
   repo.db.close();
 });
 
-test('rejects anonymous, non-superadmin, cross-origin, local-admin and recursive pairing', async () => {
+test('CLI delegation accepts only scoped administrators and rejects viewers or scope-less team roles', async () => {
+  const repo = new SQLiteRepo();
+  const team = { id: 'chatgpt:team', role: 'team_admin' as const, teams: ['A'] };
+  const va = { id: 'chatgpt:va', role: 'viewer' as const, teams: [], vaAdmin: true };
+  for (const delegated of [team, va]) {
+    const code = newCode();
+  const token = newToken();
+    assert.equal(canAuthorizeCli(delegated), true);
+    const { pairing } = await pairCli(browser(), repo, identity, delegated, code);
+    assert.deepEqual(await joinCli(terminal(token), repo, code), { status: 'joined' });
+    assert.deepEqual(await approveCli(browser(), repo, identity, delegated, pairing), { ok: true, durationDays: 30 });
+    assert.deepEqual(await cliIdentity(call(token), repo), identity);
+  }
+  for (const forbidden of [
+    { id: 'chatgpt:viewer', role: 'viewer' as const, teams: [] },
+    { id: 'chatgpt:empty', role: 'team_admin' as const, teams: [] },
+    { id: null, role: 'superadmin' as const, teams: [] },
+  ]) {
+    assert.equal(canAuthorizeCli(forbidden), false);
+    await assert.rejects(pairCli(browser(), repo, identity, forbidden, newCode()), /requiere/);
+  }
+  repo.db.close();
+});
+
+test('a delegated CLI token never widens team and VA rights, including after grant revocation', async () => {
+  const repo = new SQLiteRepo();
+  await new Service(repo, actor).init();
+  const teamIdentity = { provider: 'chatgpt', subject: 'limited', email: 'limited@example.test', emailVerified: true };
+  await repo.batch([
+    {
+      sql: 'INSERT INTO users(id,provider,subject,role,va_admin) VALUES(?,?,?,?,?)',
+      args: ['limited-user', 'chatgpt', teamIdentity.subject, 'team_admin', 0],
+    },
+    { sql: 'INSERT INTO grants(id,user_id,team_id) VALUES(?,?,?)', args: ['grant-a', 'limited-user', 'A'] },
+  ]);
+  const scoped = await principal(repo, teamIdentity, '');
+  assert.equal(canAuthorizeCli(scoped), true);
+  const code = newCode(), token = newToken();
+  const { pairing } = await pairCli(browser(), repo, teamIdentity, scoped, code);
+  await joinCli(terminal(token), repo, code);
+  await approveCli(browser(), repo, teamIdentity, scoped, pairing);
+
+  const effective = await principal(repo, await cliIdentity(call(token), repo), '');
+  assert.deepEqual(effective.teams, ['A']);
+  assert.doesNotThrow(() => requireWrite(effective, 'A'));
+  assert.throws(() => requireWrite(effective, 'B'), /permiso/);
+  assert.throws(() => requireVaAdmin(effective), /administrador de VA/);
+  await assert.rejects(new Service(repo, effective).backup(), /superadministrador/);
+
+  // The bearer token remains valid, but losing the grant immediately removes its powers.
+  await repo.batch([{ sql: 'DELETE FROM grants WHERE id=?', args: ['grant-a'] }]);
+  const reduced = await principal(repo, await cliIdentity(call(token), repo), '');
+  assert.equal(canAuthorizeCli(reduced), false);
+  assert.throws(() => requireWrite(reduced, 'A'), /permiso/);
+  repo.db.close();
+});
+
+test('rejects anonymous, unprivileged, cross-origin, local-admin and recursive pairing', async () => {
   const repo = new SQLiteRepo(),
     code = newCode();
   await assert.rejects(pairCli(browser(), repo, null, actor, code), /navegador/);
   await assert.rejects(
-    pairCli(browser(), repo, identity, { ...actor, role: 'team_admin' }, code),
+    pairCli(browser(), repo, identity, { ...actor, role: 'viewer' }, code),
     /superadministrador/,
   );
   await assert.rejects(

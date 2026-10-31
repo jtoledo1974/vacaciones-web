@@ -3,8 +3,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api-client';
 import { normalizeCliCode } from '../../lib/cli-protocol.mjs';
+import { canAuthorizeCli } from '../../lib/cli-access.mjs';
 
-type Session = { principal: { role: string }; identity: { email: string } | null };
+type Session = {
+  principal: { id: string | null; role: string; teams: string[]; vaAdmin?: boolean };
+  identity: { email: string } | null;
+};
 type Pairing = { pairing: string; status: string };
 
 export default function CliAuthorization() {
@@ -69,8 +73,8 @@ export default function CliAuthorization() {
         <a href={'/signin-with-chatgpt?return_to=' + encodeURIComponent('/cli')} target="_top">
           Iniciar sesión con ChatGPT
         </a>
-      ) : session.principal.role !== 'superadmin' ? (
-        <p>El CLI de administración requiere superadministrador.</p>
+      ) : !canAuthorizeCli(session.principal) ? (
+        <p>El CLI requiere permisos de superadministrador, responsable de equipo o administrador de VA.</p>
       ) : !pairing ? (
         <form
           onSubmit={(event) => {
@@ -103,12 +107,13 @@ export default function CliAuthorization() {
       ) : pairing.status === 'joined' ? (
         <>
           <p>
-            <strong>La terminal tendrá tus permisos de administración, de lectura y escritura, durante 30 días.</strong>{' '}
+            <strong>La terminal tendrá únicamente tus permisos vigentes de administración, durante 30 días.</strong>{' '}
             Guarda el acceso en su disco y no volverá a pedirlo hasta que caduque.
           </p>
           <p>
             Para retirarlo antes, ejecuta <code>admin-cli logout</code> en esa terminal. Cerrar la sesión de la web no
-            lo revoca. Si pierdes tu rol de superadministrador, el acceso deja de funcionar.
+            lo revoca. Si pierdes todos tus permisos de administración, el CLI deja de funcionar. Cada operación está
+            limitada a los equipos y funciones que puedes administrar.
           </p>
           <button
             disabled={busy}
