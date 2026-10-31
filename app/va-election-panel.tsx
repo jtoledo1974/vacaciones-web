@@ -153,7 +153,10 @@ export default function VaElectionPanel({ administration = false }: { administra
         {error ? (
           <p role="alert">{error}</p>
         ) : (
-          <p>La elección se abrirá después de cargar el censo ordenado de RRHH y cerrar las vacaciones ordinarias.</p>
+          <p>
+            La administración abrirá manualmente la elección tras revisar el censo ordenado de RRHH, cargar por CLI la
+            disponibilidad diaria y cerrar las vacaciones ordinarias.
+          </p>
         )}
       </section>
     );
@@ -313,7 +316,10 @@ export default function VaElectionPanel({ administration = false }: { administra
         </div>
       )}
       {state.status === 'preparation' && (
-        <p>La administración abrirá VA cuando estén cerradas las ordinarias y estén revisados el censo y los cupos.</p>
+        <p>
+          La administración debe abrir VA manualmente tras cerrar las ordinarias, revisar el censo y cargar por CLI la
+          disponibilidad diaria de RRHH. El cierre de ordinarias no inicia la elección automáticamente.
+        </p>
       )}
       {me && state.deferrals[me.id] && <p>Tu turno está aplazado: {state.deferrals[me.id]}</p>}
       {administration && view.admin && (
@@ -392,7 +398,31 @@ export default function VaElectionPanel({ administration = false }: { administra
               >
                 Paso por preferencias
               </button>
-              <button disabled={busy} onClick={() => void mutate({ action: 'reconstruct_finish' })}>
+              <button
+                disabled={busy}
+                onClick={async () => {
+                  if (
+                    await confirm(
+                      <span>
+                        La reconstrucción sustituirá todas las adjudicaciones actuales por las del borrador (
+                        {state.choices.length} días adjudicados). También cambiará la ronda y la cola de turnos.
+                        {state.choices.length === 0 && (
+                          <strong className="confirm-warnings">
+                            El borrador está vacío: se eliminarán todas las adjudicaciones actuales.
+                          </strong>
+                        )}
+                      </span>,
+                      undefined,
+                      {
+                        title: 'Aplicar reconstrucción de VA',
+                        cancelLabel: 'Volver al borrador',
+                        confirmLabel: 'Sustituir elección por el borrador',
+                      },
+                    )
+                  )
+                    await mutate({ action: 'reconstruct_finish' });
+                }}
+              >
                 Aplicar reconstrucción
               </button>
               <button disabled={busy} onClick={() => void mutate({ action: 'reconstruct_cancel' })}>

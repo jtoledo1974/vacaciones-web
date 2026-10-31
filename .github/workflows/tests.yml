@@ -65,7 +65,24 @@ jobs:
         run: pnpm format:check
       - name: TypeScript typecheck
         run: pnpm exec tsc --noEmit -p tsconfig.app.json
-      - run: pnpm test
+      # Execute the same unit-test files as pnpm test, one at a time, so a stuck
+      # worker is attributable to a single file and cannot occupy the runner indefinitely.
+      - name: Unit tests (per-file timeout and diagnostics)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in tests/*.test.ts; do
+            echo "::group::Unit tests: $file"
+            if timeout --signal=TERM --kill-after=10s 120s \
+              node --experimental-transform-types --test --test-timeout=90000 "$file"; then
+              echo "::endgroup::"
+            else
+              status=$?
+              echo "::endgroup::"
+              echo "::error file=$file::Unit tests failed or timed out (exit $status)"
+              exit "$status"
+            fi
+          done
       # The build needs no secrets or Site variables.
       - run: pnpm build
       # Informative until the existing errors are fixed; see docs/PRUEBAS.md.

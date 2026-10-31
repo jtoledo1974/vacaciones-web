@@ -78,6 +78,54 @@ test('VA: una baja o corrección maestra no cambia el derecho ni el acceso conge
   assert.equal((await vaVisibility(repo, omitted)).entry, false);
 });
 
+test('VA: adjudicaciones públicas y motivos administrativos privados', async () => {
+  const repo = await setup();
+  close(repo);
+  await mutate(repo, vaAdmin, { action: 'start' });
+  const reason = 'Motivo administrativo privado de prueba';
+  await mutate(repo, vaAdmin, { action: 'defer', personId: 'A-1', targetId: 'A-2', reason });
+  await mutate(repo, p2, { action: 'choose', dates: [d2] });
+  const management = await vaElectionView(repo, vaAdmin, 2026);
+  assert.equal(management.state?.choices.length, 1);
+  assert.ok(JSON.stringify(management.state?.deferrals).includes(reason));
+  for (const actor of [{ id: null, role: 'viewer' as const, teams: [] }, p1, p2]) {
+    const view = await vaElectionView(repo, actor, 2026);
+    assert.deepEqual(view.state?.deferrals, {});
+    assert.ok(!JSON.stringify(view).includes(reason));
+    assert.deepEqual(view.state?.choices, management.state?.choices, 'adjudicaciones consultables sin autenticación');
+    assert.deepEqual(view.available, management.available, 'disponibilidad agregada sin perder precisión');
+    assert.equal(view.available[d2], 0);
+  }
+});
+
+test('VA: integridad ordinaria ignora ejercicios sin adjudicaciones VA y conserva el año anterior', async () => {
+  const repo = await setup();
+  const writes = [{ sql: 'UPDATE campaigns SET version=version+1', args: [] }];
+  assert.deepEqual(await vaOrdinaryGuards(repo, writes), [], 'censo VA sin elecciones no añade comprobaciones');
+  close(repo);
+  await mutate(repo, vaAdmin, { action: 'start' });
+  await mutate(repo, p1, { action: 'choose', dates: [d1] });
+  const current = await vaOrdinaryGuards(repo, writes);
+  assert.ok(current.length > 0);
+  // Irrelevant historical calendars must not even be parsed. The previous year's
+  // December cycles must still be protected against overlapping January VA.
+  repo.db.exec(`INSERT INTO campaigns(id,team_id,year,created_at,scope_key)
+    SELECT 'historic-'||id,team_id,2020,created_at,'live' FROM campaigns WHERE year=2026;
+    INSERT INTO parameters(campaign_id,json)
+    SELECT id,'invalid historical config' FROM campaigns WHERE year=2020;
+    INSERT INTO campaigns(id,team_id,year,created_at,scope_key)
+    SELECT 'previous-'||id,team_id,2025,created_at,'live' FROM campaigns WHERE year=2026;
+    INSERT INTO parameters(campaign_id,json)
+    SELECT 'previous-'||p.campaign_id,replace(p.json,'2026-','2025-') FROM parameters p JOIN campaigns c ON c.id=p.campaign_id WHERE c.year=2026;`);
+  const related = await vaOrdinaryGuards(repo, writes);
+  assert.equal(related.length, current.length * 2);
+  const args = related.flatMap((s) => s.args ?? []);
+  assert.ok(args.some((arg) => typeof arg === 'string' && arg.startsWith('previous-')));
+  assert.ok(!args.some((arg) => typeof arg === 'string' && arg.startsWith('historic-')));
+  repo.db.exec('DELETE FROM va_election_history; DELETE FROM va_campaigns');
+  assert.deepEqual(await vaOrdinaryGuards(repo, writes), [], 'sin VA no se recorren calendarios históricos');
+});
+
 test('VA: dos rondas independientes, fechas únicas, cupos y confirmación de todo el saldo', async () => {
   const repo = await setup();
   close(repo);
@@ -393,7 +441,7 @@ test('VA: reconstrucción privada, pasos reversibles, aplicación y undo de la r
   await mutate(repo, vaAdmin, { action: 'start' });
   await mutate(repo, p1, { action: 'choose', dates: [d1] });
   await mutate(repo, p2, { action: 'choose', dates: [d2] });
-  const original = (await vaElectionView(repo, p1, 2026)).state?.choices;
+  const original = (await vaElectionView(repo, vaAdmin, 2026)).state?.choices;
   let adminView = await mutate(repo, vaAdmin, { action: 'reconstruct_start' });
   assert.equal(adminView.state?.choices.length, 0);
   const publicView = await vaElectionView(repo, p1, 2026);

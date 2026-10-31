@@ -183,6 +183,16 @@ test(
       await expect(panel.getByRole('heading', { name: 'Elección terminada' })).toBeVisible();
       await panel.getByRole('button', { name: 'Reconstruir desde el principio' }).click();
       await expect(panel).toContainText('Reconstrucción en curso');
+      const beforeApply = await (await request.get('/api/va/election/2027')).json();
+      await panel.getByRole('button', { name: 'Aplicar reconstrucción', exact: true }).click();
+      const applyDialog = page.getByRole('dialog', { name: 'Aplicar reconstrucción de VA', exact: true });
+      await expect(applyDialog).toContainText('El borrador está vacío');
+      await expect(applyDialog).toContainText('se eliminarán todas las adjudicaciones actuales');
+      await applyDialog.getByRole('button', { name: 'Volver al borrador', exact: true }).click();
+      const afterCancel = await (await request.get('/api/va/election/2027')).json();
+      expect(afterCancel.version).toBe(beforeApply.version);
+      expect(afterCancel.reconstructing).toBe(true);
+      expect(afterCancel.state).toEqual(beforeApply.state);
       await panel.getByRole('button', { name: 'Mes anterior' }).click();
       await panel.getByRole('button', { name: '10 de enero: 1 plazas libres', exact: true }).click();
       await panel.getByRole('button', { name: 'Revisar y confirmar' }).click();

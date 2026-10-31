@@ -330,7 +330,7 @@ export async function vaElectionView(repo: Repository, actor: Principal, year: n
         balance: admin || p.id === me ? vaBalance(state, p.id) : null,
       })),
       choices: state.choices,
-      deferrals: state.deferrals,
+      deferrals: admin ? state.deferrals : {},
       source: admin ? state.source : undefined,
     },
     quotas: ctx.quotas,
@@ -497,7 +497,9 @@ export async function vaOrdinaryGuards(repo: Repository, statements: Statement[]
   )
     return [];
   const campaigns = await repo.all<Ordinary>(
-    `SELECT c.id,c.year,c.team_id,c.version,c.status,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.scope_key='live'`,
+    `SELECT c.id,c.year,c.team_id,c.version,c.status,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.scope_key='live'
+       AND EXISTS (SELECT 1 FROM va_campaigns v
+         WHERE v.year IN (c.year,c.year+1) AND json_array_length(v.json,'$.choices')>0)`,
   );
   return campaigns.flatMap((c) => {
     // Config edits and roster imports can change cycle boundaries in this same
