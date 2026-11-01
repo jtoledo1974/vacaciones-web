@@ -283,6 +283,11 @@ export function maintenanceCleanupEvent(actor: string | null, plan: unknown, tok
   };
 }
 
+// Trusted SQL fragments for the read-only diagnostic capture; values remain bound.
+export function diagnosticAuditSelect(projection: string, where: string): string {
+  return `SELECT ${projection} FROM audit WHERE ${where}`;
+}
+
 export function deleteEventsFor(campaignId: string): Statement {
   return { sql: 'DELETE FROM audit WHERE campaign_id=?', args: [campaignId] };
 }

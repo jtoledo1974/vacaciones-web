@@ -24,6 +24,7 @@ import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../s
 import { approveCli, revokeCli, pairCli, joinCli, cliPairingStatus } from '../../../server/cli-auth';
 import { backupManifest, backupPage } from '../../../server/backup-v2';
 import { previewCleanup, applyCleanup } from '../../../server/cleanup';
+import { exportCampaignDiagnostic } from '../../../server/campaign-diagnostic';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) =>
   Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -208,6 +209,19 @@ async function serve(request: Request) {
         });
       if (path[0] === 'index') return reply(await service.list());
       if (path[0] === 'stats') return reply(await service.stats());
+      if (path[0] === 'campaign' && path[1] && path[2] === 'diagnostic' && path.length === 3) {
+        if (preview) throw new ApiError('El diagnóstico no está disponible en vista de controlador', 403);
+        const diagnostic = await exportCampaignDiagnostic(repo, actor, path[1]);
+        const name = `diagnostico-${String(diagnostic.payload.team).replace(/[^a-z0-9_-]/gi, '_')}-${diagnostic.payload.year}.json`;
+        return new Response(JSON.stringify(diagnostic), {
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${name}"`,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          },
+        });
+      }
       if (path[0] === 'campaign' && path[1] && path[2] === 'individual-pdf') {
         // Only the projected, visible awards may be included, including for simulations.
         const summary = liteSummary(await effectiveService.view(path[1]));

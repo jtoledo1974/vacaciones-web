@@ -1,5 +1,11 @@
 # Backup v2 y mantenimiento conservador
 
+Para reproducir incidencias sin tocar producción, consultar la [receta manual de clon local desde un backup](CLON-LOCAL-DESDE-BACKUP.md). Incluye aislamiento de notificaciones, montaje de D1/Miniflare, arranque y comprobaciones; no añade una prueba automática.
+
+## Diagnóstico de un equipo
+
+Como superadmin, descargar `GET /api/campaign/{campaignId}/diagnostic` en una sesión autenticada: exporta únicamente esa campaña **real**, sin simulaciones, con toda su auditoría (orden/rowid originales), reconstrucciones y ejecuciones, más el contexto necesario de personas, permisos, RRHH y estado VA de año/año+1 si existe. No contiene sesiones ni colas push y no es un backup global. Cargarlo únicamente en un SQLite **nuevo** con `node scripts/restore-campaign-diagnostic.mjs diagnostico-A-2027.json destino-nuevo.sqlite` y seguir la [precaución de aislamiento del clon](CLON-LOCAL-DESDE-BACKUP.md). La captura de filas usa un único lote transaccional, precedido de una comprobación de tamaño; límite inicial 24 MB, 413 si no cabe y 409 para repetir si crece entre preparación y captura. No hay que cerrar campañas, pero D1 puede hacer esperar otras peticiones mientras ejecuta las lecturas. El SHA-256 detecta corrupción, no autentica el origen; guardar los archivos fuera del repositorio. No reproduce la administración global ni operaciones VA, ni puede importarse con el restaurador web v1. Requiere desplegar esta ruta; no está disponible por crear el PR.
+
 ## Estado y límites de esta entrega
 
 No se ha fusionado, desplegado ni ejecutado la nueva limpieza en producción. Las rutas v2 requieren la migración `0020_backup_clock.sql`; **el código de este PR no está disponible en el sitio hasta un despliegue aprobado por separado**. No se ha obtenido una copia completa de producción con este código todavía.

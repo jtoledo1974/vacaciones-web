@@ -63,6 +63,7 @@ next-env.d.ts
 /admin-backups/
 # Personal backups and offline restored databases must never be committed.
 *.ndjson
+diagnostico-*.json
 *.sqlite
 *.sqlite-*
 *.partial
