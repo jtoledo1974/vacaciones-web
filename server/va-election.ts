@@ -1,3 +1,4 @@
+import { ordinaryCampaign } from './teams.ts';
 import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
 import { canAdminVa, requireVaAdmin, type Principal } from './permissions.ts';
@@ -63,7 +64,7 @@ async function stored(repo: Repository, year: number) {
 async function ordinary(repo: Repository, year: number) {
   return repo.all<Ordinary>(
     `SELECT c.id,c.year,c.team_id,c.version,c.status,p.json FROM campaigns c
-     JOIN parameters p ON p.campaign_id=c.id WHERE c.year=? AND c.scope_key='live' ORDER BY c.team_id`,
+     JOIN parameters p ON p.campaign_id=c.id WHERE c.year=? AND c.scope_key='live' AND ${ordinaryCampaign('c')} ORDER BY c.team_id`,
     [year],
   );
 }
@@ -190,7 +191,7 @@ async function masterRows(repo: Repository, year: number) {
   }>('SELECT id,code,label,team_id,controller_number,seniority FROM people WHERE active=1 ORDER BY id');
   const members = await repo.all<{ person_id: string; code: string; label: string; team_id: string }>(
     `SELECT m.person_id,m.code,m.label,c.team_id FROM campaign_members m JOIN campaigns c ON c.id=m.campaign_id
-     WHERE c.year=? AND c.scope_key='live' ORDER BY c.team_id,m.position,m.code`,
+     WHERE c.year=? AND c.scope_key='live' AND ${ordinaryCampaign('c')} ORDER BY c.team_id,m.position,m.code`,
     [year],
   );
   const external = await repo.all<(typeof people)[number]>(
@@ -366,11 +367,10 @@ export async function mutateVaElection(
     ctx.quotaVersion,
   ]);
   guards.push(
-    ...assertion("(SELECT COUNT(*) FROM campaigns WHERE year BETWEEN ? AND ? AND scope_key='live')=?", [
-      year - 1,
-      year,
-      ctx.related.length,
-    ]),
+    ...assertion(
+      `(SELECT COUNT(*) FROM campaigns WHERE year BETWEEN ? AND ? AND scope_key='live' AND ${ordinaryCampaign()})=?`,
+      [year - 1, year, ctx.related.length],
+    ),
   );
   for (const c of ctx.related)
     guards.push(...assertion('(SELECT version FROM campaigns WHERE id=?)=?', [c.id, c.version]));
@@ -497,7 +497,7 @@ export async function vaOrdinaryGuards(repo: Repository, statements: Statement[]
   )
     return [];
   const campaigns = await repo.all<Ordinary>(
-    `SELECT c.id,c.year,c.team_id,c.version,c.status,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.scope_key='live'
+    `SELECT c.id,c.year,c.team_id,c.version,c.status,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.scope_key='live' AND ${ordinaryCampaign('c')}
        AND EXISTS (SELECT 1 FROM va_campaigns v
          WHERE v.year IN (c.year,c.year+1) AND json_array_length(v.json,'$.choices')>0)`,
   );

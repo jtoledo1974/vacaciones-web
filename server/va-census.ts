@@ -1,3 +1,4 @@
+import { ordinaryCampaign } from './teams.ts';
 import { canAdminVa, canWrite, requireVaAdmin, type Principal } from './permissions.ts';
 import { type Repository } from './repository.ts';
 import { ApiError } from './errors.ts';
@@ -28,7 +29,7 @@ export type VaRow = {
 /** Year of the latest live ordinary campaigns: VA are chosen right after them. */
 export async function vaYear(repo: Repository): Promise<number | null> {
   const rows = await repo.all(
-    "SELECT MAX(year) AS year FROM (SELECT year FROM campaigns WHERE scope_key='live' UNION SELECT year FROM va_campaigns)",
+    `SELECT MAX(year) AS year FROM (SELECT year FROM campaigns WHERE scope_key='live' AND ${ordinaryCampaign()} UNION SELECT year FROM va_campaigns)`,
   );
   return rows[0]?.year ?? null;
 }
@@ -51,7 +52,7 @@ async function rows(repo: Repository, year: number): Promise<VaRow[]> {
      JOIN people p ON p.id=m.person_id AND p.active=1
      LEFT JOIN controller_accounts a ON a.person_id=p.id
      LEFT JOIN hr_names h ON h.person_id=p.id AND h.year=c.year
-     WHERE c.scope_key='live' AND c.year=?
+     WHERE c.scope_key='live' AND c.year=? AND ${ordinaryCampaign('c')}
      ORDER BY c.team_id,m.position,m.code`,
     [year],
   );

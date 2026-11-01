@@ -75,7 +75,7 @@ export async function backupManifest(repo: Repository, actor: Principal) {
     throw new ApiError('Identificadores rowid no compatibles con este formato; no se inicia una copia parcial', 409);
   const payload = {
     format: 'vacaciones-backup-v2',
-    schemaVersion: 'vacaciones-schema-0020',
+    schemaVersion: 'vacaciones-schema-0021',
     inventory,
     revision: r[0].results[0].revision,
     createdAt: new Date().toISOString(),

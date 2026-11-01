@@ -6,7 +6,8 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import { backupManifest, backupPage, backupColumns } from '../server/backup-v2.ts';
-import { downloadBackup, ArchiveVerifier, firstCursor } from '../lib/backup-v2.mjs';
+import { downloadBackup, ArchiveVerifier, firstCursor, hash } from '../lib/backup-v2.mjs';
+import { Service } from '../server/service.ts';
 import { restoreArchive } from '../scripts/restore-backup-v2.mjs';
 import { previewCleanup, applyCleanup } from '../server/cleanup.ts';
 import { compactSessionSQL } from '../server/reconstruction-compaction.ts';
@@ -435,4 +436,45 @@ test('compress-audit-payloads termina con payloads que no se comprimen y limita 
   const byId = new Map(rows.map((r) => [r.id, decodePayload(r.before_json)]));
   assert.equal(byId.get('opaque'), opaque);
   assert.equal(byId.get('emoji'), emoji);
+});
+
+test('una copia v2 de esquema 0020, sin teams.kind, se restaura en 0021 con todos los equipos ordinarios', async () => {
+  const repo = new SQLiteRepo(),
+    dir = mkdtempSync(path.join(tmpdir(), 'vac-v2-0020-'));
+  const columns = backupColumns.teams;
+  try {
+    await new Service(repo, actor).init();
+    // Rebuild the copy as a 0020 server produced it: no teams.kind in data, manifest or schema.
+    repo.db.exec('ALTER TABLE teams DROP COLUMN kind');
+    backupColumns.teams = columns.filter((c) => c !== 'kind') as typeof columns;
+    const records: ArchiveRecord[] = [];
+    await downloadBackup(requestFor(repo), async (line: string) => {
+      records.push(JSON.parse(line));
+    });
+    const manifest = records[0] as ArchiveRecord & { payload: { schemaVersion: string } };
+    manifest.payload.schemaVersion = 'vacaciones-schema-0020';
+    manifest.sha256 = await hash(manifest.payload);
+    let chain = manifest.sha256;
+    for (const page of records.slice(1, -1)) chain = await hash([chain, page.sha256]);
+    records[records.length - 1].chain = chain;
+
+    const dest = path.join(dir, 'restored.sqlite');
+    await restoreArchive(values(records), dest);
+    const restored = new DatabaseSync(dest);
+    try {
+      assert.deepEqual(
+        restored
+          .prepare('SELECT id,kind FROM teams ORDER BY id')
+          .all()
+          .map((r) => ({ ...r })),
+        ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((id) => ({ id, kind: 'ordinary' })),
+      );
+    } finally {
+      restored.close();
+    }
+  } finally {
+    backupColumns.teams = columns;
+    repo.db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

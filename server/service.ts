@@ -1,3 +1,4 @@
+import { ORDINARY_TEAMS, ordinaryCampaign } from './teams.ts';
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
@@ -99,8 +100,8 @@ export class Service {
   }
   async list() {
     const r = await this.repo.batch([
-      { sql: 'SELECT * FROM teams ORDER BY id' },
-      { sql: 'SELECT * FROM campaigns ORDER BY year DESC,team_id,created_at' },
+      { sql: "SELECT * FROM teams WHERE kind='ordinary' ORDER BY id" },
+      { sql: `SELECT * FROM campaigns WHERE ${ordinaryCampaign()} ORDER BY year DESC,team_id,created_at` },
     ]);
     const campaigns = r[1].results.filter((c) => c.scope_key === 'live' || canWrite(this.actor, c.team_id));
     const accountKeys = [this.actor.id, ...(this.actor.emailKey ? [this.actor.emailKey] : [])].filter(
@@ -123,7 +124,9 @@ export class Service {
   /** Every team's live campaign of the latest year, as anyone may follow it. */
   async stats() {
     if (!this.actor.id) throw new ApiError('Inicia sesión para consultar el estado de las campañas', 401);
-    const live = (await this.repo.all("SELECT id,year FROM campaigns WHERE scope_key='live' ORDER BY team_id")) as {
+    const live = (await this.repo.all(
+      `SELECT id,year FROM campaigns WHERE scope_key='live' AND ${ordinaryCampaign()} ORDER BY team_id`,
+    )) as {
       id: string;
       year: number;
     }[];
@@ -329,8 +332,7 @@ export class Service {
   }
   async init() {
     requireSuper(this.actor);
-    if ((await this.repo.all('SELECT id FROM teams')).length)
-      throw new ApiError('El proyecto ya está inicializado', 409);
+    if ((await this.repo.all(ORDINARY_TEAMS)).length) throw new ApiError('El proyecto ya está inicializado', 409);
     const ops: Statement[] = [{ sql: "INSERT INTO app_state(id,revision) VALUES('main',0)" }];
     for (const t of 'ABCDEFGH') {
       const campaignId = id();
@@ -370,11 +372,11 @@ export class Service {
     checkedConfig(defaultConfig(year), ordinaryScope(year));
     if (rosterYear !== 'latest' && rosterYear !== null && (!Number.isInteger(rosterYear) || rosterYear >= year))
       throw new ApiError('La plantilla de origen debe ser de un ejercicio anterior');
-    const ts = await this.repo.all('SELECT * FROM teams ORDER BY id');
+    const ts = await this.repo.all("SELECT * FROM teams WHERE kind='ordinary' ORDER BY id");
     if (ts.length !== 8) throw new ApiError('Inicializa los ocho equipos primero');
     const prior = copyYear
       ? await this.repo.all(
-          "SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=? AND c.scope_key='live'",
+          `SELECT c.*,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id WHERE c.year=? AND c.scope_key='live' AND ${ordinaryCampaign('c')}`,
           [copyYear],
         )
       : [];
@@ -893,7 +895,7 @@ export class Service {
     requireSuper(this.actor);
     const { row, zip, book } = await this.hrWorkbook(year);
     const campaigns = await this.repo.all(
-      "SELECT id,team_id,status,version FROM campaigns WHERE year=? AND scope_key='live' ORDER BY team_id",
+      `SELECT id,team_id,status,version FROM campaigns WHERE year=? AND scope_key='live' AND ${ordinaryCampaign()} ORDER BY team_id`,
       [year],
     );
     const saved = await this.hrNames(year);
@@ -1046,21 +1048,23 @@ export class Service {
                     ? 'demo'
                     : n === 'people' && k === 'active'
                       ? 1
-                      : k === 'scope_key'
-                        ? 'live'
-                        : k === 'simulation_name'
-                          ? ''
-                          : n === 'preferences' && k === 'persistent'
-                            ? 0
-                            : n === 'preferences' && k === 'active'
-                              ? 1
-                              : n === 'preferences' && k === 'mode'
-                                ? 'immediate'
-                                : n === 'preferences' && k === 'wait_minutes'
-                                  ? 0
-                                  : n === 'preferences' && k === 'labels_json'
-                                    ? '{}'
-                                    : null),
+                      : k === 'kind'
+                        ? 'ordinary'
+                        : k === 'scope_key'
+                          ? 'live'
+                          : k === 'simulation_name'
+                            ? ''
+                            : n === 'preferences' && k === 'persistent'
+                              ? 0
+                              : n === 'preferences' && k === 'active'
+                                ? 1
+                                : n === 'preferences' && k === 'mode'
+                                  ? 'immediate'
+                                  : n === 'preferences' && k === 'wait_minutes'
+                                    ? 0
+                                    : n === 'preferences' && k === 'labels_json'
+                                      ? '{}'
+                                      : null),
           ),
         });
       }

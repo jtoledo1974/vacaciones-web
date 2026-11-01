@@ -38,7 +38,9 @@ export async function restoreArchive(records, filename) {
     for await (const record of records) {
       await verifier.accept(record);
       if (record.kind === 'manifest') {
-        if (verifier.manifest.schemaVersion !== 'vacaciones-schema-0020')
+        // 0020 copies predate teams.kind (migration 0021); its default applies on insert.
+        const legacy = verifier.manifest.schemaVersion === 'vacaciones-schema-0020';
+        if (!legacy && verifier.manifest.schemaVersion !== 'vacaciones-schema-0021')
           throw new Error('Versión de esquema incompatible; utiliza un restaurador compatible con esta copia');
         const excluded = new Set([
           'backup_clock',
@@ -62,6 +64,7 @@ export async function restoreArchive(records, filename) {
             .prepare(`PRAGMA table_info("${name}")`)
             .all()
             .map((r) => r.name)
+            .filter((c) => !(legacy && name === 'teams' && c === 'kind'))
             .sort();
           if (JSON.stringify(actual) !== JSON.stringify([...columns].sort()))
             throw new Error('Columnas incompatibles: ' + name);

@@ -1,3 +1,4 @@
+import { ordinaryCampaign } from './teams.ts';
 import { serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import { assertAnnualScoringConfig, effectiveScoringConfig, scoringVersion } from '../domain/scoring.ts';
@@ -639,7 +640,10 @@ async function executeTransferMember(ctx: CommandContext): Promise<CommandResult
       'El controlador tiene vacaciones en este ejercicio. Corrige sus registros o realiza el cambio en un ejercicio nuevo sin vacaciones.',
     );
   const target = (
-    await repo.all("SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key='live'", [body.targetTeam, c.year])
+    await repo.all(
+      `SELECT * FROM campaigns WHERE team_id=? AND year=? AND scope_key='live' AND ${ordinaryCampaign()}`,
+      [body.targetTeam, c.year],
+    )
   )[0];
   if (!target || target.id === cid || target.status !== 'open')
     throw new ApiError('Elige otro equipo con campaña abierta en el mismo ejercicio');
