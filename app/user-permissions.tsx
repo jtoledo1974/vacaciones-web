@@ -2,6 +2,9 @@
 import { useState } from 'react';
 import { useConfirmation } from './confirmation';
 
+/** VA administrators administer the reserved team 'va' (ADR 0002). */
+const teamLabel = (team: string) => (team === 'va' ? 'VA' : team);
+
 /** Superadmins manage all grants; team administrators only see and alter the selected team. */
 export default function UserForm({ admin, busy, save, team, superuser = false }: any) {
   const confirm = useConfirmation();
@@ -10,8 +13,7 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
     [provider, setProvider] = useState('chatgpt');
   const [role, setRole] = useState('team_admin'),
     [teams, setTeams] = useState<string[]>([]),
-    [expires, setExpires] = useState(''),
-    [vaAdmin, setVaAdmin] = useState(false);
+    [expires, setExpires] = useState('');
   const ownGrants = (user: any) =>
     admin?.grants.filter((g: any) => g.user_id === user.id && (superuser || g.team_id === team)) ?? [];
   const users = (admin?.users ?? []).filter((u: any) => superuser || ownGrants(u).length > 0);
@@ -22,7 +24,6 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
     setRole('team_admin');
     setTeams([]);
     setExpires('');
-    setVaAdmin(false);
   };
   const edit = (u: any) => {
     const grants = ownGrants(u);
@@ -32,7 +33,6 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
     setRole(grants.length ? 'team_admin' : 'viewer');
     setTeams(grants.map((g: any) => g.team_id));
     setExpires(grants[0]?.expires_at?.slice(0, 10) ?? '');
-    setVaAdmin(u.va_admin === 1);
   };
   const submit = async (e: any) => {
     e.preventDefault();
@@ -50,8 +50,6 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
           teamId: team,
           version: existing?.version ?? 0,
           expiresAt: expires ? new Date(expires).toISOString() : null,
-          // Only superadmins assign it; a team administrator's save keeps the stored value.
-          ...(superuser ? { vaAdmin } : {}),
         })
       )?.ok
     )
@@ -78,18 +76,12 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
                   <br />
                   <small>{u.provider}</small>
                 </td>
-                <td>
-                  {u.role === 'team_admin' ? 'Responsable de equipo' : u.va_admin === 1 ? 'Sin equipo' : 'Solo lectura'}
-                  {superuser && u.va_admin === 1 && (
-                    <>
-                      <br />
-                      <small>Administrador de VA</small>
-                    </>
-                  )}
-                </td>
+                <td>{u.role === 'team_admin' ? 'Responsable de equipo' : 'Solo lectura'}</td>
                 <td>
                   {ownGrants(u)
-                    .map((g: any) => g.team_id + (g.expires_at ? ' · hasta ' + g.expires_at.slice(0, 10) : ''))
+                    .map(
+                      (g: any) => teamLabel(g.team_id) + (g.expires_at ? ' · hasta ' + g.expires_at.slice(0, 10) : ''),
+                    )
                     .join(', ') || 'Sin equipos'}
                 </td>
                 <td>
@@ -162,12 +154,6 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
             Caducidad opcional
             <input type="date" value={expires} disabled={busy} onChange={(e) => setExpires(e.target.value)} />
           </label>
-          {superuser && (
-            <label className="va-admin-check">
-              <input type="checkbox" checked={vaAdmin} disabled={busy} onChange={(e) => setVaAdmin(e.target.checked)} />
-              Administrador de VA
-            </label>
-          )}
           <button className="primary" disabled={busy || (superuser && role === 'team_admin' && !teams.length)}>
             Guardar permisos
           </button>
@@ -179,7 +165,7 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
         </div>
         {superuser && (
           <div className="team-checkboxes">
-            {'ABCDEFGH'.split('').map((t) => (
+            {[...'ABCDEFGH', 'va'].map((t) => (
               <label key={t}>
                 <input
                   type="checkbox"
@@ -187,7 +173,7 @@ export default function UserForm({ admin, busy, save, team, superuser = false }:
                   checked={teams.includes(t)}
                   onChange={(e) => setTeams(e.target.checked ? [...teams, t] : teams.filter((x) => x !== t))}
                 />
-                Equipo {t}
+                {t === 'va' ? 'Administrador de VA' : 'Equipo ' + t}
               </label>
             ))}
           </div>

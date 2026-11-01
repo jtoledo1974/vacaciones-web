@@ -8,7 +8,7 @@ import { parseVaCalendar, sheetCells } from '../lib/va-calendar.mjs';
 import type { Principal } from '../server/permissions.ts';
 
 const superadmin: Principal = { id: 'test-admin', role: 'superadmin', teams: [] };
-const vaAdmin: Principal = { id: 'chatgpt:va', role: 'viewer', teams: [], vaAdmin: true };
+const vaAdmin: Principal = { id: 'chatgpt:va', role: 'team_admin', teams: ['va'] };
 const teamAdmin: Principal = { id: 'chatgpt:resp', role: 'team_admin', teams: ['A'] };
 const source = { title: 'Calendario huecos VA 2026', sha256: 'b'.repeat(64), receivedAt: '2026-10-28' };
 

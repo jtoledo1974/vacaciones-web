@@ -80,7 +80,7 @@ test('pairing, join and approval delegate the browser identity; secrets are stor
 test('CLI delegation accepts only scoped administrators and rejects viewers or scope-less team roles', async () => {
   const repo = new SQLiteRepo();
   const team = { id: 'chatgpt:team', role: 'team_admin' as const, teams: ['A'] };
-  const va = { id: 'chatgpt:va', role: 'viewer' as const, teams: [], vaAdmin: true };
+  const va = { id: 'chatgpt:va', role: 'team_admin' as const, teams: ['va'] };
   for (const delegated of [team, va]) {
     const code = newCode();
     const token = newToken();
@@ -107,8 +107,8 @@ test('a delegated CLI token never widens team and VA rights, including after gra
   const teamIdentity = { provider: 'chatgpt', subject: 'limited', email: 'limited@example.test', emailVerified: true };
   await repo.batch([
     {
-      sql: 'INSERT INTO users(id,provider,subject,role,va_admin) VALUES(?,?,?,?,?)',
-      args: ['limited-user', 'chatgpt', teamIdentity.subject, 'team_admin', 0],
+      sql: 'INSERT INTO users(id,provider,subject,role) VALUES(?,?,?,?)',
+      args: ['limited-user', 'chatgpt', teamIdentity.subject, 'team_admin'],
     },
     { sql: 'INSERT INTO grants(id,user_id,team_id) VALUES(?,?,?)', args: ['grant-a', 'limited-user', 'A'] },
   ]);

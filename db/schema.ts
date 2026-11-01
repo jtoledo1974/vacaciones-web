@@ -36,7 +36,6 @@ export const users = sqliteTable(
     subject: text('subject').notNull(),
     role: text('role').notNull(),
     version: integer('version').notNull().default(1),
-    vaAdmin: integer('va_admin').notNull().default(0),
   },
   (t) => [uniqueIndex('identity_unique').on(t.provider, t.subject)],
 );
@@ -339,21 +338,4 @@ export const vaReconstructions = sqliteTable('va_reconstructions', {
   stepsJson: text('steps_json').notNull().default('[]'),
   createdAt: text('created_at').notNull(),
   actor: text('actor').notNull(),
-});
-export const vaExternalPeople = sqliteTable('va_external_people', {
-  id: text('id').primaryKey(),
-  code: text('code').notNull().unique(),
-  label: text('label').notNull(),
-  seniority: text('seniority').notNull(),
-  controllerNumber: integer('controller_number').notNull().unique(),
-  category: text('category').notNull(),
-  active: integer('active').notNull().default(1),
-  version: integer('version').notNull().default(1),
-});
-export const vaExternalAccounts = sqliteTable('va_external_accounts', {
-  personId: text('person_id')
-    .primaryKey()
-    .references(() => vaExternalPeople.id),
-  principalKey: text('principal_key').notNull().unique(),
-  version: integer('version').notNull().default(1),
 });

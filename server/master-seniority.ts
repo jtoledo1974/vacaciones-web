@@ -80,8 +80,7 @@ export async function masterSeniority(repo: Repository, actor: Principal, body: 
       },
       {
         sql: `WITH wanted(number) AS (VALUES ${block.map(() => '(?)').join(',')})
-          SELECT id,controller_number FROM people WHERE controller_number IN (SELECT number FROM wanted)
-          UNION SELECT id,controller_number FROM va_external_people WHERE controller_number IN (SELECT number FROM wanted)`,
+          SELECT id,controller_number FROM people WHERE controller_number IN (SELECT number FROM wanted)`,
         args: block.map((r) => r.controllerNumber),
       },
     ]);

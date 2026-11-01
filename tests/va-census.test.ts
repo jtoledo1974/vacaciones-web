@@ -4,11 +4,11 @@ import { SQLiteRepo } from './sqlite-repo.ts';
 import { Service, principal } from '../server/service.ts';
 import { myVa, vaCensus, vaLinkAccount, vaVisibility } from '../server/va-census.ts';
 import { vaDays, vaYears } from '../domain/va-entitlement.ts';
-import type { Principal } from '../server/permissions.ts';
+import { canAdminVa, type Principal } from '../server/permissions.ts';
 import { decodePayload } from '../server/payload-codec.ts';
 
 const superadmin: Principal = { id: 'test-admin', role: 'superadmin', teams: [] };
-const vaAdmin: Principal = { id: 'chatgpt:va', role: 'viewer', teams: [], vaAdmin: true };
+const vaAdmin: Principal = { id: 'chatgpt:va', role: 'team_admin', teams: ['va'] };
 const teamAdmin: Principal = { id: 'chatgpt:resp', role: 'team_admin', teams: ['A'] };
 // Demo seed: 2026 campaigns, A-1…A-16 with seniority 2001…2016, so 25…10 years.
 async function setup() {
@@ -92,15 +92,16 @@ test('el controlador ve su propio derecho y la entrada de menú solo si particip
   assert.equal((await vaVisibility(repo, { id: null, role: 'viewer', teams: [] })).entry, false);
 });
 
-test('el rol de administrador de VA lo asigna un superadministrador y se suma al de equipo', async () => {
+test('administrar VA es administrar el equipo va: lo asigna un superadministrador y se suma a otros equipos', async () => {
   const repo = await setup();
   const admin = new Service(repo, superadmin);
-  await admin.configureUser({ subject: 'va@ejemplo.es', role: 'team_admin', teams: ['A'], vaAdmin: true, version: 0 });
+  await admin.configureUser({ subject: 'va@ejemplo.es', role: 'team_admin', teams: ['A', 'va'], version: 0 });
   const identity = { provider: 'chatgpt', subject: 'sub-va', email: 'va@ejemplo.es', emailVerified: true };
   const p = await principal(repo, identity, '');
   assert.equal(p.role, 'team_admin');
-  assert.deepEqual(p.teams, ['A']);
-  assert.equal(p.vaAdmin, true);
+  assert.deepEqual(p.teams.sort(), ['A', 'va']);
+  assert.equal(canAdminVa(p), true);
+  assert.equal((await repo.all("SELECT kind FROM teams WHERE id='va'"))[0].kind, 'va');
   const user = (await repo.all("SELECT * FROM users WHERE subject='email:va@ejemplo.es'"))[0];
   await admin.configureUser({
     id: user.id,
@@ -109,7 +110,7 @@ test('el rol de administrador de VA lo asigna un superadministrador y se suma al
     teams: ['A'],
     version: user.version,
   });
-  assert.equal((await principal(repo, identity, '')).vaAdmin, false);
+  assert.equal(canAdminVa(await principal(repo, identity, '')), false);
 });
 
 test('«ver como»: la administración consulta los días de otra persona; un controlador no', async () => {

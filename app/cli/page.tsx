@@ -6,7 +6,7 @@ import { normalizeCliCode } from '../../lib/cli-protocol.mjs';
 import { canAuthorizeCli } from '../../lib/cli-access.mjs';
 
 type Session = {
-  principal: { id: string | null; role: string; teams: string[]; vaAdmin?: boolean };
+  principal: { id: string | null; role: string; teams: string[] };
   identity: { email: string } | null;
 };
 type Pairing = { pairing: string; status: string };

@@ -67,7 +67,7 @@ export function cas(campaignId: string, version: number): Statement[] {
 export const tableColumns: Record<string, string[]> = {
   teams: ['id', 'name', 'version', 'kind'],
   people: ['id', 'team_id', 'code', 'label', 'position', 'seniority', 'active', 'version', 'controller_number'],
-  users: ['id', 'provider', 'subject', 'role', 'version', 'va_admin'],
+  users: ['id', 'provider', 'subject', 'role', 'version'],
   grants: ['id', 'user_id', 'team_id', 'expires_at'],
   campaigns: [
     'id',
@@ -119,14 +119,3 @@ tableColumns.va_election_history = [
   'undone',
 ];
 tableColumns.va_reconstructions = ['year', 'working_json', 'steps_json', 'created_at', 'actor'];
-tableColumns.va_external_people = [
-  'id',
-  'code',
-  'label',
-  'seniority',
-  'controller_number',
-  'category',
-  'active',
-  'version',
-];
-tableColumns.va_external_accounts = ['person_id', 'principal_key', 'version'];

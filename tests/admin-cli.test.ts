@@ -21,7 +21,6 @@ interface Fake {
   loginStatus?: number;
   role?: string;
   teams?: string[];
-  vaAdmin?: boolean;
   backupStatus?: number;
   backup?: unknown;
   postStatus?: number;
@@ -73,7 +72,6 @@ async function withServer(
     id: 'chatgpt:admin',
     role: fake.role ?? 'superadmin',
     teams: fake.teams ?? [],
-    vaAdmin: fake.vaAdmin ?? false,
   });
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const route = req.method + ' ' + req.url;
@@ -313,7 +311,7 @@ test('a saved access the server rejects, or for another origin, pairs again', as
 test('saved CLI access works for team and VA administrators with their current grants', async () => {
   for (const fake of [
     { browser: true, joins: ['approved'], role: 'team_admin', teams: ['A'] },
-    { browser: true, joins: ['approved'], role: 'viewer', vaAdmin: true },
+    { browser: true, joins: ['approved'], role: 'team_admin', teams: ['va'] },
   ]) {
     await withServer(fake, async (origin, calls) => {
       const saved = tokenFile();
@@ -329,14 +327,13 @@ test('saved CLI access works for team and VA administrators with their current g
 test('saved CLI access stops before writing when all administrator rights are revoked', async () => {
   const cases: Fake[] = [
     { browser: true, joins: ['approved'], role: 'team_admin', teams: ['A'] },
-    { browser: true, joins: ['approved'], role: 'viewer', vaAdmin: true },
+    { browser: true, joins: ['approved'], role: 'team_admin', teams: ['va'] },
   ];
   for (const fake of cases) {
     await withServer(fake, async (origin, calls) => {
       const saved = tokenFile();
       assert.equal((await cli(origin, ['login', '--browser', '--no-open'], '{}', undefined, saved)).code, 0);
       fake.teams = [];
-      fake.vaAdmin = false;
       fake.role = 'viewer';
       const r = await cli(origin, ['post', 'campaign/x', '-', '--browser', '--no-backup'], '{}', undefined, saved);
       assert.equal(r.code, 1);

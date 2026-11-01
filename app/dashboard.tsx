@@ -426,18 +426,20 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
       setBusy(false);
     }
   };
-  const superuser = index?.principal.role === 'superadmin' && !previewCode,
+  // VA administrators administer the reserved team 'va'; only other teams make a team manager.
+  const ordinaryAdmin = index?.principal.role === 'team_admin' && index.principal.teams.some((t: string) => t !== 'va'),
+    superuser = index?.principal.role === 'superadmin' && !previewCode,
     canManage = !!data?.editable && !previewCode,
     write = data?.editable && data?.campaign.status === 'open';
   const roleLabel = previewCode
     ? 'Controlador ' + (data?.preview?.code ?? previewCode) + ' (vista previa)'
     : superuser
       ? 'Superadministrador'
-      : index?.principal.role === 'team_admin'
+      : ordinaryAdmin
         ? 'Responsable de equipo'
         : data?.election?.myMemberId
           ? 'Controlador'
-          : index?.principal.vaAdmin
+          : index?.va?.admin
             ? 'Administrador de VA'
             : index?.myCampaignIds?.length
               ? 'Controlador (otro equipo)'
@@ -509,7 +511,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     setSigninUrl('/signin-with-chatgpt?return_to=' + encodeURIComponent(location.pathname + location.search));
     return true;
   }
-  const adminRole = index?.principal.role === 'superadmin' || index?.principal.role === 'team_admin';
+  const adminRole = index?.principal.role === 'superadmin' || ordinaryAdmin;
   // Who only administers VA lands on it straight from «Administración».
   const vaAdmin = !!index?.va?.admin && !previewCode,
     vaAdminView = vaAdmin && (nav === 'antiguedad-admin' || (nav === 'administracion' && !adminRole));
@@ -1613,10 +1615,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                   <div className="panel empty">
                     <ShieldCheck size={32} />
                     <h2>Administración reservada</h2>
-                    <p>
-                      Tu cuenta tiene permisos de{' '}
-                      {index.principal.role === 'team_admin' ? 'responsable de equipo' : 'consulta'}.
-                    </p>
+                    <p>Tu cuenta tiene permisos de {ordinaryAdmin ? 'responsable de equipo' : 'consulta'}.</p>
                   </div>
                 ))}
             </>

@@ -1,3 +1,4 @@
+import { VA_TEAM, ensureVaTeam } from './teams.ts';
 import { type Repository, type Statement } from './repository.ts';
 import { requireVaAdmin, type Principal } from './permissions.ts';
 import { ApiError } from './errors.ts';
@@ -21,7 +22,6 @@ type Master = {
   label: string;
   seniority: string;
   controller_number: number;
-  category: string;
   active: number;
   version: number;
 };
@@ -32,7 +32,7 @@ const hash = async (v: unknown) =>
   ).join('');
 export async function vaExternalPeople(repo: Repository, actor: Principal) {
   requireVaAdmin(actor);
-  return repo.all<Master>('SELECT * FROM va_external_people ORDER BY controller_number');
+  return repo.all<Master>('SELECT * FROM people WHERE team_id=? ORDER BY controller_number', [VA_TEAM]);
 }
 /** Explicitly validated external master records; ordinary teams are never touched. */
 export async function importVaExternal(repo: Repository, actor: Principal, body: Body) {
@@ -53,7 +53,8 @@ export async function importVaExternal(repo: Repository, actor: Principal, body:
     throw new ApiError('Indica título y SHA-256 de la fuente');
   const existing = await vaExternalPeople(repo, actor);
   const ordinary = await repo.all<{ controller_number: number }>(
-    'SELECT controller_number FROM people WHERE controller_number IS NOT NULL',
+    'SELECT controller_number FROM people WHERE controller_number IS NOT NULL AND team_id<>?',
+    [VA_TEAM],
   );
   const rows = body.entries.map((input) => {
     if (
@@ -126,9 +127,10 @@ export async function importVaExternal(repo: Repository, actor: Principal, body:
     { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main' AND revision=?", args: [revision] },
     { sql: 'INSERT INTO transaction_assertions(id) VALUES(CASE WHEN changes()=1 THEN ? ELSE NULL END)', args: [token] },
     { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] },
+    ensureVaTeam,
     ...rows.map((p) => ({
-      sql: 'INSERT INTO va_external_people(id,code,label,seniority,controller_number,category,active,version) VALUES(?,?,?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET code=excluded.code,label=excluded.label,seniority=excluded.seniority,controller_number=excluded.controller_number,category=excluded.category,active=excluded.active,version=va_external_people.version+1',
-      args: [p.id, p.code, p.label, p.seniority, p.controllerNumber, p.category, p.active ? 1 : 0],
+      sql: 'INSERT INTO people(id,team_id,code,label,seniority,controller_number,active,version) VALUES(?,?,?,?,?,?,?,1) ON CONFLICT(id) DO UPDATE SET code=excluded.code,label=excluded.label,seniority=excluded.seniority,controller_number=excluded.controller_number,active=excluded.active,version=people.version+1',
+      args: [p.id, VA_TEAM, p.code, p.label, p.seniority, p.controllerNumber, p.active ? 1 : 0],
     })),
     append({
       id: crypto.randomUUID(),

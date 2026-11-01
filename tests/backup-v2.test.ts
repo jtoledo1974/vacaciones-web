@@ -1,13 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import { backupManifest, backupPage, backupColumns } from '../server/backup-v2.ts';
 import { downloadBackup, ArchiveVerifier, firstCursor, hash } from '../lib/backup-v2.mjs';
-import { Service } from '../server/service.ts';
 import { restoreArchive } from '../scripts/restore-backup-v2.mjs';
 import { previewCleanup, applyCleanup } from '../server/cleanup.ts';
 import { compactSessionSQL } from '../server/reconstruction-compaction.ts';
@@ -232,7 +231,7 @@ test('backup and cleanup require superadmin before any database access', async (
   for (const denied of [
     { id: null, role: 'viewer', teams: [] },
     { id: 't', role: 'team_admin', teams: ['C'] },
-    { id: 'va', role: 'viewer', teams: [], vaAdmin: true },
+    { id: 'va', role: 'team_admin', teams: ['va'] },
   ] as Principal[]) {
     for (const action of [
       () => backupManifest(repo, denied),
@@ -438,43 +437,78 @@ test('compress-audit-payloads termina con payloads que no se comprimen y limita 
   assert.equal(byId.get('emoji'), emoji);
 });
 
-test('una copia v2 de esquema 0020, sin teams.kind, se restaura en 0021 con todos los equipos ordinarios', async () => {
-  const repo = new SQLiteRepo(),
-    dir = mkdtempSync(path.join(tmpdir(), 'vac-v2-0020-'));
-  const columns = backupColumns.teams;
-  try {
-    await new Service(repo, actor).init();
-    // Rebuild the copy as a 0020 server produced it: no teams.kind in data, manifest or schema.
-    repo.db.exec('ALTER TABLE teams DROP COLUMN kind');
-    backupColumns.teams = columns.filter((c) => c !== 'kind') as typeof columns;
-    const records: ArchiveRecord[] = [];
-    await downloadBackup(requestFor(repo), async (line: string) => {
-      records.push(JSON.parse(line));
-    });
-    const manifest = records[0] as ArchiveRecord & { payload: { schemaVersion: string } };
-    manifest.payload.schemaVersion = 'vacaciones-schema-0020';
-    manifest.sha256 = await hash(manifest.payload);
-    let chain = manifest.sha256;
-    for (const page of records.slice(1, -1)) chain = await hash([chain, page.sha256]);
-    records[records.length - 1].chain = chain;
-
-    const dest = path.join(dir, 'restored.sqlite');
-    await restoreArchive(values(records), dest);
-    const restored = new DatabaseSync(dest);
+for (const version of [20, 21])
+  test(`una copia v2 de esquema 00${version} se restaura aplicando después las migraciones posteriores`, async () => {
+    // The source database as a 00${version} server had it: only the migrations up to that version.
+    const repo = Object.create(SQLiteRepo.prototype) as SQLiteRepo,
+      dir = mkdtempSync(path.join(tmpdir(), 'vac-v2-old-'));
+    repo.db = new DatabaseSync(':memory:');
+    for (const file of readdirSync('drizzle')
+      .filter((f) => f.endsWith('.sql') && Number(f.slice(0, 4)) <= version)
+      .sort())
+      repo.db.exec(readFileSync('drizzle/' + file, 'utf8'));
+    const insertTeam = repo.db.prepare('INSERT INTO teams(id,name) VALUES(?,?)');
+    for (const t of 'ABCDEFGH') insertTeam.run(t, 'Equipo ' + t);
+    repo.db.exec(`INSERT INTO users(id,provider,subject,role,va_admin) VALUES
+      ('u-va','chatgpt','email:va@x.test','viewer',1), ('u-a','chatgpt','email:a@x.test','team_admin',0);
+      INSERT INTO grants(id,user_id,team_id) VALUES('g-a','u-a','A');
+      INSERT INTO va_external_people(id,code,label,seniority,controller_number,category)
+        VALUES('va-external:900','EXT','Externa','2001-02-03',900,'otro');
+      INSERT INTO va_external_accounts(person_id,principal_key) VALUES('va-external:900','chatgpt-email:ext@x.test');`);
+    const current = Object.fromEntries(Object.entries(backupColumns).map(([t, c]) => [t, [...c]]));
     try {
-      assert.deepEqual(
-        restored
-          .prepare('SELECT id,kind FROM teams ORDER BY id')
+      // Tables dropped by later migrations were still part of the old copy.
+      for (const table of [...Object.keys(backupColumns), 'va_external_people', 'va_external_accounts'])
+        (backupColumns as Record<string, string[]>)[table] = repo.db
+          .prepare(`SELECT name FROM pragma_table_info('${table}')`)
           .all()
-          .map((r) => ({ ...r })),
-        ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map((id) => ({ id, kind: 'ordinary' })),
-      );
+          .map((r) => r.name as string);
+      const records: ArchiveRecord[] = [];
+      await downloadBackup(requestFor(repo), async (line: string) => {
+        records.push(JSON.parse(line));
+      });
+      const manifest = records[0] as ArchiveRecord & { payload: { schemaVersion: string } };
+      manifest.payload.schemaVersion = 'vacaciones-schema-00' + version;
+      manifest.sha256 = await hash(manifest.payload);
+      let chain = manifest.sha256;
+      for (const page of records.slice(1, -1)) chain = await hash([chain, page.sha256]);
+      records[records.length - 1].chain = chain;
+
+      const dest = path.join(dir, 'restored.sqlite');
+      await restoreArchive(values(records), dest);
+      const restored = new DatabaseSync(dest);
+      const rows = (sql: string) =>
+        restored
+          .prepare(sql)
+          .all()
+          .map((r) => ({ ...r }));
+      try {
+        assert.deepEqual(rows("SELECT id FROM teams WHERE kind='ordinary' ORDER BY id").length, 8);
+        // Migration 0022 turned the VA administrator into an administrator of team va.
+        assert.deepEqual(rows('SELECT id,role FROM users ORDER BY id'), [
+          { id: 'u-a', role: 'team_admin' },
+          { id: 'u-va', role: 'team_admin' },
+        ]);
+        assert.deepEqual(rows('SELECT user_id,team_id FROM grants ORDER BY user_id'), [
+          { user_id: 'u-a', team_id: 'A' },
+          { user_id: 'u-va', team_id: 'va' },
+        ]);
+        assert.deepEqual(rows("SELECT kind FROM teams WHERE id='va'"), [{ kind: 'va' }]);
+        // Migration 0023 moved the external person and their account to the common tables.
+        assert.deepEqual(rows("SELECT id,team_id,code,controller_number FROM people WHERE team_id='va'"), [
+          { id: 'va-external:900', team_id: 'va', code: 'EXT', controller_number: 900 },
+        ]);
+        assert.deepEqual(rows('SELECT person_id,principal_key FROM controller_accounts'), [
+          { person_id: 'va-external:900', principal_key: 'chatgpt-email:ext@x.test' },
+        ]);
+      } finally {
+        restored.close();
+      }
     } finally {
-      restored.close();
+      for (const table of Object.keys(backupColumns))
+        if (!(table in current)) delete (backupColumns as Record<string, string[]>)[table];
+      Object.assign(backupColumns, current);
+      repo.db.close();
+      rmSync(dir, { recursive: true, force: true });
     }
-  } finally {
-    backupColumns.teams = columns;
-    repo.db.close();
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+  });

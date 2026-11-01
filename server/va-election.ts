@@ -1,4 +1,4 @@
-import { ordinaryCampaign } from './teams.ts';
+import { VA_TEAM, ordinaryCampaign } from './teams.ts';
 import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
 import { canAdminVa, requireVaAdmin, type Principal } from './permissions.ts';
@@ -170,9 +170,8 @@ async function owner(repo: Repository, actor: Principal, state: VaElection) {
   if (!actor.id) return null;
   const keys = [actor.id, actor.emailKey].filter((k): k is string => !!k);
   const rows = await repo.all<{ person_id: string }>(
-    `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})
-     UNION SELECT person_id FROM va_external_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
-    [...keys, ...keys],
+    `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
+    keys,
   );
   return state.people.find((p) => rows.some((r) => r.person_id === p.id))?.id ?? null;
 }
@@ -188,14 +187,17 @@ async function masterRows(repo: Repository, year: number) {
     team_id: string;
     controller_number: number | null;
     seniority: string;
-  }>('SELECT id,code,label,team_id,controller_number,seniority FROM people WHERE active=1 ORDER BY id');
+  }>('SELECT id,code,label,team_id,controller_number,seniority FROM people WHERE active=1 AND team_id<>? ORDER BY id', [
+    VA_TEAM,
+  ]);
   const members = await repo.all<{ person_id: string; code: string; label: string; team_id: string }>(
     `SELECT m.person_id,m.code,m.label,c.team_id FROM campaign_members m JOIN campaigns c ON c.id=m.campaign_id
      WHERE c.year=? AND c.scope_key='live' AND ${ordinaryCampaign('c')} ORDER BY c.team_id,m.position,m.code`,
     [year],
   );
   const external = await repo.all<(typeof people)[number]>(
-    "SELECT id,code,label,'' AS team_id,controller_number,seniority FROM va_external_people WHERE active=1 ORDER BY id",
+    "SELECT id,code,label,'' AS team_id,controller_number,seniority FROM people WHERE team_id=? AND active=1 ORDER BY id",
+    [VA_TEAM],
   );
   return [
     ...people.map((p) => {

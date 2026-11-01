@@ -17,7 +17,7 @@ import type { Statement } from '../server/repository.ts';
 import { decodePayload, encodePayload } from '../server/payload-codec.ts';
 
 const admin: Principal = { id: 'admin', role: 'superadmin', teams: [] };
-const vaAdmin: Principal = { id: 'va', role: 'viewer', teams: [], vaAdmin: true };
+const vaAdmin: Principal = { id: 'va', role: 'team_admin', teams: ['va'] };
 const p1: Principal = { id: 'chatgpt:p1', role: 'viewer', teams: [] };
 const p2: Principal = { id: 'chatgpt:p2', role: 'viewer', teams: [] };
 const source = { title: 'RRHH · fixture', sha256: 'a'.repeat(64), receivedAt: '2026-10-28' };
@@ -497,7 +497,9 @@ test('VA: TCA, jefes de sala y pasillo se dan de alta y eligen sin equipo ni cam
   );
   await assert.rejects(importVaExternal(repo, vaAdmin, { ...body, action: 'apply' }), /Revisa/);
   await importVaExternal(repo, vaAdmin, { ...body, action: 'apply', reviewToken: preview.reviewToken });
-  assert.equal((await repo.all('SELECT id FROM teams')).length, beforeTeams);
+  // Only the reserved team va appears; no ordinary team or campaign is created.
+  assert.equal((await repo.all("SELECT id FROM teams WHERE kind='ordinary'")).length, beforeTeams);
+  assert.deepEqual((await repo.all("SELECT id,team_id FROM people WHERE team_id='va'")).length, body.entries.length);
   assert.equal((await repo.all('SELECT id FROM campaigns')).length, beforeCampaigns);
   const census = await vaCensus(repo, vaAdmin);
   assert.equal(census.people.filter((p) => p.team === '').length, 3);
@@ -517,7 +519,7 @@ test('VA: TCA, jefes de sala y pasillo se dan de alta y eligen sin equipo ni cam
   close(repo);
   await mutate(repo, vaAdmin, { action: 'start' });
   const frozenMe = await myVa(repo, external);
-  repo.db.exec(`UPDATE va_external_people SET seniority='2025-01-01',active=0 WHERE id='${id}'`);
+  repo.db.exec(`UPDATE people SET seniority='2025-01-01',active=0 WHERE id='${id}'`);
   assert.deepEqual(await myVa(repo, external), frozenMe);
   assert.equal((await vaVisibility(repo, external)).entry, true);
   const elected = await mutate(repo, external, { action: 'choose', dates: [d1] });

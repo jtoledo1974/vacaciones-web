@@ -1,3 +1,4 @@
+import { VA_TEAM } from './teams.ts';
 export type Identity = {
   provider: string;
   subject: string;
@@ -8,8 +9,6 @@ export type Principal = {
   id: string | null;
   role: 'viewer' | 'team_admin' | 'superadmin';
   teams: string[];
-  /** Global administrator of vacaciones de antigüedad, on top of the team role. */
-  vaAdmin?: boolean;
   /** Derived only from a provider-verified email; never from client input. */
   emailKey?: string;
   /** Verified superadmin's effective controller view. Never trusted directly from client input. */
@@ -22,8 +21,9 @@ export function requireWrite(p: Principal, team: string) {
   if (!canWrite(p, team))
     throw Object.assign(new Error('No tienes permiso para modificar este equipo'), { status: 403 });
 }
+/** VA administrators administer the reserved team 'va' (ADR 0002). */
 export function canAdminVa(p: Principal) {
-  return p.id !== null && (p.role === 'superadmin' || p.vaAdmin === true);
+  return canWrite(p, VA_TEAM);
 }
 export function requireVaAdmin(p: Principal) {
   if (!canAdminVa(p)) throw Object.assign(new Error('Esta operación requiere administrador de VA'), { status: 403 });

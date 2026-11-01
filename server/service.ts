@@ -1,4 +1,4 @@
-import { ORDINARY_TEAMS, ordinaryCampaign } from './teams.ts';
+import { ORDINARY_TEAMS, VA_TEAM, ensureVaTeam, ordinaryCampaign } from './teams.ts';
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
@@ -35,6 +35,8 @@ const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
 /** SQL assertion: the affected team retains a permanent administrator after this transaction. */
 function keepTeamAdmin(team: string): Statement[] {
+  // VA may have no administrator of its own: superadmins administer it (ADR 0002).
+  if (team === VA_TEAM) return [];
   const token = id();
   return [
     {
@@ -70,7 +72,6 @@ export async function principal(repo: Repository, identity: Identity, superEmail
   return {
     id: key,
     role: user.role === 'team_admin' ? 'team_admin' : 'viewer',
-    vaAdmin: user.va_admin === 1,
     teams: (
       await repo.all('SELECT team_id FROM grants WHERE user_id=? AND (expires_at IS NULL OR expires_at>?)', [
         user.id,
@@ -472,12 +473,11 @@ export class Service {
       (!validEmail && !validUid) ||
       !['viewer', 'team_admin'].includes(body.role) ||
       !Array.isArray(body.teams) ||
-      body.teams.some((t: string) => !('ABCDEFGH'.includes(t) && t.length === 1))
+      body.teams.some((t: string) => !(('ABCDEFGH'.includes(t) && t.length === 1) || t === VA_TEAM))
     )
       throw new ApiError('Usuario o permisos no válidos');
     if (body.role === 'team_admin' && !body.teams.length)
       throw new ApiError('Selecciona al menos un equipo para el responsable');
-    const vaAdmin = body.vaAdmin === true ? 1 : 0;
     if (body.expiresAt && (!Number.isFinite(Date.parse(body.expiresAt)) || Date.parse(body.expiresAt) <= Date.now()))
       throw new ApiError('Caducidad no válida');
     const uid = provider + ':' + subject;
@@ -494,14 +494,14 @@ export class Service {
       ops: Statement[] = old
         ? [
             {
-              sql: 'UPDATE users SET role=?,va_admin=?,version=version+1 WHERE id=? AND version=?',
-              args: [body.role, vaAdmin, sourceId, expected],
+              sql: 'UPDATE users SET role=?,version=version+1 WHERE id=? AND version=?',
+              args: [body.role, sourceId, expected],
             },
           ]
         : [
             {
-              sql: 'INSERT INTO users(id,provider,subject,role,va_admin,version) VALUES(?,?,?,?,?,1)',
-              args: [uid, provider, subject, body.role, vaAdmin],
+              sql: 'INSERT INTO users(id,provider,subject,role,version) VALUES(?,?,?,?,1)',
+              args: [uid, provider, subject, body.role],
             },
           ];
     ops.push(
@@ -513,6 +513,7 @@ export class Service {
       { sql: 'DELETE FROM grants WHERE user_id=?', args: [sourceId] },
     );
     if (old) ops.push({ sql: 'UPDATE users SET id=?,subject=? WHERE id=?', args: [uid, subject, sourceId] });
+    if (body.role === 'team_admin' && body.teams.includes(VA_TEAM)) ops.push(ensureVaTeam);
     for (const t of new Set(body.role === 'team_admin' ? body.teams : []))
       ops.push({
         sql: 'INSERT INTO grants(id,user_id,team_id,expires_at) VALUES(?,?,?,?)',
@@ -525,7 +526,7 @@ export class Service {
         'permissions',
         null,
         { user: old, grants: oldGrants },
-        { provider, subject, role: body.role, teams: body.role === 'team_admin' ? body.teams : [], vaAdmin: !!vaAdmin },
+        { provider, subject, role: body.role, teams: body.role === 'team_admin' ? body.teams : [] },
       ),
     );
     await this.commit(ops);
@@ -587,7 +588,8 @@ export class Service {
     if (old) {
       const assigned = await this.repo.all('SELECT 1 FROM grants WHERE user_id=? AND team_id=?', [uid, team]);
       if (!enable && !assigned.length) throw new ApiError('La cuenta no administra este equipo', 403);
-      if (assigned.length && (!enable || body.expiresAt)) {
+      // Same exemption as keepTeamAdmin: VA may be left without an administrator of its own.
+      if (assigned.length && (!enable || body.expiresAt) && team !== VA_TEAM) {
         const others = await this.repo.all(
           "SELECT 1 FROM grants g JOIN users u ON u.id=g.user_id WHERE g.team_id=? AND g.user_id<>? AND g.expires_at IS NULL AND u.role='team_admin' LIMIT 1",
           [team, uid],
@@ -644,7 +646,8 @@ export class Service {
       "SELECT 1 FROM grants g JOIN users u ON u.id=g.user_id WHERE g.team_id=? AND g.user_id<>? AND g.expires_at IS NULL AND u.role='team_admin' LIMIT 1",
       [team, user.id],
     );
-    if (!others.length) throw new ApiError('No se puede retirar al último administrador permanente del equipo', 409);
+    if (!others.length && team !== VA_TEAM)
+      throw new ApiError('No se puede retirar al último administrador permanente del equipo', 409);
     const token = id(),
       ops: Statement[] = [
         { sql: 'UPDATE users SET version=version+1 WHERE id=? AND version=?', args: [user.id, user.version] },
@@ -963,8 +966,6 @@ export class Service {
       'va_campaigns',
       'va_election_history',
       'va_reconstructions',
-      'va_external_people',
-      'va_external_accounts',
     ])
       if (tables[key] === undefined) tables[key] = [];
     // Local admin sessions are not backed up. Older backups kept them (and login

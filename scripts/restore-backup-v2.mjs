@@ -28,20 +28,29 @@ export async function restoreArchive(records, filename) {
     // Never execute SQL supplied by the archive. Only trusted repository migrations.
     db.exec('PRAGMA foreign_keys=ON; PRAGMA cache_size=-4096;');
     const dir = new URL('../drizzle/', import.meta.url);
-    for (const file of readdirSync(dir)
+    const migrations = readdirSync(dir)
       .filter((f) => f.endsWith('.sql'))
-      .sort())
-      db.exec(readFileSync(new URL(file, dir), 'utf8'));
+      .sort()
+      .map((file) => ({ version: Number(file.slice(0, 4)), sql: readFileSync(new URL(file, dir), 'utf8') }));
+    const current = migrations.at(-1).version;
+    // The data loads into the schema of the copy's own version; later migrations then
+    // convert it inside the same transaction, as they did in production.
+    let version = null;
+    const migrate = (from, to) => {
+      for (const m of migrations) if (m.version > from && m.version <= to) db.exec(m.sql);
+    };
     db.exec(
       "BEGIN; PRAGMA defer_foreign_keys=ON; CREATE TEMP TABLE fragment(data TEXT NOT NULL); INSERT INTO fragment VALUES('');",
     );
     for await (const record of records) {
       await verifier.accept(record);
       if (record.kind === 'manifest') {
-        // 0020 copies predate teams.kind (migration 0021); its default applies on insert.
-        const legacy = verifier.manifest.schemaVersion === 'vacaciones-schema-0020';
-        if (!legacy && verifier.manifest.schemaVersion !== 'vacaciones-schema-0021')
+        const match = /^vacaciones-schema-(\d{4})$/.exec(verifier.manifest.schemaVersion);
+        version = match ? Number(match[1]) : NaN;
+        // Copies older than 0020 lack the backup clock tables and are not supported.
+        if (!(version >= 20 && version <= current))
           throw new Error('Versión de esquema incompatible; utiliza un restaurador compatible con esta copia');
+        migrate(-1, version);
         const excluded = new Set([
           'backup_clock',
           'cleanup_clock',
@@ -64,7 +73,6 @@ export async function restoreArchive(records, filename) {
             .prepare(`PRAGMA table_info("${name}")`)
             .all()
             .map((r) => r.name)
-            .filter((c) => !(legacy && name === 'teams' && c === 'kind'))
             .sort();
           if (JSON.stringify(actual) !== JSON.stringify([...columns].sort()))
             throw new Error('Columnas incompatibles: ' + name);
@@ -104,6 +112,7 @@ export async function restoreArchive(records, filename) {
     }
     verifier.finish();
     if (pending) throw new Error('Última fila incompleta');
+    migrate(version, current);
     if (db.prepare('PRAGMA foreign_key_check').all().length) throw new Error('Referencias inválidas');
     if (db.prepare('PRAGMA integrity_check').get().integrity_check !== 'ok') throw new Error('SQLite no íntegro');
     db.exec('COMMIT');

@@ -1,4 +1,4 @@
-import { ordinaryCampaign } from './teams.ts';
+import { VA_TEAM, ordinaryCampaign } from './teams.ts';
 import { canAdminVa, canWrite, requireVaAdmin, type Principal } from './permissions.ts';
 import { type Repository } from './repository.ts';
 import { ApiError } from './errors.ts';
@@ -57,9 +57,12 @@ async function rows(repo: Repository, year: number): Promise<VaRow[]> {
     [year],
   );
   people.push(
-    ...(await repo.all(`SELECT p.id,'' AS team_id,p.code,p.label,p.seniority,p.controller_number,
+    ...(await repo.all(
+      `SELECT p.id,'' AS team_id,p.code,p.label,p.seniority,p.controller_number,
     a.principal_key,a.version AS account_version,NULL AS hr_name
-    FROM va_external_people p LEFT JOIN va_external_accounts a ON a.person_id=p.id WHERE p.active=1 ORDER BY p.controller_number`)),
+    FROM people p LEFT JOIN controller_accounts a ON a.person_id=p.id WHERE p.team_id=? AND p.active=1 ORDER BY p.controller_number`,
+      [VA_TEAM],
+    )),
   );
   return people.map((p) => {
     const years = vaYears(p.seniority, year),
@@ -147,9 +150,8 @@ export async function myVa(repo: Repository, actor: Principal, viewAs?: { team: 
   if (viewAs) me = census.find((r) => r.team === viewAs.team && r.code === viewAs.code) ?? null;
   else {
     const linked = await repo.all(
-      `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})
-       UNION SELECT person_id FROM va_external_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
-      [...keys, ...keys],
+      `SELECT person_id FROM controller_accounts WHERE principal_key IN (${keys.map(() => '?').join(',')})`,
+      keys,
     );
     const ids = new Set(linked.map((r) => r.person_id));
     me = census.find((r) => ids.has(r.personId)) ?? null;
@@ -192,18 +194,17 @@ export async function vaLinkAccount(repo: Repository, actor: Principal, body: Li
   const key = subject ? (provider === 'chatgpt' ? 'chatgpt-email:' + email : 'firebase:' + subject) : null;
   const token = crypto.randomUUID();
   const expected = body.accountVersion;
-  const table = person.personId.startsWith('va-external:') ? 'va_external_accounts' : 'controller_accounts';
   const write = key
     ? expected
       ? {
-          sql: `UPDATE ${table} SET principal_key=?,version=version+1 WHERE person_id=? AND version=?`,
+          sql: `UPDATE controller_accounts SET principal_key=?,version=version+1 WHERE person_id=? AND version=?`,
           args: [key, person.personId, expected],
         }
       : {
-          sql: `INSERT INTO ${table}(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO NOTHING`,
+          sql: `INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1) ON CONFLICT(person_id) DO NOTHING`,
           args: [person.personId, key],
         }
-    : { sql: `DELETE FROM ${table} WHERE person_id=? AND version=?`, args: [person.personId, expected] };
+    : { sql: `DELETE FROM controller_accounts WHERE person_id=? AND version=?`, args: [person.personId, expected] };
   try {
     await repo.batch([
       write,
