@@ -1,7 +1,7 @@
 import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import { assertAnnualScoringConfig, effectiveScoringConfig, scoringVersion } from '../domain/scoring.ts';
-import { occupancyFor, campaignOf } from '../domain/policy.ts';
+import { campaignOf, occupancyOf, scopeOf } from '../domain/policy.ts';
 import { captureVacations, restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
 import { auditAfter, auditBefore, eventById, type AuditRow } from './audit-context.ts';
@@ -60,7 +60,7 @@ export type CommandContext = {
   body: any;
   d: Awaited<ReturnType<Service['load']>>;
   c: any;
-  rules: ReturnType<typeof occupancyFor>;
+  rules: ReturnType<typeof occupancyOf>;
   election: Awaited<ReturnType<ReturnType<Service['election']>['read']>>;
   renameOnly: boolean;
   ops: Statement[];
@@ -853,7 +853,7 @@ export const COMMANDS: Record<string, Command> = {
 export async function runCommand(service: Service, repo: Repository, cid: string, body: any) {
   const d = await service.load(cid),
     c = d.campaign,
-    rules = occupancyFor(c.year);
+    rules = occupancyOf(scopeOf(c));
   requireWrite(service.actor, c.team_id);
   const rebuilding = await service.election().reconstruction().read(cid);
   if (rebuilding && rebuilding.status !== 'completed')

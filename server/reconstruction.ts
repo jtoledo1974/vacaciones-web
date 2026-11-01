@@ -17,7 +17,7 @@ import {
 } from '../domain/election.ts';
 import { calculate } from '../domain/vacations.ts';
 import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domain/occupancy.ts';
-import { occupancyFor, campaignOf } from '../domain/policy.ts';
+import { campaignOf, occupancyOf, scopeOf } from '../domain/policy.ts';
 import { canWrite, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
@@ -281,7 +281,7 @@ export class ReconstructionService {
         canOriginal = false;
       }
     }
-    const rules = occupancyFor(d.campaign.year);
+    const rules = occupancyOf(scopeOf(d.campaign));
     const available =
       turn.participants.length === 1 && turn.memberId
         ? calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, requests, awards, {
@@ -548,7 +548,7 @@ export class ReconstructionService {
               : 0),
         ),
       );
-      const rules = occupancyFor(c.year);
+      const rules = occupancyOf(scopeOf(c));
       const originAvailability = rules
         ? rules.compact(rules.availability(rules.state(campaignOf(c, d.config), d.members, d.awards)))
         : undefined;
@@ -750,7 +750,7 @@ export class ReconstructionService {
           args: [p.active !== false ? 1 : 0, p.member_id, cid],
         });
     }
-    const rules = occupancyFor(c.year);
+    const rules = occupancyOf(scopeOf(c));
     const impact =
       rules && choices.length
         ? rules.impact(

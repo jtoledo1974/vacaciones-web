@@ -10,7 +10,7 @@ import type { Principal } from './permissions.ts';
 import type { Repository } from './repository.ts';
 import type { ElectionService } from './election-service.ts';
 import { ApiError } from './errors.ts';
-import { occupancyFor } from '../domain/policy.ts';
+import { occupancyOf, scopeOf } from '../domain/policy.ts';
 
 type Host = { load: (cid: string) => Promise<any>; election: () => ElectionService };
 const context = (d: any): ElectionContext => ({
@@ -39,7 +39,7 @@ export class PersonalSimulationService {
     const { d, raw } = await this.host.election().concealedRead(cid);
     if (d.campaign.scope_key !== 'live')
       throw new ApiError('El simulador personal solo está disponible en la campaña real', 403);
-    if (!occupancyFor(d.campaign.year))
+    if (!occupancyOf(scopeOf(d.campaign)))
       throw new ApiError('El simulador personal requiere un motor de ocupación para este ejercicio', 400);
     const me = await this.host.election().memberForAccount(d);
     if (!me) throw new ApiError('Tu cuenta no está vinculada a ningún controlador de esta campaña', 403);

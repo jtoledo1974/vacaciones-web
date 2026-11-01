@@ -1,7 +1,7 @@
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { calendar, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
-import { occupancyFor, campaignOf } from '../domain/policy.ts';
+import { campaignOf, occupancyOf, scopeOf } from '../domain/policy.ts';
 import { historicalAvailability } from './availability-history.ts';
 import {
   AuditContext,
@@ -184,7 +184,7 @@ export class Service {
    * capacity check is not enough for an occupancy engine: every controller must still be
    * able to finish, and final summer minimums must be reachable. */
   assertCompletable(c: any, config: Config, members: any[], awards: any[], action: string) {
-    const rules = occupancyFor(c.year);
+    const rules = occupancyOf(scopeOf(c));
     if (!rules || awards.length === 0) return;
     const state = rules.state(campaignOf(c, config), members, awards);
     const violations = rules.immediateIssues(state, []);
@@ -248,7 +248,7 @@ export class Service {
     const { d, state, hidden, consumed } = await this.election().concealedFor(loaded, undefined, auditContext);
     const concealing = d !== loaded;
     // A recorded availability counts the hidden awards: recompute it from the masked view.
-    const recovery = occupancyFor(d.campaign.year)
+    const recovery = occupancyOf(scopeOf(d.campaign))
       ? await historicalAvailability(this.repo, cid, d.campaign.version)
       : { restored: false };
     const restored = recovery.restored;

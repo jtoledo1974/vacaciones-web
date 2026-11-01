@@ -28,7 +28,7 @@ import {
 } from '../domain/election.ts';
 import { cycleTable } from '../domain/vacations.ts';
 import { earlyEntry, earlyProof } from '../domain/early-election.ts';
-import { occupancyFor } from '../domain/policy.ts';
+import { occupancyOf } from '../domain/policy.ts';
 import { nextSlot } from '../domain/sequence.ts';
 import { restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
@@ -209,7 +209,7 @@ function executeStart(x: ElectionCommandContext) {
     groups.set(score, [...(groups.get(score) ?? []), id]);
   }
   const tieGroups = [...groups.values()].filter((group) => group.length > 1);
-  const rules = occupancyFor(ctx.year);
+  const rules = occupancyOf(ctx);
   if (rules) {
     const feasibility = rules.canComplete(rules.state(ctx, ctx.members, ctx.awards));
     if (feasibility.status !== 'possible')

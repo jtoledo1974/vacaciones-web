@@ -1,7 +1,7 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
 import { scoringVersion, scoringWeights } from './scoring.ts';
-import { policyFor, type VacationPolicy } from './policy.ts';
+import { type VacationPolicy, policyOf } from './policy.ts';
 export type Member = {
   id: string;
   code: string;
@@ -205,7 +205,7 @@ export function calculate(
   awards: Award[],
   options: { skipProof?: boolean } = {},
 ) {
-  const policy = policyFor(y),
+  const policy = policyOf({ year: y, team }),
     rules = policy.occupancy,
     campaign = { year: y, team, config: c };
   const cycles = cycleTable(y, team, c, requests, awards);

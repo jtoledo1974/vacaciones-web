@@ -1,6 +1,6 @@
 import { choiceIssues, currentTurn, sequenceFor, type ElectionContext, type ElectionState } from './election.ts';
 import { nextSlot, turnsBefore } from './sequence.ts';
-import { occupancyFor } from './policy.ts';
+import { occupancyOf } from './policy.ts';
 
 /**
  * Early election, first iteration: a controller may take a cycle ahead of their slot
@@ -75,7 +75,7 @@ function combinations(items: string[], k: number, limit: number): string[][] | n
 
 /** Whether the batch (several members' cycles at once) is admissible now. */
 function batchAllowed(ctx: ElectionContext, batch: { member_id: string; cycle_date: string }[]): boolean {
-  const rules = occupancyFor(ctx.year);
+  const rules = occupancyOf(ctx);
   if (rules) {
     const check = rules.evaluateCandidate(rules.state(ctx, ctx.members, ctx.awards), batch, {
       maxChecks: rules.budgets.commit,
@@ -109,7 +109,7 @@ function singleCycleProof(
   dates: string[],
   options: { only?: string[]; budget?: number },
 ): EarlyProof {
-  const rules = occupancyFor(ctx.year)!;
+  const rules = occupancyOf(ctx)!;
   let budget = options.budget ?? EARLY_PROOF_BUDGET;
   const base = rules.state(ctx, ctx.members, ctx.awards);
   const mine = rules.legalChoices(base, window.memberId),
@@ -146,7 +146,7 @@ export function earlyProof(
 ): EarlyProof | null {
   const window = earlyWindow(ctx, state, memberId);
   if (!window) return null;
-  const rules = occupancyFor(ctx.year);
+  const rules = occupancyOf(ctx);
   if (rules && window.predecessorNeeds === 1) return singleCycleProof(ctx, window, dates, options);
   let budget = options.budget ?? EARLY_PROOF_BUDGET;
   const owned = (id: string) => new Set(ctx.awards.filter((a) => a.member_id === id).map((a) => a.cycle_date));

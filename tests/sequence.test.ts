@@ -515,3 +515,43 @@ test('earlyChoices que consume un turno aplazado entero gasta el crédito', () =
     [{ A: 1 }, { B: 1 }],
   );
 });
+
+test('unidades por ronda de la política: una en la primera y el saldo en la segunda', () => {
+  const entitlements = { A: 4, B: 1, C: 3 };
+  const va = (state: ElectionState, counts: Record<string, number> = {}): SequenceInput => ({
+    ...seq(state, entitlements, counts),
+    unitsInRound: (round, remaining) => (round === 1 ? 1 : remaining),
+  });
+  assert.deepEqual(nextSlot(va(base())), { cursor: 0, round: 1, participants: ['A'], requiredByMember: { A: 1 } });
+  // Segunda ronda: A elige sus tres días restantes; B ya terminó; C, sus dos.
+  const second = base({ cursor: 3 }),
+    afterFirst = { A: 1, B: 1, C: 1 };
+  assert.deepEqual(nextSlot(va(second, afterFirst)), {
+    cursor: 3,
+    round: 2,
+    participants: ['A'],
+    requiredByMember: { A: 3 },
+  });
+  assert.deepEqual(who(turnsBefore(va(second, afterFirst), 'C')), ['A']);
+  assert.deepEqual(nextSlot(va(base({ cursor: 4 }), { A: 4, B: 1, C: 1 })), {
+    cursor: 5,
+    round: 2,
+    participants: ['C'],
+    requiredByMember: { C: 2 },
+  });
+  // Un día anticipado para el turno de la segunda ronda se descuenta una sola vez:
+  // A (4 días) eligió 1 en la primera ronda y anticipó 1; en su turno le quedan 2 y los elige.
+  const anticipated = base({ cursor: 3, earlyChoices: [early('A', 3)] });
+  assert.deepEqual(nextSlot(va(anticipated, { A: 2, B: 1, C: 1 })), {
+    cursor: 3,
+    round: 2,
+    participants: ['A'],
+    requiredByMember: { A: 2 },
+  });
+  assert.deepEqual(
+    turnsBefore(va(anticipated, { A: 2, B: 1, C: 1 }), 'C')?.map((slot) => slot.requiredByMember),
+    [{ A: 2 }],
+  );
+  // Un aplazamiento suma créditos sin pasar de lo que queda.
+  assert.deepEqual(nextSlot(va(base({ credits: { A: 1 } }))).requiredByMember, { A: 2 });
+});

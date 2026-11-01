@@ -42,6 +42,8 @@ export type VacationPolicy = {
   activationRulesName?: string;
   /** Cycles a member must take this year. */
   entitlement(config: Config, member: Pick<Member, 'code'>): number;
+  /** Units chosen per turn in a 1-based round, before deferral credits; one cycle when absent. */
+  unitsInRound?(round: number, remaining: number): number;
   occupancy: OccupancyRules | null;
 };
 
@@ -198,6 +200,18 @@ export function registerPolicy(year: number, policy: VacationPolicy): () => void
     if (had) POLICIES[year] = previous;
     else delete POLICIES[year];
   };
+}
+
+/** What identifies the policy of one campaign: its year and its team. */
+export type PolicyScope = { year: number; team: string };
+export const scopeOf = (row: { year: number; team_id: string }): PolicyScope => ({ year: row.year, team: row.team_id });
+/** The policy that governs one campaign. Campaign code must use this, not policyFor. */
+export function policyOf(scope: PolicyScope): VacationPolicy {
+  return policyFor(scope.year);
+}
+/** The campaign's occupancy engine, or null for campaigns that use legacy quotas. */
+export function occupancyOf(scope: PolicyScope): OccupancyRules | null {
+  return policyOf(scope).occupancy;
 }
 
 /** The year's occupancy engine, or null for years that use legacy quotas. */

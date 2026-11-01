@@ -1,7 +1,7 @@
 import { importJoints, validateImportOrder } from '../domain/import-order.mjs';
 import { currentTurn, defer, type ElectionState } from '../domain/election.ts';
 import { calculate, type Award } from '../domain/vacations.ts';
-import { occupancyFor } from '../domain/policy.ts';
+import { occupancyOf } from '../domain/policy.ts';
 import type { Config } from '../domain/calendar.ts';
 import type { RosterRow } from './roster.ts';
 import type { ImportFinding, ImportReview, SelectionStep } from '../domain/import-review-types.ts';
@@ -53,7 +53,7 @@ export async function reviewImport(
       message:
         'Faltan puntuaciones anteriores: no se puede verificar la prioridad inicial; se contrasta el orden de plantilla declarado',
     });
-  const rules = occupancyFor(source.year);
+  const rules = occupancyOf(source);
   const context = () => ({ year: source.year, team: source.team, config, members, awards, requests: [] });
   // Replays the declared steps through the live election's own turns, so a deferral,
   // a double turn after it and a joint turn import exactly as they would be chosen.

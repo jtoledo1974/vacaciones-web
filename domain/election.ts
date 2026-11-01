@@ -1,6 +1,6 @@
 import { calculate, type Member, type Request, type Award } from './vacations.ts';
 import type { Config } from './calendar.ts';
-import { policyFor, occupancyFor } from './policy.ts';
+import { occupancyOf, policyOf } from './policy.ts';
 import { nextSlot, orderForRound, type SequenceInput } from './sequence.ts';
 export { orderForRound } from './sequence.ts';
 
@@ -194,7 +194,7 @@ const count = (ctx: ElectionContext, id: string) => ctx.awards.filter((a) => a.m
 export function entitlementFor(ctx: ElectionContext, id: string): number {
   const member = ctx.members.find((m) => m.id === id);
   if (!member) throw new Error('Controlador ajeno a la campaña');
-  return policyFor(ctx.year).entitlement(ctx.config, member);
+  return policyOf(ctx).entitlement(ctx.config, member);
 }
 export function validateOrder(order: unknown, members: Member[]): asserts order is string[] {
   if (
@@ -339,6 +339,7 @@ export function sequenceFor(ctx: ElectionContext, state: ElectionState): Sequenc
     state,
     awards: ctx.awards,
     entitlement: (id) => entitlementFor(ctx, id),
+    unitsInRound: policyOf(ctx).unitsInRound,
     maxRounds: ctx.config.cyclesPerPerson + 4,
   };
 }
@@ -359,7 +360,7 @@ export function currentTurn(ctx: ElectionContext, input: ElectionState) {
   const slot = nextSlot(sequenceFor(ctx, state));
   for (const id of slot.spentCredits ?? []) state.credits[id] = 0;
   if ('complete' in slot) {
-    const rules = occupancyFor(ctx.year);
+    const rules = occupancyOf(ctx);
     if (rules) {
       const evaluation = rules.evaluateFinal(rules.state(ctx, ctx.members, ctx.awards));
       if (!evaluation.valid)
@@ -537,7 +538,7 @@ export function choiceIssues(ctx: ElectionContext, memberId: string, dates: stri
   if (new Set(dates).size !== dates.length) return ['No se puede elegir el mismo ciclo dos veces'];
   if (dates.some((d) => ctx.awards.some((a) => a.member_id === memberId && a.cycle_date === d)))
     return ['Este controlador ya tiene uno de esos ciclos'];
-  const rules = occupancyFor(ctx.year);
+  const rules = occupancyOf(ctx);
   if (rules) {
     const state = rules.state(ctx, ctx.members, ctx.awards);
     // Admission consumes issues only; informative warnings belong to preflight.
@@ -589,7 +590,7 @@ export function chooseJoint(ctx: ElectionContext, input: ElectionState, entries:
     const entry = entries.find((e) => e.member_id === person)!;
     return entry.dates.map((date) => ({ member_id: person, cycle_date: date }));
   });
-  const rules = occupancyFor(ctx.year);
+  const rules = occupancyOf(ctx);
   if (rules) {
     // Validate the whole proposed batch, not its members sequentially.
     const check = rules.evaluateCandidate(

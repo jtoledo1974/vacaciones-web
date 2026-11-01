@@ -18,7 +18,7 @@ import {
 } from '../domain/election.ts';
 import { calculate } from '../domain/vacations.ts';
 import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domain/occupancy.ts';
-import { occupancyFor, policyFor, type OccupancyRules, type PolicyAward } from '../domain/policy.ts';
+import { type OccupancyRules, type PolicyAward, occupancyOf, policyOf, scopeOf } from '../domain/policy.ts';
 import { canWrite, requireSuper, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { capture, electionStateStatement } from './campaign-snapshot.ts';
@@ -256,7 +256,7 @@ export class ElectionService {
     if (!raw.state || d.campaign.status !== 'open') throw new ApiError('No hay un turno activo');
     const ctx = context(d),
       turn = currentTurn(ctx, raw.state),
-      rules = occupancyFor(ctx.year);
+      rules = occupancyOf(ctx);
     if (!turn.memberId || (!canWrite(this.actor, d.campaign.team_id) && turn.memberId !== mine))
       throw new ApiError('No es tu turno', 403);
     if (jointEntries !== undefined) {
@@ -364,7 +364,7 @@ export class ElectionService {
     )
       throw new ApiError('Simulación reservada a administradores', 403);
     const ctx = context(d),
-      rules = occupancyFor(ctx.year);
+      rules = occupancyOf(ctx);
     if (!rules) throw new ApiError('Disponibilidad global solo disponible con un motor de ocupación', 400);
     const state = rules.state(ctx, ctx.members, ctx.awards);
     const history = await historicalAvailability(this.repo, cid, d.campaign.version);
@@ -383,7 +383,7 @@ export class ElectionService {
   async previewImpact(cid: string, choices: PolicyAward[], version: number) {
     const { d, raw } = await this.concealedRead(cid),
       mine = await this.memberForAccount(d);
-    const rules = occupancyFor(d.campaign.year);
+    const rules = occupancyOf(scopeOf(d.campaign));
     if (!rules) throw new ApiError('El informe de impacto requiere un motor de ocupación', 400);
     if (
       d.campaign.scope_key !== 'live' &&
@@ -513,7 +513,7 @@ export class ElectionService {
     const availabilityWarnings: Record<string, unknown> = {};
     const availabilityPending: string[] = [];
     let available: string[] = [];
-    const rules = occupancyFor(ctx.year);
+    const rules = occupancyOf(ctx);
     if (focus && rules && !skipFullAvailability) {
       const allocation = rules.state(ctx, ctx.members, ctx.awards);
       if (options.restored) {
@@ -693,7 +693,7 @@ export class ElectionService {
       availabilityWarnings,
       cycleAvailability,
       occupancyPolicyVersion: rules?.version ?? null,
-      activationRulesName: policyFor(d.campaign.year).activationRulesName ?? 'las normas vigentes de este ejercicio',
+      activationRulesName: policyOf(scopeOf(d.campaign)).activationRulesName ?? 'las normas vigentes de este ejercicio',
       policyPresentation: rules?.presentation ?? null,
       points,
       accounts,
@@ -886,7 +886,7 @@ export class ElectionService {
     // Snapshot the causal impact BEFORE committing the atomic batch. Undo/redo
     // retain the original immutable report in audit but the timeline replays only
     // currently effective decisions. An indeterminate solver proof stays explicit.
-    const rules = occupancyFor(ctx.year);
+    const rules = occupancyOf(ctx);
     const impact =
       rules && choices.length
         ? rules.impact(

@@ -7,7 +7,7 @@ import {
   type ElectionState,
   type JointChoice,
 } from './election.ts';
-import { occupancyFor, type RuleProblem } from './policy.ts';
+import { type RuleProblem, occupancyOf } from './policy.ts';
 import type { AvailabilitySnapshot, PermitCount } from './occupancy.ts';
 
 /**
@@ -137,7 +137,7 @@ export function evaluateScenario(
   options: { maxChecks?: number } = {},
 ): PersonalEvaluation {
   const { ctx } = replay;
-  const rules = occupancyFor(ctx.year);
+  const rules = occupancyOf(ctx);
   if (!rules) throw new Error('El simulador personal requiere un motor de ocupación');
   const policy = (awards: ElectionContext['awards']) => rules.state(ctx, ctx.members, awards);
   const snapshots = new Map<number, AvailabilitySnapshot>();

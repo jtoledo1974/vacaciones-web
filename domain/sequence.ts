@@ -8,6 +8,8 @@ export type SequenceInput = {
   state: ElectionState;
   awards: readonly { member_id: string }[];
   entitlement: (memberId: string) => number;
+  /** Units a member chooses in a 1-based round, before deferral credits; 1 when absent. */
+  unitsInRound?: (round: number, remaining: number) => number;
   /** Scan bound, in rounds from the cursor. */
   maxRounds: number;
 };
@@ -63,7 +65,12 @@ function slotFrom(
   // Cycles already chosen ahead of time for a given slot count as played there.
   const early = (id: string, at: number) =>
     (state.earlyChoices ?? []).filter((e) => e.memberId === id && e.cursor === at).length;
-  const owed = (id: string, at: number) => Math.max(0, Math.min(1 + (credits[id] ?? 0) - early(id, at), remaining(id)));
+  // The round's target counts what was owed at this slot, early choices for it included:
+  // they are subtracted once below, never twice.
+  const units = (id: string, at: number) =>
+    seq.unitsInRound?.(Math.floor(at / n) + 1, remaining(id) + early(id, at)) ?? 1;
+  const owed = (id: string, at: number) =>
+    Math.max(0, Math.min(units(id, at) + (credits[id] ?? 0) - early(id, at), remaining(id)));
   // Every completed or joint-deferred slot still consumes one turn in the round.
   for (let scanned = 0; scanned < n * seq.maxRounds; scanned++, cursor++) {
     const currentRound = Math.floor(cursor / n);
