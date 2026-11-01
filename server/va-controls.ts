@@ -1,5 +1,6 @@
 import { type Repository, type Statement } from './repository.ts';
 import { ApiError } from './errors.ts';
+import { decodePayload, encodePayload } from './payload-codec.ts';
 import { vaChoose, vaNext, vaStartRound, vaAutomatic, vaAvailable, type VaElection } from '../domain/va-election.ts';
 
 type History = {
@@ -54,7 +55,14 @@ export function vaHistoryOps(
     { sql: 'DELETE FROM va_election_history WHERE year=? AND undone=1', args: [state.year] },
     {
       sql: 'INSERT INTO va_election_history(year,action,actor,before_json,after_json,created_at,undone) VALUES(?,?,?,?,?,?,0)',
-      args: [state.year, action, actor, snapshot(JSON.parse(before) as VaElection), snapshot(state), at],
+      args: [
+        state.year,
+        action,
+        actor,
+        encodePayload(snapshot(JSON.parse(before) as VaElection)),
+        encodePayload(snapshot(state)),
+        at,
+      ],
     },
   ];
 }
@@ -132,7 +140,7 @@ export async function vaControlMutation(
     )[0];
     if (!h) throw new ApiError(action === 'undo' ? 'No hay cambios que deshacer' : 'No hay cambios que rehacer');
     const restored = {
-      ...JSON.parse(action === 'undo' ? h.before_json : h.after_json),
+      ...JSON.parse(decodePayload(action === 'undo' ? h.before_json : h.after_json)),
       preferences: state.preferences,
       automaticPaused: true,
     } as VaElection;
@@ -197,9 +205,13 @@ export async function vaControlMutation(
   if (action === 'reconstruct_back') {
     const previous = steps.pop();
     if (!previous) throw new ApiError('No hay pasos que deshacer en la reconstrucción');
-    Object.assign(working, JSON.parse(previous), { preferences: state.preferences, automaticPaused: true });
+    Object.assign(working, JSON.parse(decodePayload(previous)), {
+      preferences: state.preferences,
+      automaticPaused: true,
+    });
   } else {
-    steps.push(snapshot(working));
+    // Each step is compressed on its own; legacy plain steps stay readable.
+    steps.push(encodePayload(snapshot(working)));
     if (action === 'reconstruct_step') {
       if (!body.personId) throw new ApiError('Indica para quién reconstruyes');
       vaChoose(working, body.personId, dates(body.dates), quotas, blocked[body.personId] ?? new Set(), at);

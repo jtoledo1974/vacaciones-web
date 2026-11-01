@@ -14,6 +14,7 @@ import { importVaExternal } from '../server/va-external.ts';
 import { vaCensus, vaLinkAccount, vaVisibility, myVa } from '../server/va-census.ts';
 import type { Principal } from '../server/permissions.ts';
 import type { Statement } from '../server/repository.ts';
+import { decodePayload, encodePayload } from '../server/payload-codec.ts';
 
 const admin: Principal = { id: 'admin', role: 'superadmin', teams: [] };
 const vaAdmin: Principal = { id: 'va', role: 'viewer', teams: [], vaAdmin: true };
@@ -529,4 +530,52 @@ test('VA: TCA, jefes de sala y pasillo se dan de alta y eligen sin equipo ni cam
   const revision = (await repo.all("SELECT revision FROM app_state WHERE id='main'"))[0].revision;
   await new Service(repo, admin).restore(backup, revision);
   assert.equal((await vaElectionView(repo, external, 2026)).me, id);
+});
+
+test('VA: historial y pasos se guardan comprimidos y los datos anteriores en claro siguen funcionando', async () => {
+  const repo = await setup();
+  close(repo);
+  await mutate(repo, vaAdmin, { action: 'start' });
+  await mutate(repo, p1, { action: 'choose', dates: [d1] });
+  const rows = repo.db.prepare('SELECT before_json,after_json FROM va_election_history').all() as {
+    before_json: string;
+    after_json: string;
+  }[];
+  assert.ok(rows.length && rows.every((r) => r.before_json.startsWith('gz1:') && r.after_json.startsWith('gz1:')));
+  // Legacy rows written before compression stay valid for undo/redo.
+  const plain = (stored: string) => decodePayload(stored);
+  for (const r of rows)
+    repo.db
+      .prepare('UPDATE va_election_history SET before_json=?,after_json=? WHERE before_json=?')
+      .run(plain(r.before_json), plain(r.after_json), r.before_json);
+  let v = await mutate(repo, vaAdmin, { action: 'undo' });
+  assert.equal(v.state?.choices.length, 0);
+  v = await mutate(repo, vaAdmin, { action: 'redo' });
+  assert.deepEqual(
+    v.state?.choices.map((c) => c.date),
+    [d1],
+  );
+  // A reconstruction mixing a legacy plain step with a new compressed one.
+  await mutate(repo, vaAdmin, { action: 'reconstruct_start' });
+  await mutate(repo, vaAdmin, { action: 'reconstruct_step', personId: 'A-1', dates: [d3] });
+  const [{ steps_json }] = repo.db.prepare('SELECT steps_json FROM va_reconstructions').all() as {
+    steps_json: string;
+  }[];
+  const steps = JSON.parse(steps_json) as string[];
+  assert.ok(steps[0].startsWith('gz1:'));
+  repo.db.prepare('UPDATE va_reconstructions SET steps_json=?').run(JSON.stringify([plain(steps[0])]));
+  await mutate(repo, vaAdmin, { action: 'reconstruct_step', personId: 'A-2', dates: [d2] });
+  await mutate(repo, vaAdmin, { action: 'reconstruct_back' });
+  assert.deepEqual(
+    (await vaElectionView(repo, vaAdmin, 2026)).state?.choices.map((c) => c.date),
+    [d3],
+  );
+  await mutate(repo, vaAdmin, { action: 'reconstruct_back' });
+  assert.equal((await vaElectionView(repo, vaAdmin, 2026)).state?.choices.length, 0);
+});
+
+test('payload-codec: ida y vuelta exacta y paso directo de JSON sin prefijo', () => {
+  const json = JSON.stringify({ a: [1, null, 'ñ'], b: { c: true } });
+  assert.equal(decodePayload(encodePayload(json)), json);
+  assert.equal(decodePayload(json), json);
 });
