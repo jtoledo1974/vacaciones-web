@@ -9,6 +9,7 @@ import {
   deleteEventsFor,
   eventsFor,
   lastUndoableVacation,
+  logicalRow,
   type AuditRow,
   recentAudit,
 } from './audit-context.ts';
@@ -720,12 +721,13 @@ export class Service {
       ]);
       if (ids.size || consumed.size) byCampaign.set(cid, { test, ids, consumed });
     }
-    if (!byCampaign.size) return rows;
+    if (!byCampaign.size) return rows.map(logicalRow);
     const redact = (json: string | null, { ids, consumed }: { ids: Set<string>; consumed: Map<string, string> }) =>
       json && ([...ids].some((id) => json.includes(id)) || (consumed.size && json.includes('"preferences"')))
         ? JSON.stringify(redactDiscreet(JSON.parse(json), ids, consumed))
         : json;
-    return rows.flatMap((row) => {
+    return rows.flatMap((stored) => {
+      const row = logicalRow(stored);
       const discreet = row.campaign_id ? byCampaign.get(row.campaign_id) : undefined;
       if (!discreet) return [row];
       if (discreet.test(row)) return [];

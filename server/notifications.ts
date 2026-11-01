@@ -345,7 +345,7 @@ export async function enqueueAutomaticChoices(repo: Repository, campaignId: stri
     let choices: any[] = [],
       payload: { choices?: unknown[]; round?: number } | null = null;
     try {
-      choices = (payload = JSON.parse(row.after_json))?.choices ?? [];
+      choices = (payload = auditAfter(row))?.choices ?? [];
     } catch {
       continue;
     }

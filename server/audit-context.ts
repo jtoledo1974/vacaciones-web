@@ -10,8 +10,11 @@ import {
   type AuditEvent,
 } from '../domain/events.ts';
 
-// This module is the only reader and writer of the `audit` table; its rows
-// follow the schema of domain/events.ts.
+// Logical journal boundary: callers receive complete event payloads following
+// domain/events.ts, never physical compression envelopes. SQL payload predicates
+// belong here and must be adapted here when the physical storage changes.
+// JSON string fields remain a legacy logical interchange shape, not a promise
+// about how documents will be stored. Materialize before privacy redaction.
 
 export type AuditRow = {
   id: string;
@@ -54,19 +57,31 @@ function parsedRow(row: AuditRow): AuditRow {
   });
   return result;
 }
-export function auditBefore(row: AuditRow): any {
+export function auditBefore(row: Pick<AuditRow, 'before_json'>): any {
   return Object.hasOwn(row, 'parsedBefore')
     ? (row as any).parsedBefore
     : row.before_json
       ? JSON.parse(row.before_json)
       : null;
 }
-export function auditAfter(row: AuditRow): any {
+export function auditAfter(row: Pick<AuditRow, 'after_json'>): any {
   return Object.hasOwn(row, 'parsedAfter')
     ? (row as any).parsedAfter
     : row.after_json
       ? JSON.parse(row.after_json)
       : null;
+}
+
+/** The row with its payloads as logical JSON text, whatever their stored format.
+ * Redaction and generic decoders must work on this, never on stored columns. */
+export function logicalRow<R extends Pick<AuditRow, 'before_json' | 'after_json'>>(row: R): R {
+  const before = auditBefore(row),
+    after = auditAfter(row);
+  return {
+    ...row,
+    before_json: before === null ? null : JSON.stringify(before),
+    after_json: after === null ? null : JSON.stringify(after),
+  };
 }
 
 /** The canonical undo/redo replay, shared by history, reconstruction and timeline. */
@@ -186,7 +201,7 @@ export function eventsFor(repo: Repository, campaignId: string): Promise<AuditRo
 }
 /** Typed events of a campaign, in append order. */
 export async function decodedEventsFor(repo: Repository, campaignId: string): Promise<AuditEvent[]> {
-  return (await eventsFor(repo, campaignId)).map(decodeEvent);
+  return (await eventsFor(repo, campaignId)).map((row) => decodeEvent(logicalRow(row)));
 }
 export async function eventById(repo: Repository, campaignId: string, eventId: string): Promise<AuditRow | null> {
   return (

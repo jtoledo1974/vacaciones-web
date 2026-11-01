@@ -23,7 +23,7 @@ import { cas, insertRows, type Repository, type Statement } from './repository.t
 import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { requestsForAwards, syncElectionRequests } from './election-requests.ts';
-import { AuditContext, appliedAudit, auditAfter, eventsFor, type AuditRow } from './audit-context.ts';
+import { AuditContext, appliedAudit, auditAfter, auditBefore, eventsFor, type AuditRow } from './audit-context.ts';
 import {
   historical,
   effectiveReconstruction,
@@ -505,7 +505,7 @@ export class ReconstructionService {
       if (keepCount < 0)
         keepCount = applied.done.findIndex((row) => {
           if (!row.before_json) return false;
-          const before = JSON.parse(row.before_json);
+          const before = auditBefore(row);
           return before.format === 'election-undo-v1' && (before.state?.cursor ?? -1) >= target.before.state!.cursor;
         });
       if (keepCount < 0) keepCount = applied.done.length;

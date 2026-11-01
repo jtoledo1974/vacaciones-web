@@ -33,7 +33,7 @@ import { nextSlot } from '../domain/sequence.ts';
 import { restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
 import { requestsForAwards } from './election-requests.ts';
-import { auditAfter, eventsFor } from './audit-context.ts';
+import { auditAfter, auditBefore, eventsFor } from './audit-context.ts';
 import type { Principal } from './permissions.ts';
 import type { Repository, Statement } from './repository.ts';
 import type { ElectionService } from './election-service.ts';
@@ -413,7 +413,7 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   )
     throw new ApiError(privateDenied, 403);
   if (!entry || entry.id !== body.historyId) throw new ApiError(unavailable, 409);
-  const prior = validateSnapshot(JSON.parse(entry.before_json), 'election-undo-v1');
+  const prior = validateSnapshot(auditBefore(entry), 'election-undo-v1');
   if (!prior) throw new ApiError('La copia para deshacer no es válida', 409);
   if (action === 'election_undo') await enteredEarlyChoices(x, prior, entry.action);
   // Restore the undone list edit itself and list flags (active) consumed by an
@@ -428,7 +428,7 @@ const executeHistory = (action: 'election_undo' | 'election_redo') => async (x: 
   // Reverse only that exact postimage; later owner edits retain their content.
   let systemRestored: string | null = null;
   if (original?.action === 'early_cancel') {
-    const before = validateSnapshot(JSON.parse(original.before_json), 'election-undo-v1');
+    const before = validateSnapshot(auditBefore(original), 'election-undo-v1');
     const { cancelled, manualized } = auditAfter(original) ?? {};
     const early = before?.state?.earlyChoices?.find((e) => e.awardId === cancelled);
     // The cancellation recorded whose list it turned manual; never re-derive that decision.

@@ -1055,3 +1055,29 @@ test('estadísticas: la anticipada cuenta solo cuando es firme, para todos y tam
     );
   }
 });
+
+test('la redacción del registro global actúa sobre el contenido lógico, no sobre el texto guardado', async () => {
+  const { s, person, run, cid, repo, b, dates } = await election();
+  await run(person, { action: 'early_choose', memberId: b.id, date: dates[2] });
+  const awardId = (await repo.all('SELECT id FROM awards'))[0].id;
+  await run(s, { action: 'election_undo', historyId: (await s.view(cid)).election.undo });
+  // Same logical JSON, but the stored text no longer contains the ids literally,
+  // as with any non-plain physical format (e.g. compressed payloads).
+  const escape = (json: string | null) =>
+    json &&
+    json.replace(/"(?:[^"\\]|\\.)*"/g, (text) =>
+      text.replace(/\\.|[0-9]/g, (c) => (c.length > 1 ? c : '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))),
+    );
+  for (const row of await repo.all<{ id: string; before_json: string | null; after_json: string | null }>(
+    'SELECT id,before_json,after_json FROM audit',
+  ))
+    await repo.all('UPDATE audit SET before_json=?,after_json=? WHERE id=?', [
+      escape(row.before_json),
+      escape(row.after_json),
+      row.id,
+    ]);
+  const logical = (await s.admin()).audit.map((row: { before_json: string | null; after_json: string | null }) =>
+    JSON.stringify([row.before_json && JSON.parse(row.before_json), row.after_json && JSON.parse(row.after_json)]),
+  );
+  assert.ok(!logical.some((text: string) => text.includes(awardId)), 'ni la elección ni sus copias');
+});

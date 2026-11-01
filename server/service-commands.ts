@@ -128,7 +128,7 @@ const executeUndoVacations =
     const entry = await service.vacationUndo(cid, c.version);
     if (!entry || entry.id !== body.undoId || (action === 'redo_vacations') !== (entry.action === 'undo_vacations'))
       throw new ApiError('El cambio ya no se puede deshacer. Recarga la campaña.', 409);
-    const restored = validateSnapshot(JSON.parse(entry.before_json!), 'vacations-undo-v1');
+    const restored = validateSnapshot(auditBefore(entry), 'vacations-undo-v1');
     if (!restored) throw new ApiError('La copia para deshacer carece de adjudicaciones verificables', 409);
     // The target is a prior committed snapshot protected by the campaign
     // version CAS. Rechecking global completion here is unnecessary and

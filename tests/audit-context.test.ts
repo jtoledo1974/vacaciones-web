@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AuditContext, auditBefore, auditAfter, appliedAudit } from '../server/audit-context.ts';
+import { AuditContext, auditBefore, auditAfter, appliedAudit, logicalRow } from '../server/audit-context.ts';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
 
@@ -124,4 +124,16 @@ test('deshacer una entrada concreta la retira de su sitio y rehacer la devuelve 
     appliedAudit([choose, list, { ...undo, after_json: '{}' }]).done.map((e) => e.id),
     ['choose'],
   );
+});
+
+test('accesores: filas planas, nulos y fila lógica materializada', () => {
+  const plain = { before_json: '{"a":[1,"x"]}', after_json: null };
+  assert.deepEqual(auditBefore(plain), { a: [1, 'x'] });
+  assert.equal(auditAfter(plain), null);
+  assert.equal(auditBefore({ before_json: null }), null);
+  // Memoized rows answer from their parsed value, not from the stored column.
+  const memo = Object.defineProperty({ before_json: 'stored' }, 'parsedBefore', { get: () => ({ b: 2 }) });
+  assert.deepEqual(auditBefore(memo), { b: 2 });
+  const row = logicalRow({ id: 'e', before_json: String.raw`{"\u0061":1}`, after_json: null });
+  assert.deepEqual(row, { id: 'e', before_json: '{"a":1}', after_json: null });
 });

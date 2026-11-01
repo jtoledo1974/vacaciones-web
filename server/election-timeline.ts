@@ -310,7 +310,7 @@ function restartsClock(row: Pick<AuditRow, 'action' | 'after_json'>) {
   if (CLOCK_RESTARTS.has(row.action)) return true;
   if (row.action !== 'resolve_tie') return false;
   try {
-    return JSON.parse(row.after_json ?? 'null')?.resolution?.anticipated !== true;
+    return auditAfter(row)?.resolution?.anticipated !== true;
   } catch {
     return true;
   }

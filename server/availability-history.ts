@@ -1,5 +1,5 @@
 import type { Repository } from './repository.ts';
-import { eventById, lastRestoring } from './audit-context.ts';
+import { auditAfter, eventById, lastRestoring } from './audit-context.ts';
 import type { AvailabilitySnapshot, CompactAvailabilitySnapshot } from '../domain/occupancy.ts';
 
 export type HistoricalAvailability = {
@@ -24,7 +24,7 @@ export async function historicalAvailability(
   if (!latest) return { restored: false };
   let metadata: any;
   try {
-    metadata = JSON.parse(latest.after_json!);
+    metadata = auditAfter(latest);
   } catch {
     return { restored: false };
   }
@@ -50,7 +50,7 @@ export async function historicalAvailability(
     const undone = await eventById(repo, cid, undoId);
     if (!undone) return restored;
     try {
-      const parent = JSON.parse(undone.after_json!);
+      const parent = auditAfter(undone);
       originalId = latest.action === 'election_redo' ? parent.undoTargetId : parent.undone;
     } catch {
       return restored;
@@ -60,7 +60,7 @@ export async function historicalAvailability(
   const original = await eventById(repo, cid, originalId);
   if (!original) return restored;
   try {
-    const details = JSON.parse(original.after_json!);
+    const details = auditAfter(original);
     const certified = details?.impact,
       administrative = details?.availabilityHistory;
     const recordedAvailability = undo
