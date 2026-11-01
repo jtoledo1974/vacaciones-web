@@ -17,6 +17,7 @@ import { discretion } from '../server/early-discretion.ts';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import { dispatchNotifications, notificationSettings, flushTurnNotifications } from '../server/notifications.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 
 // Real 2027 rules on a 16-person team: the order is M0, M1, ..., M15.
 const members = Array.from({ length: 16 }, (_, i) => ({ id: 'M' + i, code: 'M' + i, seniority: '' }));
@@ -499,7 +500,7 @@ test('deshacer/rehacer la anulación restaura solo el cambio automático de modo
 test('la anulación registra en su auditoría qué lista pasó a manual', async () => {
   const f = await cancelledPersistentList();
   const audits = await f.repo.all("SELECT after_json FROM audit WHERE action='early_cancel' ORDER BY rowid");
-  assert.equal(JSON.parse(audits.at(-1).after_json).manualized, f.b.id);
+  assert.equal(JSON.parse(decodePayload(audits.at(-1).after_json)).manualized, f.b.id);
   // Withdrawn before its slot: no list changes, so undo leaves every mode alone.
   const g = await election();
   await g.run(g.s, { action: 'preferences', memberId: g.b.id, dates: [g.dates[6]], mode: 'wait', waitMinutes: 30 });
@@ -508,8 +509,8 @@ test('la anulación registra en su auditoría qué lista pasó a manual', async 
   const own = await g.repo.all(
     "SELECT id,after_json FROM audit WHERE action IN ('early_choose','early_cancel') ORDER BY rowid",
   );
-  assert.equal(JSON.parse(own.at(-1).after_json).manualized, null);
-  assert.equal(JSON.parse(own.at(-1).after_json).discreet, true);
+  assert.equal(JSON.parse(decodePayload(own.at(-1).after_json)).manualized, null);
+  assert.equal(JSON.parse(decodePayload(own.at(-1).after_json)).discreet, true);
   // Withdrawn before its slot, it never comes to light: not even the manager's undo shows it.
   view = await g.s.view(g.cid);
   assert.ok(!own.some((row) => row.id === view.election.undo));
@@ -864,7 +865,7 @@ test('las copias del registro global no conservan la anticipada discreta', async
   await run(s, { action: 'preferences', memberId: b.id, dates: [dates[6]] });
   const stored = await repo.all("SELECT before_json FROM audit WHERE action='preferences'");
   assert.ok(
-    stored.some((row) => row.before_json.includes(awardId)),
+    stored.some((row) => decodePayload(row.before_json).includes(awardId)),
     'la copia guardada la contiene',
   );
   const log = JSON.stringify((await s.admin()).audit);
@@ -900,7 +901,7 @@ test('una reconstrucción no revela la anticipada discreta de su origen', async 
   assert.ok(!JSON.stringify(rebuilt).includes(awardId));
   // Gone with the rewind, it stays discreet: recorded, its owner told, and unseen in the log.
   const started = (await repo.all("SELECT after_json FROM audit WHERE action='reconstruction_start'"))[0];
-  assert.deepEqual(JSON.parse(started.after_json).withdrawnEarly, [awardId]);
+  assert.deepEqual(JSON.parse(decodePayload(started.after_json)).withdrawnEarly, [awardId]);
   const notices = await repo.all("SELECT member_id FROM turn_notifications WHERE id LIKE 'withdrawn:%'");
   assert.deepEqual(
     notices.map((n) => n.member_id),
@@ -987,7 +988,7 @@ test('una anticipada que se lleva un deshacer no reaparece en el registro global
   await run(s, { action: 'election_undo', historyId: (await s.view(cid)).election.undo });
   assert.equal((await repo.all('SELECT id FROM awards')).length, 0);
   const undo = (await repo.all("SELECT after_json FROM audit WHERE action='election_undo'"))[0];
-  assert.deepEqual(JSON.parse(undo.after_json).withdrawnEarly, [awardId]);
+  assert.deepEqual(JSON.parse(decodePayload(undo.after_json)).withdrawnEarly, [awardId]);
   const log = JSON.stringify((await s.admin()).audit);
   assert.ok(!log.includes(awardId), 'ni la elección ni sus copias');
   assert.ok(!log.includes('early_choose'));

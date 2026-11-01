@@ -6,6 +6,7 @@ import { cas } from '../server/repository.ts';
 import { capture, captureVacations, restoreStatements, validateSnapshot } from '../server/campaign-snapshot.ts';
 import { ELECTION_UNDO_FORMAT, VACATIONS_UNDO_FORMAT } from '../domain/events.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 const owner = { id: 'chatgpt:owner', role: 'superadmin' as const, teams: [] };
 async function setup() {
   const repo = new SQLiteRepo(),
@@ -84,7 +85,7 @@ test('restaurar la copia del deshacer coincide con el deshacer de la elección',
     [entry] = await repo.all('SELECT before_json FROM audit WHERE id=?', [view.election.undo]);
   await act(s, cid, { action: 'election_undo', historyId: view.election.undo });
   const undone = await rows(repo, cid),
-    prior = validateSnapshot(JSON.parse(entry.before_json))!;
+    prior = validateSnapshot(JSON.parse(decodePayload(entry.before_json)))!;
   assert.deepEqual(
     undone.awards.map((a: { id: string }) => a.id).sort(),
     prior.awards.map((a: { id: string }) => a.id).sort(),

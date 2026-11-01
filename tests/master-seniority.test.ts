@@ -4,6 +4,7 @@ import { SQLiteRepo } from './sqlite-repo.ts';
 import { Service } from '../server/service.ts';
 import { masterSeniority } from '../server/master-seniority.ts';
 import type { Principal } from '../server/permissions.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 
 const actor: Principal = { id: 'test-admin', role: 'superadmin', teams: [] };
 async function setup() {
@@ -45,7 +46,7 @@ test('carga fichas maestras con auditoría sin tocar campañas cerradas, eleccio
   assert.equal((await repo.all("SELECT id FROM people WHERE seniority='2004-10-25'")).length, 2);
   const audit = (await repo.all("SELECT * FROM audit WHERE action='master_seniority'"))[0];
   assert.equal(audit.campaign_id, null);
-  assert.equal(JSON.parse(audit.after_json).source.sha256, body.source.sha256);
+  assert.equal(JSON.parse(decodePayload(audit.after_json)).source.sha256, body.source.sha256);
   const repeat = await masterSeniority(repo, actor, body);
   assert.equal(repeat.changed, 0);
   assert.equal(

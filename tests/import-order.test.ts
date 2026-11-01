@@ -9,6 +9,7 @@ import type { ImportFinding } from '../domain/import-review-types.ts';
 import type { Award, Member } from '../domain/vacations.ts';
 import type { ElectionTimelineItem } from '../domain/election-timeline-types.ts';
 import { numberTimelineCycles } from '../domain/timeline-numbering.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 
 const owner = { id: 'chatgpt:test', role: 'superadmin' as const, teams: [] };
 async function setup() {
@@ -129,7 +130,7 @@ test('preview is read-only; explicit review and acknowledgement precede an atomi
   );
   assert.deepEqual((await service.load(cid)).awards, imported.awards, 'snapshot rewrites preserve sequence metadata');
   const audit = await repo.all("SELECT after_json FROM audit WHERE campaign_id=? AND action='import_roster'", [cid]);
-  assert.equal(JSON.parse(audit[0].after_json).acceptedViolations, true);
+  assert.equal(JSON.parse(decodePayload(audit[0].after_json)).acceptedViolations, true);
 });
 
 test('confirmation cannot be reused for changed input or a newer campaign version', async () => {

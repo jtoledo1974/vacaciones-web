@@ -1,4 +1,5 @@
 import type { Repository, Statement } from './repository.ts';
+import { decodePayload, encodePayload } from './payload-codec.ts';
 import {
   CHOICE_ACTIONS,
   RESTORING_ACTIONS,
@@ -39,7 +40,7 @@ function parsedRow(row: AuditRow): AuditRow {
     parsedBefore: {
       get() {
         if (!hasBefore) {
-          before = row.before_json ? JSON.parse(row.before_json) : null;
+          before = row.before_json ? JSON.parse(decodePayload(row.before_json)) : null;
           hasBefore = true;
         }
         return before;
@@ -48,7 +49,7 @@ function parsedRow(row: AuditRow): AuditRow {
     parsedAfter: {
       get() {
         if (!hasAfter) {
-          after = row.after_json ? JSON.parse(row.after_json) : null;
+          after = row.after_json ? JSON.parse(decodePayload(row.after_json)) : null;
           hasAfter = true;
         }
         return after;
@@ -61,14 +62,14 @@ export function auditBefore(row: Pick<AuditRow, 'before_json'>): any {
   return Object.hasOwn(row, 'parsedBefore')
     ? (row as any).parsedBefore
     : row.before_json
-      ? JSON.parse(row.before_json)
+      ? JSON.parse(decodePayload(row.before_json))
       : null;
 }
 export function auditAfter(row: Pick<AuditRow, 'after_json'>): any {
   return Object.hasOwn(row, 'parsedAfter')
     ? (row as any).parsedAfter
     : row.after_json
-      ? JSON.parse(row.after_json)
+      ? JSON.parse(decodePayload(row.after_json))
       : null;
 }
 
@@ -230,14 +231,27 @@ export function recentAudit(limit = 100): Statement {
   return { sql: 'SELECT * FROM audit ORDER BY created_at DESC LIMIT ?', args: [limit] };
 }
 /** Recent automatic `advance` rows of a live campaign, with the turn cursor before each one. */
-export function automaticAdvancesSince(repo: Repository, campaignId: string, since: string) {
-  return repo.all<{ id: string; after_json: string; created_at: string; cursor: any; turns: any }>(
-    `SELECT a.id,a.after_json,a.created_at,
-    json_extract(a.before_json,'$.state.cursor') AS cursor,json_array_length(a.before_json,'$.state.order') AS turns
+export async function automaticAdvancesSince(repo: Repository, campaignId: string, since: string) {
+  const rows = await repo.all<{ id: string; before_json: string | null; after_json: string; created_at: string }>(
+    `SELECT a.id,a.before_json,a.after_json,a.created_at
    FROM audit a JOIN campaigns c ON c.id=a.campaign_id
    WHERE a.campaign_id=? AND a.action='advance' AND c.scope_key='live' AND a.created_at>=?`,
     [campaignId, since],
   );
+  // Payloads may be compressed: read the cursor in JS, never with json_extract.
+  return rows.map(({ before_json, ...row }) => {
+    let state: any = null;
+    try {
+      state = auditBefore({ before_json })?.state;
+    } catch {
+      // A malformed snapshot only loses the round fallback, as with SQL before.
+    }
+    return {
+      ...row,
+      cursor: state?.cursor ?? null,
+      turns: Array.isArray(state?.order) ? state.order.length : null,
+    };
+  });
 }
 /** Whether any decision consuming options happened since `since`. */
 export async function hasChoicesSince(repo: Repository, campaignId: string, since: string): Promise<boolean> {
@@ -269,8 +283,8 @@ export function append(event: AppendInput): Statement {
       stored.action,
       event.teamId ?? null,
       event.campaignId ?? null,
-      stored.before_json,
-      stored.after_json,
+      stored.before_json === null ? null : encodePayload(stored.before_json),
+      encodePayload(stored.after_json),
       event.createdAt,
     ],
   };
@@ -280,7 +294,9 @@ export function appendIfChanged(event: AppendInput): Statement {
   const { sql, args } = append(event);
   return { sql: sql.replace(/ VALUES\((.*)\)$/, ' SELECT $1 WHERE changes()=1'), args };
 }
-/** SQL-only eligibility guard: never discard a session's sole surviving copy. */
+/** SQL-only eligibility guard: never discard a session's sole surviving copy.
+ * Compressed audit payloads fail json_valid, so the guard then refuses to compact:
+ * the history conversion runs this compaction before compressing (ADR 0001). */
 export function originalEventCopiesMatchSQL(event: string): string {
   return `EXISTS (SELECT 1 FROM audit a WHERE a.id=json_extract(${event},'$.id')
     AND json_valid(a.before_json) AND json_valid(a.after_json)
@@ -294,7 +310,7 @@ export function originalEventCopiesMatchSQL(event: string): string {
 export function maintenanceCleanupEvent(actor: string | null, plan: unknown, token: string): Statement {
   return {
     sql: "INSERT INTO audit(id,actor,action,before_json,after_json,created_at) VALUES(?,?,'maintenance_cleanup',NULL,?,?)",
-    args: [crypto.randomUUID(), actor, JSON.stringify({ plan, token }), new Date().toISOString()],
+    args: [crypto.randomUUID(), actor, encodePayload(JSON.stringify({ plan, token })), new Date().toISOString()],
   };
 }
 

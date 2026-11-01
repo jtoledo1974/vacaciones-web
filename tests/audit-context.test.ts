@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { AuditContext, auditBefore, auditAfter, appliedAudit, logicalRow } from '../server/audit-context.ts';
+import {
+  AuditContext,
+  auditBefore,
+  auditAfter,
+  appliedAudit,
+  logicalRow,
+  append,
+  automaticAdvancesSince,
+} from '../server/audit-context.ts';
+import { encodePayload } from '../server/payload-codec.ts';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
 
@@ -136,4 +145,33 @@ test('accesores: filas planas, nulos y fila lógica materializada', () => {
   assert.deepEqual(auditBefore(memo), { b: 2 });
   const row = logicalRow({ id: 'e', before_json: String.raw`{"\u0061":1}`, after_json: null });
   assert.deepEqual(row, { id: 'e', before_json: '{"a":1}', after_json: null });
+});
+
+test('audit guarda comprimidos los payloads grandes, en claro los pequeños, y se leen igual', async () => {
+  const repo = new SQLiteRepo();
+  await new Service(repo, { id: 'admin', role: 'superadmin', teams: [] }).init();
+  const [campaign] = await repo.all("SELECT id FROM campaigns WHERE team_id='A'");
+  const order = Array.from({ length: 40 }, (_, i) => 'member-' + i);
+  const before = { format: 'election-undo-v1', state: { cursor: 41, order }, awards: order.map((id) => ({ id })) };
+  const after = { choices: [] };
+  await repo.batch([
+    append({
+      id: 'big',
+      actor: 'admin',
+      action: 'advance',
+      campaignId: campaign.id,
+      before,
+      after,
+      createdAt: '2099-01-01T00:00:00Z',
+    }),
+  ]);
+  const [row] = await repo.all("SELECT before_json,after_json FROM audit WHERE id='big'");
+  assert.ok(row.before_json.startsWith('gz1:'), 'el snapshot grande se comprime');
+  assert.equal(row.after_json, JSON.stringify(after), 'el metadato pequeño queda en claro');
+  assert.deepEqual(auditBefore(row), before);
+  assert.deepEqual(auditAfter(row), after);
+  // The notification fallback reads the cursor from the compressed snapshot in JS.
+  const [advance] = await automaticAdvancesSince(repo, campaign.id, '2098-01-01T00:00:00Z');
+  assert.deepEqual([advance.cursor, advance.turns], [41, 40]);
+  assert.equal(encodePayload('{"a":1}'), '{"a":1}');
 });

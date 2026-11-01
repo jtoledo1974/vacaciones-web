@@ -4,6 +4,7 @@ import { buildElectionTimeline, publicElectionTimeline } from '../server/electio
 import { orderForRound, type ElectionContext, type ElectionState } from '../domain/election.ts';
 import { defaultConfig } from '../domain/defaults.ts';
 import { numberTimelineCycles } from '../domain/timeline-numbering.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 
 const resolution = {
   order: ['A', 'B', 'C'],
@@ -321,8 +322,8 @@ test('timeline projects impact summaries without removing certified audit snapsh
     events: [],
   });
   assert.equal(decision.after_json, persisted);
-  assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityBefore, impact.availabilityBefore);
-  assert.deepEqual(JSON.parse(decision.after_json).impact.availabilityAfter, impact.availabilityAfter);
+  assert.deepEqual(JSON.parse(decodePayload(decision.after_json)).impact.availabilityBefore, impact.availabilityBefore);
+  assert.deepEqual(JSON.parse(decodePayload(decision.after_json)).impact.availabilityAfter, impact.availabilityAfter);
 });
 
 test('historial: muestra cada aviso normativo solo en la adjudicación que lo introduce', () => {

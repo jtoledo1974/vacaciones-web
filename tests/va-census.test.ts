@@ -5,6 +5,7 @@ import { Service, principal } from '../server/service.ts';
 import { myVa, vaCensus, vaLinkAccount, vaVisibility } from '../server/va-census.ts';
 import { vaDays, vaYears } from '../domain/va-entitlement.ts';
 import type { Principal } from '../server/permissions.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 
 const superadmin: Principal = { id: 'test-admin', role: 'superadmin', teams: [] };
 const vaAdmin: Principal = { id: 'chatgpt:va', role: 'viewer', teams: [], vaAdmin: true };
@@ -68,7 +69,7 @@ test('vincula, cambia y quita el acceso con control de versión y auditoría', a
   assert.equal(row?.account, null);
   const audit = await repo.all("SELECT * FROM audit WHERE action='va_account' ORDER BY rowid");
   assert.equal(audit.length, 3);
-  assert.equal(JSON.parse(audit[0].after_json).account, 'chatgpt-email:ana@ejemplo.es');
+  assert.equal(JSON.parse(decodePayload(audit[0].after_json)).account, 'chatgpt-email:ana@ejemplo.es');
 });
 
 test('el controlador ve su propio derecho y la entrada de menú solo si participa', async () => {

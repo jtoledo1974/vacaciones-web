@@ -12,6 +12,7 @@ import { previewCleanup, applyCleanup } from '../server/cleanup.ts';
 import { compactSessionSQL } from '../server/reconstruction-compaction.ts';
 import type { Principal } from '../server/permissions.ts';
 import type { Repository } from '../server/repository.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 type ArchiveRecord = { kind: string; payload: Record<string, unknown>; sha256: string; chain: string; pages: number };
 const actor: Principal = { id: 'test:super', role: 'superadmin', teams: [] };
 const requestFor = (repo: SQLiteRepo) => async (method: string, _route: string, body?: unknown) =>
@@ -345,7 +346,10 @@ test('legacy session compaction equals new-session projection, preserves source 
     assert.ok(preview.plan.categories[0].bytes > 200000);
     await applyCleanup(repo, actor, { mode: preview.plan.mode, cutoff: preview.plan.cutoff, token: preview.token });
     assert.deepEqual(JSON.parse((await repo.all('SELECT json FROM reconstruction_sessions'))[0].json), expected);
-    assert.deepEqual(JSON.parse((await repo.all('SELECT after_json FROM audit'))[0].after_json), event.after);
+    assert.deepEqual(
+      JSON.parse(decodePayload((await repo.all('SELECT after_json FROM audit'))[0].after_json)),
+      event.after,
+    );
     const again = await previewCleanup(repo, actor, Date.now(), 'compact-reconstruction-events');
     assert.equal(again.plan.categories[0].rows, 0);
     repo.db.prepare('UPDATE reconstruction_sessions SET json=?').run(JSON.stringify(session));

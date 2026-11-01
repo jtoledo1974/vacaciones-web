@@ -7,6 +7,7 @@ import { registerPolicy, occupancyFor, policyFor, unitsOf, validateCampaignConfi
 import { calendar } from '../domain/calendar.ts';
 import { defaultConfig } from '../domain/defaults.ts';
 import { POLICY_2099, POLICY_2099_VERSION, POLICY_2099_MAX } from './policy-2099.ts';
+import { decodePayload } from '../server/payload-codec.ts';
 
 const owner = { id: 'chatgpt:owner', role: 'superadmin' as const, teams: [] };
 const visitor = {
@@ -116,7 +117,7 @@ test('a fictitious 2099 policy runs the whole generic election flow without 2027
   assert.ok(choice?.impact, 'the impact is committed with the choice');
   const [audit] = await repo.all('SELECT after_json FROM audit WHERE id=?', [choice.id]);
   assertNo2027('auditoría', audit);
-  assert.equal(JSON.parse(audit.after_json).impact.availabilityAfter.policyVersion, POLICY_2099_VERSION);
+  assert.equal(JSON.parse(decodePayload(audit.after_json)).impact.availabilityAfter.policyVersion, POLICY_2099_VERSION);
 
   await service
     .election()
@@ -176,7 +177,7 @@ test('la política aporta el calendario y la validación de su configuración; p
 });
 
 test('las entradas de una campaña aceptan el calendario de su política y validan con ella', async (t) => {
-  const ordinary = (campaign: { year: number; team: string; config: any }) =>
+  const ordinary = (campaign: { year: number; team: string; config: Parameters<typeof calendar>[2] }) =>
     calendar(campaign.year, campaign.team, campaign.config);
   // A day that is not an ordinary cycle start: only the policy's calendar offers it.
   let extra = '';
@@ -197,7 +198,9 @@ test('las entradas de una campaña aceptan el calendario de su política y valid
     service = new Service(repo, owner);
   await service.init();
   await service.createCampaigns(2099, null, null);
-  const cid = (await service.list()).campaigns.find((c: any) => c.year === 2099 && c.team_id === 'A').id;
+  const cid = (await service.list()).campaigns.find(
+    (c: { id: string; year: number; team_id: string }) => c.year === 2099 && c.team_id === 'A',
+  ).id;
   let d = await service.view(cid);
   assert.ok(!calendar(2099, 'A', d.config).some((c) => c.date === extra), 'el día no es un ciclo ordinario');
   // Roster import: dates come from the policy's calendar.
@@ -220,7 +223,7 @@ test('las entradas de una campaña aceptan el calendario de su política y valid
     slot: 2,
     date: extra,
   });
-  assert.ok(d.requests.some((r: any) => r.cycle_date === extra));
+  assert.ok(d.requests.some((r: { cycle_date: string }) => r.cycle_date === extra));
   // Configuration: the policy's validation.
   await assert.rejects(
     service.mutate(cid, {

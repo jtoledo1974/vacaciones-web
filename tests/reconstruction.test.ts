@@ -13,6 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { decodePayload } from '../server/payload-codec.ts';
 type HistoryCandidate = {
   kind?: string;
   archived?: boolean;
@@ -103,8 +104,8 @@ test('compactar duplicados y restaurar v2 conserva reconstrucción activa, ida/v
     );
     for (const event of session.originalEvents) {
       const [source] = await repo.all('SELECT before_json,after_json FROM audit WHERE id=?', [event.id]);
-      const before = JSON.parse(source.before_json),
-        after = JSON.parse(source.after_json);
+      const before = JSON.parse(decodePayload(source.before_json)),
+        after = JSON.parse(decodePayload(source.after_json));
       Object.assign(event.before, {
         awards: before.awards,
         requests: before.requests,
@@ -115,6 +116,19 @@ test('compactar duplicados y restaurar v2 conserva reconstrucción activa, ida/v
     await repo.batch([
       { sql: 'UPDATE reconstruction_sessions SET json=? WHERE campaign_id=?', args: [JSON.stringify(session), cid] },
     ]);
+    // Compressed audit copies cannot be compared in SQL: compaction refuses, changing nothing.
+    const refused = await previewCleanup(repo, owner, Date.now(), 'compact-reconstruction-events');
+    assert.equal(refused.plan.categories[0].rows, 0);
+    // The history conversion compacts while audit is still plain JSON (ADR 0001).
+    for (const event of session.originalEvents) {
+      const [source] = await repo.all('SELECT before_json,after_json FROM audit WHERE id=?', [event.id]);
+      await repo.batch([
+        {
+          sql: 'UPDATE audit SET before_json=?,after_json=? WHERE id=?',
+          args: [decodePayload(source.before_json), decodePayload(source.after_json), event.id],
+        },
+      ]);
+    }
     const before = await s.view(cid);
     const preview = await previewCleanup(repo, owner, Date.now(), 'compact-reconstruction-events');
     assert.equal(preview.plan.categories[0].rows, 1);
