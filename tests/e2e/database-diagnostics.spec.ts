@@ -8,14 +8,15 @@ test('diagnóstico restringido a administrador y solo lectura de D1', async ({ r
     data: { username: 'qa-superadmin', password: 'Only-for-isolated-e2e-testing-12345' },
   });
   expect(login.status()).toBe(200);
-  expect(
-    (
-      await request.post('/api/initialize', {
-        data: {},
-        headers: { Origin: 'http://127.0.0.1:5199' },
-      })
-    ).status(),
-  ).toBe(200);
+  // The check needs an initialized database; an earlier spec in the run may already have done it.
+  const initialized = await request.post('/api/initialize', {
+    data: {},
+    headers: { Origin: 'http://127.0.0.1:5199' },
+  });
+  if (initialized.status() !== 200) {
+    expect(initialized.status()).toBe(409);
+    expect(await initialized.text()).toContain('ya está inicializado');
+  }
   const before = await (await request.get('/api/revision')).json();
   const response = await request.get(path);
   expect(response.status()).toBe(200);
