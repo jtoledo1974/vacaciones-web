@@ -1,5 +1,5 @@
 import type { Repository, Statement } from './repository.ts';
-import { decodePayload, encodePayload } from './payload-codec.ts';
+import { compressPayload, decodePayload, encodePayload } from './payload-codec.ts';
 import {
   CHOICE_ACTIONS,
   RESTORING_ACTIONS,
@@ -304,6 +304,60 @@ export function originalEventCopiesMatchSQL(event: string): string {
     AND json_extract(a.before_json,'$.requests') IS json_extract(${event},'$.before.requests')
     AND json_extract(a.before_json,'$.preferences') IS json_extract(${event},'$.before.preferences')
     AND json_extract(a.after_json,'$.impact') IS json_extract(${event},'$.after.impact'))`;
+}
+
+// Plain legacy payloads above this size are converted; smaller ones stay as they are.
+const COMPRESS_MIN_BYTES = 1024;
+// Plain text a batch may read and rewrite at once, far below Worker memory and D1 limits.
+export const COMPRESS_BATCH_BYTES = 4_000_000;
+const plainLarge = (column: string) => `(length(${column})>${COMPRESS_MIN_BYTES} AND ${column} NOT LIKE 'gz1:%')`;
+/**
+ * The next batch of the history conversion (ADR 0001), bounded by rows and by bytes (at
+ * least one row). Every large plain payload is compressed, even if larger, so no row is
+ * selected twice and the conversion always ends. Each is verified to decode to its exact
+ * original text. Audit rows are otherwise immutable and the cleanup revision guard covers
+ * concurrent writes, so the update only rechecks lengths, not whole payloads.
+ */
+// SQLite's length() counts characters (code points), not UTF-16 units like String.length.
+const characters = (value: string | null) => (value === null ? null : Array.from(value).length);
+export async function compressPayloadsBatch(repo: Repository, limit: number, budget = COMPRESS_BATCH_BYTES) {
+  const sizes = await repo.all<{ id: string; size: number }>(
+    `SELECT id,coalesce(length(before_json),0)+coalesce(length(after_json),0) AS size FROM audit
+     WHERE ${plainLarge('before_json')} OR ${plainLarge('after_json')} ORDER BY rowid LIMIT ?`,
+    [limit],
+  );
+  const ids: string[] = [];
+  let total = 0;
+  for (const { id, size } of sizes) {
+    if (ids.length && total + size > budget) break;
+    ids.push(id);
+    total += size;
+  }
+  const rows = ids.length
+    ? await repo.all<{ id: string; before_json: string | null; after_json: string | null }>(
+        `SELECT a.id,a.before_json,a.after_json FROM audit a JOIN json_each(?) ids ON a.id=ids.value ORDER BY a.rowid`,
+        [JSON.stringify(ids)],
+      )
+    : [];
+  let bytes = 0;
+  const encode = (id: string, value: string | null) => {
+    if (value === null || value.startsWith('gz1:')) return value;
+    const encoded = value.length > COMPRESS_MIN_BYTES ? compressPayload(value) : encodePayload(value);
+    if (decodePayload(encoded) !== value) throw new Error('La compresión no reproduce el registro ' + id);
+    bytes += value.length - encoded.length;
+    return encoded;
+  };
+  const updates: Statement[] = rows.map((row) => ({
+    sql: 'UPDATE audit SET before_json=?,after_json=? WHERE id=? AND length(before_json) IS ? AND length(after_json) IS ?',
+    args: [
+      encode(row.id, row.before_json),
+      encode(row.id, row.after_json),
+      row.id,
+      characters(row.before_json),
+      characters(row.after_json),
+    ],
+  }));
+  return { updates, category: { rows: updates.length, bytes } };
 }
 
 /** Maintenance metadata contains the confirmed plan, not historical snapshot data. */

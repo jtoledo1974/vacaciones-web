@@ -13,6 +13,8 @@ import { compactSessionSQL } from '../server/reconstruction-compaction.ts';
 import type { Principal } from '../server/permissions.ts';
 import type { Repository } from '../server/repository.ts';
 import { decodePayload } from '../server/payload-codec.ts';
+import { compressPayloadsBatch } from '../server/audit-context.ts';
+import { randomBytes } from 'node:crypto';
 type ArchiveRecord = { kind: string; payload: Record<string, unknown>; sha256: string; chain: string; pages: number };
 const actor: Principal = { id: 'test:super', role: 'superadmin', teams: [] };
 const requestFor = (repo: SQLiteRepo) => async (method: string, _route: string, body?: unknown) =>
@@ -362,4 +364,75 @@ test('legacy session compaction equals new-session projection, preserves source 
   } finally {
     repo.db.close();
   }
+});
+
+test('compress-audit-payloads convierte el historial antiguo por lotes sin cambiar su contenido', async () => {
+  const repo = new SQLiteRepo();
+  const now = Date.now();
+  const big = (i: number) =>
+    JSON.stringify({
+      format: 'election-undo-v1',
+      awards: Array.from({ length: 150 }, (_, k) => ({ id: 'a' + i + '-' + k })),
+    });
+  const insert = repo.db.prepare(
+    "INSERT INTO audit(id,actor,action,before_json,after_json,created_at) VALUES(?,'synthetic','advance',?,?,'2026-01-01')",
+  );
+  repo.db.exec('BEGIN');
+  for (let i = 0; i < 101; i++) insert.run('legacy-' + i, big(i), '{"small":true}');
+  insert.run('tiny', '{"a":1}', null);
+  repo.db.exec('COMMIT');
+  const original = repo.db.prepare('SELECT id,before_json,after_json FROM audit ORDER BY rowid').all();
+  let preview = await previewCleanup(repo, actor, now, 'compress-audit-payloads');
+  assert.equal(preview.plan.categories[0].rows, 100);
+  assert.ok(preview.plan.categories[0].bytes > 0);
+  assert.ok(!JSON.stringify(preview).includes('a0-0'), 'la vista previa no expone payloads');
+  await applyCleanup(repo, actor, { cutoff: now, mode: preview.plan.mode, token: preview.token });
+  preview = await previewCleanup(repo, actor, now, 'compress-audit-payloads');
+  assert.equal(preview.plan.categories[0].rows, 1);
+  await applyCleanup(repo, actor, { cutoff: now, mode: preview.plan.mode, token: preview.token });
+  assert.equal((await previewCleanup(repo, actor, now, 'compress-audit-payloads')).plan.categories[0].rows, 0);
+  const stored = new Map(
+    repo.db
+      .prepare('SELECT id,before_json,after_json FROM audit')
+      .all()
+      .map((r) => [r.id as string, r]),
+  );
+  for (const row of original as { id: string; before_json: string | null; after_json: string | null }[]) {
+    const now = stored.get(row.id) as typeof row;
+    assert.equal(now.before_json && decodePayload(now.before_json), row.before_json);
+    assert.equal(now.after_json && decodePayload(now.after_json), row.after_json);
+  }
+  assert.ok((stored.get('legacy-0') as { before_json: string }).before_json.startsWith('gz1:'));
+  assert.equal((stored.get('tiny') as { before_json: string }).before_json, '{"a":1}', 'lo pequeño no se toca');
+});
+
+test('compress-audit-payloads termina con payloads que no se comprimen y limita cada lote por bytes', async () => {
+  const repo = new SQLiteRepo();
+  const now = Date.now();
+  const insert = repo.db.prepare(
+    "INSERT INTO audit(id,actor,action,before_json,after_json,created_at) VALUES(?,'synthetic','advance',?,?,'2026-01-01')",
+  );
+  const opaque = JSON.stringify({ opaque: randomBytes(2000).toString('base64') });
+  const emoji = JSON.stringify({ label: '🏖️'.repeat(800) });
+  insert.run('opaque', opaque, '{}');
+  insert.run('emoji', emoji, '{}');
+  for (let i = 0; i < 3; i++) insert.run('big-' + i, JSON.stringify({ n: i, pad: 'x'.repeat(3000) }), '{}');
+  // A tight budget still takes at least one row, and never more than fit.
+  assert.equal((await compressPayloadsBatch(repo, 100, 1)).updates.length, 1);
+  assert.equal((await compressPayloadsBatch(repo, 100, 2 * 3100)).updates.length, 2);
+  let batches = 0;
+  for (; batches < 10; batches++) {
+    const preview = await previewCleanup(repo, actor, now, 'compress-audit-payloads');
+    if (!preview.plan.categories[0].rows) break;
+    await applyCleanup(repo, actor, { cutoff: now, mode: preview.plan.mode, token: preview.token });
+  }
+  assert.ok(batches < 10, 'la conversión termina');
+  const rows = repo.db.prepare("SELECT id,before_json FROM audit WHERE action='advance'").all() as {
+    id: string;
+    before_json: string;
+  }[];
+  assert.ok(rows.every((r) => r.before_json.startsWith('gz1:')));
+  const byId = new Map(rows.map((r) => [r.id, decodePayload(r.before_json)]));
+  assert.equal(byId.get('opaque'), opaque);
+  assert.equal(byId.get('emoji'), emoji);
 });

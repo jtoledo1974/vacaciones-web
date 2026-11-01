@@ -64,13 +64,14 @@ export const HELP = {
   cleanup: {
     summary: 'Previsualiza y confirma limpieza conservadora en lotes.',
     usage:
-      'admin-cli.mjs cleanup preview [--mode compact-reconstruction-events|expired-auth-only] [--out plan.json]\n  admin-cli.mjs cleanup apply plan.json',
+      'admin-cli.mjs cleanup preview [--mode compact-reconstruction-events|compress-audit-payloads|expired-auth-only] [--out plan.json]\n  admin-cli.mjs cleanup apply plan.json',
     permissions: 'Exclusivamente superadministrador.',
     writes:
       'preview no escribe; apply confirma el token exacto, caduca en 15 minutos y requiere revisión sin cambios. Guarda una copia previa salvo --no-backup.',
     details: [
       'No borra audit, sesiones de reconstrucción ni negocio vigente. La compactación solo retira duplicados comprobados contra audit.',
       'La categoría bytes mide ahorro lógico bruto del lote, no páginas físicas liberadas ni el coste de su nueva auditoría. Solicita otro preview para cada lote.',
+      'compress-audit-payloads comprime hasta 100 registros antiguos de audit por lote, comprobando que cada uno se descomprime igual. Exige haber compactado antes las sesiones de reconstrucción; repite preview y apply hasta que el lote tenga 0 filas.',
     ],
     example: 'node scripts/admin-cli.mjs cleanup preview --mode compact-reconstruction-events --out plan.json',
   },

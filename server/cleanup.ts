@@ -2,7 +2,7 @@ import type { Repository, Statement } from './repository.ts';
 import { requireSuper, type Principal } from './permissions.ts';
 import { ApiError } from './errors.ts';
 import { hash } from '../lib/backup-v2.mjs';
-import { maintenanceCleanupEvent } from './audit-context.ts';
+import { compressPayloadsBatch, maintenanceCleanupEvent } from './audit-context.ts';
 import { compactSessionSQL, compactableSessionSQL } from './reconstruction-compaction.ts';
 const compacted = compactSessionSQL('reconstruction_sessions.json');
 const compactSelection = `SELECT rowid FROM reconstruction_sessions WHERE ${compactableSessionSQL('reconstruction_sessions.json')}
@@ -36,19 +36,26 @@ const categories = [
   },
 ];
 const limit = 500;
+// History conversion (ADR 0001), in batches the CLI repeats until empty.
+const COMPRESS_BATCH = 100;
 const selection = (c: (typeof categories)[number]) =>
   `SELECT rowid FROM ${c.table} WHERE ${c.where} ORDER BY rowid LIMIT ${limit}`;
-export async function previewCleanup(
-  repo: Repository,
-  actor: Principal,
-  cutoff = Date.now(),
-  mode = 'expired-auth-only',
-) {
+async function planCleanup(repo: Repository, actor: Principal, cutoff = Date.now(), mode = 'expired-auth-only') {
   requireSuper(actor);
-  if (!['expired-auth-only', 'compact-reconstruction-events'].includes(mode))
+  if (!['expired-auth-only', 'compact-reconstruction-events', 'compress-audit-payloads'].includes(mode))
     throw new ApiError('Modalidad de limpieza desconocida');
   if (!Number.isSafeInteger(cutoff) || cutoff > Date.now() || cutoff < Date.now() - 15 * 60_000)
     throw new ApiError('Previsualización caducada', 409);
+  let compression: Awaited<ReturnType<typeof compressPayloadsBatch>> | null = null;
+  if (mode === 'compress-audit-payloads') {
+    // Compaction compares audit copies in SQL, which compressed payloads defeat: it goes first.
+    const [pending] = await repo.all<{ n: number }>(
+      `SELECT count(*) AS n FROM reconstruction_sessions WHERE rowid IN (${compactSelection})`,
+    );
+    if (pending.n)
+      throw new ApiError('Compacta antes las sesiones de reconstrucción (compact-reconstruction-events)', 409);
+    compression = await compressPayloadsBatch(repo, COMPRESS_BATCH);
+  }
   const r = await repo.batch([
     {
       sql: "SELECT b.revision, c.revision AS authRevision FROM backup_clock b CROSS JOIN cleanup_clock c WHERE b.id='main' AND c.id='main'",
@@ -69,9 +76,18 @@ export async function previewCleanup(
     cutoff,
     revision: r[0].results[0].revision,
     authRevision: mode === 'expired-auth-only' ? r[0].results[0].authRevision : null,
-    limitPerCategory: mode === 'expired-auth-only' ? limit : 1,
-    categories:
-      mode === 'compact-reconstruction-events'
+    limitPerCategory: mode === 'expired-auth-only' ? limit : mode === 'compress-audit-payloads' ? COMPRESS_BATCH : 1,
+    categories: compression
+      ? [
+          {
+            category: 'audit.payloads',
+            ...compression.category,
+            dependencies: 'Cada payload se descomprime exactamente al texto original antes de escribirlo',
+            effect:
+              'Comprime before_json/after_json de registros antiguos con el formato de las escrituras nuevas. No cambia su contenido lógico ni su orden.',
+          },
+        ]
+      : mode === 'compact-reconstruction-events'
         ? [
             {
               category: 'reconstruction_sessions.originalEvents',
@@ -99,17 +115,29 @@ export async function previewCleanup(
     lost:
       mode === 'expired-auth-only'
         ? ['Filas técnicas caducadas de autenticación seleccionadas; no son registros de auditoría de decisiones']
-        : [
-            'Solo copias redundantes dentro de originalEvents; los originales completos siguen en audit. No se pierde ninguna capacidad histórica.',
-          ],
+        : mode === 'compress-audit-payloads'
+          ? ['Nada: cambia la representación física, no el contenido']
+          : [
+              'Solo copias redundantes dentro de originalEvents; los originales completos siguen en audit. No se pierde ninguna capacidad histórica.',
+            ],
     protectedHistoryBytesReclaimed: 0,
   };
-  return { plan, token: await hash(plan) };
+  return { plan, token: await hash(plan), updates: compression?.updates ?? [] };
+}
+/** The plan and its token only: the rows a batch rewrites never leave the server. */
+export async function previewCleanup(
+  repo: Repository,
+  actor: Principal,
+  cutoff = Date.now(),
+  mode = 'expired-auth-only',
+) {
+  const { plan, token } = await planCleanup(repo, actor, cutoff, mode);
+  return { plan, token };
 }
 export async function applyCleanup(repo: Repository, actor: Principal, value: unknown) {
   requireSuper(actor);
   const input = value as { cutoff?: number; mode?: string; token?: string } | null;
-  const preview = await previewCleanup(repo, actor, input?.cutoff, input?.mode);
+  const preview = await planCleanup(repo, actor, input?.cutoff, input?.mode);
   if (!input?.token || input.token !== preview.token)
     throw new ApiError('El plan cambió; solicita y confirma otra previsualización', 409);
   const assertion = crypto.randomUUID();
@@ -123,12 +151,14 @@ export async function applyCleanup(repo: Repository, actor: Principal, value: un
       args: [assertion],
     },
     { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [assertion] },
-    ...(preview.plan.mode === 'compact-reconstruction-events'
-      ? [{ sql: `UPDATE reconstruction_sessions SET json=${compacted} WHERE rowid IN (${compactSelection})` }]
-      : categories.map((c) => ({
-          sql: `DELETE FROM ${c.table} WHERE rowid IN (${selection(c)})`,
-          args: [c.cutoff(preview.plan.cutoff)],
-        }))),
+    ...(preview.plan.mode === 'compress-audit-payloads'
+      ? preview.updates
+      : preview.plan.mode === 'compact-reconstruction-events'
+        ? [{ sql: `UPDATE reconstruction_sessions SET json=${compacted} WHERE rowid IN (${compactSelection})` }]
+        : categories.map((c) => ({
+            sql: `DELETE FROM ${c.table} WHERE rowid IN (${selection(c)})`,
+            args: [c.cutoff(preview.plan.cutoff)],
+          }))),
     { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" },
     maintenanceCleanupEvent(actor.id, preview.plan, preview.token),
   ];

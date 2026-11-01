@@ -129,6 +129,8 @@ test('compactar duplicados y restaurar v2 conserva reconstrucción activa, ida/v
         },
       ]);
     }
+    // Compressing the history first would make this compaction impossible: it is refused.
+    await assert.rejects(previewCleanup(repo, owner, Date.now(), 'compress-audit-payloads'), { status: 409 });
     const before = await s.view(cid);
     const preview = await previewCleanup(repo, owner, Date.now(), 'compact-reconstruction-events');
     assert.equal(preview.plan.categories[0].rows, 1);

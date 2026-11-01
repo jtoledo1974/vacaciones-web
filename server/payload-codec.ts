@@ -7,9 +7,14 @@ import { gunzipSync, gzipSync } from 'node:zlib';
 // SQL must inspect with json_extract.
 const PREFIX = 'gz1:';
 
+/** Always compressed, even if larger: the history conversion must mark every row it visits. */
+export function compressPayload(json: string): string {
+  return PREFIX + gzipSync(json, { level: 6 }).toString('base64');
+}
+
 /** Compressed only when that is smaller: short payloads stay plain JSON. */
 export function encodePayload(json: string): string {
-  const compressed = PREFIX + gzipSync(json, { level: 6 }).toString('base64');
+  const compressed = compressPayload(json);
   return compressed.length < json.length ? compressed : json;
 }
 
