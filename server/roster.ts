@@ -1,4 +1,5 @@
-import { serial, calendar, type Config } from '../domain/calendar.ts';
+import { serial, type Config } from '../domain/calendar.ts';
+import { unitsOf } from '../domain/policy.ts';
 import type { Statement } from './repository.ts';
 export type RosterRow = { memberId?: string; code: string; label: string; seniority: string; dates?: string[] };
 export function validateRoster(rows: any, year: number, team: string, config: Config): RosterRow[] {
@@ -6,7 +7,7 @@ export function validateRoster(rows: any, year: number, team: string, config: Co
     throw new Error('La plantilla debe contener entre 0 y 100 controladores');
   const codes = new Set<string>(),
     members = new Set<string>(),
-    dates = new Set(calendar(year, team, config).map((c) => c.date));
+    dates = new Set(unitsOf({ year, team, config }).map((c) => c.date));
   return rows.map((row, i) => {
     const code = String(row.code ?? '')
         .trim()

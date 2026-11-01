@@ -1,7 +1,7 @@
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
-import { calendar, type Config } from '../domain/calendar.ts';
+import { type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
-import { campaignOf, occupancyOf, scopeOf } from '../domain/policy.ts';
+import { campaignOf, occupancyOf, ordinaryScope, scopeOf, unitsOf } from '../domain/policy.ts';
 import { historicalAvailability } from './availability-history.ts';
 import {
   AuditContext,
@@ -367,7 +367,7 @@ export class Service {
   }
   async createCampaigns(year: number, copyYear: number | null, rosterYear: number | null | 'latest' = 'latest') {
     requireSuper(this.actor);
-    checkedConfig(defaultConfig(year), year);
+    checkedConfig(defaultConfig(year), ordinaryScope(year));
     if (rosterYear !== 'latest' && rosterYear !== null && (!Number.isInteger(rosterYear) || rosterYear >= year))
       throw new ApiError('La plantilla de origen debe ser de un ejercicio anterior');
     const ts = await this.repo.all('SELECT * FROM teams ORDER BY id');
@@ -425,7 +425,7 @@ export class Service {
         );
       }
       const config = previous ? copyConfig(JSON.parse(previous.json), copyYear!, year) : defaultConfig(year);
-      checkedConfig(config, year);
+      checkedConfig(config, ordinaryScope(year));
       ops.push(
         {
           sql: "INSERT INTO campaigns(id,team_id,year,status,version,data_kind,created_at) VALUES(?,?,?,'open',1,?,?)",
@@ -985,7 +985,7 @@ export class Service {
     for (const c of tables.campaigns) {
       const p = tables.parameters.find((p: any) => p.campaign_id === c.id);
       if (!p) throw new ApiError('Faltan parámetros');
-      checkedConfig(JSON.parse(p.json), c.year);
+      checkedConfig(JSON.parse(p.json), scopeOf(c));
     }
     try {
       for (const row of tables.election_states)
@@ -1001,7 +1001,7 @@ export class Service {
           config = tables.parameters.find((p: any) => p.campaign_id === pref.campaign_id);
         if (!member || !campaign || !config) throw new Error('Preferencias ajenas a la campaña');
         const dates = JSON.parse(pref.dates_json),
-          validDates = new Set(calendar(campaign.year, campaign.team_id, JSON.parse(config.json)).map((c) => c.date));
+          validDates = new Set(unitsOf(campaignOf(campaign, JSON.parse(config.json))).map((c) => c.date));
         if (
           !Array.isArray(dates) ||
           dates.length > 100 ||

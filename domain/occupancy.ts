@@ -231,6 +231,11 @@ export type ReviewOptions = {
 };
 
 /** The campaign facts every year's rules are evaluated against. */
+/**
+ * A campaign as its policy sees it. Data a policy needs from outside the campaign
+ * (VA daily quotas, ADR 0002) is loaded by the server and added here before calling
+ * the policy: policies never query storage nor keep global caches of it.
+ */
 export type PolicyCampaign = { year: number; team: string; config: Config };
 
 /**

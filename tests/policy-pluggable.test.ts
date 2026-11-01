@@ -3,7 +3,9 @@ import { importRoster } from './import-helper.ts';
 import assert from 'node:assert/strict';
 import { Service } from '../server/service.ts';
 import { SQLiteRepo } from './sqlite-repo.ts';
-import { registerPolicy, occupancyFor, policyFor } from '../domain/policy.ts';
+import { registerPolicy, occupancyFor, policyFor, unitsOf, validateCampaignConfig } from '../domain/policy.ts';
+import { calendar } from '../domain/calendar.ts';
+import { defaultConfig } from '../domain/defaults.ts';
 import { POLICY_2099, POLICY_2099_VERSION, POLICY_2099_MAX } from './policy-2099.ts';
 
 const owner = { id: 'chatgpt:owner', role: 'superadmin' as const, teams: [] };
@@ -151,4 +153,81 @@ test('a fictitious 2099 policy runs the whole generic election flow without 2027
   assert.equal(publicView.result.occupancyPolicyVersion, POLICY_2099_VERSION);
   assert.equal(publicView.election.cycleAvailability.cycles[date].occupied, 1);
   assert.deepEqual(publicView.election.policyPresentation, POLICY_2099.occupancy!.presentation);
+});
+
+test('la política aporta el calendario y la validación de su configuración; por defecto, los de ordinarias', () => {
+  const scope = { year: 2099, team: 'A' },
+    config = defaultConfig(2099);
+  assert.deepEqual(unitsOf({ ...scope, config }), calendar(2099, 'A', config));
+  assert.throws(() => validateCampaignConfig(scope, { ...config, cycleLength: 1 }));
+  const days = [{ date: '2099-01-02', end: '2099-01-02' }];
+  const undo = registerPolicy(2099, {
+    entitlement: () => 1,
+    occupancy: null,
+    calendar: () => days,
+    validateConfig: () => {},
+  });
+  try {
+    assert.deepEqual(unitsOf({ ...scope, config }), days);
+    assert.doesNotThrow(() => validateCampaignConfig(scope, { ...config, cycleLength: 1 }));
+  } finally {
+    undo();
+  }
+});
+
+test('las entradas de una campaña aceptan el calendario de su política y validan con ella', async (t) => {
+  const ordinary = (campaign: { year: number; team: string; config: any }) =>
+    calendar(campaign.year, campaign.team, campaign.config);
+  // A day that is not an ordinary cycle start: only the policy's calendar offers it.
+  let extra = '';
+  t.after(
+    registerPolicy(2099, {
+      ...POLICY_2099,
+      calendar: (campaign) => {
+        const units = ordinary(campaign);
+        extra = units[0].end;
+        return [...units, { date: extra, end: extra }];
+      },
+      validateConfig: (config) => {
+        if (config.previousScoresSource === 'rechazar') throw new Error('Configuración rechazada por la política');
+      },
+    }),
+  );
+  const repo = new SQLiteRepo(),
+    service = new Service(repo, owner);
+  await service.init();
+  await service.createCampaigns(2099, null, null);
+  const cid = (await service.list()).campaigns.find((c: any) => c.year === 2099 && c.team_id === 'A').id;
+  let d = await service.view(cid);
+  assert.ok(!calendar(2099, 'A', d.config).some((c) => c.date === extra), 'el día no es un ciclo ordinario');
+  // Roster import: dates come from the policy's calendar.
+  d = await importRoster(service, cid, {
+    action: 'import_roster',
+    version: d.campaign.version,
+    source: {
+      format: 'vacaciones-roster-v1',
+      team: 'A',
+      year: 2099,
+      copySelections: false,
+      rows: [{ code: 'P01', label: 'CTA P01', seniority: '', dates: [extra] }],
+    },
+  });
+  // Requests: the same calendar.
+  d = await service.mutate(cid, {
+    action: 'request',
+    version: d.campaign.version,
+    memberId: d.members[0].id,
+    slot: 2,
+    date: extra,
+  });
+  assert.ok(d.requests.some((r: any) => r.cycle_date === extra));
+  // Configuration: the policy's validation.
+  await assert.rejects(
+    service.mutate(cid, {
+      action: 'config',
+      version: d.campaign.version,
+      config: { ...d.config, previousScoresSource: 'rechazar' },
+    }),
+    /rechazada por la política/,
+  );
 });

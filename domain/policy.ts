@@ -1,4 +1,4 @@
-import type { Config } from './calendar.ts';
+import { calendar, validateConfig, type Config } from './calendar.ts';
 import type { AnnualScoring } from './scoring.ts';
 import { BASE_SCORES_2027, SCORING_2027, SCORING_VERSION_2027, SCORING_WEIGHTS_2027 } from './scoring-2027.ts';
 import type { Member, Award } from './vacations.ts';
@@ -42,6 +42,14 @@ export type VacationPolicy = {
   activationRulesName?: string;
   /** Cycles a member must take this year. */
   entitlement(config: Config, member: Pick<Member, 'code'>): number;
+  /**
+   * The units members choose (ordinary cycles by default), each with its first and last day.
+   * Only entry checks (requests, roster, restore) use it yet: views and calculate still use
+   * the ordinary calendar, so no production policy may define it until they are migrated.
+   */
+  calendar?(campaign: PolicyCampaign): { date: string; end: string }[];
+  /** Throws when the configuration is not valid for this policy; ordinary rules by default. */
+  validateConfig?(config: Config, year: number): void;
   /** Units chosen per turn in a 1-based round, before deferral credits; one cycle when absent. */
   unitsInRound?(round: number, remaining: number): number;
   occupancy: OccupancyRules | null;
@@ -208,6 +216,19 @@ export const scopeOf = (row: { year: number; team_id: string }): PolicyScope => 
 /** The policy that governs one campaign. Campaign code must use this, not policyFor. */
 export function policyOf(scope: PolicyScope): VacationPolicy {
   return policyFor(scope.year);
+}
+/** Scope of any ordinary team of a year, for checks made before a campaign exists. */
+export const ordinaryScope = (year: number): PolicyScope => ({ year, team: '' });
+/** The campaign's choosable units, from its policy. */
+export function unitsOf(campaign: PolicyCampaign): { date: string; end: string }[] {
+  const policy = policyOf(campaign);
+  return policy.calendar ? policy.calendar(campaign) : calendar(campaign.year, campaign.team, campaign.config);
+}
+/** Validate a campaign configuration with its policy. */
+export function validateCampaignConfig(scope: PolicyScope, config: Config): void {
+  const policy = policyOf(scope);
+  if (policy.validateConfig) policy.validateConfig(config, scope.year);
+  else validateConfig(config, scope.year);
 }
 /** The campaign's occupancy engine, or null for campaigns that use legacy quotas. */
 export function occupancyOf(scope: PolicyScope): OccupancyRules | null {

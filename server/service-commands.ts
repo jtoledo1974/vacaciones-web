@@ -1,7 +1,14 @@
-import { calendar, validateConfig, serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
+import { serial, ENGINE_VERSION, type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
 import { assertAnnualScoringConfig, effectiveScoringConfig, scoringVersion } from '../domain/scoring.ts';
-import { campaignOf, occupancyOf, scopeOf } from '../domain/policy.ts';
+import {
+  campaignOf,
+  occupancyOf,
+  scopeOf,
+  unitsOf,
+  validateCampaignConfig,
+  type PolicyScope,
+} from '../domain/policy.ts';
 import { captureVacations, restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { grantsIndividualEntitlements } from '../domain/hr-calendars.ts';
 import { auditAfter, auditBefore, eventById, type AuditRow } from './audit-context.ts';
@@ -16,10 +23,10 @@ import { reviewImport } from './import-review.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
 
-export function checkedConfig(config: Config, year: number) {
+export function checkedConfig(config: Config, scope: PolicyScope) {
   try {
-    validateConfig(config, year);
-    assertAnnualScoringConfig(year, config);
+    validateCampaignConfig(scope, config);
+    assertAnnualScoringConfig(scope.year, config);
     return config;
   } catch (e: any) {
     throw new ApiError(e.message ?? 'Parámetros no válidos');
@@ -197,7 +204,7 @@ async function executeConfig(ctx: CommandContext): Promise<CommandResult> {
   const { cid, body, d, c, rules, election, ops } = ctx;
   let before: any = null;
   let after: any = body;
-  const cfg = checkedConfig(body.config, c.year);
+  const cfg = checkedConfig(body.config, scopeOf(c));
   if (rules) {
     const known = new Set(d.members.map((m: any) => m.code));
     for (const code of Object.keys(cfg.individualEntitlements ?? {}))
@@ -241,7 +248,7 @@ async function executeConfig(ctx: CommandContext): Promise<CommandResult> {
         'Las puntuaciones anteriores quedan congeladas al activar la elección. Reinicia la elección para modificarlas.',
       );
   }
-  const dates = new Set(calendar(c.year, c.team_id, cfg).map((s) => s.date));
+  const dates = new Set(unitsOf(campaignOf(c, cfg)).map((s) => s.date));
   if ([...d.requests, ...d.awards].some((r) => !dates.has(r.cycle_date)))
     throw new ApiError('El cambio eliminaría ciclos con solicitudes o adjudicaciones');
   ops.push({
@@ -260,7 +267,7 @@ async function executeRequest(ctx: CommandContext): Promise<CommandResult> {
   const m = d.members.find((m) => m.id === body.memberId);
   if (!m) throw new ApiError('Identificador ajeno al equipo');
   if (!Number.isInteger(body.slot) || body.slot < 1 || body.slot > 6) throw new ApiError('Posición entre 1 y 6');
-  if (!calendar(c.year, c.team_id, d.config).some((s) => s.date === body.date)) throw new ApiError('Ciclo no válido');
+  if (!unitsOf(campaignOf(c, d.config)).some((s) => s.date === body.date)) throw new ApiError('Ciclo no válido');
   if (d.requests.some((r) => r.member_id === m.id && r.slot !== body.slot && r.cycle_date === body.date))
     throw new ApiError('Ese ciclo ya está solicitado por el trabajador');
   before = d.requests.find((r) => r.member_id === m.id && r.slot === body.slot) ?? null;
@@ -465,7 +472,7 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
   const source = body.source;
   if (!source || source.format !== 'vacaciones-roster-v1' || source.team !== c.team_id || source.year !== c.year)
     throw new ApiError('La plantilla no corresponde a este equipo y ejercicio');
-  const importedConfig = source.config ? checkedConfig(source.config, c.year) : d.config;
+  const importedConfig = source.config ? checkedConfig(source.config, scopeOf(c)) : d.config;
   let rows;
   try {
     rows = validateRoster(source.rows, c.year, c.team_id, importedConfig);
