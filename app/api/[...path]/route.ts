@@ -1,4 +1,5 @@
-import { renderIndividualCalendarPdf } from '../../../server/individual-calendar-pdf';
+import { renderPersonCalendarPdf } from '../../../server/individual-calendar-pdf';
+import { personCalendar } from '../../../server/person-calendar';
 import {
   notificationSettings,
   updateSubscription,
@@ -225,12 +226,10 @@ async function serve(request: Request) {
       }
       if (path[0] === 'campaign' && path[1] && path[2] === 'individual-pdf') {
         // Only the projected, visible awards may be included, including for simulations.
-        const summary = liteSummary(await effectiveService.view(path[1]));
         const code = url.searchParams.get('cta') ?? '';
-        if (!summary.members.some((m) => m.code === code))
-          throw new ApiError('Selecciona un controlador válido de la campaña', 400);
-        const { config } = await effectiveService.load(path[1]);
-        return new Response(renderIndividualCalendarPdf(summary, code, config), {
+        const person = await personCalendar(effectiveService, repo, path[1], code);
+        const summary = { team: person.team ?? 'va', year: person.year };
+        return new Response(renderPersonCalendarPdf(person), {
           headers: {
             'Content-Type': 'application/pdf',
             'Content-Disposition': `inline; filename="calendario-${summary.team}-${code.replace(/[^A-Za-z0-9_-]/g, '_')}-${summary.year}.pdf"`,

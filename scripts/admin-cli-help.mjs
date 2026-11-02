@@ -83,13 +83,14 @@ export const HELP = {
     example: 'node scripts/admin-cli.mjs get va/census',
   },
   'va-censo': {
-    summary: 'Censo anual de VA en el orden explícito de RRHH, con antigüedad y días congelados al abrir.',
+    summary:
+      'Censo anual de VA en el orden explícito de RRHH: da de alta la campaña de VA del año con los días de cada persona congelados.',
     usage:
-      'admin-cli.mjs va-censo importar|aplicar fichero.json --year AAAA [--title texto] [--review-token token]\n  admin-cli.mjs va-censo ver --year AAAA',
+      'admin-cli.mjs va-censo importar|aplicar fichero.json --year AAAA [--title texto] [--review-token token]\n  admin-cli.mjs va-censo ver',
     permissions:
       'Administrador de VA o superadministrador. La copia completa previa requiere superadministrador; el administrador de VA puede usar --no-backup.',
     writes:
-      'importar solo previsualiza. aplicar requiere el token de esa revisión y crea o sustituye el censo en preparación, nunca una campaña ya abierta.',
+      'importar solo previsualiza. aplicar requiere el token de esa revisión y crea la campaña de VA del año o sustituye sus participantes mientras no se haya iniciado; después se rechaza.',
     details: [
       'JSON: {"year":2027,"people":["id-persona-1","id-persona-2"]}. El orden de people es el de RRHH.',
       'Las fichas deben tener número de empleado y fecha validados. La vista previa muestra las personas con derecho omitidas y las discrepancias con el número de empleado; no reordena.',

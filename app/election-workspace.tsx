@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import CycleCalendar, { formatDate } from './cycle-calendar';
+import { unitCount, unitWords, singleDays } from './unit-words';
+import CycleCalendar, { formatDate, formatSpan } from './cycle-calendar';
 import { ownCycles } from './own-cycles';
 import { undoQuestion } from './undo-summary';
 import { useConfirmation } from './confirmation';
@@ -38,6 +39,9 @@ export default function ElectionWorkspace({
 }: any) {
   const confirm = useConfirmation();
   const election = data.election,
+    units = unitWords(election?.policyPresentation),
+    // Single-day units (VA) carry no scores.
+    daily = singleDays(election?.policyPresentation),
     turn = election.turn,
     state = election.state,
     manage = election.canManage,
@@ -143,7 +147,7 @@ export default function ElectionWorkspace({
     thinkingPhase === 'checking'
       ? 'Comprobando la viabilidad global del reparto…'
       : thinkingPhase === 'options'
-        ? 'Calculando las combinaciones de ciclos permitidas…'
+        ? `Calculando las combinaciones de ${units.many} permitidas…`
         : 'Registrando la adjudicación y avanzando al siguiente turno…';
   useEffect(() => {
     setSelected([]);
@@ -198,7 +202,7 @@ export default function ElectionWorkspace({
       dates.length > 0 &&
       usage.mode === 'immediate'
     ) {
-      const quantity = turn.needed === 1 ? 'un ciclo' : turn.needed + ' ciclos';
+      const quantity = unitCount(units, turn.needed);
       const code = data.members.find((m: any) => m.id === memberId)?.code;
       if (
         !(await confirm(
@@ -354,10 +358,8 @@ export default function ElectionWorkspace({
               const cycle = data.result.cycles.find((x: any) => x.date === c.cycle_date);
               return (
                 <span className="confirm-cycle" key={c.member_id + c.cycle_date}>
-                  <b>
-                    {formatDate(c.cycle_date)} – {formatDate(cycle?.end ?? c.cycle_date)}
-                  </b>
-                  {' · ' + (cycle?.score ?? '—') + ' puntos'}
+                  <b>{formatSpan(c.cycle_date, cycle?.end ?? c.cycle_date)}</b>
+                  {(cycle?.end ?? c.cycle_date) === c.cycle_date ? '' : ' · ' + (cycle?.score ?? '—') + ' puntos'}
                   {turn.participants?.length > 1 ? ' · ' + codeFor(c.member_id) : ''}
                 </span>
               );
@@ -457,11 +459,11 @@ export default function ElectionWorkspace({
     }
     if (!canChoose || previewReadOnly) return;
     if (loadingOptions) {
-      setMessage('Comprobando qué segundo ciclo es compatible…');
+      setMessage(`Comprobando qué segundo ${units.one} es compatible…`);
       return;
     }
     if (!(pairOptions ?? election.available).includes(c.date) && !selected.includes(c.date)) {
-      setMessage(election.availabilityReasons?.[c.date] ?? 'Este ciclo no es viable en el reparto actual.');
+      setMessage(election.availabilityReasons?.[c.date] ?? `Este ${units.one} no es viable en el reparto actual.`);
       return;
     }
     const next = selected.includes(c.date)
@@ -568,6 +570,7 @@ export default function ElectionWorkspace({
     <>
       {me && !frozen && !(manage && me.phase !== 'my-turn') && (
         <MyElectionCard
+          units={units}
           me={me}
           autoPick={autoPick}
           plan={election.listPlan?.memberId === mine ? election.listPlan : null}
@@ -688,10 +691,10 @@ export default function ElectionWorkspace({
                 ? 'Empate pendiente antes del siguiente turno'
                 : state?.status === 'active' && current
                   ? `${turn?.participants?.length > 1 ? turn.participants.map((id: string) => data.members.find((m: any) => m.id === id)?.code).join(' + ') : current.code} elige ahora`
-                  : 'Consulta de ciclos'}
+                  : 'Consulta de ' + units.many}
             </h2>
             {state?.status === 'active' && current && !turn?.pendingTie && (
-              <span className="muted">{turn.needed === 1 ? '1 ciclo' : turn.needed + ' ciclos'} por elegir</span>
+              <span className="muted">{unitCount(units, turn.needed)} por elegir</span>
             )}
             {state?.status === 'active' && current && !turn?.pendingTie && election.timing?.waiting && (
               <span className="election-turn-since">
@@ -707,7 +710,7 @@ export default function ElectionWorkspace({
                   type="button"
                   className="election-view-option"
                   aria-pressed={mode === 'choose'}
-                  title="Consultar ciclos y elegir cuando corresponda"
+                  title={`Consultar ${units.many} y elegir cuando corresponda`}
                   onClick={async () => {
                     if (mode === 'preferences') await cancelPreferences();
                     else setMode('choose');
@@ -720,7 +723,7 @@ export default function ElectionWorkspace({
                     type="button"
                     className="election-view-option"
                     aria-pressed={mode === 'preferences'}
-                    title="Preparar y guardar la lista de ciclos preferidos"
+                    title={`Preparar y guardar la lista de ${units.many} preferidos`}
                     onClick={() => {
                       setMode('preferences');
                       setDetail(null);
@@ -872,6 +875,7 @@ export default function ElectionWorkspace({
       )}
       {me && !frozen && manage && me.phase !== 'my-turn' && (
         <MyElectionCard
+          units={units}
           compact
           me={me}
           autoPick={autoPick}
@@ -1143,7 +1147,7 @@ export default function ElectionWorkspace({
         <div className="preference-mode-banner" role="status">
           <strong>Eligiendo por adelantado para ti ({mine ? codeFor(mine) : ''})</strong>
           <span>
-            Pulsa uno de tus ciclos asegurados. El turno de{' '}
+            Pulsa uno de tus {units.many} asegurados. El turno de{' '}
             {turn?.participants?.map((id: string) => codeFor(id)).join(' + ') || current?.code} queda en espera.
           </span>
           <button type="button" className="secondary" onClick={() => setEarlyForMe(null)}>
@@ -1159,7 +1163,8 @@ export default function ElectionWorkspace({
               : 'Preparando tus preferencias'}
           </strong>
           <span>
-            Pulsa un ciclo para añadirlo; vuelve a pulsarlo para quitarlo. El orden en que los pulses es tu prioridad.
+            Pulsa un {units.one} para añadirlo; vuelve a pulsarlo para quitarlo. El orden en que los pulses es tu
+            prioridad.
           </span>
         </div>
       )}
@@ -1176,6 +1181,7 @@ export default function ElectionWorkspace({
         {manage && open && frozen && <ReconstructionPanel data={data} busy={busy} act={act} />}
         <div className="election-calendar-wrap">
           <CycleCalendar
+            daily={daily}
             preferenceMode={mode === 'preferences'}
             year={data.campaign.year}
             ruled={ruled}
@@ -1243,13 +1249,13 @@ export default function ElectionWorkspace({
           )}
 
           {mode === 'choose' && detail && (
-            <section className="panel vac2-choice-card" aria-label="Detalle del ciclo seleccionado">
+            <section className="panel vac2-choice-card" aria-label={'Detalle del ' + units.one + ' seleccionado'}>
               <div className="election-choice-heading">
-                <span className="eyebrow">CICLO SELECCIONADO</span>
+                <span className="eyebrow">{units.one.toUpperCase()} SELECCIONADO</span>
                 <button
                   type="button"
                   className="icon-button"
-                  aria-label="Cerrar detalle del ciclo"
+                  aria-label={'Cerrar detalle del ' + units.one}
                   onClick={() => {
                     setDetail(null);
                     setSelected([]);
@@ -1261,11 +1267,16 @@ export default function ElectionWorkspace({
                 </button>
               </div>
               <h2>
-                {formatDate(detail.date)} – {formatDate(detail.end)}
+                {formatSpan(detail.date, detail.end)}
                 {detail.period === 1 ? ' · Verano' : ''}
               </h2>
               <p>
-                <strong>{detail.score} puntos</strong> ·{' '}
+                {/* Single days (VA) carry no scores. */}
+                {detail.date !== detail.end && (
+                  <>
+                    <strong>{detail.score} puntos</strong> ·{' '}
+                  </>
+                )}
                 {cycleOccupancyLabel(detail, election.cycleAvailability, ruled)} plazas ocupadas
                 {ruled
                   ? manage
@@ -1289,7 +1300,7 @@ export default function ElectionWorkspace({
                   {election.cycleAvailability?.cycles?.[detail.date] && (
                     <details className="election-cycle-rules">
                       <summary>
-                        {manage ? 'Detalle de las cuatro plazas y motivos de bloqueo' : 'Por qué hay estas plazas'}
+                        {manage ? 'Detalle de las plazas y motivos de bloqueo' : 'Por qué hay estas plazas'}
                       </summary>
                       {!manage && <p>{cycleAvailability(detail, election.cycleAvailability, true).description}.</p>}
                       <ul>
@@ -1306,7 +1317,7 @@ export default function ElectionWorkspace({
               {mode === 'choose' && !canChooseHere && ownPreferences && (
                 <div className="cycle-preference-action">
                   {data.awards.some((a: any) => a.member_id === mine && a.cycle_date === detail.date) ? (
-                    <p className="muted">Este ciclo ya es tuyo.</p>
+                    <p className="muted">Este {units.one} ya es tuyo.</p>
                   ) : (
                     <button
                       type="button"
@@ -1355,24 +1366,24 @@ export default function ElectionWorkspace({
               {(message ||
                 (ruled && canChoose && turn?.participants?.length === 1 && !election.available.includes(detail.date)
                   ? (election.availabilityReasons?.[detail.date] ??
-                    'Este ciclo no es viable para la persona que elige en este turno.')
+                    `Este ${units.one} no es viable para la persona que elige en este turno.`)
                   : '')) && (
                 <p role="status" className="alert warning">
                   {message ||
                     (election.availabilityReasons?.[detail.date] ??
-                      'Este ciclo no es viable para la persona que elige en este turno.')}
+                      `Este ${units.one} no es viable para la persona que elige en este turno.`)}
                 </p>
               )}
               {mode === 'choose' && canChoose && (
                 <>
                   {simulation && quickMode && (
                     <p className="election-auto-notice">
-                      La adjudicación se realiza automáticamente al completar todos los ciclos de este turno.
+                      La adjudicación se realiza automáticamente al completar todos los {units.many} de este turno.
                     </p>
                   )}
                   {turn?.participants?.length > 1 && (
                     <div className="joint-picker">
-                      <p>Turno conjunto: selecciona el controlador y sus ciclos.</p>
+                      <p>Turno conjunto: selecciona el controlador y sus {units.many}.</p>
                       {turn.participants.map((id: string) => (
                         <button
                           key={id}
@@ -1401,7 +1412,7 @@ export default function ElectionWorkspace({
                   )}
                   {turn.needed > 1 && turn?.participants?.length === 1 && (
                     <p className="election-multiple-summary">
-                      {selected.length}/{turn.needed} ciclos seleccionados:{' '}
+                      {selected.length}/{turn.needed} {units.many} seleccionados:{' '}
                       {selected.map(formatDate).join(' + ') || 'ninguno'}
                     </p>
                   )}
@@ -1451,11 +1462,13 @@ export default function ElectionWorkspace({
                           : 'Confirmar ' +
                             (turn?.participants?.length > 1
                               ? 'turno conjunto'
-                              : turn.needed === 3
-                                ? 'tres ciclos'
+                              : turn.needed === 1
+                                ? units.one
                                 : turn.needed === 2
-                                  ? 'ambos ciclos'
-                                  : 'ciclo')}
+                                  ? 'ambos ' + units.many
+                                  : turn.needed === 3
+                                    ? 'tres ' + units.many
+                                    : unitCount(units, turn.needed))}
                       </button>
                     )}
                     <button
@@ -1546,8 +1559,8 @@ export default function ElectionWorkspace({
                 </div>
               )}
               <p className="muted">
-                Más recientes primero. R1 · 1 indica el primer ciclo adjudicado en la ronda 1. Sorteos y aplazamientos
-                no se numeran; los cambios deshechos no figuran como vigentes.
+                Más recientes primero. R1 · 1 indica el primer {units.one} adjudicado en la ronda 1. Sorteos y
+                aplazamientos no se numeran; los cambios deshechos no figuran como vigentes.
               </p>
               {(election.timeline ?? []).length ? (
                 <ElectionTimelineList
@@ -1581,7 +1594,7 @@ export default function ElectionWorkspace({
                   }
                 />
               ) : (
-                <p className="muted">Todavía no hay turnos registrados ni ciclos adjudicados.</p>
+                <p className="muted">Todavía no hay turnos registrados ni {units.many} adjudicados.</p>
               )}
               {choosingReconstructionStart && canOpenReconstruction && archivedCandidates.length > 0 && (
                 <details className="history-archived-choices">
@@ -1676,7 +1689,8 @@ export default function ElectionWorkspace({
                       {data.config?.previousScores?.[m?.code] !== undefined
                         ? 'Anterior: ' + data.config.previousScores[m.code] + ' puntos · '
                         : ''}
-                      {(p?.cycles ?? 0) === 1 ? '1 ciclo' : (p?.cycles ?? 0) + ' ciclos'} · {p?.points ?? 0} puntos
+                      {unitCount(units, p?.cycles ?? 0)}
+                      {daily ? '' : ' · ' + (p?.points ?? 0) + ' puntos'}
                       {state?.credits[id]
                         ? ' · ' +
                           state.credits[id] +
@@ -1687,9 +1701,11 @@ export default function ElectionWorkspace({
                 );
               })}
             </ol>
-            <p className="muted">
-              Puntuación de los ciclos elegidos del año actual; no cambia el orden inicial de elección.
-            </p>
+            {!daily && (
+              <p className="muted">
+                Puntuación de los ciclos elegidos del año actual; no cambia el orden inicial de elección.
+              </p>
+            )}
           </section>
         </aside>
       </div>

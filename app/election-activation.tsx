@@ -4,19 +4,23 @@ import { useEffect, useRef, useState } from 'react';
 export function ActivationPanel({ data, busy, act, onActivated, onResolveScores, onResolveCycles, onSaveSource }: any) {
   const scores = data.config?.previousScores ?? {},
     source = typeof data.config?.previousScoresSource === 'string' ? data.config.previousScoresSource : '';
-  const missing = data.members.filter((m: any) => !Number.isFinite(scores[m.code]));
+  // VA: the order is HR's census, in the roster; there are no scores nor cycles per person.
+  const byRoster = data.election.rosterOrder === true;
+  const missing = byRoster ? [] : data.members.filter((m: any) => !Number.isFinite(scores[m.code]));
   const hasMembers = data.members.length > 0,
     hasScores = hasMembers && missing.length === 0;
   const cyclesValid =
-    Number.isInteger(data.config?.cyclesPerPerson) &&
-    data.config.cyclesPerPerson >= 1 &&
-    data.config.cyclesPerPerson <= 6;
-  const sourceValid = source.trim().length >= 10,
+    byRoster ||
+    (Number.isInteger(data.config?.cyclesPerPerson) &&
+      data.config.cyclesPerPerson >= 1 &&
+      data.config.cyclesPerPerson <= 6);
+  const sourceValid = byRoster || source.trim().length >= 10,
     open = data.campaign.status === 'open',
     frozen = !!data.election.reconstruction?.active;
   const complete = hasScores && sourceValid && cyclesValid && open && !frozen;
   const rulesName = data.election.activationRulesName ?? 'las normas vigentes del ejercicio';
-  const ranked = hasScores ? [...data.members].sort((a: any, b: any) => scores[a.code] - scores[b.code]) : [];
+  const ranked =
+    hasScores && !byRoster ? [...data.members].sort((a: any, b: any) => scores[a.code] - scores[b.code]) : [];
   const tieCounts = new Map<number, number>();
   if (hasScores) for (const m of ranked) tieCounts.set(scores[m.code], (tieCounts.get(scores[m.code]) ?? 0) + 1);
   const ties = [...tieCounts.values()].filter((n) => n > 1);
@@ -47,27 +51,35 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
   return (
     <details id="activation-panel" className="panel">
       <summary>Activar elección</summary>
-      <p>El orden se calcula a partir de las puntuaciones anteriores. Completa estos pasos y activa la elección.</p>
+      <p>
+        {byRoster
+          ? 'El orden es el del censo de RRHH. Revisa estos pasos y activa la elección.'
+          : 'El orden se calcula a partir de las puntuaciones anteriores. Completa estos pasos y activa la elección.'}
+      </p>
       {/* A checklist instead of a sentence (#65): each step says whether it is done. */}
       <ol className="activation-steps" aria-label="Pasos para activar la elección">
         <li className={hasMembers ? 'done' : 'todo'}>
-          <strong>Plantilla</strong>
+          <strong>{byRoster ? 'Censo' : 'Plantilla'}</strong>
           <span>{hasMembers ? data.members.length + ' controladores' : 'Sin controladores'}</span>
         </li>
-        <li className={hasScores ? 'done' : 'todo'}>
-          <strong>Puntuaciones del año anterior</strong>
-          <span>
-            {hasMembers ? data.members.length - missing.length : 0} de {data.members.length}
-          </span>
-        </li>
-        <li className={sourceValid ? 'done' : 'todo'}>
-          <strong>Procedencia de las puntuaciones</strong>
-          <span>{sourceValid ? source : 'Pendiente'}</span>
-        </li>
-        <li className={cyclesValid ? 'done' : 'todo'}>
-          <strong>Ciclos por persona</strong>
-          <span>{data.config?.cyclesPerPerson ?? '—'}</span>
-        </li>
+        {!byRoster && (
+          <>
+            <li className={hasScores ? 'done' : 'todo'}>
+              <strong>Puntuaciones del año anterior</strong>
+              <span>
+                {hasMembers ? data.members.length - missing.length : 0} de {data.members.length}
+              </span>
+            </li>
+            <li className={sourceValid ? 'done' : 'todo'}>
+              <strong>Procedencia de las puntuaciones</strong>
+              <span>{sourceValid ? source : 'Pendiente'}</span>
+            </li>
+            <li className={cyclesValid ? 'done' : 'todo'}>
+              <strong>Ciclos por persona</strong>
+              <span>{data.config?.cyclesPerPerson ?? '—'}</span>
+            </li>
+          </>
+        )}
         <li className={open && !frozen ? 'done' : 'todo'}>
           <strong>Campaña abierta</strong>
           <span>{!open ? 'Cerrada' : frozen ? 'Reconstrucción en curso' : 'Sí'}</span>
@@ -76,16 +88,18 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
           <strong>Reglas confirmadas</strong>
           <span>{confirmed ? 'Sí' : 'Marca la casilla de abajo'}</span>
         </li>
-        <li className="info">
-          <strong>Empates</strong>
-          <span>
-            {hasScores
-              ? ties.length
-                ? ties.length + ' grupos; se sortean antes de su turno'
-                : 'Ninguno'
-              : 'Se calculan con las puntuaciones'}
-          </span>
-        </li>
+        {!byRoster && (
+          <li className="info">
+            <strong>Empates</strong>
+            <span>
+              {hasScores
+                ? ties.length
+                  ? ties.length + ' grupos; se sortean antes de su turno'
+                  : 'Ninguno'
+                : 'Se calculan con las puntuaciones'}
+            </span>
+          </li>
+        )}
       </ol>
       {!hasMembers && (
         <div role="alert" className="alert warning">
@@ -126,7 +140,7 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
           </button>
         </div>
       )}
-      {sourceValid && (
+      {sourceValid && !byRoster && (
         <p className="muted">
           ¿Necesitas corregir la procedencia?{' '}
           <button
@@ -208,7 +222,7 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
           Hay una reconstrucción en curso. Finalízala antes de activar la elección.
         </p>
       )}
-      {hasScores && (
+      {hasScores && !byRoster && (
         <details>
           <summary>Ver orden calculado (solo lectura)</summary>
           <ol>
@@ -227,7 +241,8 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
         </label>
         <label>
           <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} /> Confirmo{' '}
-          {rulesName} y las puntuaciones
+          {rulesName}
+          {byRoster ? ' y el orden del censo' : ' y las puntuaciones'}
         </label>
       </div>
       <button
@@ -236,8 +251,13 @@ export function ActivationPanel({ data, busy, act, onActivated, onResolveScores,
         disabled={busy || !complete || !confirmed}
         onClick={async () => {
           const result = await act(
-            { action: 'start', rulesConfirmed: true, allowDeferral: deferral },
-            'Puntuaciones confirmadas y elección activada',
+            {
+              action: 'start',
+              rulesConfirmed: true,
+              allowDeferral: deferral,
+              ...(byRoster ? { source: 'Orden del censo de RRHH' } : {}),
+            },
+            byRoster ? 'Elección activada en el orden del censo' : 'Puntuaciones confirmadas y elección activada',
           );
           if (result?.campaign) onActivated?.();
         }}

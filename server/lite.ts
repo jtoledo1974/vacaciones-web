@@ -159,7 +159,7 @@ export function turnLine(s: LiteSummary) {
     (s.current ? ' · elige ahora ' + s.current : '') +
     ' · ' +
     s.awarded +
-    ' ciclos adjudicados'
+    (s.team === 'va' ? ' días adjudicados' : ' ciclos adjudicados')
   );
 }
 

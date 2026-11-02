@@ -189,6 +189,8 @@ export type ElectionProjectionData = {
   cycleAvailability: AvailabilitySnapshot | null;
   occupancyPolicyVersion: string | null;
   activationRulesName: string;
+  /** The election order is the roster's (VA census), not last year's scores. */
+  rosterOrder: boolean;
   policyPresentation: PolicyPresentation | null;
   points: { member_id: string; cycles: number; points: number }[];
   accounts: unknown[];
@@ -284,6 +286,7 @@ function publicPresentation(value: PolicyPresentation | null): PolicyPresentatio
     ),
     staticReasons: [...value.staticReasons],
     ...own(value, ['ownRightsReason']),
+    ...(value.units ? { units: { ...value.units } } : {}),
     explanationId: value.explanationId,
   };
 }
@@ -325,6 +328,7 @@ function sharedElectionFields(data: ElectionProjectionData) {
     cycleAvailability: publicAvailability(data.cycleAvailability),
     occupancyPolicyVersion: data.occupancyPolicyVersion,
     activationRulesName: data.activationRulesName,
+    rosterOrder: data.rosterOrder,
     policyPresentation: publicPresentation(data.policyPresentation),
     points: data.points.map(({ member_id, cycles, points }) => ({ member_id, cycles, points })),
     pendingAutomatic: data.pendingAutomatic,

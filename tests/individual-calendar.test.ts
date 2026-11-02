@@ -78,7 +78,7 @@ test('individual calendar includes only that CTA awards and one valid landscape 
   assert.ok(pdf.includes('/MediaBox [0 0 842 595]'));
   assert.equal(pdf.split('/Type /Page ').length - 1, 1);
   assert.ok(pdf.includes('(ALFREDO)') || pdf.includes('ALFREDO'));
-  assert.ok(pdf.includes('(Periodos adjudicados: 04/02-11/02  |  16/03-23/03)'));
+  assert.ok(pdf.includes('(Vacaciones ordinarias: 04/02-11/02  |  16/03-23/03)'));
   assert.ok(pdf.includes('14/04 Feria de Sevilla \\(local\\)'), 'full holiday legend is printed');
   assert.ok(!pdf.includes('(OTHER)'));
   const start = Number(pdf.match(/startxref\n(\d+)/)![1]);

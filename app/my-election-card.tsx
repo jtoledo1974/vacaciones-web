@@ -1,4 +1,5 @@
 'use client';
+import { unitCount } from './unit-words';
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { formatDate } from './cycle-calendar';
@@ -196,7 +197,10 @@ export default function MyElectionCard({
   onEarly,
   onCancelEarly,
   compact = false,
+  units = { one: 'ciclo', many: 'ciclos' },
 }: {
+  /** What members choose (see unit-words): cycles, or VA days. */
+  units?: { one: string; many: string };
   me: MyElection;
   autoPick?: AutoPick | null;
   plan?: ListPlan | null;
@@ -247,7 +251,7 @@ export default function MyElectionCard({
           ? 'La elección aún no ha empezado'
           : 'Ya tienes todas tus vacaciones';
   const sub = turn
-    ? `Elige ${me.needed === 1 ? '1 ciclo' : me.needed + ' ciclos'} en el calendario.`
+    ? `Elige ${unitCount(units, me.needed)} en el calendario.`
     : me.phase === 'waiting' && me.turnsAhead !== null
       ? 'Estimación: los turnos conjuntos y aplazamientos pueden cambiarla.'
       : '';
@@ -271,12 +275,12 @@ export default function MyElectionCard({
       {!turn && early && early.guaranteed.length > 0 && (
         <div className="my-election-early" role="status">
           <div>
-            <strong>Algunos ciclos de vacaciones ya están disponibles para ti</strong>
+            <strong>Algunos {units.many} de vacaciones ya están disponibles para ti</strong>
             <span>
-              Aunque todavía no sea tu turno, puedes solicitar alguno de los ciclos disponibles.{' '}
+              Aunque todavía no sea tu turno, puedes solicitar alguno de los {units.many} disponibles.{' '}
               {early.guaranteed.length === 1
-                ? 'Hay 1 ciclo asegurado, marcado en el calendario.'
-                : `Hay ${early.guaranteed.length} ciclos asegurados, marcados en el calendario.`}
+                ? `Hay 1 ${units.one} asegurado, marcado en el calendario.`
+                : `Hay ${early.guaranteed.length} ${units.many} asegurados, marcados en el calendario.`}
             </span>
             <span className="my-election-early-discreet">{EARLY_DISCRETION}</span>
           </div>

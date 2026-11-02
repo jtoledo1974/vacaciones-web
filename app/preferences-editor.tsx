@@ -1,4 +1,5 @@
 'use client';
+import { unitCount, unitWords } from './unit-words';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { formatDate } from './cycle-calendar';
@@ -148,6 +149,7 @@ export default function PreferencesEditor({
   message,
   readOnly = false,
 }: any) {
+  const units = unitWords(data.election?.policyPresentation);
   const [mobile, setMobile] = useState(false),
     [expanded, setExpanded] = useState(false);
   const panel = useRef<HTMLElement>(null),
@@ -291,13 +293,13 @@ export default function PreferencesEditor({
       <div className="preference-editor-body">
         {readOnly && (
           <p className="muted">
-            Puedes añadir, quitar y reordenar ciclos para probar la interfaz. La campaña real no se modificará.
+            Puedes añadir, quitar y reordenar {units.many} para probar la interfaz. La campaña real no se modificará.
           </p>
         )}
         <p>La posición 1 es tu primera opción. Abajo decides qué hacer con la lista cuando llegue tu turno.</p>
         {!dates.length && (
           <div className="preference-empty">
-            <strong>Empieza por tu ciclo favorito</strong>
+            <strong>Empieza por tu {units.one} favorito</strong>
             <p>Añade alternativas desde el calendario. Después revisa el orden y guarda tu lista.</p>
           </div>
         )}
@@ -408,8 +410,8 @@ export default function PreferencesEditor({
             </ul>
             {unavailableDates.size > 0 && (
               <p className="preference-hidden">
-                {unavailableDates.size === 1 ? '1 ciclo sin cupo' : unavailableDates.size + ' ciclos sin cupo'}{' '}
-                actualmente: se conservan y volverán a tu lista en su posición si se libera una plaza.
+                {unitCount(units, unavailableDates.size) + ' sin cupo'} actualmente: se conservan y volverán a tu lista
+                en su posición si se libera una plaza.
               </p>
             )}
           </section>

@@ -6,6 +6,9 @@ import { Service } from '../server/service.ts';
 import { VA_TEAM } from '../server/teams.ts';
 import { loadVaCampaign } from '../server/va-campaign.ts';
 import { defaultConfig } from '../domain/defaults.ts';
+import { singleDays } from '../app/unit-words.ts';
+import { personCalendar } from '../server/person-calendar.ts';
+import { renderPersonCalendarPdf } from '../server/individual-calendar-pdf.ts';
 import type { Principal } from '../server/permissions.ts';
 
 const owner: Principal = { id: 'chatgpt:owner', role: 'superadmin', teams: [] };
@@ -77,19 +80,25 @@ test('el censo se puede volver a cargar hasta iniciar la campaña; después qued
   const again = await load([people.AA, people.BB]);
   assert.equal(again.campaignId, first.campaignId, 'una sola campaña de VA por año');
   assert.equal((await s.load(first.campaignId)).members.length, 2);
+  const start = async () => {
+    const v = await s.view(first.campaignId);
+    return s.election().mutate(first.campaignId, {
+      action: 'start',
+      order: v.members.map((m: { id: string }) => m.id),
+      source: 'Orden del censo de RRHH',
+      rulesConfirmed: true,
+      allowDeferral: true,
+      version: v.campaign.version,
+    });
+  };
+  // Without HR's quotas it cannot start: afterwards they could no longer be loaded.
+  await assert.rejects(start(), /Carga los cupos de RRHH/);
+  assert.equal((await repo.all('SELECT 1 FROM election_states WHERE campaign_id=?', [first.campaignId])).length, 0);
   await repo.batch([
     { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,5)', args: ['2026-03-02'] },
     { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,5)', args: ['2026-03-03'] },
   ]);
-  const v = await s.view(first.campaignId);
-  await s.election().mutate(first.campaignId, {
-    action: 'start',
-    order: v.members.map((m: { id: string }) => m.id),
-    source: 'Orden del censo de RRHH',
-    rulesConfirmed: true,
-    allowDeferral: true,
-    version: v.campaign.version,
-  });
+  await start();
   await assert.rejects(load([people.AA]), /ya se ha iniciado/);
 });
 
@@ -157,6 +166,33 @@ test('el censo exige número de empleado, avisa del orden descendente y no conge
   assert.ok((await load([people.AA])).applied);
 });
 
+test('la campaña de VA se abre solo para su administración y sus participantes', async () => {
+  const { repo, s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const as = (id: string, emailKey?: string) =>
+    new Service(repo, { id, role: 'viewer', teams: [], ...(emailKey ? { emailKey } : {}) });
+  await repo.batch([
+    {
+      sql: 'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1)',
+      args: [people.AA, 'chatgpt-email:aa@x.test'],
+    },
+  ]);
+  const participant = as('chatgpt:aa', 'chatgpt-email:aa@x.test'),
+    other = as('chatgpt:zz', 'chatgpt-email:zz@x.test');
+  assert.equal((await participant.list()).vaCampaign?.id, campaignId);
+  assert.equal((await participant.view(campaignId)).campaign.id, campaignId);
+  assert.equal((await other.list()).vaCampaign, null);
+  await assert.rejects(other.view(campaignId), /cuenta participante/);
+  assert.equal((await s.list()).vaCampaign?.id, campaignId, 'la administración la ve siempre');
+  // Every read path, not only the view.
+  const anonymous = as('');
+  for (const reader of [other, anonymous]) {
+    await assert.rejects(reader.election().availability(campaignId), /cuenta participante/);
+    await assert.rejects(reader.publishedView(campaignId), /cuenta participante/);
+  }
+  await participant.election().availability(campaignId);
+});
+
 test('recargar el censo en preparación descarta las solicitudes de los miembros anteriores', async () => {
   const { repo, s, people, load } = await setup();
   const { campaignId } = await load([people.AA, people.BB]);
@@ -177,4 +213,55 @@ test('recargar el censo en preparación descarta las solicitudes de los miembros
     ['BB'],
   );
   assert.equal(after.requests.length, 0);
+});
+
+test('el calendario individual reúne las vacaciones ordinarias y las de VA de la persona', async () => {
+  const { repo, s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const ordinary = (await s.list()).campaigns.find((c: { team_id: string }) => c.team_id === 'C').id;
+  const o = await s.load(ordinary),
+    v = await s.load(campaignId);
+  const cycle = (await s.view(ordinary)).result.cycles[0];
+  const award = (cid: string, member: string, date: string) => ({
+    sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+    args: [crypto.randomUUID(), cid, member, date],
+  });
+  await repo.batch([
+    { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,3)', args: ['2026-11-20'] },
+    award(ordinary, o.members.find((m: { code: string }) => m.code === 'AA').id, cycle.date),
+    award(campaignId, v.members[0].id, '2026-11-20'),
+  ]);
+  const span = [{ date: cycle.date, end: cycle.end }],
+    day = [{ date: '2026-11-20', end: '2026-11-20' }];
+  // From either campaign, the same year: rotation and holidays of team C, both kinds of days.
+  for (const cid of [campaignId, ordinary]) {
+    const person = await personCalendar(s, repo, cid, 'AA');
+    assert.deepEqual([person.team, person.ordinary, person.va], ['C', span, day]);
+    assert.ok(renderPersonCalendarPdf(person).startsWith('%PDF'));
+  }
+  // A simulation shows itself alone, never the real VA days.
+  const sim = await s.createSimulation(ordinary, {
+    name: 'Escenario',
+    version: (await s.load(ordinary)).campaign.version,
+  });
+  assert.deepEqual((await personCalendar(s, repo, sim.id, 'AA')).va, []);
+  // A failure other than a refusal fails the PDF instead of leaving the VA days out.
+  const view = s.view.bind(s);
+  s.view = async (cid, options) => {
+    if (cid === campaignId) throw new Error('D1 caído');
+    return view(cid, options);
+  };
+  await assert.rejects(personCalendar(s, repo, ordinary, 'AA'), /D1 caído/);
+  s.view = view;
+  // Anyone who may not read VA gets the ordinary calendar alone.
+  const anonymous = new Service(repo, { id: '', role: 'viewer', teams: [] });
+  assert.deepEqual((await personCalendar(anonymous, repo, ordinary, 'AA')).va, []);
+});
+
+test('sin cupos cargados, la vista de VA ya habla de días: la unidad viene de la política', async () => {
+  const { s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const v = await s.view(campaignId);
+  assert.deepEqual(v.result.cycles, []);
+  assert.ok(singleDays(v.election.policyPresentation));
 });

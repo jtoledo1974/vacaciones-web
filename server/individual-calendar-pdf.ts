@@ -15,6 +15,7 @@ const INK = colour('#203047');
 const MUTED = colour('#546474');
 const WORK = colour('#d6dadd');
 const VACATION = colour('#68b9e8');
+const VA_DAY = colour('#2f8f6b');
 const LOCAL = colour('#e79b44');
 const WHITE = colour('#ffffff');
 const GRID = colour('#e2e7ec');
@@ -49,24 +50,64 @@ export function individualCalendarRanges(summary: LiteSummary, code: string): Ra
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+/**
+ * Everything known of one person's year: the shift rotation and holidays of their ordinary
+ * team, their ordinary vacations and their VA days, each in its own colour.
+ */
+export type PersonCalendar = {
+  year: number;
+  code: string;
+  /** Ordinary team whose rotation is drawn; null when the person has none this year. */
+  team: string | null;
+  /** Rules of the year, for its holidays: the ordinary campaign's when there is one. */
+  config: Config;
+  ordinary: Range[];
+  va: Range[];
+  generatedAt: string;
+};
+
+/** One campaign's calendar alone, from its visible projection. */
 export function renderIndividualCalendarPdf(summary: LiteSummary, code: string, config: Config): string {
-  const year = summary.year;
-  const ranges = individualCalendarRanges(summary, code);
+  return renderPersonCalendarPdf({
+    year: summary.year,
+    code,
+    team: summary.team,
+    config,
+    ordinary: individualCalendarRanges(summary, code),
+    va: [],
+    generatedAt: summary.generatedAt,
+  });
+}
+
+export function renderPersonCalendarPdf(person: PersonCalendar): string {
+  const { year, code, team, config } = person;
+  const ranges = person.ordinary;
+  const within = (list: Range[], iso: string) => list.some((r) => r.date <= iso && iso <= r.end);
   const holidays = calendarHolidaysForYear(year, config);
   const byDay = new Map(holidays.map((h) => [h.date, h]));
   const page = new Page(842, 595);
 
-  page.text(16, 25, `EQUIPO ${summary.team} · ${code} · ${year}`, { size: 17, bold: true, color: INK });
-  page.text(16, 40, 'Gris: turno de trabajo (5 días)   Blanco: descanso (3 días)   Azul: vacaciones adjudicadas', {
-    size: 8,
-    color: MUTED,
+  page.text(16, 25, team ? `EQUIPO ${team} · ${code} · ${year}` : `${code} · ${year}`, {
+    size: 17,
+    bold: true,
+    color: INK,
   });
+  page.text(
+    16,
+    40,
+    [
+      ...(team ? ['Gris: turno de trabajo (5 días)   Blanco: descanso (3 días)'] : []),
+      'Azul: vacaciones ordinarias',
+      ...(person.va.length ? ['Verde: vacaciones de antigüedad'] : []),
+    ].join('   '),
+    { size: 8, color: MUTED },
+  );
   page.rect(16, 47, 8, 8, LOCAL);
   page.text(28, 54, 'Marca naranja: fiesta local de Sevilla', { size: 7, color: MUTED });
   page.text(
     826,
     54,
-    'Actualizado ' + new Date(summary.generatedAt).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }),
+    'Actualizado ' + new Date(person.generatedAt).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }),
     {
       size: 7,
       color: MUTED,
@@ -120,9 +161,11 @@ export function renderIndividualCalendarPdf(summary: LiteSummary, code: string, 
       const slot = firstWeekday + day - 1;
       const cx = x + 4 + (slot % 7) * cellW;
       const cy = y + 36 + Math.floor(slot / 7) * cellH;
-      const awarded = ranges.some((r) => r.date <= iso && iso <= r.end);
-      const working = rotationCode(serial(iso), year, summary.team, config) !== ' ';
-      if (awarded || working) page.rect(cx + 0.6, cy + 0.5, cellW - 1.2, cellH - 1.1, awarded ? VACATION : WORK);
+      const va = within(person.va, iso),
+        awarded = va || within(ranges, iso);
+      const working = !!team && rotationCode(serial(iso), year, team, config) !== ' ';
+      if (awarded || working)
+        page.rect(cx + 0.6, cy + 0.5, cellW - 1.2, cellH - 1.1, va ? VA_DAY : awarded ? VACATION : WORK);
       else page.rect(cx + 0.6, cy + 0.5, cellW - 1.2, cellH - 1.1, WHITE, GRID, 0.25);
       page.text(cx + cellW / 2, cy + 9.8, String(day), {
         size: 8.2,
@@ -152,13 +195,18 @@ export function renderIndividualCalendarPdf(summary: LiteSummary, code: string, 
     { size: 7.2, color: MUTED },
   );
   const fmt = (iso: string) => iso.slice(8, 10) + '/' + iso.slice(5, 7);
-  const periods = ranges.map((r) => fmt(r.date) + '-' + fmt(r.end));
-  page.text(16, 565, 'Periodos adjudicados: ' + (periods.slice(0, 4).join('  |  ') || 'Ninguno'), {
+  const span = (r: Range) => (r.date === r.end ? fmt(r.date) : fmt(r.date) + '-' + fmt(r.end));
+  page.text(16, 565, 'Vacaciones ordinarias: ' + (ranges.map(span).join('  |  ') || 'Ninguna'), {
     size: 7.6,
     color: INK,
     max: 805,
   });
-  if (periods.length > 4) page.text(16, 579, periods.slice(4).join('  |  '), { size: 7.6, color: INK, max: 805 });
+  if (person.va.length)
+    page.text(16, 579, 'Vacaciones de antigüedad: ' + person.va.map(span).join('  |  '), {
+      size: 7.6,
+      color: INK,
+      max: 805,
+    });
   else
     page.text(16, 579, 'Fechas inclusivas. Las vacaciones reflejan únicamente las adjudicaciones visibles.', {
       size: 7.1,

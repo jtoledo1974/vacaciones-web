@@ -102,3 +102,15 @@ test('folding never splits a multibyte character and each line stays within 75 o
   assert.ok(lines.every((line) => Buffer.byteLength(line, 'utf8') <= 75));
   assert.equal(lines.map((line, i) => (i ? line.slice(1) : line)).join(''), text);
 });
+
+test('VA exports each awarded single day as its own all-day event', () => {
+  const campaign = closedCampaign();
+  campaign.campaign.team_id = 'va';
+  campaign.awards = ['2027-03-02', '2027-04-15'].map((cycle_date) => ({ member_id: 'controller-1', cycle_date }));
+  campaign.result.cycles = ['2027-03-02', '2027-04-15'].map((date) => ({ date, end: date }));
+  const file = personalVacationCalendar(campaign);
+  assert.ok(file);
+  assert.equal(file.filename, 'vacaciones-antiguedad-2027.ics');
+  assert.equal(file.content.match(/SUMMARY:Vacaciones de antigüedad/g)?.length, 2);
+  assert.match(file.content, /DTSTART;VALUE=DATE:20270302\r\nDTEND;VALUE=DATE:20270303/);
+});
