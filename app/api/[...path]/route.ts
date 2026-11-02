@@ -20,7 +20,7 @@ import { loadVaQuotas, vaQuotas } from '../../../server/va-quotas';
 import { myVa, vaCensus, vaLinkAccount } from '../../../server/va-census';
 import { loadVaCampaign } from '../../../server/va-campaign';
 import { importVaExternal, vaExternalPeople } from '../../../server/va-external';
-import { vaElectionView, mutateVaElection, advanceVaElections } from '../../../server/va-election';
+import { vaElectionView, mutateVaElection, importVaElection, advanceVaElections } from '../../../server/va-election';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
 import { approveCli, revokeCli, pairCli, joinCli, cliPairingStatus } from '../../../server/cli-auth';
 import { backupManifest, backupPage } from '../../../server/backup-v2';
@@ -369,8 +369,10 @@ async function serve(request: Request) {
       return reply(await importVaExternal(repo, actor, b));
     if (path[0] === 'va' && path[1] === 'election' && path.length === 3)
       return reply(await mutateVaElection(repo, actor, Number(path[2]), b));
-    // The census in HR's order loads the year's VA campaign (ADR 0002).
     if (path[0] === 'va' && path[1] === 'census' && path.length === 3)
+      return reply(await importVaElection(repo, actor, Number(path[2]), b));
+    // The census in HR's order loads the year's VA campaign on the common engine (ADR 0002).
+    if (path[0] === 'va' && path[1] === 'campaign' && path.length === 3)
       return reply(await loadVaCampaign(service, repo, actor, Number(path[2]), b));
     if (path[0] === 'va' && path[1] === 'quotas' && path.length === 2) return reply(await loadVaQuotas(repo, actor, b));
     if (path[0] === 'people' && path[1] === 'seniority' && path.length === 2)

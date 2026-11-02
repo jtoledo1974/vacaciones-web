@@ -37,6 +37,13 @@ async function setup() {
   const people = Object.fromEntries(
     (await s.load(cid)).members.map((m: { code: string; person_id: string }) => [m.code, m.person_id]),
   );
+  // Validated master records: employee numbers in HR's order.
+  await repo.batch(
+    ['AA', 'BB', 'CC'].map((code, i) => ({
+      sql: 'UPDATE people SET controller_number=? WHERE id=?',
+      args: [9000 + i, people[code]],
+    })),
+  );
   const service = new Service(repo, va);
   const load = async (ids: string[]) => {
     const body = { action: 'preview', people: ids, source };
@@ -125,4 +132,27 @@ test('la plantilla de RRHH de VA convive con la de ordinarias del mismo año', a
     ['ordinary', 'va'],
   );
   await assert.rejects(repo.batch([insert('va')]), /UNIQUE|PRIMARY/);
+});
+
+test('el censo exige número de empleado, avisa del orden descendente y no congela datos cambiados entretanto', async () => {
+  const { repo, service, people, load } = await setup();
+  const body = { action: 'preview', people: [people.BB, people.AA], source };
+  const preview = await loadVaCampaign(service, repo, va, 2026, body);
+  assert.deepEqual(preview.warnings, ['AA no sigue el número de empleado ascendente']);
+  await repo.batch([{ sql: 'UPDATE people SET controller_number=NULL WHERE id=?', args: [people.AA] }]);
+  await assert.rejects(loadVaCampaign(service, repo, va, 2026, body), /sin datos validados/);
+  await repo.batch([{ sql: 'UPDATE people SET controller_number=9100 WHERE id=?', args: [people.AA] }]);
+  // A write between the apply's reads and its batch (here, right before the commit) is refused.
+  const ok = await loadVaCampaign(service, repo, va, 2026, body);
+  const commit = service.commit.bind(service);
+  service.commit = async (ops) => {
+    await repo.batch([{ sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" }]);
+    return commit(ops);
+  };
+  await assert.rejects(
+    loadVaCampaign(service, repo, va, 2026, { ...body, action: 'apply', reviewToken: ok.reviewToken }),
+    /actualizado|Recarga/,
+  );
+  service.commit = commit;
+  assert.ok((await load([people.AA])).applied);
 });

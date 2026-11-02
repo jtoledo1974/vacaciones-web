@@ -46,12 +46,17 @@ export async function loadVaCampaign(service: Service, repo: Repository, actor: 
     !/^[a-f0-9]{64}$/.test(source.sha256)
   )
     throw new ApiError('Indica el título y SHA-256 de la fuente del censo');
+  // Read first: the batch asserts that nothing changed since (master records included).
+  const revision =
+    (await repo.all<{ revision: number }>("SELECT revision FROM app_state WHERE id='main'"))[0]?.revision ?? 0;
   const census = await vaCensusRows(repo, year);
   const people = (ids as string[]).map((id) => {
     const row = census.find((r) => r.personId === id);
-    if (!row || row.status !== 'entitled') throw new ApiError('Persona sin datos validados o sin derecho: ' + id);
+    if (!row || row.status !== 'entitled' || !row.controllerNumber)
+      throw new ApiError('Persona sin datos validados o sin derecho: ' + id);
     return {
       personId: id,
+      controllerNumber: row.controllerNumber,
       team: row.team,
       code: row.code,
       label: row.label,
@@ -59,6 +64,14 @@ export async function loadVaCampaign(service: Service, repo: Repository, actor: 
       days: row.days,
     };
   });
+  if (new Set(people.map((p) => p.controllerNumber)).size !== people.length)
+    throw new ApiError('Números de empleado duplicados');
+  // HR lists by ascending employee number: a step back is shown, not refused.
+  const warnings = people.flatMap((p, i) =>
+    i && p.controllerNumber < people[i - 1].controllerNumber
+      ? [p.code + ' no sigue el número de empleado ascendente']
+      : [],
+  );
   const omitted = census
     .filter((r) => r.status === 'entitled' && !ids.includes(r.personId))
     .map((r) => ({ personId: r.personId, team: r.team, code: r.code }));
@@ -68,7 +81,7 @@ export async function loadVaCampaign(service: Service, repo: Repository, actor: 
   );
   if (campaign && (await repo.all(`SELECT 1 WHERE ${STARTED}`, [campaign.id, campaign.id])).length)
     throw new ApiError('La campaña de VA de ese año ya se ha iniciado: el censo no se puede cambiar', 409);
-  const report = { year, people, omitted, source: { title: source.title.trim(), sha256: source.sha256 } };
+  const report = { year, people, warnings, omitted, source: { title: source.title.trim(), sha256: source.sha256 } };
   // The review binds the census read too: a master change since the preview asks for another.
   const reviewToken = await digest({ report, census, version: campaign?.version ?? 0 });
   if (body.action === 'preview') return { ...report, reviewToken };
@@ -99,6 +112,15 @@ export async function loadVaCampaign(service: Service, repo: Repository, actor: 
         },
         service.audit('create_campaign', { id: cid, team_id: VA_TEAM }, null, { year }),
       ];
+  // Census and master records unchanged since they were read (any write bumps the revision).
+  const read = crypto.randomUUID();
+  ops.unshift(
+    {
+      sql: "INSERT INTO transaction_assertions(id) VALUES(CASE WHEN (SELECT revision FROM app_state WHERE id='main')=? THEN ? ELSE NULL END)",
+      args: [revision, read],
+    },
+    { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [read] },
+  );
   people.forEach((p, position) =>
     ops.push({
       sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,entitlement,version) VALUES(?,?,?,?,?,?,?,?,1)',
