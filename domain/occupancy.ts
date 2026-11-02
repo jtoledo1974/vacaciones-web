@@ -193,6 +193,8 @@ export type PolicyPresentation = {
   staticReasons: string[];
   /** The reason code of a person exhausting their own rights. */
   ownRightsReason?: string;
+  /** What a member chooses, singular and plural; «ciclo» when absent. */
+  units?: { one: string; many: string };
   /** The rules panel the interface shows (`app/policy-explanations.tsx`), or null. */
   explanationId: string | null;
 };

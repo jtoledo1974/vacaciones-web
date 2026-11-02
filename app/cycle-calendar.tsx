@@ -9,6 +9,9 @@ import { cycleAvailability, cycleOccupancyLabel } from './cycle-availability-ui'
 
 export const formatDate = (date: string) =>
   new Date(date + 'T12:00:00Z').toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+/** A unit's first and last day; one date for single days (VA). */
+export const formatSpan = (date: string, end: string) =>
+  date === end ? formatDate(date) : formatDate(date) + ' – ' + formatDate(end);
 const months = [
   'Enero',
   'Febrero',
@@ -104,7 +107,7 @@ function monthIndex(date: string) {
 }
 function cycleTitle(c: Cycle, ruled: boolean, availability?: AvailabilitySnapshot | null) {
   const status = cycleAvailability(c, availability, ruled);
-  return formatDate(c.date) + ' – ' + formatDate(c.end) + ' · ' + c.score + ' puntos · ' + status.description;
+  return formatSpan(c.date, c.end) + (c.date === c.end ? '' : ' · ' + c.score + ' puntos') + ' · ' + status.description;
 }
 
 export default function CycleCalendar({
@@ -140,7 +143,10 @@ export default function CycleCalendar({
   const ownLabel = (date: string) =>
     (owned.has(date) ? (ownerCode ? ' · adjudicado a ' + ownerCode : ' · adjudicado a ti') : '') +
     (rankOf(date) ? (ownerCode ? ' · preferencia de ' + ownerCode + ' ' : ' · tu preferencia ') + rankOf(date) : '');
-  const [view, setView] = useState<View>('map');
+  // Single-day units (VA) have no cycle map: their days read best on the month grids.
+  const daily = cycles.length > 0 && cycles.every((c) => c.date === c.end),
+    unit = daily ? 'día' : 'ciclo';
+  const [view, setView] = useState<View>(daily ? 'calendar' : 'map');
   useEffect(() => {
     try {
       const stored = document.cookie
@@ -150,7 +156,8 @@ export default function CycleCalendar({
         .slice(1)
         .join('=');
       const choice = stored ? decodeURIComponent(stored) : localStorage.getItem('vacaciones_cycle_view');
-      if (choice === 'table' || choice === 'map' || choice === 'calendar' || choice === 'members') setView(choice);
+      if (choice === 'table' || (choice === 'map' && !daily) || choice === 'calendar' || choice === 'members')
+        setView(choice);
     } catch {
       /* La vista sigue disponible si el navegador bloquea el almacenamiento. */
     }
@@ -161,6 +168,7 @@ export default function CycleCalendar({
   }
   /** Only shows the cycle on the map: onSelect would add or remove it from a list being edited. */
   function showCycle(date: string) {
+    if (daily) return changeView('calendar');
     changeView('map');
     requestAnimationFrame(() => {
       const card = document.querySelector<HTMLElement>('.vac2-map [data-cycle-date="' + date + '"]');
@@ -266,9 +274,7 @@ export default function CycleCalendar({
         }
       >
         <span className="vac2-line">
-          <b>
-            {formatDate(c.date)} – {formatDate(c.end)}
-          </b>
+          <b>{formatSpan(c.date, c.end)}</b>
           <b>
             {blocked.has(c.date)
               ? 'No disponible para ti'
@@ -408,8 +414,9 @@ export default function CycleCalendar({
           </label>
         </div>
         <p className="muted">
-          Los puntos acumulados suman los ciclos adjudicados. El orden de petición de los ciclos sigue las
-          adjudicaciones registradas.
+          {daily
+            ? 'El orden de petición de los días sigue las adjudicaciones registradas.'
+            : 'Los puntos acumulados suman los ciclos adjudicados. El orden de petición de los ciclos sigue las adjudicaciones registradas.'}
         </p>
         <div className="vac2-members-desktop table-wrap">
           <table>
@@ -468,7 +475,8 @@ export default function CycleCalendar({
                   {entries.length ? (
                     entries.map((c) => (
                       <button type="button" className="vac2-member-cycle" key={c.date} onClick={() => onSelect(c)}>
-                        {formatDate(c.date)} – {formatDate(c.end)} · {c.score} pt
+                        {formatSpan(c.date, c.end)}
+                        {c.date === c.end ? '' : ' · ' + c.score + ' pt'}
                       </button>
                     ))
                   ) : (
@@ -491,13 +499,13 @@ export default function CycleCalendar({
   return (
     <section
       className={'panel vac2-panel' + (ruled ? ' vac2-ruled' : '') + (preferenceMode ? ' vac2-mode-preferences' : '')}
-      aria-label="Calendario de ciclos"
+      aria-label={'Calendario de ' + unit + 's'}
     >
       {/* The mode is told by the frame and heading (plus the workspace notice), never by the marks. */}
       <div className="vac2-heading">
         <div>
-          <h2>{preferenceMode ? 'Elige tus preferencias' : 'Disponibilidad y baremo'}</h2>
-          {!preferenceMode && <p className="muted">Selecciona cualquier ciclo para ver detalles y ocupantes.</p>}
+          <h2>{preferenceMode ? 'Elige tus preferencias' : daily ? 'Disponibilidad' : 'Disponibilidad y baremo'}</h2>
+          {!preferenceMode && <p className="muted">Selecciona cualquier {unit} para ver detalles y ocupantes.</p>}
         </div>
         <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
           <button
@@ -508,14 +516,16 @@ export default function CycleCalendar({
           >
             Tabla
           </button>
-          <button
-            type="button"
-            className={view === 'map' ? 'active' : ''}
-            aria-pressed={view === 'map'}
-            onClick={() => changeView('map')}
-          >
-            Mapa
-          </button>
+          {!daily && (
+            <button
+              type="button"
+              className={view === 'map' ? 'active' : ''}
+              aria-pressed={view === 'map'}
+              onClick={() => changeView('map')}
+            >
+              Mapa
+            </button>
+          )}
           <button
             type="button"
             className={view === 'calendar' ? 'active' : ''}
@@ -567,10 +577,12 @@ export default function CycleCalendar({
             Asegurado para ti
           </span>
         )}
-        <span className="vac2-legend-summer">
-          <i className="vac2-summer-key" />
-          Verano
-        </span>
+        {!daily && (
+          <span className="vac2-legend-summer">
+            <i className="vac2-summer-key" />
+            Verano
+          </span>
+        )}
         {glossary && (
           <a
             className="vac2-glossary-link"
@@ -657,9 +669,11 @@ export default function CycleCalendar({
       )}
       {view === 'members' && renderMembers()}
       <p className="vac2-footnote">
-        {ruled
-          ? 'Las plazas libres tienen en cuenta las normas del reparto: si una persona coge un ciclo, puede reducir las de otros. «?» significa que la aplicación no ha podido demostrar si esa plaza respeta las normas: puede estar libre o bloqueada, y esperar no lo resuelve. Al confirmar se vuelve a comprobar y, si sigue sin demostrarse, no se adjudica. Los nombres aparecen por orden de elección. Pulsa un ciclo para ver el detalle.'
-          : 'Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar.'}
+        {daily
+          ? 'Las plazas libres son las de RRHH para cada día, menos las ya adjudicadas. Los nombres aparecen por orden de elección. Pulsa un día para ver el detalle.'
+          : ruled
+            ? 'Las plazas libres tienen en cuenta las normas del reparto: si una persona coge un ciclo, puede reducir las de otros. «?» significa que la aplicación no ha podido demostrar si esa plaza respeta las normas: puede estar libre o bloqueada, y esperar no lo resuelve. Al confirmar se vuelve a comprobar y, si sigue sin demostrarse, no se adjudica. Los nombres aparecen por orden de elección. Pulsa un ciclo para ver el detalle.'
+            : 'Un ciclo completo puede admitir un cupo adicional si está autorizado; se comprueba al confirmar.'}
       </p>
     </section>
   );

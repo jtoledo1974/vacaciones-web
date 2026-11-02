@@ -697,6 +697,7 @@ export class ElectionService {
       cycleAvailability,
       occupancyPolicyVersion: rules?.version ?? null,
       activationRulesName: policyOf(scopeOf(d.campaign)).activationRulesName ?? 'las normas vigentes de este ejercicio',
+      rosterOrder: policyOf(scopeOf(d.campaign)).rosterOrder === true,
       policyPresentation: rules?.presentation ?? null,
       points,
       accounts,

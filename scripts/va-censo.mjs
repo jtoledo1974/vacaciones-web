@@ -2,14 +2,13 @@ import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 
-/** Explicit RRHH order, never inferred from the team rosters. */
+/**
+ * Explicit RRHH order, never inferred from the team rosters. It loads the year's VA
+ * campaign on the common election engine (ADR 0002); `ver` shows the census.
+ */
 export function vaCensusPlan(rest, flags, fail) {
   const [action, file] = rest;
-  if (action === 'ver') {
-    const year = Number(flags.year);
-    if (!Number.isInteger(year) || year < 2000 || year > 2100) fail('Indica --year AAAA');
-    return { method: 'GET', route: 'va/election/' + flags.year };
-  }
+  if (action === 'ver') return { method: 'GET', route: 'va/census' };
   if (!['importar', 'aplicar'].includes(action) || !file)
     fail('Uso: va-censo importar|aplicar fichero.json --year AAAA');
   const bytes = readFileSync(file),
@@ -27,7 +26,7 @@ export function vaCensusPlan(rest, flags, fail) {
   if (action === 'aplicar' && !flags['review-token']) fail('aplicar necesita --review-token de la vista previa');
   return {
     method: 'POST',
-    route: 'va/census/' + year,
+    route: 'va/campaign/' + year,
     body: {
       action: action === 'importar' ? 'preview' : 'apply',
       people: raw.people,

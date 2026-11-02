@@ -66,7 +66,7 @@ export default function ElectionTimelineList({
 }: {
   timeline: TimelineEvent[];
   members: { id: string; code: string }[];
-  cycles: { date: string; score?: number }[];
+  cycles: { date: string; end?: string; score?: number }[];
   previousScores?: Record<string, number>;
   policyPresentation: Parameters<typeof summarizeImpact>[1];
   rowAction?: (event: TimelineEvent) => ReactNode;
@@ -150,7 +150,8 @@ export default function ElectionTimelineList({
                             </strong>
                           )}
                           {event.memberIds.length > 1 ? code(choice.member_id) + ' · ' : ''}
-                          {formatDate(choice.cycle_date)} · {cycle?.score ?? '—'} puntos
+                          {formatDate(choice.cycle_date)}
+                          {cycle && cycle.date === cycle.end ? '' : ' · ' + (cycle?.score ?? '—') + ' puntos'}
                         </div>
                       );
                     })}

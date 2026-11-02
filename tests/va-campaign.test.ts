@@ -156,3 +156,23 @@ test('el censo exige número de empleado, avisa del orden descendente y no conge
   service.commit = commit;
   assert.ok((await load([people.AA])).applied);
 });
+
+test('la campaña de VA se abre solo para su administración y sus participantes', async () => {
+  const { repo, s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const as = (id: string, emailKey?: string) =>
+    new Service(repo, { id, role: 'viewer', teams: [], ...(emailKey ? { emailKey } : {}) });
+  await repo.batch([
+    {
+      sql: 'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1)',
+      args: [people.AA, 'chatgpt-email:aa@x.test'],
+    },
+  ]);
+  const participant = as('chatgpt:aa', 'chatgpt-email:aa@x.test'),
+    other = as('chatgpt:zz', 'chatgpt-email:zz@x.test');
+  assert.equal((await participant.list()).vaCampaign?.id, campaignId);
+  assert.equal((await participant.view(campaignId)).campaign.id, campaignId);
+  assert.equal((await other.list()).vaCampaign, null);
+  await assert.rejects(other.view(campaignId), /cuenta participante/);
+  assert.equal((await s.list()).vaCampaign?.id, campaignId, 'la administración la ve siempre');
+});

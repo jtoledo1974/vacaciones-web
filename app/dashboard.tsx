@@ -19,6 +19,7 @@ import { requiresAccountLinkNotice } from './campaign-access-state';
 import { api as apiJson, apiFetch } from './api-client';
 import { downloadBackup } from '../lib/backup-v2.mjs';
 import { resolveLandingCampaign } from './landing-campaign';
+import { unitWords } from './unit-words';
 import { runElectionCommand } from './election-command';
 import RosterEditor from './roster-editor';
 import ElectionWorkspace from './election-workspace';
@@ -50,11 +51,13 @@ import CampaignStats from './campaign-stats';
 import { sectionFromPath, sectionPaths, type DashboardSection } from './section-routes';
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
 const api = (path: string, body?: any) => apiJson(path, body === undefined ? {} : { body });
+/** Whether the index still lists the campaign, the VA one included. */
+const known = (i: any, id: string) => i.campaigns.some((x: any) => x.id === id) || i.vaCampaign?.id === id;
 function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   const confirm = useConfirmation();
   const [index, setIndex] = useState<any>(null),
     [data, setData] = useState<any>(null),
-    [cid, setCid] = useState(''),
+    [selectedCid, setCid] = useState(''),
     [nav, setNav] = useState<DashboardSection>(initialSection),
     [error, setError] = useState(''),
     [notice, setNotice] = useState(''),
@@ -63,6 +66,12 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     [menu, setMenu] = useState(false),
     [identity, setIdentity] = useState(''),
     [signinUrl, setSigninUrl] = useState('/signin-with-chatgpt?return_to=/');
+  // «Antigüedad» shows the year's VA campaign on the same screens as an ordinary one
+  // (ADR 0002): election for participants, administration in its own tab.
+  const vaCampaignId =
+    (nav === 'antiguedad' || nav === 'antiguedad-admin') && index?.vaCampaign ? index.vaCampaign.id : '';
+  const cid = vaCampaignId || selectedCid;
+  const view: DashboardSection = vaCampaignId ? (nav === 'antiguedad' ? 'eleccion' : 'administracion') : nav;
   const [yearChoice, setYearChoice] = useState<number | null>(null);
   const [individualPdfCode, setIndividualPdfCode] = useState('');
   const [previewCode, setPreviewCode] = useState('');
@@ -179,7 +188,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
         .then((i) => {
           const selected = currentCid.current;
           if (!active) return;
-          if (selected && !i.campaigns.some((x: any) => x.id === selected)) {
+          if (selected && !known(i, selected)) {
             currentCid.current = '';
             setCid('');
           } else if (selected)
@@ -236,6 +245,8 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
       .then((d) => {
         if (cancelled) return;
         setData(d);
+        // The VA campaign is reached by its section, not by team and year.
+        if (d.campaign.team_id === 'va') return;
         const u = new URL(location.href);
         u.searchParams.set('equipo', d.campaign.team_id);
         u.searchParams.set('year', d.campaign.year);
@@ -278,7 +289,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 : next,
             );
           }
-          if (current && !newIndex.campaigns.some((x: any) => x.id === current)) setCid('');
+          if (current && !known(newIndex, current)) setCid('');
         }
         setSyncState('ready');
       } catch (e) {
@@ -583,19 +594,19 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
   useEffect(() => {
-    if (!jumpToActivation || nav !== 'administracion' || !canManage || data?.election?.state) return;
+    if (!jumpToActivation || view !== 'administracion' || !canManage || data?.election?.state) return;
     const panel = document.getElementById('activation-panel') as HTMLDetailsElement | null;
     if (!panel) return;
     panel.open = true;
     panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
     setJumpToActivation(false);
-  }, [jumpToActivation, nav, canManage, cid, data?.campaign.version]);
+  }, [jumpToActivation, view, canManage, cid, data?.campaign.version]);
   const simulationName = data && data.campaign.scope_key !== 'live' ? data.campaign.simulation_name : '';
   return (
     <div
       className={
         'app' +
-        (data && !canManage && nav === 'eleccion' ? ' controller-ux' : '') +
+        (data && !canManage && view === 'eleccion' ? ' controller-ux' : '') +
         (simulationName ? ' is-simulation' : '')
       }
     >
@@ -1018,9 +1029,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 <p>Inicia sesión para consultar las estadísticas de las campañas.</p>
               </section>
             )
-          ) : nav === 'antiguedad' ? (
+          ) : nav === 'antiguedad' && !vaCampaignId ? (
             <VaSection admin={vaAdmin} viewAs={previewCode && team ? { team, code: previewCode } : null} />
-          ) : vaAdminView ? (
+          ) : vaAdminView && !vaCampaignId ? (
             <>
               <VaElectionPanel administration />
               <VaCensusPanel />
@@ -1075,9 +1086,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               <div className="campaign-strip">
                 <span>
                   <span className={'status-dot ' + data.campaign.status} />
-                  <b>
-                    Equipo {team} · {year}
-                  </b>
+                  <b>{team === 'va' ? 'Vacaciones de antigüedad · ' + year : 'Equipo ' + team + ' · ' + year}</b>
                   <span className="status">{labels[data.campaign.status]}</span>
                   {data.campaign.scope_key !== 'live' && (
                     <span className="tag simulation-tag">Simulación privada: {data.campaign.simulation_name}</span>
@@ -1110,7 +1119,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                   </span>
                 </span>
               </div>
-              {nav === 'eleccion' &&
+              {view === 'eleccion' &&
                 (accessNoticeRequired && !publicConsultation ? (
                   <CampaignAccessNotice
                     email={sessionEmail}
@@ -1141,7 +1150,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                     )}
                     <ElectionWorkspace
                       onConfigureElection={async () => {
-                        if (await go('administracion')) setJumpToActivation(true);
+                        if (await go(vaCampaignId ? 'antiguedad-admin' : 'administracion')) setJumpToActivation(true);
                       }}
                       onPreferenceEdit={() => setNotice('')}
                       navigationGuard={preferenceGuard}
@@ -1255,7 +1264,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                   </>
                 ))}
 
-              {nav === 'administracion' &&
+              {/* The census, its accounts and HR's quotas stay with the VA campaign's administration. */}
+              {vaCampaignId && view === 'administracion' && canManage && <VaCensusPanel />}
+              {view === 'administracion' &&
                 (canManage ? (
                   <>
                     <section className="panel campaign-status" aria-label="Estado de la campaña">
@@ -1271,8 +1282,12 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                               ? 'Elección en pausa'
                               : 'Elección completada'}
                         {' · '}
-                        {data.awards.length} de {data.members.length * (data.config?.cyclesPerPerson ?? 6)} ciclos
-                        adjudicados
+                        {data.awards.length} de{' '}
+                        {data.members.reduce(
+                          (n: number, m: any) => n + (m.entitlement ?? data.config?.cyclesPerPerson ?? 6),
+                          0,
+                        )}{' '}
+                        {unitWords(data.election?.policyPresentation).many} adjudicados
                       </p>
                     </section>
                     <ActivationPanel
@@ -1303,73 +1318,78 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                       }
                       onActivated={() => {
                         setJumpToActivation(false);
-                        void go('eleccion').then((moved) => {
+                        void go(vaCampaignId ? 'antiguedad' : 'eleccion').then((moved) => {
                           if (!moved)
                             setNotice('Elección activada. Ve a Vacaciones cuando termines con tus preferencias.');
                         });
                       }}
                     />
-                    <details id="campaign-config-panel" className="panel">
-                      <summary>Parámetros del ejercicio</summary>
-                      {data.config ? (
-                        <ConfigForm
-                          key={cid}
-                          config={data.config}
-                          scoringVersion={data.result.scoringVersion}
-                          year={year}
-                          disabled={!write}
-                          busy={busy}
-                          save={(c: any) =>
-                            mutate({ action: 'config', config: c }, 'Parámetros guardados para este ejercicio')
-                          }
-                        />
-                      ) : (
-                        <p>Los parámetros no están disponibles.</p>
-                      )}
-                    </details>
-                    <RosterEditor
-                      key={cid}
-                      data={data}
-                      busy={busy}
-                      readOnly={!write}
-                      manageAccounts={canManage}
-                      teams={
-                        data.campaign.scope_key === 'live'
-                          ? index.campaigns.filter(
-                              (c: any) =>
-                                c.scope_key === 'live' && (superuser || index.principal.teams.includes(c.team_id)),
-                            )
-                          : []
-                      }
-                      retire={(memberId: string) =>
-                        mutate({ action: 'retire_member', memberId }, 'Baja guardada en este ejercicio')
-                      }
-                      transfer={(memberId: string, targetTeam: string, targetVersion: number) =>
-                        mutate(
-                          { action: 'transfer_member', memberId, targetTeam, targetVersion },
-                          'Cambio de turno guardado en este ejercicio',
-                        )
-                      }
-                      save={saveRoster}
-                      previewImportRoster={(source: unknown) =>
-                        api('campaign/' + cid, {
-                          action: 'preview_import_roster',
-                          source,
-                          version: data.campaign.version,
-                        })
-                      }
-                      importRoster={(source: unknown, review: ImportReview) =>
-                        mutate(
-                          {
-                            action: 'import_roster',
+                    {/* VA keeps no ordinary parameters, roster edits nor HR workbook (ADR 0002). */}
+                    {!vaCampaignId && (
+                      <details id="campaign-config-panel" className="panel">
+                        <summary>Parámetros del ejercicio</summary>
+                        {data.config ? (
+                          <ConfigForm
+                            key={cid}
+                            config={data.config}
+                            scoringVersion={data.result.scoringVersion}
+                            year={year}
+                            disabled={!write}
+                            busy={busy}
+                            save={(c: any) =>
+                              mutate({ action: 'config', config: c }, 'Parámetros guardados para este ejercicio')
+                            }
+                          />
+                        ) : (
+                          <p>Los parámetros no están disponibles.</p>
+                        )}
+                      </details>
+                    )}
+                    {!vaCampaignId && (
+                      <RosterEditor
+                        key={cid}
+                        data={data}
+                        busy={busy}
+                        readOnly={!write}
+                        manageAccounts={canManage}
+                        teams={
+                          data.campaign.scope_key === 'live'
+                            ? index.campaigns.filter(
+                                (c: any) =>
+                                  c.scope_key === 'live' && (superuser || index.principal.teams.includes(c.team_id)),
+                              )
+                            : []
+                        }
+                        retire={(memberId: string) =>
+                          mutate({ action: 'retire_member', memberId }, 'Baja guardada en este ejercicio')
+                        }
+                        transfer={(memberId: string, targetTeam: string, targetVersion: number) =>
+                          mutate(
+                            { action: 'transfer_member', memberId, targetTeam, targetVersion },
+                            'Cambio de turno guardado en este ejercicio',
+                          )
+                        }
+                        save={saveRoster}
+                        previewImportRoster={(source: unknown) =>
+                          api('campaign/' + cid, {
+                            action: 'preview_import_roster',
                             source,
-                            reviewToken: review.reviewToken,
-                            acceptViolations: review.findings.length > 0,
-                          },
-                          'Plantilla y selecciones originales importadas',
-                        )
-                      }
-                    />
+                            version: data.campaign.version,
+                          })
+                        }
+                        importRoster={(source: unknown, review: ImportReview) =>
+                          mutate(
+                            {
+                              action: 'import_roster',
+                              source,
+                              reviewToken: review.reviewToken,
+                              acceptViolations: review.findings.length > 0,
+                            },
+                            'Plantilla y selecciones originales importadas',
+                          )
+                        }
+                      />
+                    )}
                     <section className="panel">
                       <h2>Responsables y permisos</h2>
                       <p className="muted">
@@ -1391,7 +1411,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                     </section>
                     {
                       <section className="panel campaign-close">
-                        <h2>Cerrar o reabrir el equipo</h2>
+                        <h2>{vaCampaignId ? 'Cerrar o reabrir la campaña' : 'Cerrar o reabrir el equipo'}</h2>
                         <p className="muted">
                           Cerrar bloquea elecciones y preferencias; la consulta sigue disponible. Reabrir no reanuda la
                           elección automáticamente.
@@ -1405,7 +1425,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                                 mutate({ action: 'close' }, 'Campaña cerrada');
                             }}
                           >
-                            Cerrar equipo {team}
+                            {vaCampaignId ? 'Cerrar la campaña' : 'Cerrar equipo ' + team}
                           </button>
                           <button
                             className="secondary"
@@ -1415,12 +1435,12 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                                 mutate({ action: 'reopen' }, 'Campaña reabierta');
                             }}
                           >
-                            Reabrir equipo {team}
+                            {vaCampaignId ? 'Reabrir la campaña' : 'Reabrir equipo ' + team}
                           </button>
                         </div>
                       </section>
                     }
-                    {data.campaign.scope_key === 'live' && (
+                    {data.campaign.scope_key === 'live' && !vaCampaignId && (
                       <HrExportPanel
                         cid={cid}
                         team={team}

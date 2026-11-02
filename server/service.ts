@@ -121,7 +121,19 @@ export class Service {
       principal: this.actor,
       myCampaignIds: mine.map((m) => m.campaign_id).filter((id) => campaigns.some((c) => c.id === id)),
       va: await vaVisibility(this.repo, this.actor),
+      vaCampaign: await this.vaCampaign(),
     };
+  }
+  /** The latest live VA campaign, for whoever may open it (see view). */
+  private async vaCampaign() {
+    if (!this.actor.id) return null;
+    const [c] = await this.repo.all(
+      "SELECT id,year,status,version FROM campaigns WHERE team_id=? AND scope_key='live' ORDER BY year DESC LIMIT 1",
+      [VA_TEAM],
+    );
+    if (!c) return null;
+    if (canWrite(this.actor, VA_TEAM)) return c;
+    return (await this.election().memberForAccount({ campaign: c, members: [] })) ? c : null;
   }
   /** Every team's live campaign of the latest year, as anyone may follow it. */
   async stats() {
@@ -259,6 +271,14 @@ export class Service {
       this.actor.preview?.campaignId !== cid
     )
       throw new ApiError('Simulación reservada a administradores', 403);
+    // VA is not a public consultation: its administrators and its participants only.
+    if (
+      loaded.campaign.team_id === VA_TEAM &&
+      !canWrite(this.actor, VA_TEAM) &&
+      this.actor.preview?.campaignId !== cid &&
+      !(await this.election().memberForAccount(loaded))
+    )
+      throw new ApiError('Las vacaciones de antigüedad se consultan solo con una cuenta participante', 403);
     const auditContext = new AuditContext(this.repo, cid, loaded.campaign.version);
     const { d, state, hidden, consumed } = await this.election().concealedFor(loaded, undefined, auditContext);
     const concealing = d !== loaded;

@@ -181,6 +181,7 @@ export const VA_OCCUPANCY: Omit<OccupancyRules, 'compact'> = {
     permits: {},
     impactEvents: {},
     staticReasons: ['VA_NO_QUOTA', 'VA_ORDINARY_OVERLAP'],
+    units: { one: 'día', many: 'días' },
     explanationId: null,
   },
   state: (campaign, members, awards) => {
