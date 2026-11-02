@@ -43,7 +43,8 @@ function account(key: string | null | undefined, version: number): VaRow['accoun
   return { provider: 'chatgpt', subject: '', version };
 }
 
-async function rows(repo: Repository, year: number): Promise<VaRow[]> {
+/** Everyone in the year's census, entitled or not, from the master records. */
+export async function vaCensusRows(repo: Repository, year: number): Promise<VaRow[]> {
   const people = await repo.all(
     `SELECT DISTINCT p.id,c.team_id,m.code,m.label,p.seniority,p.controller_number,
        a.principal_key,a.version AS account_version,h.hr_name
@@ -88,7 +89,7 @@ export async function vaCensus(repo: Repository, actor: Principal) {
   requireVaAdmin(actor);
   const year = await vaYear(repo);
   if (!year) return { year: null, people: [], notEntitled: 0, totalDays: 0, quotas: null };
-  const all = await rows(repo, year);
+  const all = await vaCensusRows(repo, year);
   const people = all.filter((r) => r.status !== 'not_entitled');
   // RRHH's places are loaded by CLI (server/va-quotas.ts); the panel only shows them.
   const [source] = await repo.all(
@@ -124,7 +125,7 @@ export async function myVa(repo: Repository, actor: Principal, viewAs?: { team: 
   if (viewAs && !admin && !canWrite(actor, viewAs.team))
     throw new ApiError('Solo la administración puede ver los días de VA de otra persona', 403);
   if (!year || (!keys.length && !viewAs)) return { year, admin, me: null };
-  let census = await rows(repo, year);
+  let census = await vaCensusRows(repo, year);
   const [campaign] = await repo.all<{ json: string }>('SELECT json FROM va_campaigns WHERE year=?', [year]);
   const frozen = campaign ? (JSON.parse(campaign.json) as VaElection) : null;
   if (frozen && frozen.status !== 'preparation') {
@@ -176,7 +177,7 @@ type LinkBody = { personId?: string; provider?: string; subject?: unknown; accou
 export async function vaLinkAccount(repo: Repository, actor: Principal, body: LinkBody) {
   requireVaAdmin(actor);
   const year = await vaYear(repo);
-  const person = year && (await rows(repo, year)).find((r) => r.personId === body?.personId);
+  const person = year && (await vaCensusRows(repo, year)).find((r) => r.personId === body?.personId);
   if (!person || person.status === 'not_entitled') throw new ApiError('Esa persona no está en el censo de VA', 404);
   if ((person.account?.version ?? 0) !== body.accountVersion)
     throw new ApiError('La vinculación cambió. Recarga antes de guardar.', 409);
