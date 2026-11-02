@@ -345,11 +345,7 @@ export class Service {
     });
   }
   async commit(statements: Statement[]) {
-    const { vaOrdinaryGuards } = await import('./va-election.ts');
-    const vaGuards = [
-      ...(await vaOrdinaryGuards(this.repo, statements)),
-      ...(await crossCampaignGuards(this.repo, statements)),
-    ];
+    const vaGuards = await crossCampaignGuards(this.repo, statements);
     try {
       return await this.repo.batch([
         ...statements,
@@ -1005,11 +1001,10 @@ export class Service {
       'hr_names',
       'va_quotas',
       'va_quota_sources',
-      'va_campaigns',
-      'va_election_history',
-      'va_reconstructions',
     ])
       if (tables[key] === undefined) tables[key] = [];
+    // The old VA election (ADR 0002, phase 5) is gone: its tables in older backups are dropped.
+    for (const key of ['va_campaigns', 'va_election_history', 'va_reconstructions']) delete tables[key];
     // Local admin sessions are not backed up. Older backups kept them (and login
     // attempts) in audit: drop those rows so a restore never resurrects a session.
     if (Array.isArray(tables.audit))

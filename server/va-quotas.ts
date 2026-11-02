@@ -150,18 +150,6 @@ export async function loadVaQuotas(repo: Repository, actor: Principal, body: Quo
       args: [VA_TEAM, year, token],
     },
     { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] },
-    // Check the current election inside the transaction, including choices made
-    // since this preview: corrections cannot invalidate an already allocated day.
-    {
-      sql: `INSERT INTO transaction_assertions(id) VALUES(CASE WHEN NOT EXISTS(
-        SELECT 1 FROM va_campaigns v JOIN json_each(v.json,'$.choices') j
-        WHERE v.year=? GROUP BY json_extract(j.value,'$.date')
-        HAVING COUNT(*)>COALESCE((SELECT q.places FROM va_quotas q WHERE q.year=v.year
-          AND q.date=json_extract(j.value,'$.date')),0)
-      ) THEN ? ELSE NULL END)`,
-      args: [year, token],
-    },
-    { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] },
     append({
       id: crypto.randomUUID(),
       actor: actor.id,

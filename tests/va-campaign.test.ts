@@ -8,6 +8,7 @@ import { loadVaCampaign } from '../server/va-campaign.ts';
 import { defaultConfig } from '../domain/defaults.ts';
 import { singleDays } from '../app/unit-words.ts';
 import { personCalendar } from '../server/person-calendar.ts';
+import { myVa } from '../server/va-census.ts';
 import { renderPersonCalendarPdf } from '../server/individual-calendar-pdf.ts';
 import type { Principal } from '../server/permissions.ts';
 
@@ -264,4 +265,80 @@ test('sin cupos cargados, la vista de VA ya habla de días: la unidad viene de l
   const v = await s.view(campaignId);
   assert.deepEqual(v.result.cycles, []);
   assert.ok(singleDays(v.election.policyPresentation));
+});
+
+test('una escritura de ordinarias no puede dejar a la persona con un día ya concedido en VA (§3 bis)', async () => {
+  const { repo, s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const ordinary = (await s.list()).campaigns.find((c: { team_id: string }) => c.team_id === 'C').id;
+  const o = await s.load(ordinary),
+    v = await s.load(campaignId);
+  const member = (code: string) => o.members.find((m: { code: string }) => m.code === code).id;
+  const cycles = (await s.view(ordinary)).result.cycles as { date: string; end: string }[];
+  const award = (cid: string, memberId: string, date: string) => ({
+    sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+    args: [crypto.randomUUID(), cid, memberId, date],
+  });
+  const cycle = cycles.find((c) => c.date.startsWith('2026-11'))!;
+  await repo.batch([
+    { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,3)', args: [cycle.end] },
+    award(campaignId, v.members[0].id, cycle.end),
+  ]);
+  // The ordinary cycle that contains AA's VA day is refused for AA, in the same transaction.
+  await assert.rejects(s.commit([award(ordinary, member('AA'), cycle.date)]), /mismo día/);
+  assert.equal((await repo.all('SELECT 1 FROM awards WHERE campaign_id=?', [ordinary])).length, 0);
+  // Another person, or another cycle, is not affected.
+  await s.commit([award(ordinary, member('BB'), cycle.date)]);
+  await s.commit([award(ordinary, member('AA'), cycles[0].date)]);
+
+  // December→January: the last ordinary cycle of 2026 ends in 2027 and meets VA of 2027.
+  const last = cycles.at(-1)!;
+  assert.ok(last.end.startsWith('2027-'), 'el último ciclo acaba en enero');
+  await repo.batch([
+    {
+      sql: "INSERT INTO campaigns(id,team_id,year,status,version,data_kind,created_at) VALUES('va27','va',2027,'open',1,'real','2026-12-01')",
+    },
+    {
+      sql: 'INSERT INTO parameters(campaign_id,json,version) SELECT ?,json,1 FROM parameters WHERE campaign_id=?',
+      args: ['va27', campaignId],
+    },
+    {
+      sql: "INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,entitlement,version) VALUES('va27-aa','va27',?,'AA','CTA AA','1996-02-01',0,3,1)",
+      args: [people.AA],
+    },
+    { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2027,?,3)', args: [last.end] },
+    award('va27', 'va27-aa', last.end),
+  ]);
+  await assert.rejects(s.commit([award(ordinary, member('AA'), last.date)]), /mismo día/);
+});
+
+test('myVa conserva los días congelados de la campaña aunque cambie o se desactive la ficha maestra', async () => {
+  const { repo, people, load } = await setup();
+  await load([people.AA, people.BB]);
+  const before = await myVa(repo, owner, { team: 'C', code: 'AA' });
+  assert.equal(before.me?.days, 3);
+  // Newer seniority (would give 0 days) and an inactive record: the frozen entitlement rules.
+  await repo.batch([{ sql: "UPDATE people SET seniority='2020-01-01',active=0 WHERE id=?", args: [people.AA] }]);
+  const after = await myVa(repo, owner, { team: 'C', code: 'AA' });
+  assert.deepEqual([after.me?.days, after.me?.status, after.me?.seniority], [3, 'entitled', '1996-02-01']);
+  // Outside the campaign there is no entitlement, even with one in the master records.
+  assert.equal((await myVa(repo, owner, { team: 'C', code: 'CC' })).me, null);
+});
+
+test('la migración 0026 no se aplica mientras quede una elección de VA antigua', async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { readdirSync, readFileSync } = await import('node:fs');
+  const db = new DatabaseSync(':memory:');
+  const files = readdirSync('drizzle')
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  for (const f of files.filter((f) => f < '0026')) db.exec(readFileSync('drizzle/' + f, 'utf8'));
+  db.exec(`INSERT INTO va_campaigns(year,version,json) VALUES(2026,1,'{"people":[]}')`);
+  const migration = readFileSync('drizzle/' + files.find((f) => f.startsWith('0026'))!, 'utf8');
+  assert.throws(() => db.exec('BEGIN;' + migration + ';COMMIT;'), /old_va_election_still_present|CHECK/);
+  db.exec('ROLLBACK');
+  assert.equal((db.prepare('SELECT count(*) AS n FROM va_campaigns').get() as { n: number }).n, 1);
+  db.exec('DELETE FROM va_campaigns');
+  db.exec(migration);
+  assert.equal(db.prepare("SELECT 1 FROM sqlite_schema WHERE name='va_campaigns'").all().length, 0);
 });

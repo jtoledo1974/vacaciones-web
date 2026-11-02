@@ -459,7 +459,14 @@ for (const version of [20, 21])
     const current = Object.fromEntries(Object.entries(backupColumns).map(([t, c]) => [t, [...c]]));
     try {
       // Tables dropped by later migrations were still part of the old copy.
-      for (const table of [...Object.keys(backupColumns), 'va_external_people', 'va_external_accounts'])
+      for (const table of [
+        ...Object.keys(backupColumns),
+        'va_external_people',
+        'va_external_accounts',
+        'va_campaigns',
+        'va_election_history',
+        'va_reconstructions',
+      ])
         (backupColumns as Record<string, string[]>)[table] = repo.db
           .prepare(`SELECT name FROM pragma_table_info('${table}')`)
           .all()

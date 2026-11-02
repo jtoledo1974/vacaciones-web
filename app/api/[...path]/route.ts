@@ -21,7 +21,6 @@ import { loadVaQuotas, vaQuotas } from '../../../server/va-quotas';
 import { myVa, vaCensus, vaLinkAccount } from '../../../server/va-census';
 import { loadVaCampaign } from '../../../server/va-campaign';
 import { importVaExternal, vaExternalPeople } from '../../../server/va-external';
-import { vaElectionView, mutateVaElection, importVaElection, advanceVaElections } from '../../../server/va-election';
 import { localAdminEnabled, localAdminLogin, localAdminLogout } from '../../../server/local-admin';
 import { approveCli, revokeCli, pairCli, joinCli, cliPairingStatus } from '../../../server/cli-auth';
 import { backupManifest, backupPage } from '../../../server/backup-v2';
@@ -91,8 +90,7 @@ async function serve(request: Request) {
         return reply({ error: 'No autorizado' }, 403);
       // Lists whose wait ran out choose first, so their notices go out in this same run.
       const expired = await advanceExpiredTurns(repo).catch(() => ({ applied: 0, errors: 1 }));
-      const vaExpired = await advanceVaElections(repo).catch(() => ({ applied: 0, errors: 1 }));
-      return reply({ ...(await dispatchNotifications(repo, bindings)), expired, vaExpired });
+      return reply({ ...(await dispatchNotifications(repo, bindings)), expired });
     }
     phase = 'authentication';
     const user = await federatedAuthenticator(bindings.FIREBASE_PROJECT_ID ?? '', bindings, repo).authenticate(request);
@@ -125,8 +123,6 @@ async function serve(request: Request) {
         return reply(await previewCleanup(repo, actor, Date.now(), url.searchParams.get('mode') ?? undefined));
       if (path[0] === 'va' && path[1] === 'external' && path.length === 2)
         return reply(await vaExternalPeople(repo, actor));
-      if (path[0] === 'va' && path[1] === 'election' && path.length === 3)
-        return reply(await vaElectionView(repo, actor, Number(path[2])));
       if (path[0] === 'cli-auth' && path[1] === 'status')
         return reply(await cliPairingStatus(request, repo, user, actor, url.searchParams.get('pairing') ?? ''));
       if (path[0] === 'auth-config')
@@ -366,10 +362,6 @@ async function serve(request: Request) {
       return reply(await vaLinkAccount(repo, actor, b));
     if (path[0] === 'va' && path[1] === 'external' && path.length === 2)
       return reply(await importVaExternal(repo, actor, b));
-    if (path[0] === 'va' && path[1] === 'election' && path.length === 3)
-      return reply(await mutateVaElection(repo, actor, Number(path[2]), b));
-    if (path[0] === 'va' && path[1] === 'census' && path.length === 3)
-      return reply(await importVaElection(repo, actor, Number(path[2]), b));
     // The census in HR's order loads the year's VA campaign on the common engine (ADR 0002).
     if (path[0] === 'va' && path[1] === 'campaign' && path.length === 3)
       return reply(await loadVaCampaign(service, repo, actor, Number(path[2]), b));

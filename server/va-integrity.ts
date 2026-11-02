@@ -66,26 +66,42 @@ function overlapAssertion(sql: string, args: unknown[]): Statement[] {
 }
 
 /**
- * Assertions for a batch that writes the live VA campaign: no VA day over its HR places and
- * none inside one of the person's live ordinary cycles. Simulations are never asserted, and
- * batches that only touch ordinary campaigns need nothing.
+ * Assertions for a batch that writes adjudications or cycle boundaries (ADR 0002 §3 bis),
+ * in both directions: no VA day over its HR places, and no VA day inside one of the same
+ * person's live ordinary cycles, whichever campaign the batch changes (choices, undo,
+ * reconstruction, imports, calendar configuration). VA of year Y is compared with the
+ * ordinary campaigns of Y and Y−1, whose last December cycle can end in January.
+ * Simulations are never asserted. Ordinary choices never read VA: this only refuses the
+ * write that would leave both on the same day.
  */
 export async function crossCampaignGuards(repo: Repository, statements: Statement[]): Promise<Statement[]> {
+  if (
+    !statements.some((st) =>
+      /(?:INSERT INTO|UPDATE|DELETE FROM|REPLACE INTO)\s+(?:awards|parameters|campaign_members|campaigns)\b/i.test(
+        st.sql,
+      ),
+    )
+  )
+    return [];
   const va = await repo.all<CampaignRow>("SELECT id,year,team_id FROM campaigns WHERE team_id=? AND scope_key='live'", [
     VA_TEAM,
   ]);
-  const written = va.filter((c) => statements.some((s) => s.args?.includes(c.id)));
   const guards: Statement[] = [];
-  for (const campaign of written) {
-    guards.push(
-      ...overlapAssertion(
-        `NOT EXISTS(SELECT 1 FROM awards a WHERE a.campaign_id=? GROUP BY a.cycle_date
-         HAVING count(*) > coalesce((SELECT places FROM va_quotas q WHERE q.year=? AND q.date=a.cycle_date),0))`,
-        [campaign.id, campaign.year],
-      ),
-    );
+  for (const campaign of va) {
+    if (statements.some((st) => st.args?.includes(campaign.id)))
+      guards.push(
+        ...overlapAssertion(
+          `NOT EXISTS(SELECT 1 FROM awards a WHERE a.campaign_id=? GROUP BY a.cycle_date
+           HAVING count(*) > coalesce((SELECT places FROM va_quotas q WHERE q.year=? AND q.date=a.cycle_date),0))`,
+          [campaign.id, campaign.year],
+        ),
+      );
     for (const c of await liveOrdinary(repo, [campaign.year - 1, campaign.year])) {
-      const cycles = calendar(c.year, c.team_id, JSON.parse(c.json) as Config);
+      // A configuration change in this same batch moves the cycle ends: check the result.
+      let config = c.json;
+      for (const st of statements)
+        if (/^UPDATE parameters SET json=/i.test(st.sql) && st.args?.[1] === c.id) config = String(st.args[0]);
+      const cycles = calendar(c.year, c.team_id, JSON.parse(config) as Config);
       // Every calendar fits under D1's 100-bound-parameter limit.
       guards.push(
         ...overlapAssertion(

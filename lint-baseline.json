@@ -15,7 +15,7 @@
       "react-hooks/set-state-in-effect": 1
     },
     "app/dashboard.tsx": {
-      "@next/next/no-html-link-for-pages": 2,
+      "@next/next/no-html-link-for-pages": 1,
       "@typescript-eslint/no-explicit-any": 43,
       "react-hooks/set-state-in-effect": 4
     },
@@ -23,7 +23,7 @@
       "@typescript-eslint/no-explicit-any": 7
     },
     "app/election-workspace.tsx": {
-      "@typescript-eslint/no-explicit-any": 54,
+      "@typescript-eslint/no-explicit-any": 53,
       "react-hooks/set-state-in-effect": 10
     },
     "app/help.tsx": {
@@ -85,7 +85,7 @@
       "@typescript-eslint/no-explicit-any": 1
     },
     "server/audit-context.ts": {
-      "@typescript-eslint/no-explicit-any": 15
+      "@typescript-eslint/no-explicit-any": 14
     },
     "server/availability-history.ts": {
       "@typescript-eslint/no-explicit-any": 1
@@ -94,7 +94,7 @@
       "@typescript-eslint/no-explicit-any": 1
     },
     "server/election-service.ts": {
-      "@typescript-eslint/no-explicit-any": 32
+      "@typescript-eslint/no-explicit-any": 29
     },
     "server/election-timeline.ts": {
       "@typescript-eslint/no-explicit-any": 4
@@ -106,7 +106,7 @@
       "@typescript-eslint/no-explicit-any": 6
     },
     "server/reconstruction.ts": {
-      "@typescript-eslint/no-explicit-any": 28
+      "@typescript-eslint/no-explicit-any": 23
     },
     "server/repository.ts": {
       "@typescript-eslint/no-explicit-any": 3

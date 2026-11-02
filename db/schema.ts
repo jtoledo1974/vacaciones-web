@@ -315,33 +315,3 @@ export const vaQuotaSources = sqliteTable('va_quota_sources', {
   version: integer('version').notNull().default(1),
   updatedAt: text('updated_at').notNull(),
 });
-export const vaCampaigns = sqliteTable('va_campaigns', {
-  year: integer('year').primaryKey(),
-  version: integer('version').notNull().default(1),
-  json: text('json').notNull(),
-});
-export const vaElectionHistory = sqliteTable(
-  'va_election_history',
-  {
-    id: integer('id').primaryKey({ autoIncrement: true }),
-    year: integer('year')
-      .notNull()
-      .references(() => vaCampaigns.year),
-    action: text('action').notNull(),
-    actor: text('actor'),
-    beforeJson: text('before_json').notNull(),
-    afterJson: text('after_json').notNull(),
-    createdAt: text('created_at').notNull(),
-    undone: integer('undone').notNull().default(0),
-  },
-  (t) => [index('va_history_year').on(t.year, t.id)],
-);
-export const vaReconstructions = sqliteTable('va_reconstructions', {
-  year: integer('year')
-    .primaryKey()
-    .references(() => vaCampaigns.year),
-  workingJson: text('working_json').notNull(),
-  stepsJson: text('steps_json').notNull().default('[]'),
-  createdAt: text('created_at').notNull(),
-  actor: text('actor').notNull(),
-});

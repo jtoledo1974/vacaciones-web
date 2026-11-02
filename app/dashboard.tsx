@@ -44,9 +44,8 @@ import {
   BarChart3,
   Award,
 } from 'lucide-react';
-import VaSection from './va-section';
 import VaCensusPanel from './va-census-panel';
-import VaElectionPanel from './va-election-panel';
+import VaSection from './va-section';
 import CampaignStats from './campaign-stats';
 import { sectionFromPath, sectionPaths, type DashboardSection } from './section-routes';
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
@@ -1037,13 +1036,10 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 <p>Inicia sesión para consultar las estadísticas de las campañas.</p>
               </section>
             )
+          ) : vaAdminView && !vaCampaignId ? (
+            <VaCensusPanel />
           ) : nav === 'antiguedad' && !vaCampaignId ? (
             <VaSection admin={vaAdmin} viewAs={previewCode && team ? { team, code: previewCode } : null} />
-          ) : vaAdminView && !vaCampaignId ? (
-            <>
-              <VaElectionPanel administration />
-              <VaCensusPanel />
-            </>
           ) : nav === 'administracion' && !adminRole && !vaCampaignId ? (
             <section className="panel empty">
               <ShieldCheck size={32} />

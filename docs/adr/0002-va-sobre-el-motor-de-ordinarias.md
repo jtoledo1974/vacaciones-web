@@ -115,6 +115,8 @@ Los cupos que envía RRHH son válidos para todo el proceso, igual que los datos
 - Código: `domain/va-election.ts`, `server/va-election.ts`, `server/va-controls.ts`, el evento `va_election` de `audit` y la parte de `server/va-census.ts` que duplica la carga de miembros.
 - Interfaz: `app/va-election-panel.tsx`, `app/va-section.tsx`; `app/va-day-calendar.tsx` se reaprovecha como calendario de días.
 
+Hecho en la fase 5 (migración `0026`), con dos matices: `app/va-day-calendar.tsx` también se elimina, porque el calendario común ya pinta días; y el evento `va_election` se conserva en `domain/events.ts` para leer el `audit` histórico y las altas de personas externas. Las copias antiguas siguen restaurándose: la v1 descarta esas tablas y la v2 aplica la migración tras restaurar.
+
 Se conservan: `va_quotas` y `va_quota_sources` (datos de admisión de la política VA) y el cálculo del censo VA (quién participa y cuántos días le corresponden), que pasa a alimentar `campaign_members`.
 
 ## Plan por fases

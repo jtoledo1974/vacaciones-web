@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { api } from './api-client';
-import VaElectionPanel from './va-election-panel';
 
 type Me = {
   code: string;
@@ -57,7 +56,7 @@ function VaDays({ viewAs, admin }: { viewAs: { team: string; code: string } | nu
           <p className="muted">
             Antigüedad en ENAIRE desde el {spanishDate(me.seniority!)}.{' '}
             {me.status === 'entitled'
-              ? `Días reconocidos para el ejercicio: ${me.days}. El saldo y las elecciones se muestran en el calendario de VA.`
+              ? `Días reconocidos para el ejercicio: ${me.days}. La elección se abre en esta sección cuando la administración active la campaña.`
               : `Los días de VA empiezan en ${me.firstYear}, el año en que se cumplen 20 años de antigüedad.`}
           </p>
         </>
@@ -66,7 +65,7 @@ function VaDays({ viewAs, admin }: { viewAs: { team: string; code: string } | nu
   );
 }
 
-/** «Antigüedad»: the person's own VA days; their administration lives under «Administración». */
+/** «Antigüedad» before the year's VA campaign opens: the person's own days. */
 export default function VaSection({
   admin,
   viewAs,
@@ -74,10 +73,5 @@ export default function VaSection({
   admin: boolean;
   viewAs: { team: string; code: string } | null;
 }) {
-  return (
-    <>
-      {!viewAs && <VaElectionPanel />}
-      <VaDays viewAs={viewAs} admin={admin} />
-    </>
-  );
+  return <VaDays viewAs={viewAs} admin={admin} />;
 }

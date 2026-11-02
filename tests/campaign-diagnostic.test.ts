@@ -32,8 +32,7 @@ function fixture() {
  (42,'other','qa','choose','b','B','{}','{}','2026-01-03'),
  (43,'simulation','qa','choose','sim','A','{}','{}','2026-01-04'),
  (50,'team','qa','import_roster',NULL,'A','{}','{}','2026-01-05'),
- (51,'global','qa','permissions',NULL,NULL,'{}','{}','2026-01-06');
- INSERT INTO va_campaigns(year,version,json) VALUES(2027,1,'{"choices":[]}'),(2028,1,'{"choices":[]}'),(2029,1,'{"choices":[]}');`);
+ (51,'global','qa','permissions',NULL,NULL,'{}','{}','2026-01-06');`);
   for (let i = 0; i < 25; i++)
     repo.db
       .prepare(
@@ -62,10 +61,6 @@ test('diagnostic round trip preserves full history, rowid gaps, all runs and sha
       ],
     );
     assert.equal(archive.payload.tables.runs.length, 25);
-    assert.deepEqual(
-      archive.payload.tables.va_campaigns.map((r) => r.year),
-      [2027, 2028],
-    );
     assert.equal(archive.payload.tables.people.length, 1);
     const file = path.join(dir, 'new.sqlite');
     await restoreCampaignDiagnostic(archive, file);

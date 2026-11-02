@@ -4,12 +4,11 @@ import { type Repository } from './repository.ts';
 import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
 import { vaDays, vaFirstYear, vaYears } from '../domain/va-entitlement.ts';
-import type { VaElection } from '../domain/va-election.ts';
 
 /**
  * Census for vacaciones de antigüedad (VA): the people of the year's live ordinary
  * campaigns plus external people added by CLI, with seniority and access read from
- * their master records. Open elections use their frozen participants for myVa.
+ * their master records. Once the year's VA campaign exists, its members and frozen days rule.
  */
 export type VaStatus = 'entitled' | 'not_entitled' | 'missing_date';
 export type VaRow = {
@@ -29,7 +28,7 @@ export type VaRow = {
 /** Year of the latest live ordinary campaigns: VA are chosen right after them. */
 export async function vaYear(repo: Repository): Promise<number | null> {
   const rows = await repo.all(
-    `SELECT MAX(year) AS year FROM (SELECT year FROM campaigns WHERE scope_key='live' AND ${ordinaryCampaign()} UNION SELECT year FROM va_campaigns)`,
+    `SELECT MAX(year) AS year FROM (SELECT year FROM campaigns WHERE scope_key='live' AND ${ordinaryCampaign()} UNION SELECT year FROM campaigns WHERE scope_key='live' AND team_id='${VA_TEAM}')`,
   );
   return rows[0]?.year ?? null;
 }
@@ -126,27 +125,38 @@ export async function myVa(repo: Repository, actor: Principal, viewAs?: { team: 
     throw new ApiError('Solo la administración puede ver los días de VA de otra persona', 403);
   if (!year || (!keys.length && !viewAs)) return { year, admin, me: null };
   let census = await vaCensusRows(repo, year);
-  const [campaign] = await repo.all<{ json: string }>('SELECT json FROM va_campaigns WHERE year=?', [year]);
-  const frozen = campaign ? (JSON.parse(campaign.json) as VaElection) : null;
-  if (frozen && frozen.status !== 'preparation') {
-    // Identity links remain current, but a changed/inactive master record must not
-    // change the entitlement or hide an already admitted participant.
-    census = frozen.people.map(
-      (p): VaRow => ({
-        personId: p.id,
-        team: p.team,
-        code: p.code,
-        label: p.label,
+  const frozen = await repo.all<{
+    person_id: string;
+    code: string;
+    label: string;
+    seniority: string;
+    entitlement: number;
+    team_id: string;
+    controller_number: number | null;
+  }>(
+    `SELECT m.person_id,m.code,m.label,m.seniority,m.entitlement,p.team_id,p.controller_number
+     FROM campaign_members m JOIN campaigns c ON c.id=m.campaign_id JOIN people p ON p.id=m.person_id
+     WHERE c.team_id=? AND c.year=? AND c.scope_key='live'`,
+    [VA_TEAM, year],
+  );
+  if (frozen.length)
+    // The campaign's members and frozen days rule: a changed or inactive master record
+    // must not change the entitlement or hide an admitted participant.
+    census = frozen.map(
+      (m): VaRow => ({
+        personId: m.person_id,
+        team: m.team_id,
+        code: m.code,
+        label: m.label,
         hrName: null,
-        seniority: p.seniority,
-        controllerNumber: p.controllerNumber,
-        years: vaYears(p.seniority, year),
-        days: p.days,
-        status: p.days > 0 ? 'entitled' : 'not_entitled',
+        seniority: m.seniority,
+        controllerNumber: m.controller_number,
+        years: vaYears(m.seniority, year),
+        days: m.entitlement,
+        status: m.entitlement > 0 ? 'entitled' : 'not_entitled',
         account: null,
       }),
     );
-  }
   let me: VaRow | null;
   if (viewAs) me = census.find((r) => r.team === viewAs.team && r.code === viewAs.code) ?? null;
   else {
