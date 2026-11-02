@@ -175,6 +175,7 @@ test('la campaña de VA se abre solo para su administración y sus participantes
   assert.equal((await other.list()).vaCampaign, null);
   await assert.rejects(other.view(campaignId), /cuenta participante/);
   assert.equal((await s.list()).vaCampaign?.id, campaignId, 'la administración la ve siempre');
+});
 
 test('recargar el censo en preparación descarta las solicitudes de los miembros anteriores', async () => {
   const { repo, s, people, load } = await setup();
