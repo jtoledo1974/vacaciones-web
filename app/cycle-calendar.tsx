@@ -363,7 +363,9 @@ export default function CycleCalendar({
                 .filter(
                   (c) =>
                     c.date <= new Date(Date.UTC(year, m + 1, 0)).toISOString().slice(0, 10) &&
-                    c.end >= new Date(Date.UTC(year, m, 1)).toISOString().slice(0, 10),
+                    c.end >= new Date(Date.UTC(year, m, 1)).toISOString().slice(0, 10) &&
+                    // Single days: only the awarded ones, or the list repeats the calendar.
+                    (!daily || codesFor(c.date).length > 0 || owned.has(c.date) || rankOf(c.date) > 0),
                 )
                 .map((c) => (
                   <button
