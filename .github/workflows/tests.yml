@@ -7,11 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       runner:
-        description: Runner for manual validation (both jobs); empty uses the shared pool
+        description: Runner for manual validation (both jobs); empty follows CI_SELF_HOSTED_LABEL
         type: choice
         default: ''
         options:
           - ''
+          - github-hosted
           - pve-playwright-01
           - portatil-playwright-01
           - portatil-playwright-02
@@ -25,25 +26,48 @@ permissions:
   contents: read
 
 jobs:
+  # GitHub-hosted runners by default. The owner's self-hosted runners are used only for the
+  # owner's own events and only while the repository variable CI_SELF_HOSTED_LABEL is set.
+  # This check is a routing convenience, not a security boundary: a fork PR can edit this
+  # file. Fork PRs are kept off self-hosted runners by requiring approval for all external
+  # contributors in Settings → Actions (see docs/PRUEBAS.md).
+  route:
+    name: Elegir runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      runs-on: ${{ steps.pick.outputs.runs-on }}
+    steps:
+      - id: pick
+        env:
+          OWNER_EVENT: >-
+            ${{
+              (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor == 'jtoledo1974') ||
+              (github.event_name == 'pull_request' &&
+               github.event.pull_request.user.login == 'jtoledo1974' &&
+               github.event.pull_request.head.repo.full_name == github.repository) ||
+              (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974')
+            }}
+          REQUESTED: ${{ inputs.runner }}
+          LABEL: ${{ vars.CI_SELF_HOSTED_LABEL }}
+        shell: bash
+        run: |
+          label="${REQUESTED:-$LABEL}"
+          if [ "$OWNER_EVENT" = true ] && [ -n "$label" ] && [ "$label" != github-hosted ]; then
+            echo "runs-on=[\"self-hosted\",\"Linux\",\"X64\",\"$label\"]" >> "$GITHUB_OUTPUT"
+          else
+            echo 'runs-on="ubuntu-latest"' >> "$GITHUB_OUTPUT"
+          fi
+
   checks:
     name: Checks rápidos
-    # Conditions reduce exposure; repository writers can still change workflows.
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.user.login == 'jtoledo1974' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.head.repo.fork == false) ||
-      (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974')
-    # Any available server or laptop runner can execute these checks.
-    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
+    needs: route
+    runs-on: ${{ fromJSON(needs.route.outputs.runs-on) }}
     # The serial unit suite shares this budget with install, format, types, build
     # and lint. Allow runner variation; each unit file still has its own timeout.
     timeout-minutes: 20
     env:
       CI: '1'
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
       WRANGLER_SEND_METRICS: 'false'
       CLOUDFLARE_CF_FETCH_ENABLED: 'false'
     steps:
@@ -52,6 +76,7 @@ jobs:
           persist-credentials: false
           clean: true
       - name: Verify local runner and installed tools
+        if: runner.environment == 'self-hosted'
         shell: bash
         run: |
           case "$RUNNER_NAME" in
@@ -60,8 +85,19 @@ jobs:
           esac
           node --version
           test "$(pnpm --version)" = 11.25.0
-      - name: Install locked dependencies using the local store
-        run: pnpm install --frozen-lockfile --store-dir /pnpm/store
+          echo "PNPM_STORE_ARGS=--store-dir /pnpm/store" >> "$GITHUB_ENV"
+      - name: Install pnpm (version from packageManager)
+        if: runner.environment == 'github-hosted'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          cache: true
+      - name: Install Node
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile $PNPM_STORE_ARGS
       # Cheapest checks first so a formatting slip fails in seconds.
       - name: Prettier (comprobar formato)
         run: pnpm format:check
@@ -94,17 +130,13 @@ jobs:
   browser:
     name: Playwright desktop and mobile
     # Only after the fast checks pass: a red check never occupies a Playwright runner.
-    needs: checks
-    # Use the same pool so Playwright can run while the laptop is offline.
+    needs: [route, checks]
     # One Playwright process and one worker keep RAM and isolated D1 within tested limits.
     # PRs run the @smoke subset; main and manual runs run everything.
-    runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
+    runs-on: ${{ fromJSON(needs.route.outputs.runs-on) }}
     timeout-minutes: 30
     env:
       CI: '1'
-      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
-      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
-      PLAYWRIGHT_JSON_OUTPUT_FILE: /job-control/playwright.json
       E2E_SCOPE: ${{ github.event_name == 'pull_request' && 'smoke' || 'full' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -112,6 +144,7 @@ jobs:
           persist-credentials: false
           clean: true
       - name: Verify local runner and installed tools
+        if: runner.environment == 'self-hosted'
         shell: bash
         run: |
           case "$RUNNER_NAME" in
@@ -121,8 +154,29 @@ jobs:
           node --version
           test "$(pnpm --version)" = 11.25.0
           test -d /ms-playwright
-      - name: Install locked dependencies using the local store
-        run: pnpm install --frozen-lockfile --store-dir /pnpm/store
+          {
+            echo "PNPM_STORE_ARGS=--store-dir /pnpm/store"
+            echo "PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1"
+            echo "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright"
+            echo "PLAYWRIGHT_JSON_OUTPUT_FILE=/job-control/playwright.json"
+          } >> "$GITHUB_ENV"
+      - name: Install pnpm (version from packageManager)
+        if: runner.environment == 'github-hosted'
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          cache: true
+      - name: Install Node
+        if: runner.environment == 'github-hosted'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile $PNPM_STORE_ARGS
+      - name: Install Chromium for Playwright
+        if: runner.environment == 'github-hosted'
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          echo "PLAYWRIGHT_JSON_OUTPUT_FILE=$RUNNER_TEMP/playwright.json" >> "$GITHUB_ENV"
       - name: Playwright ${{ env.E2E_SCOPE }} suite, one worker
         shell: bash
         run: |
@@ -131,4 +185,3 @@ jobs:
           pnpm exec playwright test --workers=1 --retries=0 --reporter=list,json "${grep[@]}"
 
 # No default upload of screenshots, videos or traces: artifacts stay local.
-# All jobs use the self-hosted runners; there is no GitHub-hosted fallback.
