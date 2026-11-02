@@ -454,7 +454,8 @@ for (const version of [20, 21])
       INSERT INTO grants(id,user_id,team_id) VALUES('g-a','u-a','A');
       INSERT INTO va_external_people(id,code,label,seniority,controller_number,category)
         VALUES('va-external:900','EXT','Externa','2001-02-03',900,'otro');
-      INSERT INTO va_external_accounts(person_id,principal_key) VALUES('va-external:900','chatgpt-email:ext@x.test');`);
+      INSERT INTO va_external_accounts(person_id,principal_key) VALUES('va-external:900','chatgpt-email:ext@x.test');
+      INSERT INTO hr_templates(year,data,sha256,uploaded_by,uploaded_at) VALUES(2026,'eA==','00','u-a','2026-01-01');`);
     const current = Object.fromEntries(Object.entries(backupColumns).map(([t, c]) => [t, [...c]]));
     try {
       // Tables dropped by later migrations were still part of the old copy.
@@ -494,6 +495,8 @@ for (const version of [20, 21])
           { user_id: 'u-va', team_id: 'va' },
         ]);
         assert.deepEqual(rows("SELECT kind FROM teams WHERE id='va'"), [{ kind: 'va' }]);
+        // Migration 0025 keyed RRHH workbooks by year and kind: the old one is ordinary.
+        assert.deepEqual(rows('SELECT year,kind FROM hr_templates'), [{ year: 2026, kind: 'ordinary' }]);
         // Migration 0023 moved the external person and their account to the common tables.
         assert.deepEqual(rows("SELECT id,team_id,code,controller_number FROM people WHERE team_id='va'"), [
           { id: 'va-external:900', team_id: 'va', code: 'EXT', controller_number: 900 },

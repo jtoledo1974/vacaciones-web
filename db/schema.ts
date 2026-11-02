@@ -278,13 +278,18 @@ export const cliAttempts = sqliteTable('cli_attempts', {
 });
 
 // RRHH's yearly workbook, kept out of the repository (it lists real employees); see server/hr-xlsx.ts.
-export const hrTemplates = sqliteTable('hr_templates', {
-  year: integer('year').primaryKey(),
-  data: text('data').notNull(),
-  sha256: text('sha256').notNull(),
-  uploadedBy: text('uploaded_by').notNull(),
-  uploadedAt: text('uploaded_at').notNull(),
-});
+export const hrTemplates = sqliteTable(
+  'hr_templates',
+  {
+    year: integer('year').notNull(),
+    kind: text('kind').notNull().default('ordinary'),
+    data: text('data').notNull(),
+    sha256: text('sha256').notNull(),
+    uploadedBy: text('uploaded_by').notNull(),
+    uploadedAt: text('uploaded_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.year, t.kind] })],
+);
 // Each person's name exactly as column J of their team sheet spells it.
 export const hrNames = sqliteTable(
   'hr_names',

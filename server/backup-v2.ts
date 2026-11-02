@@ -8,7 +8,7 @@ import { hash, firstCursor } from '../lib/backup-v2.mjs';
 export const backupColumns = {
   ...tableColumns,
   app_state: ['id', 'revision'],
-  hr_templates: ['year', 'data', 'sha256', 'uploaded_by', 'uploaded_at'],
+  hr_templates: ['year', 'kind', 'data', 'sha256', 'uploaded_by', 'uploaded_at'],
   personal_simulations: ['owner_key', 'campaign_id', 'member_id', 'json', 'updated_at'],
   push_subscriptions: ['endpoint', 'owner_key', 'p256dh', 'auth', 'created_at'],
   turn_notifications: ['id', 'owner_key', 'campaign_id', 'member_id', 'round', 'created_at', 'push_status'],
@@ -75,7 +75,7 @@ export async function backupManifest(repo: Repository, actor: Principal) {
     throw new ApiError('Identificadores rowid no compatibles con este formato; no se inicia una copia parcial', 409);
   const payload = {
     format: 'vacaciones-backup-v2',
-    schemaVersion: 'vacaciones-schema-0024',
+    schemaVersion: 'vacaciones-schema-0025',
     inventory,
     revision: r[0].results[0].revision,
     createdAt: new Date().toISOString(),

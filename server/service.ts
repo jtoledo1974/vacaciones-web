@@ -762,7 +762,7 @@ export class Service {
   }
   /** RRHH's workbook for the year, uploaded once by a superadministrator. */
   private async hrWorkbook(year: number) {
-    const row = (await this.repo.all('SELECT * FROM hr_templates WHERE year=?', [year]))[0];
+    const row = (await this.repo.all("SELECT * FROM hr_templates WHERE year=? AND kind='ordinary'", [year]))[0];
     if (!row) throw new ApiError(`Falta la plantilla de RRHH de ${year}`, 404);
     const zip = Uint8Array.from(atob(row.data), (c) => c.charCodeAt(0));
     return { row, zip, book: await readHrWorkbook(zip) };
@@ -792,7 +792,7 @@ export class Service {
     const at = now();
     await this.commit([
       {
-        sql: 'INSERT INTO hr_templates(year,data,sha256,uploaded_by,uploaded_at) VALUES(?,?,?,?,?) ON CONFLICT(year) DO UPDATE SET data=excluded.data,sha256=excluded.sha256,uploaded_by=excluded.uploaded_by,uploaded_at=excluded.uploaded_at',
+        sql: "INSERT INTO hr_templates(year,kind,data,sha256,uploaded_by,uploaded_at) VALUES(?,'ordinary',?,?,?,?) ON CONFLICT(year,kind) DO UPDATE SET data=excluded.data,sha256=excluded.sha256,uploaded_by=excluded.uploaded_by,uploaded_at=excluded.uploaded_at",
         args: [year, base64, sha256, this.actor.id, at],
       },
       this.audit('hr_template', null, null, { year, sha256 }),
@@ -803,7 +803,9 @@ export class Service {
   async hrStatus(cid: string) {
     const d = await this.hrCampaign(cid);
     const year = d.campaign.year;
-    const template = (await this.repo.all('SELECT year,sha256,uploaded_at FROM hr_templates WHERE year=?', [year]))[0];
+    const template = (
+      await this.repo.all("SELECT year,sha256,uploaded_at FROM hr_templates WHERE year=? AND kind='ordinary'", [year])
+    )[0];
     if (!template) return { year, template: null, roster: [], members: [], closed: d.campaign.status !== 'open' };
     const { book } = await this.hrWorkbook(year);
     const roster = book.sheets.find((s) => s.team === d.campaign.team_id)!.roster;
