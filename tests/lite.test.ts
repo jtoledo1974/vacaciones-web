@@ -175,3 +175,48 @@ test('pdf filename and lite link change with every generation so phones never re
   assert.notEqual(renderLiteHtml([], a, ''), renderLiteHtml([], b, ''));
   assert.ok(renderLiteHtml([], a, '').includes('&amp;t=' + Date.parse(a.generatedAt)));
 });
+
+test('el PDF de VA cabe con cupo todo el año: meses y por CTA, sin ciclos, puntos ni verano', () => {
+  const days = Array.from({ length: 365 }, (_, i) => new Date(Date.UTC(2027, 0, 1 + i)).toISOString().slice(0, 10));
+  const members = Array.from({ length: 70 }, (_, i) => ({
+    code: 'P' + String(i).padStart(2, '0'),
+    dates: days.slice(i * 5, i * 5 + 5),
+    points: 0,
+  }));
+  const s = {
+    team: 'va',
+    year: 2027,
+    generatedAt: '2027-01-01T00:00:00Z',
+    status: 'En curso',
+    current: null,
+    round: 2,
+    awarded: 200,
+    ruled: true,
+    simulation: null,
+    members,
+    cycles: days.map((date) => {
+      const codes = members.filter((m) => m.dates.includes(date)).map((m) => m.code);
+      return {
+        date,
+        end: date,
+        score: 0,
+        summer: false,
+        occupied: codes.length,
+        max: 3,
+        codes,
+        slots: [],
+        label: '2',
+        freeText: '2 libres',
+        occupancy: codes.length + '/3',
+        status: 'vac2-free-2',
+        full: false,
+      };
+    }),
+  } as unknown as Parameters<typeof renderLitePdf>[0];
+  const pdf = renderLitePdf(s);
+  assert.equal(pdf.match(/\/Type \/Page /g)?.length, 3, 'meses y dos páginas por CTA');
+  assert.ok(pdf.includes('(Meses)') && pdf.includes('(Por CTA)'));
+  for (const absent of ['(Tabla)', '(Mapa)', '(Pts)', '(Verano)', '(C1)', ' pt)'])
+    assert.ok(!pdf.includes(absent), absent);
+  assert.ok(pdf.includes('(D5)'));
+});

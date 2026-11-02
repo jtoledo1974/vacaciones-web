@@ -6,8 +6,9 @@ import { Service } from '../server/service.ts';
 import { VA_TEAM } from '../server/teams.ts';
 import { loadVaCampaign } from '../server/va-campaign.ts';
 import { defaultConfig } from '../domain/defaults.ts';
-import { liteSummary } from '../server/lite.ts';
-import { renderIndividualCalendarPdf } from '../server/individual-calendar-pdf.ts';
+import { singleDays } from '../app/unit-words.ts';
+import { personCalendar } from '../server/person-calendar.ts';
+import { renderPersonCalendarPdf } from '../server/individual-calendar-pdf.ts';
 import type { Principal } from '../server/permissions.ts';
 
 const owner: Principal = { id: 'chatgpt:owner', role: 'superadmin', teams: [] };
@@ -208,10 +209,39 @@ test('recargar el censo en preparación descarta las solicitudes de los miembros
   assert.equal(after.requests.length, 0);
 });
 
-test('el calendario individual en PDF de VA sale sin turnos de equipo', async () => {
+test('el calendario individual reúne las vacaciones ordinarias y las de VA de la persona', async () => {
+  const { repo, s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const ordinary = (await s.list()).campaigns.find((c: { team_id: string }) => c.team_id === 'C').id;
+  const o = await s.load(ordinary),
+    v = await s.load(campaignId);
+  const cycle = (await s.view(ordinary)).result.cycles[0];
+  const award = (cid: string, member: string, date: string) => ({
+    sql: 'INSERT INTO awards(id,campaign_id,member_id,cycle_date,version) VALUES(?,?,?,?,1)',
+    args: [crypto.randomUUID(), cid, member, date],
+  });
+  await repo.batch([
+    { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,3)', args: ['2026-11-20'] },
+    award(ordinary, o.members.find((m: { code: string }) => m.code === 'AA').id, cycle.date),
+    award(campaignId, v.members[0].id, '2026-11-20'),
+  ]);
+  const span = [{ date: cycle.date, end: cycle.end }],
+    day = [{ date: '2026-11-20', end: '2026-11-20' }];
+  // From either campaign, the same year: rotation and holidays of team C, both kinds of days.
+  for (const cid of [campaignId, ordinary]) {
+    const person = await personCalendar(s, repo, cid, 'AA');
+    assert.deepEqual([person.team, person.ordinary, person.va], ['C', span, day]);
+    assert.ok(renderPersonCalendarPdf(person).startsWith('%PDF'));
+  }
+  // Anyone who may not read VA gets the ordinary calendar alone.
+  const anonymous = new Service(repo, { id: '', role: 'viewer', teams: [] });
+  assert.deepEqual((await personCalendar(anonymous, repo, ordinary, 'AA')).va, []);
+});
+
+test('sin cupos cargados, la vista de VA ya habla de días: la unidad viene de la política', async () => {
   const { s, people, load } = await setup();
   const { campaignId } = await load([people.AA]);
-  const summary = liteSummary(await s.view(campaignId));
-  const pdf = renderIndividualCalendarPdf(summary, 'AA', (await s.load(campaignId)).config);
-  assert.ok(pdf.startsWith('%PDF'), 'VA no es un equipo con rotación');
+  const v = await s.view(campaignId);
+  assert.deepEqual(v.result.cycles, []);
+  assert.ok(singleDays(v.election.policyPresentation));
 });

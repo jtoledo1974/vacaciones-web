@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { unitCount, unitWords } from './unit-words';
+import { unitCount, unitWords, singleDays } from './unit-words';
 import CycleCalendar, { formatDate, formatSpan } from './cycle-calendar';
 import { ownCycles } from './own-cycles';
 import { undoQuestion } from './undo-summary';
@@ -41,7 +41,7 @@ export default function ElectionWorkspace({
   const election = data.election,
     units = unitWords(election?.policyPresentation),
     // Single-day units (VA) carry no scores.
-    daily = data.result.cycles.length > 0 && data.result.cycles.every((c: any) => c.date === c.end),
+    daily = singleDays(election?.policyPresentation),
     turn = election.turn,
     state = election.state,
     manage = election.canManage,
@@ -1181,6 +1181,7 @@ export default function ElectionWorkspace({
         {manage && open && frozen && <ReconstructionPanel data={data} busy={busy} act={act} />}
         <div className="election-calendar-wrap">
           <CycleCalendar
+            daily={daily}
             preferenceMode={mode === 'preferences'}
             year={data.campaign.year}
             ruled={ruled}

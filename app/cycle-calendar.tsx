@@ -42,6 +42,8 @@ type Props = {
   year: number;
   ruled: boolean;
   cycles: Cycle[];
+  /** Single-day units (VA): month grids only, no cycle map or table. */
+  daily?: boolean;
   selected: string[];
   onSelect: (cycle: Cycle) => void;
   preferenceMode?: boolean;
@@ -131,6 +133,7 @@ export default function CycleCalendar({
   ownerCode,
   mine: mineDates = [],
   preferences = [],
+  daily = false,
 }: Props) {
   // On one's own turn, cycles one cannot take are marked up front rather than discovered by tapping.
   const blocked = new Set(notForMe ?? []),
@@ -143,9 +146,8 @@ export default function CycleCalendar({
   const ownLabel = (date: string) =>
     (owned.has(date) ? (ownerCode ? ' · adjudicado a ' + ownerCode : ' · adjudicado a ti') : '') +
     (rankOf(date) ? (ownerCode ? ' · preferencia de ' + ownerCode + ' ' : ' · tu preferencia ') + rankOf(date) : '');
-  // Single-day units (VA) have no cycle map: their days read best on the month grids.
-  const daily = cycles.length > 0 && cycles.every((c) => c.date === c.end),
-    unit = daily ? 'día' : 'ciclo';
+  // Single-day units (VA) have no cycle map or table: their days read best on the month grids.
+  const unit = daily ? 'día' : 'ciclo';
   const [view, setView] = useState<View>(daily ? 'calendar' : 'map');
   useEffect(() => {
     try {
@@ -156,7 +158,7 @@ export default function CycleCalendar({
         .slice(1)
         .join('=');
       const choice = stored ? decodeURIComponent(stored) : localStorage.getItem('vacaciones_cycle_view');
-      if (choice === 'table' || (choice === 'map' && !daily) || choice === 'calendar' || choice === 'members')
+      if (((choice === 'table' || choice === 'map') && !daily) || choice === 'calendar' || choice === 'members')
         setView(choice);
     } catch {
       /* La vista sigue disponible si el navegador bloquea el almacenamiento. */
@@ -517,14 +519,16 @@ export default function CycleCalendar({
           {!preferenceMode && <p className="muted">Selecciona cualquier {unit} para ver detalles y ocupantes.</p>}
         </div>
         <div className="vac2-view-switch" role="group" aria-label="Vista del calendario">
-          <button
-            type="button"
-            className={view === 'table' ? 'active' : ''}
-            aria-pressed={view === 'table'}
-            onClick={() => changeView('table')}
-          >
-            Tabla
-          </button>
+          {!daily && (
+            <button
+              type="button"
+              className={view === 'table' ? 'active' : ''}
+              aria-pressed={view === 'table'}
+              onClick={() => changeView('table')}
+            >
+              Tabla
+            </button>
+          )}
           {!daily && (
             <button
               type="button"

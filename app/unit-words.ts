@@ -7,3 +7,5 @@ export function unitWords(presentation?: Pick<PolicyPresentation, 'units'> | nul
 /** «1 ciclo», «3 días». */
 export const unitCount = (units: { one: string; many: string }, n: number) =>
   n === 1 ? '1 ' + units.one : n + ' ' + units.many;
+/** The policy's units are single days (VA), whether or not any day has places yet. */
+export const singleDays = (presentation?: Pick<PolicyPresentation, 'units'> | null) => !!presentation?.units;

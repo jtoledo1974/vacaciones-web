@@ -1,4 +1,5 @@
 import { dayMonth, stamp, turnLine, type LiteSummary } from './lite.ts';
+import { VA_TEAM } from '../domain/policy-va.ts';
 
 /**
  * The web calendar's four views (Tabla, Mapa, Meses, Por CTA), one A4 page
@@ -122,7 +123,11 @@ export class Page {
 }
 
 function header(p: Page, s: LiteSummary, view: string, page: number, pages: number) {
-  p.text(M, M + 14, `Vacaciones · Equipo ${s.team} · ${s.year}`, { size: 15, bold: true });
+  const va = s.team === VA_TEAM;
+  p.text(M, M + 14, va ? `Vacaciones de antigüedad · ${s.year}` : `Vacaciones · Equipo ${s.team} · ${s.year}`, {
+    size: 15,
+    bold: true,
+  });
   p.text(W - M, M + 14, view, { size: 13, bold: true, align: 'right', color: hex('#16844b') });
   p.text(M, M + 28, turnLine(s), { size: 8.5, bold: true });
   p.text(
@@ -147,13 +152,15 @@ function header(p: Page, s: LiteSummary, view: string, page: number, pages: numb
     ['vac2-free-2', '2'],
     ['vac2-free-1', '1'],
     ['vac2-free-0', '0'],
-    ...(s.ruled ? [['vac2-unknown', '?']] : []),
+    ...(s.ruled && !va ? [['vac2-unknown', '?']] : []),
   ]) {
     p.swatch(x, y - 7, 9, 9, cls);
     x = p.text(x + 12, y, label, { size: 7 }) + 8;
   }
-  p.rect(x + 4, y - 8, 3, 10, SUMMER);
-  p.text(x + 10, y, 'Verano', { size: 7 });
+  if (!va) {
+    p.rect(x + 4, y - 8, 3, 10, SUMMER);
+    p.text(x + 10, y, 'Verano', { size: 7 });
+  }
   p.line(M, y + 6, W - M, y + 6, LINE);
   return y + 14;
 }
@@ -268,6 +275,7 @@ function mapa(p: Page, s: LiteSummary, top: number) {
 }
 
 function meses(p: Page, s: LiteSummary, top: number) {
+  const va = s.team === VA_TEAM;
   monthBoxes(top, (m, x, y, w, h) => {
     p.rect(x, y, w, h, null, LINE);
     p.text(x + 6, y + 12, MONTHS[m].toUpperCase(), { size: 7.5, bold: true });
@@ -287,7 +295,9 @@ function meses(p: Page, s: LiteSummary, top: number) {
       const date = iso(s.year, m, d);
       const c = s.cycles.find((k) => k.date <= date && date <= k.end);
       if (!c) {
-        p.text(cx + cellW / 2, cy + 8, String(d), { size: 5.5, color: MUTED, align: 'center' });
+        // A VA day without places reads as a full one.
+        const fg = va ? p.swatch(cx + 0.6, cy + 0.6, cellW - 1.2, cellH - 1.2, 'vac2-free-0', false) : MUTED;
+        p.text(cx + cellW / 2, cy + 8, String(d), { size: 5.5, color: fg, align: 'center' });
         continue;
       }
       const col = { fg: p.swatch(cx + 0.6, cy + 0.6, cellW - 1.2, cellH - 1.2, c.status, false) };
@@ -296,14 +306,15 @@ function meses(p: Page, s: LiteSummary, top: number) {
       p.text(cx + cellW / 2, cy + 8, String(d), { size: 5.8, bold: first, color: col.fg, align: 'center' });
       if (first) {
         p.line(cx + cellW / 2 - 3, cy + 9.2, cx + cellW / 2 + 3, cy + 9.2, col.fg, 0.5);
-        if (s.ruled) p.text(cx + cellW - 1.5, cy + 4.3, c.label, { size: 3.8, color: col.fg, align: 'right' });
+        if (s.ruled && !va) p.text(cx + cellW - 1.5, cy + 4.3, c.label, { size: 3.8, color: col.fg, align: 'right' });
       }
     }
     // Who holds each cycle that touches the month.
     const first = iso(s.year, m, 1),
       last = iso(s.year, m + 1, 0);
     let ly = y + 25 + 6 * cellH + 8;
-    for (const c of s.cycles.filter((k) => k.date <= last && k.end >= first)) {
+    // VA lists only the awarded days: one line per day would not fit.
+    for (const c of s.cycles.filter((k) => k.date <= last && k.end >= first && (!va || k.codes.length))) {
       if (ly > y + h - 3) break;
       p.text(x + 6, ly, dayMonth(c.date), { size: 5.8, bold: true });
       p.text(x + 34, ly, c.codes.join(' · ') || 'Sin adjudicar', {
@@ -318,21 +329,25 @@ function meses(p: Page, s: LiteSummary, top: number) {
 
 function porCta(p: Page, s: LiteSummary, top: number) {
   const byDate = new Map(s.cycles.map((c) => [c.date, c]));
+  // VA: as many columns as the most days anyone holds, and no points.
+  const va = s.team === VA_TEAM,
+    columns = va ? Math.max(1, ...s.members.map((m) => m.dates.length)) : 6;
   const rowH = Math.max(10, Math.min(20, (H - M - top - 20) / (s.members.length + 1)));
   const size = Math.min(9, rowH * 0.5);
   const ctaW = 60,
-    ptsW = 44,
-    cW = (W - 2 * M - ctaW - ptsW) / 6;
+    ptsW = va ? 0 : 44,
+    cW = (W - 2 * M - ctaW - ptsW) / columns;
   const base = (y: number) => y + rowH / 2 + size * 0.35;
   p.rect(M, top, W - 2 * M, rowH, hex('#eef3f0'));
   p.text(M + 5, base(top), 'CTA', { size, bold: true });
-  for (let i = 0; i < 6; i++) p.text(M + ctaW + i * cW + 5, base(top), 'C' + (i + 1), { size, bold: true });
-  p.text(W - M - 5, base(top), 'Pts', { size, bold: true, align: 'right' });
+  for (let i = 0; i < columns; i++)
+    p.text(M + ctaW + i * cW + 5, base(top), (va ? 'D' : 'C') + (i + 1), { size, bold: true });
+  if (!va) p.text(W - M - 5, base(top), 'Pts', { size, bold: true, align: 'right' });
   s.members.forEach((member, r) => {
     const y = top + rowH * (r + 1);
     p.rect(M, y, ctaW, rowH, hex('#f6f8f5'));
     p.text(M + 5, base(y), member.code, { size, bold: true });
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < columns; i++) {
       const c = byDate.get(member.dates[i]);
       const x = M + ctaW + i * cW;
       if (!c) {
@@ -341,29 +356,44 @@ function porCta(p: Page, s: LiteSummary, top: number) {
       }
       if (c.summer) p.rect(x + 1, y + 2, 2, rowH - 4, SUMMER);
       p.text(x + 5, base(y), dayMonth(c.date), { size, bold: true });
-      p.text(x + cW - 4, base(y), c.score + ' pt', { size: size * 0.8, color: MUTED, align: 'right' });
+      if (!va) p.text(x + cW - 4, base(y), c.score + ' pt', { size: size * 0.8, color: MUTED, align: 'right' });
     }
-    p.text(W - M - 5, base(y), String(member.points), { size, bold: true, align: 'right' });
+    if (!va) p.text(W - M - 5, base(y), String(member.points), { size, bold: true, align: 'right' });
     p.line(M, y + rowH, W - M, y + rowH, LINE, 0.3);
   });
   p.text(
     M,
     top + rowH * (s.members.length + 1) + 12,
-    'Ciclos en orden cronológico. Los puntos acumulados suman los ciclos adjudicados.',
+    va
+      ? 'Días en orden cronológico.'
+      : 'Ciclos en orden cronológico. Los puntos acumulados suman los ciclos adjudicados.',
     { size: 6.5, color: MUTED },
   );
 }
 
 export function renderLitePdf(s: LiteSummary): string {
-  const views: [string, (p: Page, s: LiteSummary, top: number) => void][] = [
-    ['Tabla', tabla],
-    ['Mapa', mapa],
-    ['Meses', meses],
-    ['Por CTA', porCta],
+  // VA's single days: a cycle table and map say nothing the months do not.
+  const daily = s.team === VA_TEAM;
+  type View = [string, (p: Page, s: LiteSummary, top: number) => void];
+  const cycleViews: View[] = daily
+    ? []
+    : [
+        ['Tabla', tabla],
+        ['Mapa', mapa],
+      ];
+  // At most 40 CTA per page, so that rows stay legible with a large census.
+  const PER_PAGE = 40;
+  const chunks = Array.from({ length: Math.max(1, Math.ceil(s.members.length / PER_PAGE)) }, (_, i) =>
+    s.members.slice(i * PER_PAGE, (i + 1) * PER_PAGE),
+  );
+  const views: [string, LiteSummary, View[1]][] = [
+    ...cycleViews.map(([title, draw]): [string, LiteSummary, View[1]] => [title, s, draw]),
+    ['Meses', s, meses],
+    ...chunks.map((members): [string, LiteSummary, View[1]] => ['Por CTA', { ...s, members }, porCta]),
   ];
-  const pages = views.map(([title, draw], i) => {
+  const pages = views.map(([title, part, draw], i) => {
     const p = new Page();
-    draw(p, s, header(p, s, title, i + 1, views.length));
+    draw(p, part, header(p, part, title, i + 1, views.length));
     return p;
   });
   return writePdf(pages);

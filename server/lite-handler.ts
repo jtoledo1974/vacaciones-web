@@ -1,4 +1,5 @@
-import { renderIndividualCalendarPdf } from './individual-calendar-pdf.ts';
+import { renderPersonCalendarPdf } from './individual-calendar-pdf.ts';
+import { personCalendar } from './person-calendar.ts';
 import { D1Repository } from './repository';
 import { Service, principal } from './service';
 import { liteSummary, pdfFilename, renderLiteHtml, renderLitePdf, type LiteIndex } from './lite';
@@ -73,9 +74,9 @@ export const serveLiteIndividualPdf = guarded(async (request: Request, bindings:
   if (!summary.members.some((m) => m.code === code))
     return new Response('Selecciona un controlador válido de la campaña', { status: 400, headers });
   const repo = new D1Repository(bindings.DB);
+  // Anonymous: the VA days stay out, since VA is not a public consultation.
   const service = new Service(repo, await principal(repo, null, ''));
-  const { config } = await service.load(campaignId);
-  return new Response(renderIndividualCalendarPdf(summary, code, config), {
+  return new Response(renderPersonCalendarPdf(await personCalendar(service, repo, campaignId, code)), {
     headers: {
       ...headers,
       'Content-Type': 'application/pdf',

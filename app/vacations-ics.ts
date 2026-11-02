@@ -54,6 +54,9 @@ export function personalVacationCalendar(
   if (!dates.length) return null;
 
   const cycles = new Map(data.result.cycles.map((cycle) => [cycle.date, cycle]));
+  // VA (ADR 0002) awards single days.
+  const va = data.campaign.team_id === 'va',
+    name = va ? 'Vacaciones de antigüedad' : 'Vacaciones';
   const stamp = generatedAt
     .toISOString()
     .replace(/[-:]/g, '')
@@ -64,7 +67,7 @@ export function personalVacationCalendar(
     'PRODID:-//Vacaciones LECS//Calendario individual//ES',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
-    'X-WR-CALNAME:Vacaciones LECS ' + data.campaign.year,
+    'X-WR-CALNAME:' + name + ' LECS ' + data.campaign.year,
   ];
 
   try {
@@ -76,8 +79,8 @@ export function personalVacationCalendar(
       }
       const first = serial(cycle.date);
       const last = serial(cycle.end);
-      // Normally eight days, or nine only for the leap-year correturnos boundary.
-      if (last - first < 7 || last - first > 8) {
+      // Normally eight days, or nine only for the leap-year correturnos boundary; one in VA.
+      if (va ? last !== first : last - first < 7 || last - first > 8) {
         console.warn(`ICS: duración no válida en el ciclo ${date}; no se genera el calendario.`);
         return null;
       }
@@ -92,7 +95,7 @@ export function personalVacationCalendar(
         'DTSTART;VALUE=DATE:' + cycle.date.replaceAll('-', ''),
         // RFC 5545 defines DTEND as exclusive; cycle.end is inclusive.
         'DTEND;VALUE=DATE:' + iso(last + 1).replaceAll('-', ''),
-        'SUMMARY:Vacaciones',
+        'SUMMARY:' + name,
         'STATUS:CONFIRMED',
         'TRANSP:OPAQUE',
         'END:VEVENT',
@@ -105,7 +108,9 @@ export function personalVacationCalendar(
   }
   lines.push('END:VCALENDAR');
   return {
-    filename: 'vacaciones-' + data.campaign.year + '-equipo-' + data.campaign.team_id + '.ics',
+    filename: va
+      ? 'vacaciones-antiguedad-' + data.campaign.year + '.ics'
+      : 'vacaciones-' + data.campaign.year + '-equipo-' + data.campaign.team_id + '.ics',
     content: lines.map(foldLine).join('\r\n') + '\r\n',
     count: dates.length,
   };
