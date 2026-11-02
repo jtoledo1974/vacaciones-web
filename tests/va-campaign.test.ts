@@ -80,19 +80,25 @@ test('el censo se puede volver a cargar hasta iniciar la campaña; después qued
   const again = await load([people.AA, people.BB]);
   assert.equal(again.campaignId, first.campaignId, 'una sola campaña de VA por año');
   assert.equal((await s.load(first.campaignId)).members.length, 2);
+  const start = async () => {
+    const v = await s.view(first.campaignId);
+    return s.election().mutate(first.campaignId, {
+      action: 'start',
+      order: v.members.map((m: { id: string }) => m.id),
+      source: 'Orden del censo de RRHH',
+      rulesConfirmed: true,
+      allowDeferral: true,
+      version: v.campaign.version,
+    });
+  };
+  // Without HR's quotas it cannot start: afterwards they could no longer be loaded.
+  await assert.rejects(start(), /Carga los cupos de RRHH/);
+  assert.equal((await repo.all('SELECT 1 FROM election_states WHERE campaign_id=?', [first.campaignId])).length, 0);
   await repo.batch([
     { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,5)', args: ['2026-03-02'] },
     { sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,5)', args: ['2026-03-03'] },
   ]);
-  const v = await s.view(first.campaignId);
-  await s.election().mutate(first.campaignId, {
-    action: 'start',
-    order: v.members.map((m: { id: string }) => m.id),
-    source: 'Orden del censo de RRHH',
-    rulesConfirmed: true,
-    allowDeferral: true,
-    version: v.campaign.version,
-  });
+  await start();
   await assert.rejects(load([people.AA]), /ya se ha iniciado/);
 });
 

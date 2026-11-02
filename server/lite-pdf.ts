@@ -312,18 +312,38 @@ function meses(p: Page, s: LiteSummary, top: number) {
     // Who holds each cycle that touches the month.
     const first = iso(s.year, m, 1),
       last = iso(s.year, m + 1, 0);
-    let ly = y + 25 + 6 * cellH + 8;
+    const top0 = y + 25 + 6 * cellH + 8;
     // VA lists only the awarded days: one line per day would not fit.
-    for (const c of s.cycles.filter((k) => k.date <= last && k.end >= first && (!va || k.codes.length))) {
-      if (ly > y + h - 3) break;
-      p.text(x + 6, ly, dayMonth(c.date), { size: 5.8, bold: true });
-      p.text(x + 34, ly, c.codes.join(' · ') || 'Sin adjudicar', {
-        size: 5.8,
+    const listed = s.cycles.filter((k) => k.date <= last && k.end >= first && (!va || k.codes.length));
+    // One column while it fits, then two smaller ones; whatever still does not fit is
+    // announced, never dropped in silence (Por CTA lists every award).
+    const rows = (lineH: number) => Math.max(1, Math.floor((y + h - 3 - top0) / lineH) + 1);
+    const layout = [
+      { cols: 1, size: 5.8, lineH: 7.5 },
+      { cols: 2, size: 5, lineH: 6.4 },
+    ].find((l) => rows(l.lineH) * l.cols >= listed.length) ?? { cols: 2, size: 5, lineH: 6.4, overflow: true };
+    const perCol = rows(layout.lineH),
+      room = perCol * layout.cols,
+      shown = 'overflow' in layout ? listed.slice(0, room - 1) : listed,
+      colW = (w - 12) / layout.cols;
+    shown.forEach((c, i) => {
+      const lx = x + 6 + Math.floor(i / perCol) * colW,
+        ly = top0 + (i % perCol) * layout.lineH,
+        dayW = layout.size * 5;
+      p.text(lx, ly, dayMonth(c.date), { size: layout.size, bold: true });
+      p.text(lx + dayW, ly, c.codes.join(' · ') || 'Sin adjudicar', {
+        size: layout.size,
         color: c.codes.length ? INK : MUTED,
-        max: w - 40,
+        max: colW - dayW - 4,
       });
-      ly += 7.5;
-    }
+    });
+    if (shown.length < listed.length)
+      p.text(
+        x + 6 + (layout.cols - 1) * colW,
+        top0 + (perCol - 1) * layout.lineH,
+        `+${listed.length - shown.length} más: ver «Por CTA»`,
+        { size: layout.size, bold: true, color: MUTED },
+      );
   });
 }
 

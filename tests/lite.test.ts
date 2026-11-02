@@ -220,3 +220,39 @@ test('el PDF de VA cabe con cupo todo el año: meses y por CTA, sin ciclos, punt
     assert.ok(!pdf.includes(absent), absent);
   assert.ok(pdf.includes('(D5)'));
 });
+
+test('el listado mensual del PDF de VA no omite adjudicaciones en silencio', () => {
+  const days = Array.from({ length: 31 }, (_, i) => `2027-03-${String(i + 1).padStart(2, '0')}`);
+  const s = {
+    team: 'va',
+    year: 2027,
+    generatedAt: '2027-01-01T00:00:00Z',
+    status: 'En curso',
+    current: null,
+    round: 1,
+    awarded: 31,
+    ruled: true,
+    simulation: null,
+    members: [],
+    cycles: days.map((date, i) => ({
+      date,
+      end: date,
+      score: 0,
+      summer: false,
+      occupied: 1,
+      max: 3,
+      codes: ['Q' + String(i).padStart(2, '0')],
+      slots: [],
+      label: '2',
+      freeText: '2 libres',
+      occupancy: '1/3',
+      status: 'vac2-free-2',
+      full: false,
+    })),
+  } as unknown as Parameters<typeof renderLitePdf>[0];
+  const pdf = renderLitePdf(s);
+  const printed = days.filter((_, i) => pdf.includes(`(Q${String(i).padStart(2, '0')})`)).length;
+  const more = pdf.match(/\(\+(\d+) m.{1,4}s: ver/);
+  assert.equal(printed + Number(more?.[1] ?? 0), 31, 'cada día adjudicado se imprime o se cuenta en el aviso');
+  assert.ok(printed > 20, 'dos columnas antes de recurrir al aviso');
+});

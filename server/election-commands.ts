@@ -28,7 +28,7 @@ import {
 } from '../domain/election.ts';
 import { cycleTable } from '../domain/vacations.ts';
 import { earlyEntry, earlyProof } from '../domain/early-election.ts';
-import { occupancyOf, policyOf } from '../domain/policy.ts';
+import { occupancyOf, policyOf, unitsOf } from '../domain/policy.ts';
 import { nextSlot } from '../domain/sequence.ts';
 import { restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
@@ -221,6 +221,9 @@ function executeStart(x: ElectionCommandContext) {
     throw new ApiError('No cambies el orden después de comenzar a elegir');
   if (body.rulesConfirmed !== true || typeof body.allowDeferral !== 'boolean')
     throw new ApiError('Confirma las reglas de elección');
+  // VA days are HR's quotas, fixed once the election starts: without them there is nothing to choose.
+  if (policy.independentUnits && !unitsOf(ctx).length)
+    throw new ApiError('Carga los cupos de RRHH antes de activar la elección: después ya no se pueden cambiar', 409);
   const { order, tieGroups, source } = policy.rosterOrder ? rosterOrder(d, body) : scoreOrder(d);
   const rules = occupancyOf(ctx);
   if (rules) {
