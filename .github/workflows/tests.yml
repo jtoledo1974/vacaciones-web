@@ -37,7 +37,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.actor == 'jtoledo1974')
     # Any available server or laptop runner can execute these checks.
     runs-on: [self-hosted, Linux, X64, "${{ inputs.runner || 'vacaciones-ci-v2' }}"]
-    timeout-minutes: 10
+    # The serial unit suite shares this budget with install, format, types, build
+    # and lint. Allow runner variation; each unit file still has its own timeout.
+    timeout-minutes: 20
     env:
       CI: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
