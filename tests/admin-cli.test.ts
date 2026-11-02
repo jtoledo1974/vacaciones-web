@@ -27,6 +27,9 @@ interface Fake {
   logoutDrops?: boolean;
   /** Status of GET /api/session for a saved browser access. */
   sessionStatus?: number;
+  /** Rows of each successive cleanup preview; an applied batch fails with cleanupFails. */
+  cleanup?: number[];
+  cleanupFails?: number;
 }
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -124,6 +127,14 @@ async function withServer(
     if (route === 'POST /api/local-admin/logout') return fake.logoutDrops ? req.socket.destroy() : json(200, {});
     if (route === 'GET /api/session') return json(200, { principal: principal() });
     if (route === 'GET /api/backup-v2') return json(200, fake.backup ?? validBackup());
+    if (route === 'GET /api/cleanup?mode=compress-audit-payloads') {
+      const rows = fake.cleanup!.shift() ?? 0;
+      return json(200, {
+        plan: { mode: 'compress-audit-payloads', cutoff: 1, categories: [{ rows }] },
+        token: 't' + rows,
+      });
+    }
+    if (route === 'POST /api/cleanup' && fake.cleanupFails) return json(fake.cleanupFails, { error: 'Plan caducado' });
     if (route === 'POST /api/backup-v2/page') return json(200, finalPage());
     if (req.method === 'POST') return json(fake.postStatus ?? 200, { ok: true, applied: req.url });
     return json(200, { ok: true });
@@ -538,6 +549,31 @@ test('a valid backup is saved privately before the write', async () => {
     const [file] = readdirSync(dir);
     assert.deepEqual(readArchive(path.join(dir, file)), validArchive());
     if (process.platform !== 'win32') assert.equal(statSync(path.join(dir, file)).mode & 0o777, 0o600);
+  });
+});
+
+test('cleanup run saves one backup, then applies batches until one is empty', async () => {
+  await withServer({ cleanup: [100, 37, 0] }, async (origin, calls, bodies) => {
+    const dir = scratch();
+    const r = await cli(origin, ['cleanup', 'run', '--mode', 'compress-audit-payloads', '--backup-dir', dir]);
+    assert.equal(r.code, 0, r.stderr);
+    assert.equal(calls.filter((c) => c === 'GET /api/backup-v2').length, 1);
+    assert.equal(readdirSync(dir).length, 1);
+    assert.deepEqual(bodies['POST /api/cleanup'], [
+      { cutoff: 1, mode: 'compress-audit-payloads', token: 't100' },
+      { cutoff: 1, mode: 'compress-audit-payloads', token: 't37' },
+    ]);
+    assert.match(r.stderr, /Terminado: 2 lotes/);
+  });
+});
+
+test('cleanup run stops at the first failed batch', async () => {
+  await withServer({ cleanup: [100, 100], cleanupFails: 409 }, async (origin, calls) => {
+    const r = await cli(origin, ['cleanup', 'run', '--mode', 'compress-audit-payloads', '--no-backup']);
+    assert.equal(r.code, 1);
+    assert.match(r.stderr, /lote 1: Plan caducado/);
+    assert.equal(calls.filter((c) => c === 'POST /api/cleanup').length, 1);
+    assert.equal(calls.at(-1), 'POST /api/local-admin/logout');
   });
 });
 

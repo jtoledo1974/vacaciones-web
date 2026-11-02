@@ -15,6 +15,10 @@ export const backupColumns = {
   push_deliveries: ['event_id', 'endpoint', 'status', 'lease_token', 'lease_expires_at', 'attempts'],
 };
 export const CHUNK = 8192;
+// A page reads at most PAGE_CHARS characters, from up to PAGE_ROWS rows, in 8 KB
+// fragments: about 256 KB per request, with Worker memory still bounded.
+const PAGE_CHARS = 32 * CHUNK,
+  PAGE_ROWS = 32;
 const revisionSQL = "SELECT revision FROM backup_clock WHERE id='main'";
 const schemaSQL =
   "SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' ORDER BY type,name";
@@ -115,8 +119,13 @@ export async function backupPage(repo: Repository, actor: Principal, input: unkn
       ? [
           {
             // Never return a whole large row. SQLite handles slicing; Worker memory is bounded.
-            sql: `SELECT rowid AS row, substr(${json}, CASE WHEN rowid=? THEN ? ELSE 1 END, ${CHUNK}) AS data, length(${json}) AS size FROM "${table}" WHERE rowid>=? ORDER BY rowid LIMIT 8`,
-            args: [cursor.row, cursor.offset, cursor.row],
+            // Each row gets what is left of the page's budget after the rows before it.
+            sql: `WITH t AS (SELECT rowid AS row, length(${json}) AS size,
+                    CASE WHEN rowid=?1 THEN ?2 ELSE 1 END AS start FROM "${table}" WHERE rowid>=?1 ORDER BY rowid LIMIT ${PAGE_ROWS}),
+                  b AS (SELECT row, size, start, coalesce(sum(size-start+1) OVER (ORDER BY row ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) AS before FROM t)
+                  SELECT b.row, b.size, substr(${json}, b.start, ${PAGE_CHARS}-b.before) AS data
+                  FROM b JOIN "${table}" ON "${table}".rowid=b.row WHERE b.before<${PAGE_CHARS} ORDER BY b.row`,
+            args: [cursor.row, cursor.offset],
           },
         ]
       : [{ sql: schemaSQL }]),
@@ -128,14 +137,23 @@ export async function backupPage(repo: Repository, actor: Principal, input: unkn
   if (table) {
     next = { table: cursor.table + 1, row: 0, offset: 1 };
     for (const row of r[1].results) {
-      const offset = row.row === cursor.row ? cursor.offset : 1;
+      let offset = row.row === cursor.row ? cursor.offset : 1;
       if (offset > row.size || !row.data) throw new ApiError('Cursor fuera de la fila');
-      const complete = offset + CHUNK > row.size;
-      chunks.push({ row: row.row, offset, data: row.data, complete });
-      next = complete
-        ? { table: cursor.table, row: row.row + 1, offset: 1 }
-        : { table: cursor.table, row: row.row, offset: offset + CHUNK };
-      if (!complete) break;
+      // SQLite counts characters as code points: split the slice the same way.
+      const chars = [...(row.data as string)];
+      for (let i = 0; i < chars.length; i += CHUNK) {
+        // Only whole fragments before the row's end: the budget may cut one short.
+        if (i + CHUNK > chars.length && offset + chars.length - i <= row.size) break;
+        const data = chars.slice(i, i + CHUNK).join('');
+        const complete = offset + CHUNK > row.size;
+        chunks.push({ row: row.row, offset, data, complete });
+        next = complete
+          ? { table: cursor.table, row: row.row + 1, offset: 1 }
+          : { table: cursor.table, row: row.row, offset: offset + CHUNK };
+        offset += CHUNK;
+      }
+      // The slice ended inside the row: the next page reads on from there.
+      if (offset <= row.size) break;
     }
   }
   const payload = { revision, cursor, chunks, next, ...(table ? {} : { schemaSha256: await hash(r[1].results) }) };
