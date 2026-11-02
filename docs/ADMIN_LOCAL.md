@@ -40,7 +40,7 @@ Los secretos deben quedar en el almacén privado de la plataforma. Si ChatGPT Si
 El modo habitual no necesita credenciales del administrador local:
 
 ```bash
-export VACACIONES_URL=https://<site>.chatgpt.site
+export VACACIONES_URL=https://vacaciones.lazaro.es
 node scripts/admin-cli.mjs login        # solo la primera vez o cuando caduque
 node scripts/admin-cli.mjs campaign <id> --out campana.json
 node scripts/admin-cli.mjs post campaign/<id> cuerpo.json

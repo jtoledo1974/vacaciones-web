@@ -10,7 +10,7 @@ El historial técnico de operaciones puede conservarse para deshacer, reconstrui
 
 - Lectura de servidor, dominio, esquema, pruebas y documentación del checkout `cli-browser-login`, commit `3ad84c4`.
 - Se consultó `main` de GitHub: `15f5c3dced3e1d7938d7d6027cec724537596844`. No hay diferencias frente al checkout en `server/election-service.ts`, `server/reconstruction.ts`, `server/service-commands.ts`, `server/service.ts`, `domain/vacations.ts`, `tests/reconstruction.test.ts` y `tests/election-service.test.ts`.
-- Copia de producción descargada por CLI a las 09:14:27 UTC, con integridad interna verificada. Datos privados, reproducción y resultados en `evidencias/20261028/`, excluidos de Git.
+- Reproducción local sobre una copia privada de los datos, con integridad interna verificada. La copia y los resultados no forman parte del repositorio.
 - La versión 75 de Sites indica otro commit de empaquetado (`149b0786...`), no disponible en el remoto GitHub. La identidad byte a byte del paquete publicado no se certifica con esta auditoría.
 - No se han modificado campañas, puntuaciones ni datos de producción. La primera corrección de este PR se describe en el apartado siguiente.
 
@@ -20,7 +20,7 @@ Se eliminan las reglas que protegían peticiones provisionales al reconstruir, e
 
 No se realiza una migración global ni se modifican campañas cerradas existentes. Este primer cambio no añade un registro independiente de envío a RRHH ni redefine la reapertura de una relación ya enviada: esos aspectos del hallazgo 5 quedan pendientes de una segunda implementación. Exportar un Excel no demuestra su entrega. Las revisiones publicadas permanecen intactas.
 
-Validación privada local: con la copia de Bravo v236, tanto elegir como avanzar automáticamente adjudican el ciclo solicitado a la persona afectada; continúan otras dos elecciones automáticas, y el proceso espera correctamente las cuatro horas configuradas para la persona siguiente. La versión local llega a 239. Solicitudes y adjudicaciones de la persona afectada contienen las mismas seis fechas y ya no incluyen 26/02. Las otras campañas permanecen sin cambios. No se adjunta la copia privada al repositorio.
+Validación privada local: con la copia privada, tanto elegir como avanzar automáticamente adjudican el ciclo solicitado a la persona afectada; continúan otras dos elecciones automáticas, y el proceso espera correctamente las cuatro horas configuradas para la persona siguiente. Solicitudes y adjudicaciones de la persona afectada contienen las mismas seis fechas y ya no incluyen 26/02. Las otras campañas permanecen sin cambios. No se adjunta la copia privada al repositorio.
 
 Alfa y Delta pudieron cerrar porque cerrar solo cambiaba el estado y no pedía una posición nueva de solicitud. El bloqueo requiere una elección adicional con las seis posiciones ya ocupadas y menos de seis adjudicaciones. En la copia, Delta no presenta divergencias; Alfa tiene tres personas con fechas diferentes, pero no exceso de solicitudes respecto de adjudicaciones. Eso no certifica sus puntuaciones: la relación enviada a RRHH debe cotejarse por separado antes de reparar un ejercicio cerrado.
 
@@ -40,7 +40,7 @@ Efectos: fechas sustituidas siguen interviniendo en puntuación y ocupando posic
 
 `server/election-service.ts:865`: la transacción añade una solicitud por cada adjudicación nueva si no encuentra ya esa fecha. Busca una posición libre entre 1 y `cyclesPerPerson`, contando también las solicitudes antiguas que sobrevivieron a una reconstrucción. La regla se aplica antes del cierre, sin distinguir la referencia de RRHH.
 
-Caso reproducido con B-2027 v236: la persona afectada tiene cinco adjudicaciones y seis solicitudes, una del 26/02 que no está adjudicada. El motor acepta 23/04 y encuentra una terminación legal, pero el servicio rechaza tanto `choose` como `advance` con HTTP 400: «No quedan posiciones para registrar la solicitud original». La transacción no se confirma y la versión permanece en 236. Esto impide tanto el guardado manual como continuar los automatismos después de la elección anterior.
+Caso reproducido: la persona afectada tiene cinco adjudicaciones y seis solicitudes, una del 26/02 que no está adjudicada. El motor acepta 23/04 y encuentra una terminación legal, pero el servicio rechaza tanto `choose` como `advance` con HTTP 400: «No quedan posiciones para registrar la solicitud original». La transacción no se confirma y la versión de la campaña no cambia. Esto impide tanto el guardado manual como continuar los automatismos después de la elección anterior.
 
 La protección errónea está en el flujo compartido de elecciones, por lo que revisar solo el botón manual no resolvería el problema.
 

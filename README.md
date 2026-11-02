@@ -68,7 +68,7 @@ Migración a Cloudflare: desplegar el build Worker con Wrangler, crear DB, aplic
 No se ha contratado ningún servicio de pago. No existe prueba de gratuidad permanente: las cuotas y condiciones dependen de Sites y, tras migrar, del plan del proveedor. D1 tiene límites de tamaño, consultas y lote; la aplicación limita las importaciones y debe ampliar la estrategia de restauración si el historial crece. Referencia: https://developers.cloudflare.com/d1/platform/limits/.
 
 
-La administración de plantillas permite nombres, nicks Unicode y fechas de antigüedad opcionales en una tabla conjunta; pegado por columnas y archivo de importación preparado desde el Excel. Los nombres son exclusivos de administración. No se generan fechas de antigüedad para celdas vacías. El código se conserva también en el repositorio privado https://github.com/jtoledo1974/vacaciones-web; las importaciones y copias de datos quedan excluidas.
+La administración de plantillas permite nombres, nicks Unicode y fechas de antigüedad opcionales en una tabla conjunta; pegado por columnas y archivo de importación preparado desde el Excel. Los nombres son exclusivos de administración. No se generan fechas de antigüedad para celdas vacías. El código fuente está en https://github.com/jtoledo1974/vacaciones-web; las importaciones y copias de datos quedan excluidas.
 
 
 
@@ -123,3 +123,7 @@ VAPID y un navegador compatible con Web Push.
 ## Normas definitivas de 2027
 
 La política vigente es `lecs-2027-occupancy-v6`: solo la guía de elección v1.3 y las cifras de la hoja «Info.Cupos RRHH». Ver [reglas](docs/policy-2027-definitive-guide.md).
+
+## Licencia
+
+Copyright © 2026 Juan Toledo. Distribuido bajo la [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Quien despliegue una versión modificada como servicio en red debe ofrecer su código fuente a los usuarios. El código de terceros incluido conserva su licencia: `build/sites-vite-plugin.*` (MIT, OpenAI) y `vendor/shadcn-*` (MIT, shadcn).

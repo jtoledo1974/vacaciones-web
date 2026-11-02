@@ -6,19 +6,17 @@ Estado: **registro histórico de fuentes, requisitos y decisiones tomadas el 28/
 
 ## Fuentes y trazabilidad
 
-Lectura realizada el 28/10/2026. WhatsApp MCP sincronizado, sin error declarado. El archivo de WhatsApp puede no contener todo el móvil. Se revisó el intercambio completo del tema del 28/10 y se buscaron antecedentes de VA/antigüedad/escalafón en el chat de un compañero; los antecedentes históricos no sustituyen la versión actual.
+Lectura realizada el 28/10/2026 a partir de una conversación privada con un compañero, que no se reproduce aquí; los antecedentes históricos no sustituyen la versión actual. En ella:
 
-un compañero, 28/10/2026 (Europe/Madrid):
+- se propone incorporar las VA en la webapp;
+- se indica que se entregan después de las vacaciones normales;
+- se adjuntan los dos archivos siguientes;
+- se indica que la antigüedad puede obtenerse del escalafón.
 
-- 09:27:06: propone incorporar las VA en la webapp. Mensaje `[mensaje]`.
-- 09:27:14: indica que se entregan después de las vacaciones normales. Mensaje `[mensaje]`.
-- 09:57:53: adjunta los dos archivos siguientes.
-- 09:58:20: indica que la antigüedad puede obtenerse del escalafón. Mensaje `[mensaje]`.
-
-| Archivo original | Mensaje | SHA-256 |
-| --- | --- | --- |
-| 261009 Vacaciones Antigüedad v1.1.docx | `[mensaje]` | `cfff93ff891fdb9fc554fe4a5e1007f2618ff55cd183dada925b32214ed5b975` |
-| Vacaciones antigüedad PLANTILLA 1.2.xlsm | `[mensaje]` | `bb0a2d870ad8d376aefb0133495562ceea9bb7f9258a9c1992201c083f34699e` |
+| Archivo original | SHA-256 |
+| --- | --- |
+| 261009 Vacaciones Antigüedad v1.1.docx | `cfff93ff891fdb9fc554fe4a5e1007f2618ff55cd183dada925b32214ed5b975` |
+| Vacaciones antigüedad PLANTILLA 1.2.xlsm | `bb0a2d870ad8d376aefb0133495562ceea9bb7f9258a9c1992201c083f34699e` |
 
 Originales descargados y huellas verificadas; conservados fuera del repositorio en `evidencias/va-20261028/` del espacio de trabajo, como `normas-v1.1.docx` y `plantilla-v1.2.xlsm`. La plantilla contiene datos personales. Este PR incorpora su análisis sin copiar el censo ni enlaces temporales de descarga.
 
@@ -104,7 +102,7 @@ El usuario confirma que el primer derecho a VA requiere 20 años de antigüedad 
 
 Se ha localizado el escalafón ordinal de ENAIRE a 31/12/2025, en una fuente de acceso restringido. Su SHA-256 es `05be9553769445796f80a6386d1783444368d2ea51900ab111cd670261ef2d63`. Las tablas internas se extrajeron directamente, sustituyendo el OCR exploratorio.
 
-Se cruzó el censo de las campañas reales de 2027 de los ocho equipos con el escalafón, por nombres RRHH y número CTA cuando estaba disponible. El número de empleado de RRHH y el número CTA son identificadores distintos. Los casos sin correspondencia quedaron sin fecha inferida. Este censo de elecciones no representa necesariamente toda la plantilla LECS fuera de los ocho equipos.
+Se cruzó el censo de las campañas reales de 2027 de los ocho equipos con el escalafón, por nombre RRHH y número CTA cuando estaba disponible. El número de empleado de RRHH y el número CTA son identificadores distintos. Los casos sin correspondencia quedaron sin fecha inferida. Este censo de elecciones no representa necesariamente toda la plantilla LECS fuera de los ocho equipos.
 
 La operación de fichas maestras se publicó en Sites v76; la carga solo completa fechas vacías de `people.seniority`. Los datos personales, el PDF y los cruces permanecen fuera del repositorio. Las campañas ordinarias mantienen sus instantáneas independientes.
 
