@@ -175,4 +175,25 @@ test('la campaña de VA se abre solo para su administración y sus participantes
   assert.equal((await other.list()).vaCampaign, null);
   await assert.rejects(other.view(campaignId), /cuenta participante/);
   assert.equal((await s.list()).vaCampaign?.id, campaignId, 'la administración la ve siempre');
+
+test('recargar el censo en preparación descarta las solicitudes de los miembros anteriores', async () => {
+  const { repo, s, people, load } = await setup();
+  const { campaignId } = await load([people.AA, people.BB]);
+  await repo.batch([{ sql: 'INSERT INTO va_quotas(year,date,places) VALUES(2026,?,5)', args: ['2026-03-02'] }]);
+  const d = await s.load(campaignId);
+  await s.mutate(campaignId, {
+    action: 'request',
+    version: d.campaign.version,
+    memberId: d.members[0].id,
+    slot: 1,
+    date: '2026-03-02',
+  });
+  assert.equal((await repo.all('SELECT 1 FROM requests WHERE campaign_id=?', [campaignId])).length, 1);
+  await load([people.BB]);
+  const after = await s.load(campaignId);
+  assert.deepEqual(
+    after.members.map((m: { code: string }) => m.code),
+    ['BB'],
+  );
+  assert.equal(after.requests.length, 0);
 });

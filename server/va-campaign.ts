@@ -97,6 +97,8 @@ export async function loadVaCampaign(service: Service, repo: Repository, actor: 
           args: [cid, cid, token],
         },
         { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] },
+        // Everything that points at the members goes first (awards would mean a started campaign).
+        { sql: 'DELETE FROM requests WHERE campaign_id=?', args: [cid] },
         { sql: 'DELETE FROM preferences WHERE campaign_id=?', args: [cid] },
         { sql: 'DELETE FROM campaign_members WHERE campaign_id=?', args: [cid] },
       ]
