@@ -288,7 +288,7 @@ test('VA: ordinarias y VA se protegen en ambos sentidos dentro de la transacció
   repo.db.exec("DELETE FROM awards WHERE id='test-award'");
   await mutate(repo, p1, { action: 'choose', dates: [cycle.end] });
   await assert.rejects(repo.batch([award, ...(await vaOrdinaryGuards(repo, [award]))]), /va_ordinary_overlap/);
-  await assert.rejects(new Service(repo, admin).commit([award]), /días de VA ya elegidos/);
+  await assert.rejects(new Service(repo, admin).commit([award]), /mismo día en vacaciones ordinarias y de VA/);
   assert.equal((await repo.all('SELECT * FROM awards')).length, 0);
 });
 
@@ -371,7 +371,7 @@ test('VA: protege también el ciclo ordinario de diciembre que termina en enero 
   await assert.rejects(change({ action: 'choose', personId: 'C-1', dates: ['2027-01-01'] }), /ordinarias/);
   repo.db.exec("DELETE FROM awards WHERE id='year-boundary'");
   await change({ action: 'choose', personId: 'C-1', dates: ['2027-01-01'] });
-  await assert.rejects(service.commit([award]), /días de VA ya elegidos/);
+  await assert.rejects(service.commit([award]), /mismo día en vacaciones ordinarias y de VA/);
 });
 
 test('VA: undo y redo cruzan la frontera de ronda y conservan las preferencias posteriores', async () => {

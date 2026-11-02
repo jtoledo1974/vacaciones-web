@@ -1,3 +1,4 @@
+import { policyExternal } from './va-integrity.ts';
 import {
   choiceIssues,
   currentTurn,
@@ -621,6 +622,7 @@ export async function dispatchNotifications(
         members,
         awards: parts[1].results,
         requests: parts[2].results,
+        external: await policyExternal(repo, campaign),
       };
       const turn = currentTurn(ctx, state);
       // Isolated: a viability failure must not stop «Es tu turno».
@@ -725,6 +727,7 @@ export async function dispatchNotifications(
         members: rows[0].results,
         awards: rows[1].results,
         requests: rows[2].results,
+        external: await policyExternal(repo, campaign),
       };
       const turn = currentTurn(current, state);
       const participants: string[] = turn.pendingTie

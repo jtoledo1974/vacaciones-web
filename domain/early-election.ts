@@ -1,6 +1,6 @@
 import { choiceIssues, currentTurn, sequenceFor, type ElectionContext, type ElectionState } from './election.ts';
 import { nextSlot, turnsBefore } from './sequence.ts';
-import { occupancyOf } from './policy.ts';
+import { occupancyOf, policyOf } from './policy.ts';
 
 /**
  * Early election, first iteration: a controller may take a cycle ahead of their slot
@@ -134,6 +134,33 @@ function singleCycleProof(
 }
 
 /**
+ * Units independent of each other (VA days, ADR 0002 §3 quater): whatever the predecessor
+ * owes, taking X now is safe when they cannot take X anyway or X keeps two free places.
+ * Exact and without search, so no budget applies.
+ */
+function independentProof(
+  ctx: ElectionContext,
+  window: EarlyWindow,
+  dates: string[],
+  options: { only?: string[] },
+): EarlyProof {
+  const rules = occupancyOf(ctx)!;
+  const state = rules.state(ctx, ctx.members, ctx.awards);
+  const mine = new Set(rules.legalChoices(state, window.memberId).legal),
+    theirs = new Set(rules.legalChoices(state, window.predecessor).legal);
+  const occupied = new Map<string, number>();
+  for (const a of ctx.awards) occupied.set(a.cycle_date, (occupied.get(a.cycle_date) ?? 0) + 1);
+  const wanted = new Set(options.only ?? dates);
+  const guaranteed = dates.filter(
+    (date) =>
+      wanted.has(date) &&
+      mine.has(date) &&
+      (!theirs.has(date) || rules.cycleMaximum(ctx, date) - (occupied.get(date) ?? 0) >= 2),
+  );
+  return { window, guaranteed, indeterminate: false };
+}
+
+/**
  * The cycles `memberId` may take now (see the module comment), or null outside a
  * window. `only` restricts the proof to some candidate cycles (a commit rechecks one).
  */
@@ -147,6 +174,7 @@ export function earlyProof(
   const window = earlyWindow(ctx, state, memberId);
   if (!window) return null;
   const rules = occupancyOf(ctx);
+  if (rules && policyOf(ctx).independentUnits) return independentProof(ctx, window, dates, options);
   if (rules && window.predecessorNeeds === 1) return singleCycleProof(ctx, window, dates, options);
   let budget = options.budget ?? EARLY_PROOF_BUDGET;
   const owned = (id: string) => new Set(ctx.awards.filter((a) => a.member_id === id).map((a) => a.cycle_date));

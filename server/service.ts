@@ -2,7 +2,7 @@ import { ORDINARY_TEAMS, VA_TEAM, ensureVaTeam, ordinaryCampaign } from './teams
 import { defaultConfig, copyConfig } from '../domain/defaults.ts';
 import { type Config } from '../domain/calendar.ts';
 import { calculate } from '../domain/vacations.ts';
-import { campaignOf, occupancyOf, ordinaryScope, scopeOf, unitsOf } from '../domain/policy.ts';
+import { campaignOf, occupancyOf, ordinaryScope, scopeOf, unitsOf, type PolicyCampaign } from '../domain/policy.ts';
 import { historicalAvailability } from './availability-history.ts';
 import {
   AuditContext,
@@ -30,6 +30,7 @@ import { HrExportError, hrTeamCells, suggestHrNames, type HrCell } from '../doma
 import { orderAwardsBySelection } from '../domain/award-display-order.ts';
 import { readHrWorkbook, writeHrWorkbook, type HrWorkbook } from './hr-xlsx.ts';
 import { vaVisibility } from './va-census.ts';
+import { crossCampaignGuards, policyExternal } from './va-integrity.ts';
 export { ApiError } from './errors.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
@@ -187,10 +188,17 @@ export class Service {
   /** Validate prospective roster/award edits before writing them. A local
    * capacity check is not enough for an occupancy engine: every controller must still be
    * able to finish, and final summer minimums must be reachable. */
-  assertCompletable(c: any, config: Config, members: any[], awards: any[], action: string) {
+  assertCompletable(
+    c: any,
+    config: Config,
+    members: any[],
+    awards: any[],
+    action: string,
+    external?: PolicyCampaign['external'],
+  ) {
     const rules = occupancyOf(scopeOf(c));
     if (!rules || awards.length === 0) return;
-    const state = rules.state(campaignOf(c, config), members, awards);
+    const state = rules.state(campaignOf(c, config, external), members, awards);
     const violations = rules.immediateIssues(state, []);
     if (violations.length) throw new ApiError(action + ': ' + violations.map((x) => x.message).join('; '), 409);
     const proof = rules.canComplete(state, { maxChecks: rules.budgets.commit });
@@ -230,10 +238,13 @@ export class Service {
     ]);
     const campaign = rows[0].results[0];
     if (!campaign) throw new ApiError('Campaña no encontrada', 404);
-    const config = JSON.parse(rows[1].results[0].json);
+    const config = JSON.parse(rows[1].results[0].json),
+      external = await policyExternal(this.repo, campaign);
     return {
       campaign,
       config,
+      // Only VA campaigns need data from outside (ADR 0002).
+      ...(external && { external }),
       members: rows[2].results,
       requests: rows[3].results,
       awards: rows[4].results,
@@ -259,6 +270,7 @@ export class Service {
     const scoringRequests = d.campaign.status === 'open' ? requestsForAwards(cid, d.awards, d.requests) : d.requests;
     const result = calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, scoringRequests, d.awards, {
       skipProof: restored,
+      external: d.external,
     });
     const election = await this.election().view(d, {
       restored,
@@ -309,7 +321,10 @@ export class Service {
   }
   async commit(statements: Statement[]) {
     const { vaOrdinaryGuards } = await import('./va-election.ts');
-    const vaGuards = await vaOrdinaryGuards(this.repo, statements);
+    const vaGuards = [
+      ...(await vaOrdinaryGuards(this.repo, statements)),
+      ...(await crossCampaignGuards(this.repo, statements)),
+    ];
     try {
       return await this.repo.batch([
         ...statements,
@@ -319,7 +334,7 @@ export class Service {
     } catch (e) {
       if (String(e).includes('va_ordinary_overlap'))
         throw new ApiError(
-          'El cambio coincide con días de VA ya elegidos. La administración debe resolver el conflicto antes de aplicarlo.',
+          'El cambio deja a una persona con el mismo día en vacaciones ordinarias y de VA, o un día de VA por encima de sus plazas. La administración debe resolver el conflicto antes de aplicarlo.',
           409,
         );
       if (/va_duplicate_account|va_duplicate_controller_number/.test(String(e)))
@@ -1004,7 +1019,13 @@ export class Service {
           config = tables.parameters.find((p: any) => p.campaign_id === pref.campaign_id);
         if (!member || !campaign || !config) throw new Error('Preferencias ajenas a la campaña');
         const dates = JSON.parse(pref.dates_json),
-          validDates = new Set(unitsOf(campaignOf(campaign, JSON.parse(config.json))).map((c) => c.date));
+          // VA days come from the HR quotas in the same file.
+          quotas = Object.fromEntries(
+            ((tables.va_quotas ?? []) as { year: number; date: string; places: number }[])
+              .filter((q) => q.year === campaign.year)
+              .map((q) => [q.date, q.places]),
+          ),
+          validDates = new Set(unitsOf(campaignOf(campaign, JSON.parse(config.json), { quotas })).map((c) => c.date));
         if (
           !Array.isArray(dates) ||
           dates.length > 100 ||

@@ -226,7 +226,7 @@ async function executeConfig(ctx: CommandContext): Promise<CommandResult> {
         );
     }
     if (d.awards.length) {
-      const candidate = rules.canComplete(rules.state(campaignOf(c, cfg), d.members, d.awards), {
+      const candidate = rules.canComplete(rules.state(campaignOf(c, cfg, d.external), d.members, d.awards), {
         maxChecks: rules.budgets.commit,
       });
       if (candidate.status !== 'possible')
@@ -249,7 +249,7 @@ async function executeConfig(ctx: CommandContext): Promise<CommandResult> {
         'Las puntuaciones anteriores quedan congeladas al activar la elección. Reinicia la elección para modificarlas.',
       );
   }
-  const dates = new Set(unitsOf(campaignOf(c, cfg)).map((s) => s.date));
+  const dates = new Set(unitsOf(campaignOf(c, cfg, d.external)).map((s) => s.date));
   if ([...d.requests, ...d.awards].some((r) => !dates.has(r.cycle_date)))
     throw new ApiError('El cambio eliminaría ciclos con solicitudes o adjudicaciones');
   ops.push({
@@ -268,7 +268,8 @@ async function executeRequest(ctx: CommandContext): Promise<CommandResult> {
   const m = d.members.find((m) => m.id === body.memberId);
   if (!m) throw new ApiError('Identificador ajeno al equipo');
   if (!Number.isInteger(body.slot) || body.slot < 1 || body.slot > 6) throw new ApiError('Posición entre 1 y 6');
-  if (!unitsOf(campaignOf(c, d.config)).some((s) => s.date === body.date)) throw new ApiError('Ciclo no válido');
+  if (!unitsOf(campaignOf(c, d.config, d.external)).some((s) => s.date === body.date))
+    throw new ApiError('Ciclo no válido');
   if (d.requests.some((r) => r.member_id === m.id && r.slot !== body.slot && r.cycle_date === body.date))
     throw new ApiError('Ese ciclo ya está solicitado por el trabajador');
   before = d.requests.find((r) => r.member_id === m.id && r.slot === body.slot) ?? null;
@@ -313,12 +314,14 @@ async function executeAward(ctx: CommandContext): Promise<CommandResult> {
     throw new ApiError('Adjudicación duplicada');
   const candidate = { id: id(), member_id: m.id, cycle_date: body.date };
   if (rules) {
-    const check = rules.evaluateCandidate(rules.state(campaignOf(c, d.config), d.members, d.awards), [
+    const check = rules.evaluateCandidate(rules.state(campaignOf(c, d.config, d.external), d.members, d.awards), [
       { member_id: m.id, cycle_date: body.date },
     ]);
     if (!check.allowed) throw new ApiError(check.issues.map((issue) => issue.message).join('; '));
   } else {
-    const check = calculate(c.year, c.team_id, d.config, d.members, d.requests, [...d.awards, candidate]);
+    const check = calculate(c.year, c.team_id, d.config, d.members, d.requests, [...d.awards, candidate], {
+      external: d.external,
+    });
     if (check.issues.length) throw new ApiError(check.issues.join('; '));
   }
   ops.push({
@@ -335,7 +338,7 @@ async function executeCalculate(ctx: CommandContext): Promise<CommandResult> {
   const before: any = null;
   let after: any = body;
   const requests = requestsForAwards(cid, d.awards, d.requests);
-  const result = calculate(c.year, c.team_id, d.config, d.members, requests, d.awards);
+  const result = calculate(c.year, c.team_id, d.config, d.members, requests, d.awards, { external: d.external });
   const runId = id();
   ops.push({
     sql: 'INSERT INTO runs(id,campaign_id,source_version,engine_version,result_json,created_by,created_at) VALUES(?,?,?,?,?,?,?)',
@@ -398,7 +401,7 @@ async function executePublish(ctx: CommandContext): Promise<CommandResult> {
     );
   if (savedResult.issues.length) throw new ApiError('Resuelve las incidencias antes de publicar');
   if (rules) {
-    const reviewed = rules.evaluateFinal(rules.state(campaignOf(c, d.config), d.members, d.awards));
+    const reviewed = rules.evaluateFinal(rules.state(campaignOf(c, d.config, d.external), d.members, d.awards));
     if (!reviewed.valid)
       throw new ApiError('No se puede publicar: ' + reviewed.issues.map((i) => i.message).join('; '));
     const expected = reviewed.warnings.map((w) => w.code).sort();
@@ -522,7 +525,7 @@ async function executeImportRoster(ctx: CommandContext): Promise<CommandResult> 
     : [];
   const check = calculate(c.year, c.team_id, importedConfig, imported, selections, importedAwards);
   if (check.issues.length) throw new ApiError('Revisa la plantilla: ' + check.issues.join('; '));
-  service.assertCompletable(c, importedConfig, imported, importedAwards, 'Importar plantilla');
+  service.assertCompletable(c, importedConfig, imported, importedAwards, 'Importar plantilla', d.external);
 
   ops.push(...restoreStatements(cid, { awards: [], requests: [], preferences: [], state: null }), {
     sql: 'DELETE FROM campaign_members WHERE campaign_id=?',
@@ -609,7 +612,14 @@ async function executeBulkMembers(ctx: CommandContext): Promise<CommandResult> {
     const additions = resolved
       .filter((item) => !item.member)
       .map((item, i) => ({ id: 'new-roster-' + i, code: item.row.code, seniority: item.row.seniority }));
-    service.assertCompletable(c, renamed ?? d.config, [...revised, ...additions], d.awards, 'Actualizar plantilla');
+    service.assertCompletable(
+      c,
+      renamed ?? d.config,
+      [...revised, ...additions],
+      d.awards,
+      'Actualizar plantilla',
+      d.external,
+    );
   }
   for (const { row: r, member, position } of resolved) {
     if (member)
@@ -664,6 +674,7 @@ async function executeTransferMember(ctx: CommandContext): Promise<CommandResult
     [...destination.members, { ...member, id: 'transfer-prospective' }],
     destination.awards,
     'Trasladar controlador',
+    destination.external,
   );
   ops.push(
     ...cas(target.id, target.version),
@@ -704,6 +715,7 @@ async function executeRetireMember(ctx: CommandContext): Promise<CommandResult> 
     d.members.filter((m) => m.id !== member.id),
     d.awards,
     'Dar de baja controlador',
+    d.external,
   );
   if (election.preferences.some((p) => p.member_id === member.id && p.dates.length))
     throw new ApiError('Vacía sus preferencias antes de dar la baja');
@@ -749,6 +761,7 @@ async function executeMember(ctx: CommandContext): Promise<CommandResult> {
       [...d.members, { id: 'new-member-prospective', code, seniority: body.seniority }],
       d.awards,
       'Añadir controlador',
+      d.external,
     );
     const pid = id();
     ops.push(
@@ -781,8 +794,8 @@ const availabilityImpact =
     if (!rules) return after;
     const updated = action === 'award' ? [...d.awards, after] : d.awards.filter((a: any) => a.id !== body.id);
     const impact = rules.impact(
-      rules.state(campaignOf(c, d.config), d.members, d.awards),
-      rules.state(campaignOf(c, d.config), d.members, updated),
+      rules.state(campaignOf(c, d.config, d.external), d.members, d.awards),
+      rules.state(campaignOf(c, d.config, d.external), d.members, updated),
     );
     return {
       ...after,

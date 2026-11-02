@@ -93,6 +93,7 @@ export const members = sqliteTable(
     position: integer('position').notNull().default(0),
     seniority: text('seniority').notNull(),
     version: integer('version').notNull().default(1),
+    entitlement: integer('entitlement'),
   },
   (t) => [uniqueIndex('campaign_person').on(t.campaignId, t.personId)],
 );

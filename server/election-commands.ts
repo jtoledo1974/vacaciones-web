@@ -28,7 +28,7 @@ import {
 } from '../domain/election.ts';
 import { cycleTable } from '../domain/vacations.ts';
 import { earlyEntry, earlyProof } from '../domain/early-election.ts';
-import { occupancyOf } from '../domain/policy.ts';
+import { occupancyOf, policyOf } from '../domain/policy.ts';
 import { nextSlot } from '../domain/sequence.ts';
 import { restoreStatements, validateSnapshot } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
@@ -40,7 +40,7 @@ import type { ElectionService } from './election-service.ts';
 import type { Service } from './service.ts';
 
 export function resultDates(ctx: ElectionContext) {
-  return cycleTable(ctx.year, ctx.team, ctx.config, [], []).map((c) => c.date);
+  return cycleTable(ctx.year, ctx.team, ctx.config, [], [], ctx.external).map((c) => c.date);
 }
 // A list's content as its owner saved it, ignoring the active flag that awards consume.
 function listContent(items: Preference[], id: string) {
@@ -187,14 +187,8 @@ async function executePreferences(x: ElectionCommandContext) {
   });
 }
 
-function executeStart(x: ElectionCommandContext) {
-  const { body, d, ctx, state } = x;
-  if (d.config.cyclesPerPerson < 1 || d.config.cyclesPerPerson > 6)
-    throw new ApiError('La elección admite entre uno y seis ciclos por persona');
-  if (state && (d.awards.length || state.tieResolutions?.length))
-    throw new ApiError('No cambies el orden después de comenzar a elegir');
-  if (body.rulesConfirmed !== true || typeof body.allowDeferral !== 'boolean')
-    throw new ApiError('Confirma las reglas de elección');
+/** Last year's scores, lowest first; equal scores are ties drawn later. */
+function scoreOrder(d: ElectionCommandContext['d']) {
   const scores = d.config.previousScores,
     source = d.config.previousScoresSource;
   if (!scores || d.members.some((m) => !Number.isFinite(scores[m.code])) || !d.members.length)
@@ -208,7 +202,26 @@ function executeStart(x: ElectionCommandContext) {
       score = scores[m.code];
     groups.set(score, [...(groups.get(score) ?? []), id]);
   }
-  const tieGroups = [...groups.values()].filter((group) => group.length > 1);
+  return { order, tieGroups: [...groups.values()].filter((group) => group.length > 1), source };
+}
+/** The roster order, as HR fixed it in the census (VA); the administrator names its source. */
+function rosterOrder(d: ElectionCommandContext['d'], body: { source?: unknown }) {
+  if (!d.members.length) throw new ApiError('La campaña no tiene participantes');
+  if (typeof body.source !== 'string' || body.source.trim().length < 10)
+    throw new ApiError('Indica el origen del orden de elección');
+  return { order: d.members.map((m) => m.id), tieGroups: [] as string[][], source: body.source };
+}
+
+function executeStart(x: ElectionCommandContext) {
+  const { body, d, ctx, state } = x;
+  const policy = policyOf(ctx);
+  if (!policy.rounds && (d.config.cyclesPerPerson < 1 || d.config.cyclesPerPerson > 6))
+    throw new ApiError('La elección admite entre uno y seis ciclos por persona');
+  if (state && (d.awards.length || state.tieResolutions?.length))
+    throw new ApiError('No cambies el orden después de comenzar a elegir');
+  if (body.rulesConfirmed !== true || typeof body.allowDeferral !== 'boolean')
+    throw new ApiError('Confirma las reglas de elección');
+  const { order, tieGroups, source } = policy.rosterOrder ? rosterOrder(d, body) : scoreOrder(d);
   const rules = occupancyOf(ctx);
   if (rules) {
     const feasibility = rules.canComplete(rules.state(ctx, ctx.members, ctx.awards));

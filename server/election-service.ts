@@ -60,6 +60,7 @@ const context = (d: any): ElectionContext => ({
   members: d.members,
   requests: d.requests,
   awards: d.awards,
+  external: d.external,
 });
 // What «Deshacer» would revert, so the manager confirms knowingly.
 function undoSummary(row: any) {
@@ -472,7 +473,7 @@ export class ElectionService {
         ctx.members,
         d.campaign.status === 'open' ? requestsForAwards(cid, ctx.awards, ctx.requests) : ctx.requests,
         ctx.awards,
-        { skipProof: options.restored },
+        { skipProof: options.restored, external: ctx.external },
       );
     const reconstruction = await this.reconstruction().view(
       d,
@@ -676,6 +677,8 @@ export class ElectionService {
               turn.memberId &&
               turn.participants.length === 1 &&
               raw.state?.allowDeferral &&
+              // The last round of a policy with fixed rounds takes the whole balance.
+              turn.round < (policyOf(ctx).rounds ?? Infinity) &&
               (raw.state.credits[turn.memberId] ?? 0) < 2 &&
               ctx.awards.filter((a) => a.member_id === turn.memberId).length +
                 2 +

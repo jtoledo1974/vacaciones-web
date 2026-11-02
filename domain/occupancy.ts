@@ -19,6 +19,8 @@ export type PolicyState = {
   members: PolicyMember[];
   awards: PolicyAward[];
   summerTotal?: number;
+  /** Days each member may not take, by member id: their vacations in the other kind of campaign. */
+  blocked?: Record<string, string[]>;
 };
 export type RuleProblem = {
   code: string;
@@ -236,7 +238,13 @@ export type ReviewOptions = {
  * (VA daily quotas, ADR 0002) is loaded by the server and added here before calling
  * the policy: policies never query storage nor keep global caches of it.
  */
-export type PolicyCampaign = { year: number; team: string; config: Config };
+export type PolicyCampaign = { year: number; team: string; config: Config; external?: PolicyExternal };
+/**
+ * Data from outside the campaign. `quotas`: VA places per day. `blocked`: by person id, the
+ * days taken in the other kind of live campaign (ordinary for VA, VA for ordinary), which
+ * that person may not take here.
+ */
+export type PolicyExternal = { quotas?: Record<string, number>; blocked?: Record<string, string[]> };
 
 /**
  * A proof-based occupancy engine: it certifies that the team can still

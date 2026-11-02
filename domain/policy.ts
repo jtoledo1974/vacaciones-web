@@ -32,6 +32,7 @@ import {
   compactAvailability,
 } from './availability-2027.ts';
 import { hr2027FourthExcluded } from './hr-2027.ts';
+import { VA_OCCUPANCY as VA_RULES, VA_TEAM, validateVaConfig } from './policy-va.ts';
 
 export type * from './occupancy.ts';
 
@@ -41,17 +42,28 @@ export type VacationPolicy = {
   /** Text displayed at activation, provided by the same policy selected on the server. */
   activationRulesName?: string;
   /** Cycles a member must take this year. */
-  entitlement(config: Config, member: Pick<Member, 'code'>): number;
+  entitlement(config: Config, member: Pick<Member, 'code' | 'entitlement'>): number;
   /**
    * The units members choose (ordinary cycles by default), each with its first and last day.
-   * Only entry checks (requests, roster, restore) use it yet: views and calculate still use
-   * the ordinary calendar, so no production policy may define it until they are migrated.
+   * Entries, views and `calculate` all use it; units of a policy calendar carry no scores
+   * or periods.
    */
   calendar?(campaign: PolicyCampaign): { date: string; end: string }[];
   /** Throws when the configuration is not valid for this policy; ordinary rules by default. */
   validateConfig?(config: Config, year: number): void;
   /** Units chosen per turn in a 1-based round, before deferral credits; one cycle when absent. */
   unitsInRound?(round: number, remaining: number): number;
+  /** Exact number of rounds: no deferral reaches beyond the last one. Unbounded when absent. */
+  rounds?: number;
+  /**
+   * Units are independent of each other (only a per-unit quota): taking X early is then safe
+   * exactly when the predecessor cannot take X or X keeps two free places.
+   */
+  independentUnits?: boolean;
+  /** The election order is the roster order (the HR census), not last year's scores. */
+  rosterOrder?: boolean;
+  /** False when controllers have no personal simulator in this kind of campaign. */
+  personalSimulations?: boolean;
   occupancy: OccupancyRules | null;
 };
 
@@ -210,12 +222,27 @@ export function registerPolicy(year: number, policy: VacationPolicy): () => void
   };
 }
 
+const VA_OCCUPANCY: OccupancyRules = { ...VA_RULES, compact: compactAvailability };
+/** Vacaciones de antigüedad: days frozen per member, two rounds (ADR 0002). */
+const VA: VacationPolicy = {
+  activationRulesName: 'las normas de vacaciones de antigüedad',
+  entitlement: (_config, member) => member.entitlement ?? 0,
+  calendar: (campaign) => VA_OCCUPANCY.state(campaign, [], []).cycles.map((c) => ({ date: c.date, end: c.date })),
+  validateConfig: validateVaConfig,
+  unitsInRound: (round, remaining) => (round === 1 ? Math.min(1, remaining) : remaining),
+  rounds: 2,
+  independentUnits: true,
+  rosterOrder: true,
+  personalSimulations: false,
+  occupancy: VA_OCCUPANCY,
+};
+
 /** What identifies the policy of one campaign: its year and its team. */
 export type PolicyScope = { year: number; team: string };
 export const scopeOf = (row: { year: number; team_id: string }): PolicyScope => ({ year: row.year, team: row.team_id });
 /** The policy that governs one campaign. Campaign code must use this, not policyFor. */
 export function policyOf(scope: PolicyScope): VacationPolicy {
-  return policyFor(scope.year);
+  return scope.team === VA_TEAM ? VA : policyFor(scope.year);
 }
 /** Scope of any ordinary team of a year, for checks made before a campaign exists. */
 export const ordinaryScope = (year: number): PolicyScope => ({ year, team: '' });
@@ -241,8 +268,12 @@ export function occupancyFor(year: number): OccupancyRules | null {
 }
 
 /** The policy view of a stored campaign row and its configuration. */
-export function campaignOf(row: { year: number; team_id: string }, config: Config): PolicyCampaign {
-  return { year: row.year, team: row.team_id, config };
+export function campaignOf(
+  row: { year: number; team_id: string },
+  config: Config,
+  external?: PolicyCampaign['external'],
+): PolicyCampaign {
+  return { year: row.year, team: row.team_id, config, external };
 }
 
 /** Clear all occupancy caches for isolated tests, including completion certificates. */

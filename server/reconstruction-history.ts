@@ -15,6 +15,7 @@ type HistoryData = {
   campaign: { year: number; team_id: string };
   config: ElectionContext['config'];
   members: ElectionContext['members'];
+  external?: ElectionContext['external'];
 };
 type Choice = Pick<Award, 'member_id' | 'cycle_date'> & { id?: string };
 
@@ -62,6 +63,7 @@ const context = (d: HistoryData, awards: Award[], requests: ElectionContext['req
   members: d.members,
   awards,
   requests,
+  external: d.external,
 });
 
 export function historical(d: HistoryData, row: AuditRow): Historical | null {

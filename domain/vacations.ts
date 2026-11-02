@@ -1,11 +1,15 @@
 import { calendar, ENGINE_VERSION, type Config } from './calendar.ts';
 import { relationQuotas } from './quotas.ts';
 import { scoringVersion, scoringWeights } from './scoring.ts';
-import { type VacationPolicy, policyOf } from './policy.ts';
+import { type VacationPolicy, type PolicyExternal, occupancyOf, policyOf } from './policy.ts';
 export type Member = {
   id: string;
   code: string;
   seniority: string;
+  /** The person behind the membership; present on stored members. */
+  person_id?: string;
+  /** Units frozen when the member joined (VA days); null in ordinary campaigns. */
+  entitlement?: number | null;
 };
 export type Request = {
   id: string;
@@ -29,13 +33,21 @@ export function cycleTable(
   c: Config,
   requests: readonly Pick<Request, 'cycle_date'>[],
   awards: readonly Pick<Award, 'cycle_date'>[],
+  external?: PolicyExternal,
 ): CycleRow[] {
   const occupiedByDate = new Map<string, number>(),
     requestedByDate = new Map<string, number>();
   for (const award of awards) occupiedByDate.set(award.cycle_date, (occupiedByDate.get(award.cycle_date) ?? 0) + 1);
   for (const request of requests)
     requestedByDate.set(request.cycle_date, (requestedByDate.get(request.cycle_date) ?? 0) + 1);
-  return calendar(y, team, c).map((s) => ({
+  // A policy with its own units (VA days) has no scores, periods or correturnos.
+  const policy = policyOf({ year: y, team });
+  const units = policy.calendar
+    ? policy
+        .calendar({ year: y, team, config: c, external })
+        .map((u) => ({ ...u, score: 0, period: 0, correturnos: false, special: false }))
+    : calendar(y, team, c);
+  return units.map((s) => ({
     ...s,
     occupied: occupiedByDate.get(s.date) ?? 0,
     requested: requestedByDate.get(s.date) ?? 0,
@@ -203,12 +215,12 @@ export function calculate(
   members: Member[],
   requests: Request[],
   awards: Award[],
-  options: { skipProof?: boolean } = {},
+  options: { skipProof?: boolean; external?: PolicyExternal } = {},
 ) {
   const policy = policyOf({ year: y, team }),
-    rules = policy.occupancy,
-    campaign = { year: y, team, config: c };
-  const cycles = cycleTable(y, team, c, requests, awards);
+    rules = occupancyOf({ year: y, team }),
+    campaign = { year: y, team, config: c, external: options.external };
+  const cycles = cycleTable(y, team, c, requests, awards, options.external);
   const ordering = nextYearOrdering(y, cycles, c, members, requests);
   const planning = planningTotals(cycles, c, members, policy);
   const byDate = new Map(cycles.map((s) => [s.date, s]));
@@ -234,12 +246,14 @@ export function calculate(
       skipProof: options.skipProof,
       structurallyValid: !structuralIssues.length,
     });
+    const limits = new Map(review.limits.map((l) => [l.date, l]));
     return {
       engineVersion: ENGINE_VERSION,
       scoringVersion: scoringVersion(y),
       occupancyPolicyVersion: rules.version,
-      cycles: cycles.map((s, i) => {
-        const { min, base, max } = review.limits[i];
+      cycles: cycles.map((s) => {
+        // By date: the units come from the policy's calendar, the limits from its review.
+        const { min, base, max } = limits.get(s.date) ?? { min: 0, base: 0, max: 0 };
         return { ...s, min, base, max, available: s.occupied < max };
       }),
       ordering,

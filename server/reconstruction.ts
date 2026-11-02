@@ -78,6 +78,7 @@ const ctx = (d: any, awards = d.awards, requests = d.requests): ElectionContext 
   members: d.members,
   awards,
   requests,
+  external: d.external,
 });
 const snap = (state: ElectionState | null, preferences: Preference[], d: any): Snapshot =>
   capture(d, { state, preferences });
@@ -286,10 +287,11 @@ export class ReconstructionService {
       turn.participants.length === 1 && turn.memberId
         ? calculate(d.campaign.year, d.campaign.team_id, d.config, d.members, requests, awards, {
             skipProof: skipProof,
+            external: d.external,
           })
             .cycles.filter((c) =>
               skipProof && rules
-                ? rules.immediateIssues(rules.state(campaignOf(d.campaign, d.config), d.members, awards), [
+                ? rules.immediateIssues(rules.state(campaignOf(d.campaign, d.config, d.external), d.members, awards), [
                     { member_id: turn.memberId!, cycle_date: c.date },
                   ]).length === 0
                 : !choiceIssues(ctx(d, awards, requests), turn.memberId!, [c.date]).length,
@@ -550,7 +552,7 @@ export class ReconstructionService {
       );
       const rules = occupancyOf(scopeOf(c));
       const originAvailability = rules
-        ? rules.compact(rules.availability(rules.state(campaignOf(c, d.config), d.members, d.awards)))
+        ? rules.compact(rules.availability(rules.state(campaignOf(c, d.config, d.external), d.members, d.awards)))
         : undefined;
       const s: Session = {
         originAvailability,
@@ -754,8 +756,8 @@ export class ReconstructionService {
     const impact =
       rules && choices.length
         ? rules.impact(
-            rules.state(campaignOf(c, d.config), d.members, d.awards),
-            rules.state(campaignOf(c, d.config), d.members, [...d.awards, ...choices]),
+            rules.state(campaignOf(c, d.config, d.external), d.members, d.awards),
+            rules.state(campaignOf(c, d.config, d.external), d.members, [...d.awards, ...choices]),
           )
         : null;
     if (impact && rules && s.applied.length)

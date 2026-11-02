@@ -1,4 +1,5 @@
 import { requireVaAdmin, type Principal } from './permissions.ts';
+import { VA_TEAM } from './teams.ts';
 import { type Repository, type Statement } from './repository.ts';
 import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
@@ -86,10 +87,17 @@ function validate(body: QuotaBody) {
 }
 
 /** Preview, then apply with the preview's token, a full replacement of the year's calendar. */
+/** The live VA campaign of a year has started: it has an election state or any award. */
+const STARTED = `SELECT 1 FROM campaigns c WHERE c.team_id=? AND c.year=? AND c.scope_key='live'
+  AND (EXISTS(SELECT 1 FROM election_states s WHERE s.campaign_id=c.id) OR EXISTS(SELECT 1 FROM awards a WHERE a.campaign_id=c.id))`;
 export async function loadVaQuotas(repo: Repository, actor: Principal, body: QuotaBody) {
   requireVaAdmin(actor);
   if (!['preview', 'apply'].includes(body?.action ?? '')) throw new ApiError('Acción no válida: preview o apply');
   const { year, source, days } = validate(body);
+  // HR quotas are fixed once the VA campaign starts (ADR 0002 §3 sexies): to change
+  // them, the administrator resets the campaign by CLI.
+  if ((await repo.all(STARTED, [VA_TEAM, year])).length)
+    throw new ApiError('La campaña de VA de ese año ya se ha iniciado: los cupos no se pueden cambiar', 409);
   const before = await current(repo, year);
   const dates = new Set([...Object.keys(before.days), ...Object.keys(days)]);
   const changed = [...dates]
@@ -137,6 +145,11 @@ export async function loadVaQuotas(repo: Repository, actor: Principal, body: Quo
       sql: 'INSERT INTO va_quotas(year,date,places) VALUES(?,?,?)',
       args: [year, date, places],
     })),
+    {
+      sql: `INSERT INTO transaction_assertions(id) VALUES(CASE WHEN NOT EXISTS(${STARTED}) THEN ? ELSE NULL END)`,
+      args: [VA_TEAM, year, token],
+    },
+    { sql: 'DELETE FROM transaction_assertions WHERE id=?', args: [token] },
     // Check the current election inside the transaction, including choices made
     // since this preview: corrections cannot invalidate an already allocated day.
     {

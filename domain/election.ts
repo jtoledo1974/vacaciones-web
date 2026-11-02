@@ -1,6 +1,6 @@
 import { calculate, type Member, type Request, type Award } from './vacations.ts';
 import type { Config } from './calendar.ts';
-import { occupancyOf, policyOf } from './policy.ts';
+import { occupancyOf, policyOf, type PolicyExternal } from './policy.ts';
 import { nextSlot, orderForRound, type SequenceInput } from './sequence.ts';
 export { orderForRound } from './sequence.ts';
 
@@ -187,6 +187,8 @@ export type ElectionContext = {
   members: Member[];
   requests: Request[];
   awards: Award[];
+  /** Data from outside the campaign that its policy needs (see PolicyExternal). */
+  external?: PolicyExternal;
 };
 export type Choice = { member_id: string; cycle_date: string };
 export type JointChoice = { member_id: string; dates: string[] };
@@ -340,7 +342,7 @@ export function sequenceFor(ctx: ElectionContext, state: ElectionState): Sequenc
     awards: ctx.awards,
     entitlement: (id) => entitlementFor(ctx, id),
     unitsInRound: policyOf(ctx).unitsInRound,
-    maxRounds: ctx.config.cyclesPerPerson + 4,
+    maxRounds: (policyOf(ctx).rounds ?? ctx.config.cyclesPerPerson) + 4,
   };
 }
 export function currentTurn(ctx: ElectionContext, input: ElectionState) {
@@ -628,6 +630,9 @@ export function defer(ctx: ElectionContext, input: ElectionState, memberId: stri
   if (turn.memberId !== memberId || turn.participants.length !== 1)
     throw new Error('No es el turno individual de este controlador');
   if (!input.allowDeferral) throw new Error('El aplazamiento no está habilitado para esta campaña');
+  const rounds = policyOf(ctx).rounds;
+  if (rounds !== undefined && turn.round >= rounds)
+    throw new Error('En la última ronda no se puede aplazar: corresponde elegir el saldo restante');
   const credits = input.credits[memberId] ?? 0;
   const remaining = entitlementFor(ctx, memberId) - count(ctx, memberId);
   if (credits >= 2 || remaining <= credits + 1)

@@ -26,8 +26,17 @@ export async function cloneSimulation(
   ];
   for (const member of d.members)
     statements.push({
-      sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,version) VALUES(?,?,?,?,?,?,?,1)',
-      args: [map.get(member.id), cid, member.person_id, member.code, member.label, member.seniority, member.position],
+      sql: 'INSERT INTO campaign_members(id,campaign_id,person_id,code,label,seniority,position,entitlement,version) VALUES(?,?,?,?,?,?,?,?,1)',
+      args: [
+        map.get(member.id),
+        cid,
+        member.person_id,
+        member.code,
+        member.label,
+        member.seniority,
+        member.position,
+        member.entitlement ?? null,
+      ],
     });
   const state = (await repo.all('SELECT json FROM election_states WHERE campaign_id=?', [d.campaign.id]))[0];
   if (state) {

@@ -1,5 +1,6 @@
 /** The reserved team of the yearly VA campaign (ADR 0002). */
-export const VA_TEAM = 'va';
+export { VA_TEAM } from '../domain/policy-va.ts';
+import { VA_TEAM } from '../domain/policy-va.ts';
 /** Creates the reserved team on first use, so empty installs and restores never collide on it. */
 export const ensureVaTeam = {
   sql: "INSERT OR IGNORE INTO teams(id,name,version,kind) VALUES(?,'Vacaciones de antigüedad',1,'va')",

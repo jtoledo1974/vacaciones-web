@@ -180,14 +180,18 @@ test('las entradas de una campaña aceptan el calendario de su política y valid
   const ordinary = (campaign: { year: number; team: string; config: Parameters<typeof calendar>[2] }) =>
     calendar(campaign.year, campaign.team, campaign.config);
   // A day that is not an ordinary cycle start: only the policy's calendar offers it.
-  let extra = '';
+  let extra = '',
+    second = '';
   t.after(
     registerPolicy(2099, {
       ...POLICY_2099,
+      // The extra day is outside the 2099 occupancy engine's cycles: legacy quotas only.
+      occupancy: null,
       calendar: (campaign) => {
         const units = ordinary(campaign);
         extra = units[0].end;
-        return [...units, { date: extra, end: extra }];
+        second = units[1].end;
+        return [...units, { date: extra, end: extra }, { date: second, end: second }];
       },
       validateConfig: (config) => {
         if (config.previousScoresSource === 'rechazar') throw new Error('Configuración rechazada por la política');
@@ -213,6 +217,7 @@ test('las entradas de una campaña aceptan el calendario de su política y valid
       year: 2099,
       copySelections: false,
       rows: [{ code: 'P01', label: 'CTA P01', seniority: '', dates: [extra] }],
+      selectionOrder: [{ round: 1, code: 'P01', date: extra }],
     },
   });
   // Requests: the same calendar.
@@ -221,9 +226,9 @@ test('las entradas de una campaña aceptan el calendario de su política y valid
     version: d.campaign.version,
     memberId: d.members[0].id,
     slot: 2,
-    date: extra,
+    date: second,
   });
-  assert.ok(d.requests.some((r: { cycle_date: string }) => r.cycle_date === extra));
+  assert.ok(d.requests.some((r: { cycle_date: string }) => r.cycle_date === second));
   // Configuration: the policy's validation.
   await assert.rejects(
     service.mutate(cid, {
