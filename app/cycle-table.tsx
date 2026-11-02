@@ -37,6 +37,8 @@ type Props = {
   preferences?: string[];
   /** Code of the member the marks belong to, when it is not the viewer. */
   ownerCode?: string;
+  /** Single-day units (VA): one row per day, no points. */
+  daily?: boolean;
 };
 
 function shortDate(iso: string): string {
@@ -63,6 +65,7 @@ export default function CycleTable({
   mine = [],
   preferences = [],
   ownerCode,
+  daily = false,
 }: Props) {
   const blocked = new Set(notForMe ?? []),
     safe = new Set(secured ?? []);
@@ -92,7 +95,8 @@ export default function CycleTable({
       result.set(a.cycle_date, [...(result.get(a.cycle_date) ?? []), codes.get(a.member_id) ?? '?']);
     return result;
   }, [awards, codes]);
-  const columns = Math.max(4, ...cycles.map((c) => Math.max(c.max, c.occupied)));
+  // Ordinary cycles keep at least four columns; VA days show exactly their places.
+  const columns = Math.max(daily ? 1 : 4, ...cycles.map((c) => Math.max(c.max, c.occupied)));
   const chosen = new Set(selected),
     marked = new Set(highlighted),
     owned = new Set(mine);
@@ -101,7 +105,7 @@ export default function CycleTable({
     <div className={'vac3' + (ruled ? ' vac3-ruled' : '')} style={styles}>
       <div className="vac3-tools">
         <span>
-          <strong>{cycles.length}</strong> ciclos · 8 días por ciclo · 1º eligió antes
+          <strong>{cycles.length}</strong> {daily ? 'días' : 'ciclos · 8 días por ciclo'} · 1º eligió antes
         </span>
         <span className="vac3-size-actions">
           <button
@@ -127,19 +131,27 @@ export default function CycleTable({
         className={'vac3-scroll' + (fits ? ' vac3-fits' : '')}
         role="region"
         tabIndex={0}
-        aria-label="Tabla de ciclos de vacaciones; desplaza para consultar todas las filas y columnas"
+        aria-label={
+          'Tabla de ' +
+          (daily ? 'días' : 'ciclos') +
+          ' de vacaciones; desplaza para consultar todas las filas y columnas'
+        }
       >
         <table ref={tableRef} className="vac3-table">
           <caption className="vac3-sr">
-            Baremo, inicio de cada ciclo y controladores en orden de elección (primera plaza: primera elección)
+            {daily
+              ? 'Cada día y controladores en orden de elección (primera plaza: primera elección)'
+              : 'Baremo, inicio de cada ciclo y controladores en orden de elección (primera plaza: primera elección)'}
           </caption>
           <thead>
             <tr>
-              <th scope="col" className="vac3-points">
-                Pts
-              </th>
+              {!daily && (
+                <th scope="col" className="vac3-points">
+                  Pts
+                </th>
+              )}
               <th scope="col" className="vac3-date">
-                Ciclo
+                {daily ? 'Día' : 'Ciclo'}
               </th>
               {Array.from({ length: columns }, (_, i) => (
                 <th scope="col" className="vac3-slot" key={i}>
@@ -158,11 +170,7 @@ export default function CycleTable({
               const status = cycleAvailability(c, availability, ruled);
               const label =
                 shortDate(c.date) +
-                ' a ' +
-                shortDate(c.end) +
-                ', ' +
-                c.score +
-                ' puntos, ' +
+                (daily ? ', ' : ' a ' + shortDate(c.end) + ', ' + c.score + ' puntos, ') +
                 c.occupied +
                 ' plazas ocupadas, ' +
                 status.description +
@@ -187,7 +195,7 @@ export default function CycleTable({
                   }}
                   data-cycle-date={c.date}
                 >
-                  <td className="vac3-points">{c.score}</td>
+                  {!daily && <td className="vac3-points">{c.score}</td>}
                   <td className="vac3-date">
                     <button
                       type="button"
@@ -235,19 +243,23 @@ export default function CycleTable({
                   {Array.from({ length: columns }, (_, i) => {
                     const occupant = people[i],
                       slot = status.data?.slots[i];
-                    const disabled = ruled ? slot?.status === 'blocked' : i >= c.max;
-                    const unknown = ruled && (!slot || slot.status === 'indeterminate');
+                    // A day has exactly its places: a column past them does not exist, it is not unknown.
+                    const beyond = daily && !!status.data && !slot;
+                    const disabled = ruled ? beyond || slot?.status === 'blocked' : i >= c.max;
+                    const unknown = ruled && !beyond && (!slot || slot.status === 'indeterminate');
                     const occupied = Boolean(occupant);
                     const add = !ruled && disabled && i === c.max && extra;
                     const cellTitle = occupant
                       ? 'Ocupado por ' + occupant
-                      : ruled
-                        ? slotExplanation(slot)
-                        : add
-                          ? 'Cupo adicional potencial, sujeto a confirmación'
-                          : disabled
-                            ? 'Cupo no autorizado'
-                            : 'Cupo libre';
+                      : beyond
+                        ? 'Sin plaza ese día'
+                        : ruled
+                          ? slotExplanation(slot)
+                          : add
+                            ? 'Cupo adicional potencial, sujeto a confirmación'
+                            : disabled
+                              ? 'Cupo no autorizado'
+                              : 'Cupo libre';
                     return (
                       <td
                         key={i}

@@ -3,7 +3,7 @@ import { iso, serial } from '../domain/calendar.ts';
 /** Data already supplied to the signed-in controller; no external calendar API is required. */
 export type PersonalCalendarSource = {
   campaign: { year: number; team_id: string; status: string; scope_key: string; data_kind?: string };
-  election?: { myMemberId?: string | null };
+  election?: { myMemberId?: string | null; policyPresentation?: { units?: { one: string; many: string } } | null };
   preview?: unknown;
   awards: { member_id: string; cycle_date: string; simulated?: boolean }[];
   result: { cycles: { date: string; end: string }[] };

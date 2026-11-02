@@ -233,6 +233,20 @@ test('el calendario individual reúne las vacaciones ordinarias y las de VA de l
     assert.deepEqual([person.team, person.ordinary, person.va], ['C', span, day]);
     assert.ok(renderPersonCalendarPdf(person).startsWith('%PDF'));
   }
+  // A simulation shows itself alone, never the real VA days.
+  const sim = await s.createSimulation(ordinary, {
+    name: 'Escenario',
+    version: (await s.load(ordinary)).campaign.version,
+  });
+  assert.deepEqual((await personCalendar(s, repo, sim.id, 'AA')).va, []);
+  // A failure other than a refusal fails the PDF instead of leaving the VA days out.
+  const view = s.view.bind(s);
+  s.view = async (cid, options) => {
+    if (cid === campaignId) throw new Error('D1 caído');
+    return view(cid, options);
+  };
+  await assert.rejects(personCalendar(s, repo, ordinary, 'AA'), /D1 caído/);
+  s.view = view;
   // Anyone who may not read VA gets the ordinary calendar alone.
   const anonymous = new Service(repo, { id: '', role: 'viewer', teams: [] });
   assert.deepEqual((await personCalendar(anonymous, repo, ordinary, 'AA')).va, []);
