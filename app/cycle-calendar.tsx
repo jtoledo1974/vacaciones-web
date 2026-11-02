@@ -398,6 +398,8 @@ export default function CycleCalendar({
     );
   }
   function renderMembers() {
+    // VA: as many columns as the most days anyone holds, and no points.
+    const columns = daily ? Math.max(1, ...displayedMembers.map((id) => memberEntries(id).length)) : 6;
     return (
       <div className="vac2-members-wrap">
         <div className="vac2-member-controls" role="group" aria-label="Ordenación de vacaciones por CTA">
@@ -409,11 +411,11 @@ export default function CycleCalendar({
               onChange={(e) => setMemberOrder(e.target.value as MemberOrder)}
             >
               <option value="request">Orden de petición</option>
-              <option value="points">Puntos acumulados ↑</option>
+              {!daily && <option value="points">Puntos acumulados ↑</option>}
             </select>
           </label>
           <label htmlFor="vac2-cycle-sort">
-            Orden de ciclos
+            {daily ? 'Orden de días' : 'Orden de ciclos'}
             <select
               id="vac2-cycle-sort"
               value={cycleOrder}
@@ -434,12 +436,13 @@ export default function CycleCalendar({
             <thead>
               <tr>
                 <th scope="col">CTA</th>
-                {Array.from({ length: 6 }, (_, i) => (
+                {Array.from({ length: columns }, (_, i) => (
                   <th scope="col" key={i}>
-                    C{i + 1}
+                    {daily ? 'D' : 'C'}
+                    {i + 1}
                   </th>
                 ))}
-                <th scope="col">Pts</th>
+                {!daily && <th scope="col">Pts</th>}
               </tr>
             </thead>
             <tbody>
@@ -448,7 +451,7 @@ export default function CycleCalendar({
                 return (
                   <tr key={id} className={id === owner ? 'vac2-mine-row' : undefined}>
                     <th scope="row">{byId.get(id)}</th>
-                    {Array.from({ length: 6 }, (_, i) => (
+                    {Array.from({ length: columns }, (_, i) => (
                       <td key={i}>
                         {entries[i] ? (
                           <button type="button" className="vac2-date-link" onClick={() => onSelect(entries[i])}>
@@ -459,7 +462,7 @@ export default function CycleCalendar({
                         )}
                       </td>
                     ))}
-                    <td>{memberPoints.get(id) ?? 0}</td>
+                    {!daily && <td>{memberPoints.get(id) ?? 0}</td>}
                   </tr>
                 );
               })}
@@ -479,7 +482,8 @@ export default function CycleCalendar({
                 <summary>
                   <b>{byId.get(id)}</b>
                   <span>
-                    {entries.length === 1 ? '1 ciclo' : entries.length + ' ciclos'} · {memberPoints.get(id) ?? 0} pt
+                    {entries.length === 1 ? '1 ' + unit : entries.length + ' ' + unit + 's'}
+                    {daily ? '' : ' · ' + (memberPoints.get(id) ?? 0) + ' pt'}
                   </span>
                 </summary>
                 <div>
@@ -491,7 +495,7 @@ export default function CycleCalendar({
                       </button>
                     ))
                   ) : (
-                    <p className="muted">Sin ciclos adjudicados</p>
+                    <p className="muted">{daily ? 'Sin días adjudicados' : 'Sin ciclos adjudicados'}</p>
                   )}
                   {id === owner && ranked.length > 0 && (
                     <div className="vac2-pref-row">

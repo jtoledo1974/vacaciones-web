@@ -54,7 +54,8 @@ test(
 
     await page.goto('/signin-with-chatgpt?como=' + email);
     await page.goto('/administracion');
-    await expect(page.getByRole('button', { name: /Activar elección/ }).first()).toBeVisible();
+    // The common administration: its activation panel, folded until opened.
+    await expect(page.locator('summary').filter({ hasText: 'Activar elección' })).toBeVisible();
     await expect(page.getByText('Administración reservada')).toHaveCount(0);
 
     // The VA PDFs go through the session, never the public /lite route.
