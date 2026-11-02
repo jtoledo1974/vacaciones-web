@@ -73,7 +73,8 @@ test(
   async () => {
     const repo = new SQLiteRepo(),
       dir = mkdtempSync(path.join(tmpdir(), 'vac-v2-'));
-    let maxBytes = 0;
+    let maxBytes = 0,
+      pages = 0;
     try {
       // 72 MB of logical text, without retaining the whole backup or whole database in JS.
       const text = 'ñ🦉'.repeat(60_000);
@@ -119,6 +120,9 @@ test(
           next?.();
         });
       })
+        .then((r) => {
+          pages = r.pages;
+        })
         .catch((e) => {
           error = e;
         })
@@ -129,6 +133,8 @@ test(
       await Promise.all([download, restore]);
       if (error) throw error;
       assert.ok(maxBytes < 800_000, 'page serialization is bounded independently of database size');
+      // 26 M characters: one page per 8 KB fragment would be about 3,200 pages.
+      assert.ok(pages < 150, pages + ' pages: a page carries many fragments of one row or of several');
       const restored = new DatabaseSync(dest);
       try {
         assert.deepEqual(

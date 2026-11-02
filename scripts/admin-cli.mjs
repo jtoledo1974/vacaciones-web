@@ -18,6 +18,7 @@
 //   backup --out copia.ndjson          copia v2 acotada, con cierre e integridad verificables
 //   cleanup preview [--out plan.json]   solo superadmin; no escribe
 //   cleanup apply plan.json            aplica exactamente el token del plan (máximo 500 por categoría)
+//   cleanup run --mode modo            repite preview y apply hasta vaciar el lote, con una sola copia previa
 //   get <ruta>                         GET /api/<ruta>
 //   post <ruta> <fichero.json|->       POST /api/<ruta> con ese cuerpo
 //   va-cupos importar|aplicar|cambiar|ver   plazas diarias de VA que publica RRHH
@@ -355,6 +356,13 @@ async function main() {
     method = 'POST';
     const preview = readBody(rest[1]);
     body = { cutoff: preview.plan?.cutoff, mode: preview.plan?.mode, token: preview.token };
+  } else if (command === 'cleanup' && rest[0] === 'run') {
+    if (!['compact-reconstruction-events', 'compress-audit-payloads'].includes(flags.mode))
+      fail('Usa cleanup run --mode compact-reconstruction-events|compress-audit-payloads');
+    // One backup before the first batch, not one per batch.
+    route = 'cleanup';
+    method = 'POST';
+    body = { mode: flags.mode };
   } else if (command === 'post' && rest[0] && rest[1]) {
     method = 'POST';
     route = rest[0];
@@ -494,6 +502,34 @@ async function main() {
       await saveBackup(path.join(dir, 'antes-' + stamp() + '.ndjson'));
     }
     checkCancelled();
+    if (command === 'cleanup' && rest[0] === 'run') {
+      const mode = encodeURIComponent(flags.mode);
+      for (let batch = 1; ; batch++) {
+        checkCancelled();
+        const preview = await client.request('GET', 'cleanup?mode=' + mode, undefined, 'read');
+        if (!preview.ok) fail('Error ' + preview.status + ' en la vista previa: ' + (preview.data?.error ?? ''));
+        const rows = preview.data.plan.categories.reduce((n, c) => n + c.rows, 0);
+        if (!rows) {
+          console.error('Terminado: ' + (batch - 1) + ' lotes aplicados');
+          return;
+        }
+        const { cutoff } = preview.data.plan;
+        // Never retried, and not aborted once sent: the write may already be applied.
+        let r;
+        try {
+          r = await client.request('POST', 'cleanup', { cutoff, mode: flags.mode, token: preview.data.token }, 'write');
+        } catch (e) {
+          console.error(
+            'Resultado DESCONOCIDO del lote ' + batch + ' (' + (e?.message ?? e) + '); vuelve a ejecutar run.',
+          );
+          process.exitCode = 3;
+          return;
+        }
+        if (!r.ok)
+          fail('Error ' + r.status + ' en el lote ' + batch + ': ' + (r.data?.error ?? JSON.stringify(r.data)));
+        console.error('Lote ' + batch + ': ' + rows + ' filas');
+      }
+    }
     // Never retried, and not aborted once sent: the write may already be applied.
     let r;
     try {
