@@ -15,7 +15,7 @@ Los dos superadministradores solicitados se configuran en el entorno privado de 
 La versión desplegada añade edición conjunta/importación de plantillas, retirada de trabajadores y nombres de equipo. La importación del Excel original y sus datos fue autorizada por el usuario. Los archivos de importación contienen datos personales y quedan fuera de los repositorios y paquetes de despliegue.
 
 
-Actualización final: versión 3, despliegue appgdep_6acd557af6508191b53d6cd77bf364bc, código 14a0942e6f447f093609e3ee32d3144a6bbaeda3. Site público por petición del propietario; superadministradores toledo@lazaro.es y otro-superadmin@ejemplo.es. Sin otras concesiones de escritura en la base comprobada.
+Actualización final: versión 3, despliegue appgdep_6acd557af6508191b53d6cd77bf364bc, código 14a0942e6f447f093609e3ee32d3144a6bbaeda3. Site público por petición del propietario; dos superadministradores configurados en el entorno privado del despliegue. Sin otras concesiones de escritura en la base comprobada.
 
 Importación real comprobada en Chrome y persistente tras recargar: equipo C de 2026, 16 nombres y nicks coincidentes, 16 antigüedades vacías, 81 solicitudes y 81 adjudicaciones copiadas. No se ha publicado el borrador como resultado definitivo. Los otros siete equipos conservan ejemplos: faltan sus fuentes. El Excel de Descargas es idéntico al de fuentes y solo incluye la plantilla C.
 

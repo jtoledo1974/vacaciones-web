@@ -67,3 +67,10 @@ diagnostico-*.json
 *.sqlite
 *.sqlite-*
 *.partial
+/evidencias/
+# Source spreadsheets and PDFs (HR templates, seniority lists) carry personal data.
+*.xlsx
+*.xlsm
+*.xls
+*.pdf
+!/tests/fixtures/*.xlsm
