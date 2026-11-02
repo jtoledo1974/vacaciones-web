@@ -68,8 +68,16 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     [signinUrl, setSigninUrl] = useState('/signin-with-chatgpt?return_to=/');
   // «Antigüedad» shows the year's VA campaign on the same screens as an ordinary one
   // (ADR 0002): election for participants, administration in its own tab.
+  // Who only administers VA lands on its administration straight from «Administración».
+  const onlyVaAdmin =
+    !!index?.va?.admin &&
+    index.principal.role !== 'superadmin' &&
+    !index.principal.teams.some((t: string) => t !== 'va');
   const vaCampaignId =
-    (nav === 'antiguedad' || nav === 'antiguedad-admin') && index?.vaCampaign ? index.vaCampaign.id : '';
+    (nav === 'antiguedad' || nav === 'antiguedad-admin' || (nav === 'administracion' && onlyVaAdmin)) &&
+    index?.vaCampaign
+      ? index.vaCampaign.id
+      : '';
   const cid = vaCampaignId || selectedCid;
   const view: DashboardSection = vaCampaignId ? (nav === 'antiguedad' ? 'eleccion' : 'administracion') : nav;
   const [yearChoice, setYearChoice] = useState<number | null>(null);
@@ -1036,7 +1044,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               <VaElectionPanel administration />
               <VaCensusPanel />
             </>
-          ) : nav === 'administracion' && !adminRole ? (
+          ) : nav === 'administracion' && !adminRole && !vaCampaignId ? (
             <section className="panel empty">
               <ShieldCheck size={32} />
               <h2>Administración reservada</h2>
@@ -1167,12 +1175,15 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                     <section className="panel">
                       <h2>Situación actual en PDF</h2>
                       <p className="muted">
-                        {data.campaign.scope_key === 'live'
-                          ? 'Se abre en el navegador; desde ahí puedes guardarlo o compartirlo (por ejemplo, por WhatsApp). Muestra lo mismo que la consulta pública.'
-                          : 'Se abre en el navegador con los datos de esta simulación, para probar cómo quedaría.'}
+                        {vaCampaignId
+                          ? 'Se abre en el navegador; desde ahí puedes guardarlo o compartirlo.'
+                          : data.campaign.scope_key === 'live'
+                            ? 'Se abre en el navegador; desde ahí puedes guardarlo o compartirlo (por ejemplo, por WhatsApp). Muestra lo mismo que la consulta pública.'
+                            : 'Se abre en el navegador con los datos de esta simulación, para probar cómo quedaría.'}
                       </p>
                       <div className="button-row">
-                        {data.campaign.scope_key === 'live' ? (
+                        {/* VA is not public: like simulations, it goes through the session. */}
+                        {data.campaign.scope_key === 'live' && !vaCampaignId ? (
                           <a
                             className="secondary"
                             href={`/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}`}
@@ -1189,7 +1200,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                           <button
                             className="secondary"
                             onClick={async () => {
-                              // Simulations are private: fetch with the session, then show the PDF in a new tab.
+                              // Simulations and VA are private: fetch with the session, then show the PDF in a new tab.
                               // The tab opens synchronously so the browser does not block it as a pop-up.
                               const tab = window.open('', '_blank');
                               try {
@@ -1236,12 +1247,12 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                             const code = individualPdfCode;
                             const tab = window.open('', '_blank');
                             try {
-                              if (data.campaign.scope_key === 'live') {
+                              // VA is not a public team: like simulations, it needs the session.
+                              if (data.campaign.scope_key === 'live' && !vaCampaignId) {
                                 const href = `/lite/individual-pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}&cta=${encodeURIComponent(code)}`;
                                 if (tab) tab.location.href = href;
                                 else window.location.href = href;
                               } else {
-                                // A simulation remains behind the authenticated API.
                                 const response = await apiFetch(
                                   'campaign/' + cid + '/individual-pdf?cta=' + encodeURIComponent(code),
                                 );

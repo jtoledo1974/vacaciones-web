@@ -51,7 +51,8 @@ export const serveLite = guarded(async (request: Request, bindings: LiteBindings
 export const serveLitePdf = guarded(async (request: Request, bindings: LiteBindings) => {
   if (!bindings.DB) return new Response('El almacenamiento todavía no está disponible', { status: 503, headers });
   const { summary } = await load(request, bindings);
-  if (!summary) return new Response('Campaña no encontrada', { status: 404, headers });
+  if (!summary)
+    return new Response('No hay calendario publicado para ese equipo y ejercicio.', { status: 404, headers });
   return new Response(renderLitePdf(summary), {
     headers: {
       ...headers,
@@ -66,7 +67,8 @@ export const serveLitePdf = guarded(async (request: Request, bindings: LiteBindi
 export const serveLiteIndividualPdf = guarded(async (request: Request, bindings: LiteBindings) => {
   if (!bindings.DB) return new Response('El almacenamiento todavía no está disponible', { status: 503, headers });
   const { summary, campaignId } = await load(request, bindings);
-  if (!summary || !campaignId) return new Response('Campaña no encontrada', { status: 404, headers });
+  if (!summary || !campaignId)
+    return new Response('No hay calendario publicado para ese equipo y ejercicio.', { status: 404, headers });
   const code = new URL(request.url).searchParams.get('cta') ?? '';
   if (!summary.members.some((m) => m.code === code))
     return new Response('Selecciona un controlador válido de la campaña', { status: 400, headers });

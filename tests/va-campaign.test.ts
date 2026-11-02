@@ -6,6 +6,8 @@ import { Service } from '../server/service.ts';
 import { VA_TEAM } from '../server/teams.ts';
 import { loadVaCampaign } from '../server/va-campaign.ts';
 import { defaultConfig } from '../domain/defaults.ts';
+import { liteSummary } from '../server/lite.ts';
+import { renderIndividualCalendarPdf } from '../server/individual-calendar-pdf.ts';
 import type { Principal } from '../server/permissions.ts';
 
 const owner: Principal = { id: 'chatgpt:owner', role: 'superadmin', teams: [] };
@@ -175,6 +177,13 @@ test('la campaña de VA se abre solo para su administración y sus participantes
   assert.equal((await other.list()).vaCampaign, null);
   await assert.rejects(other.view(campaignId), /cuenta participante/);
   assert.equal((await s.list()).vaCampaign?.id, campaignId, 'la administración la ve siempre');
+  // Every read path, not only the view.
+  const anonymous = as('');
+  for (const reader of [other, anonymous]) {
+    await assert.rejects(reader.election().availability(campaignId), /cuenta participante/);
+    await assert.rejects(reader.publishedView(campaignId), /cuenta participante/);
+  }
+  await participant.election().availability(campaignId);
 });
 
 test('recargar el censo en preparación descarta las solicitudes de los miembros anteriores', async () => {
@@ -197,4 +206,12 @@ test('recargar el censo en preparación descarta las solicitudes de los miembros
     ['BB'],
   );
   assert.equal(after.requests.length, 0);
+});
+
+test('el calendario individual en PDF de VA sale sin turnos de equipo', async () => {
+  const { s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const summary = liteSummary(await s.view(campaignId));
+  const pdf = renderIndividualCalendarPdf(summary, 'AA', (await s.load(campaignId)).config);
+  assert.ok(pdf.startsWith('%PDF'), 'VA no es un equipo con rotación');
 });

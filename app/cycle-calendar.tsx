@@ -319,8 +319,20 @@ export default function CycleCalendar({
             </div>
             <div className="vac2-days">
               {monthDates[m].map((c, i) => {
-                if (!c) return <span key={'pad-' + i} />;
                 const day = i - ((new Date(Date.UTC(year, m, 1)).getUTCDay() + 6) % 7) + 1;
+                // Single days: a day without places looks like a full one.
+                if (!c)
+                  return daily && day > 0 ? (
+                    <span
+                      key={i}
+                      className="vac2-day vac2-free-0 vac2-cycle-start vac2-no-places"
+                      aria-label={day + ' ' + months[m] + ': sin plazas'}
+                    >
+                      {day}
+                    </span>
+                  ) : (
+                    <span key={'pad-' + i} />
+                  );
                 const first = c.date === new Date(Date.UTC(year, m, day)).toISOString().slice(0, 10);
                 const status = cycleAvailability(c, availability, ruled);
                 return (
@@ -347,11 +359,6 @@ export default function CycleCalendar({
                     {first && rankOf(c.date) > 0 && (
                       <small className="vac2-day-rank" aria-hidden="true">
                         P{rankOf(c.date)}
-                      </small>
-                    )}
-                    {ruled && first && (
-                      <small className="vac2-day-count" aria-hidden="true">
-                        {status.label}
                       </small>
                     )}
                   </button>

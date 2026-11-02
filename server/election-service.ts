@@ -52,6 +52,7 @@ type Host = {
   load: (cid: string) => Promise<any>;
   commit: (ops: Statement[]) => Promise<any>;
   audit: (action: AuditAction, c: any, before: any, after: any) => Statement;
+  assertVaReader: (loaded: any) => Promise<void>;
 };
 const context = (d: any): ElectionContext => ({
   year: d.campaign.year,
@@ -129,8 +130,9 @@ export class ElectionService {
   }
   /** Load and read for the read-only endpoints, concealed as concealedFor() does. */
   async concealedRead(cid: string) {
-    const loaded = await this.host.load(cid),
-      raw = await this.read(cid);
+    const loaded = await this.host.load(cid);
+    await this.host.assertVaReader(loaded);
+    const raw = await this.read(cid);
     const { d, state } = await this.concealedFor(loaded, raw.state);
     return { d, raw: state !== undefined ? { ...raw, state } : raw, concealing: d !== loaded };
   }
@@ -507,7 +509,9 @@ export class ElectionService {
         (preferredChoice(realCtx, realTurn.state, raw.preferences, Date.now()) ||
           pendingEarlyListChoice(realCtx, realState, raw.preferences))
       );
-    const skipFullAvailability = !!options.skipAvailabilityForPendingAutomatic && pendingAutomatic;
+    // Independent units (VA) cost a subtraction: their availability is never deferred.
+    const skipFullAvailability =
+      !!options.skipAvailabilityForPendingAutomatic && pendingAutomatic && !policyOf(realCtx).independentUnits;
     // A single source of truth per snapshot. Previous code evaluated rejected
     // policy choices twice and reconstructed the full HR calendar for every date.
     const availabilityReasons: Record<string, string> = {};

@@ -92,6 +92,7 @@ export class Service {
       load: (cid) => this.load(cid),
       commit: (ops) => this.commit(ops),
       audit: (a, c, b, n) => this.audit(a, c, b, n),
+      assertVaReader: (loaded) => this.assertVaReader(loaded),
     });
   }
   personalSimulation() {
@@ -271,14 +272,7 @@ export class Service {
       this.actor.preview?.campaignId !== cid
     )
       throw new ApiError('Simulación reservada a administradores', 403);
-    // VA is not a public consultation: its administrators and its participants only.
-    if (
-      loaded.campaign.team_id === VA_TEAM &&
-      !canWrite(this.actor, VA_TEAM) &&
-      this.actor.preview?.campaignId !== cid &&
-      !(await this.election().memberForAccount(loaded))
-    )
-      throw new ApiError('Las vacaciones de antigüedad se consultan solo con una cuenta participante', 403);
+    await this.assertVaReader(loaded);
     const auditContext = new AuditContext(this.repo, cid, loaded.campaign.version);
     const { d, state, hidden, consumed } = await this.election().concealedFor(loaded, undefined, auditContext);
     const concealing = d !== loaded;
@@ -313,10 +307,21 @@ export class Service {
     }
     return projectPublicCampaignView(d, cid, election, result, this.actor.preview);
   }
+  /** VA is not a public consultation: its administrators and its participants only, on every read. */
+  async assertVaReader(loaded: Awaited<ReturnType<Service['load']>>) {
+    if (
+      loaded.campaign.team_id === VA_TEAM &&
+      !canWrite(this.actor, VA_TEAM) &&
+      this.actor.preview?.campaignId !== loaded.campaign.id &&
+      !(await this.election().memberForAccount(loaded))
+    )
+      throw new ApiError('Las vacaciones de antigüedad se consultan solo con una cuenta participante', 403);
+  }
   async publishedView(cid: string) {
     const d = await this.load(cid);
     if (d.campaign.scope_key !== 'live' && !canWrite(this.actor, d.campaign.team_id))
       throw new ApiError('Simulación reservada a administradores', 403);
+    await this.assertVaReader(d);
     const run = d.campaign.published_run_id
       ? (await this.repo.all('SELECT * FROM runs WHERE id=? AND campaign_id=?', [d.campaign.published_run_id, cid]))[0]
       : null;

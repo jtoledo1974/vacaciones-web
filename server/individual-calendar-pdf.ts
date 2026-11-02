@@ -2,6 +2,7 @@ import { rotationCode, serial, type Config } from '../domain/calendar.ts';
 import { calendarHolidaysForYear } from '../domain/official-holidays.ts';
 import { Page, writePdf } from './lite-pdf.ts';
 import type { LiteSummary } from './lite.ts';
+import { VA_TEAM } from '../domain/policy-va.ts';
 
 /**
  * One-page A4 landscape calendar for one controller, using the same vector
@@ -55,12 +56,26 @@ export function renderIndividualCalendarPdf(summary: LiteSummary, code: string, 
   const holidays = calendarHolidaysForYear(year, config);
   const byDay = new Map(holidays.map((h) => [h.date, h]));
   const page = new Page(842, 595);
+  // VA has no shift rotation of its own: only the awarded days are drawn.
+  const va = summary.team === VA_TEAM;
 
-  page.text(16, 25, `EQUIPO ${summary.team} · ${code} · ${year}`, { size: 17, bold: true, color: INK });
-  page.text(16, 40, 'Gris: turno de trabajo (5 días)   Blanco: descanso (3 días)   Azul: vacaciones adjudicadas', {
-    size: 8,
-    color: MUTED,
-  });
+  page.text(
+    16,
+    25,
+    va ? `VACACIONES DE ANTIGÜEDAD · ${code} · ${year}` : `EQUIPO ${summary.team} · ${code} · ${year}`,
+    { size: 17, bold: true, color: INK },
+  );
+  page.text(
+    16,
+    40,
+    va
+      ? 'Azul: días de VA adjudicados'
+      : 'Gris: turno de trabajo (5 días)   Blanco: descanso (3 días)   Azul: vacaciones adjudicadas',
+    {
+      size: 8,
+      color: MUTED,
+    },
+  );
   page.rect(16, 47, 8, 8, LOCAL);
   page.text(28, 54, 'Marca naranja: fiesta local de Sevilla', { size: 7, color: MUTED });
   page.text(
@@ -121,7 +136,7 @@ export function renderIndividualCalendarPdf(summary: LiteSummary, code: string, 
       const cx = x + 4 + (slot % 7) * cellW;
       const cy = y + 36 + Math.floor(slot / 7) * cellH;
       const awarded = ranges.some((r) => r.date <= iso && iso <= r.end);
-      const working = rotationCode(serial(iso), year, summary.team, config) !== ' ';
+      const working = !va && rotationCode(serial(iso), year, summary.team, config) !== ' ';
       if (awarded || working) page.rect(cx + 0.6, cy + 0.5, cellW - 1.2, cellH - 1.1, awarded ? VACATION : WORK);
       else page.rect(cx + 0.6, cy + 0.5, cellW - 1.2, cellH - 1.1, WHITE, GRID, 0.25);
       page.text(cx + cellW / 2, cy + 9.8, String(day), {
@@ -152,12 +167,17 @@ export function renderIndividualCalendarPdf(summary: LiteSummary, code: string, 
     { size: 7.2, color: MUTED },
   );
   const fmt = (iso: string) => iso.slice(8, 10) + '/' + iso.slice(5, 7);
-  const periods = ranges.map((r) => fmt(r.date) + '-' + fmt(r.end));
-  page.text(16, 565, 'Periodos adjudicados: ' + (periods.slice(0, 4).join('  |  ') || 'Ninguno'), {
-    size: 7.6,
-    color: INK,
-    max: 805,
-  });
+  const periods = ranges.map((r) => (r.date === r.end ? fmt(r.date) : fmt(r.date) + '-' + fmt(r.end)));
+  page.text(
+    16,
+    565,
+    (va ? 'Días adjudicados: ' : 'Periodos adjudicados: ') + (periods.slice(0, 4).join('  |  ') || 'Ninguno'),
+    {
+      size: 7.6,
+      color: INK,
+      max: 805,
+    },
+  );
   if (periods.length > 4) page.text(16, 579, periods.slice(4).join('  |  '), { size: 7.6, color: INK, max: 805 });
   else
     page.text(16, 579, 'Fechas inclusivas. Las vacaciones reflejan únicamente las adjudicaciones visibles.', {
