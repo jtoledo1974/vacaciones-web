@@ -668,6 +668,32 @@ test('reconstrucción guiada reproduce un acuerdo conjunto creado a mitad de ron
   assert.deepEqual(v.election.state.jointAgreements[0].members, [ids[2], ids[3]]);
   assert.equal(v.awards.length, 4);
 });
+test('reconstrucción guiada reproduce un acuerdo conjunto cancelado antes de su turno', async () => {
+  // Con el acuerdo activo, el turno conjunto se sitúa en su último integrante: la cancelación
+  // no puede heredar ese cursor, o se aplicaría tarde y dejaría el acuerdo vivo en la reconstrucción.
+  const { s, cid, ids, dates } = await fixture();
+  await act(s, cid, start(ids));
+  await act(s, cid, { action: 'choose', memberId: ids[0], dates: [dates[0]] });
+  await act(s, cid, { action: 'register_joint', round: 1, members: [ids[1], ids[2]] });
+  await act(s, cid, { action: 'cancel_joint', round: 1, members: [ids[1], ids[2]] });
+  for (const index of [1, 2, 3]) await act(s, cid, { action: 'choose', memberId: ids[index], dates: [dates[index]] });
+  let v = await s.view(cid);
+  const target = v.election.reconstruction.candidates.find(
+    (entry: HistoryCandidate & { action: string }) => entry.action === 'choose' && entry.memberIds.includes(ids[0]),
+  );
+  assert.ok(target);
+  v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
+  for (let step = 0; step < 4; step++) {
+    const current = v.election.reconstruction.current;
+    assert.equal(current.participants.length, 1, 'el acuerdo cancelado no debe reaparecer como turno conjunto');
+    assert.equal(current.originalPossible, true);
+    v = await act(s, cid, { action: 'reconstruction_step', kind: 'choose', mode: 'original' });
+  }
+  assert.equal(v.election.reconstruction.status, 'review');
+  v = await act(s, cid, { action: 'reconstruction_finish' });
+  assert.equal(v.awards.length, 4);
+  assert.ok(v.election.state.jointAgreements.every((agreement: { cancelledAt?: string }) => agreement.cancelledAt));
+});
 test('reconstruir y deshacer con más de 11 listas de preferencias respeta el límite de parámetros de D1', async () => {
   // Con 9 columnas por preferencia, 12 filas por INSERT daban 108 parámetros y D1 respondía 500.
   const repo = new SQLiteRepo(),

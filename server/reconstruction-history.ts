@@ -99,7 +99,9 @@ export function historical(d: HistoryData, row: AuditRow): Historical | null {
       action: row.action,
       before,
       after,
-      cursor: turn.state.cursor,
+      // Con el acuerdo aún activo, el turno conjunto se sitúa en su último integrante; la
+      // cancelación ocurrió antes de que empezase, así que conserva el cursor de su instantánea.
+      cursor: row.action === 'cancel_joint' ? before.state.cursor : turn.state.cursor,
       round: after?.joint?.round ?? turn.round,
       participants: after?.joint?.members ?? turn.pendingTie ?? turn.participants,
       memberId: ['register_joint', 'cancel_joint'].includes(row.action) ? null : turn.memberId,
