@@ -51,11 +51,14 @@ export const HELP = {
     example: 'node scripts/admin-cli.mjs campaign 385fe18a-391f-4ac9-8056-365136dcf47a --out campana.json',
   },
   backup: {
-    summary: 'Copia completa v2 fragmentada con inventario y cadena SHA-256.',
+    summary:
+      'Copia completa v2 fragmentada (NDJSON) con inventario y cadena SHA-256. Es la alternativa, no el método habitual.',
     usage: 'admin-cli.mjs backup --out copia.ndjson',
     permissions: 'Superadministrador.',
     writes: 'No. Contiene datos personales: guárdala en un lugar privado.',
     details: [
+      'El método habitual es la copia v1: un único JSON leído en una sola transacción, que tarda unos segundos con el historial comprimido y se restaura desde Administración › Herramientas avanzadas. Con el CLI: admin-cli.mjs get backup --out copia.json',
+      'Usa esta orden v2 cuando la base ya no quepa en una sola lectura o necesites verificarla por páginas (inventario y cadena SHA-256).',
       'Escribe en disco sin acumular la base en memoria. Si cambia la base, aborta y elimina el parcial.',
       'Restauración fuera de línea: node scripts/restore-backup-v2.mjs copia.ndjson destino-nuevo.sqlite. No sobrescribe producción ni un fichero existente.',
     ],

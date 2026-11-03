@@ -15,7 +15,8 @@
 // Órdenes:
 //   login | logout                     empareja la terminal (30 días) o revoca el acceso guardado
 //   session | index | admin | campaign <id>
-//   backup --out copia.ndjson          copia v2 acotada, con cierre e integridad verificables
+//   get backup --out copia.json        copia v1 (método habitual): un JSON en una sola transacción
+//   backup --out copia.ndjson          copia v2 fragmentada, alternativa para bases que no caben en una lectura
 //   cleanup preview [--out plan.json]   solo superadmin; no escribe
 //   cleanup apply plan.json            aplica exactamente el token del plan (máximo 500 por categoría)
 //   cleanup run --mode modo            repite preview y apply hasta vaciar el lote, con una sola copia previa

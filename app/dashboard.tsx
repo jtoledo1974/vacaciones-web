@@ -1519,11 +1519,13 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         <section className="panel">
                           <h2>Copias de seguridad</h2>
                           <p className="muted">
-                            La copia completa v2 se escribe por fragmentos en disco y conserva todo el historial. Si hay
-                            cambios durante la descarga se cancela, sin presentar el parcial como una copia válida.
-                            Requiere un navegador con guardado directo a disco (o el CLI). La restauración v2 se
-                            verifica fuera de línea con scripts/restore-backup-v2.mjs; el formulario inferior solo
-                            admite copias v1 pequeñas.
+                            El método habitual es la copia v1 (un único JSON, que se restaura con el formulario
+                            inferior; con el CLI: node scripts/admin-cli.mjs get backup --out copia.json). La copia
+                            completa v2 es la alternativa para bases que no caben en una sola lectura: se escribe por
+                            fragmentos en disco y conserva todo el historial. Si hay cambios durante la descarga se
+                            cancela, sin presentar el parcial como una copia válida. Requiere un navegador con guardado
+                            directo a disco (o el CLI). La restauración v2 se verifica fuera de línea con
+                            scripts/restore-backup-v2.mjs.
                           </p>
                           <div className="button-row">
                             <button

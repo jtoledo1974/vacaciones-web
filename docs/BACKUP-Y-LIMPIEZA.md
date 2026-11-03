@@ -1,4 +1,16 @@
-# Backup v2 y mantenimiento conservador
+# Copias de seguridad (v1 y v2) y mantenimiento conservador
+
+## Qué copia usar
+
+**Método habitual: copia v1.** `GET /api/backup` (o `?download=1`) devuelve un único JSON `vacaciones-backup-v1` con su SHA-256, leído en una sola transacción. Desde que el historial se guarda comprimido (ADR 0001) tarda unos segundos, y se restaura desde la propia aplicación (Administración › Herramientas avanzadas › Restaurar copia, límites de la sección siguiente). Con el CLI:
+
+```sh
+VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs get backup --out copia.json
+```
+
+**Alternativa: copia v2** (el resto de este documento). Nació como apaño necesario mientras el historial no estaba comprimido: la lectura única fallaba y, sin ella, no había copia. Ya no es el camino prioritario. Úsala solo si la copia v1 vuelve a fallar o no cabe en una lectura/restauración, o si necesitas verificarla por páginas (inventario y cadena SHA-256) y restaurarla fuera de línea en un SQLite nuevo.
+
+Las escrituras del CLI (`post`, `cleanup apply`, `va-*`) siguen guardando antes una copia v2 en `admin-backups/`; ese comportamiento es independiente de cuál elijas para tus copias periódicas.
 
 Para reproducir incidencias sin tocar producción, consultar la [receta manual de clon local desde un backup](CLON-LOCAL-DESDE-BACKUP.md). Incluye aislamiento de notificaciones, montaje de D1/Miniflare, arranque y comprobaciones; no añade una prueba automática.
 
@@ -10,9 +22,9 @@ Como superadmin, descargar `GET /api/campaign/{campaignId}/diagnostic` en una se
 
 No se ha fusionado, desplegado ni ejecutado la nueva limpieza en producción. Las rutas v2 requieren la migración `0020_backup_clock.sql`; **el código de este PR no está disponible en el sitio hasta un despliegue aprobado por separado**. No se ha obtenido una copia completa de producción con este código todavía.
 
-La restauración v2 implementada es **fuera de línea, en un SQLite nuevo**. Se comprueba su uso por el repositorio y el servicio, incluida una reconstrucción activa, volver/avanzar, cancelar y undo/redo. No hay importador v2 masivo a D1 en caliente ni sustitución automática de la base de Sites. El endpoint y formulario v1 siguen disponibles para copias pequeñas compatibles; su límite HTTP sigue siendo 5 millones de caracteres y no deben usarse para esta base de producción. No convertir v2 a un único JSON v1 para intentar sortear este límite.
+La restauración v2 implementada es **fuera de línea, en un SQLite nuevo**. Se comprueba su uso por el repositorio y el servicio, incluida una reconstrucción activa, volver/avanzar, cancelar y undo/redo. No hay importador v2 masivo a D1 en caliente ni sustitución automática de la base de Sites. El endpoint y formulario v1 son el método habitual de copia y restauración; su límite HTTP de restauración sigue siendo 5 millones de caracteres (y 25.000 filas), así que si la base los supera hay que recurrir a v2 o comprobar antes que una copia v1 reciente cabe. No convertir v2 a un único JSON v1 para intentar sortear este límite.
 
-## Descargar y verificar
+## Descargar y verificar (copia v2, alternativa)
 
 ```sh
 VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --out copia.ndjson
