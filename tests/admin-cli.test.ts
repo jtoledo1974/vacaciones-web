@@ -107,6 +107,7 @@ async function withServer(
         return (fake.sessionStatus ?? 200) === 200
           ? json(200, { principal: principal() })
           : json(fake.sessionStatus!, { error: 'Sesión CLI pendiente, caducada o revocada' });
+      if (route === 'GET /api/backup') return json(200, { payload: { format: 'vacaciones-backup-v1' }, sha256: 'x' });
       if (route === 'GET /api/backup-v2')
         return json(fake.backupStatus ?? 200, fake.backupStatus ? { error: 'Forbidden' } : validBackup());
       if (route === 'POST /api/backup-v2/page') return json(200, finalPage());
@@ -126,6 +127,7 @@ async function withServer(
     if (req.headers.cookie !== COOKIE) return json(401, { error: 'Sin sesión' });
     if (route === 'POST /api/local-admin/logout') return fake.logoutDrops ? req.socket.destroy() : json(200, {});
     if (route === 'GET /api/session') return json(200, { principal: principal() });
+    if (route === 'GET /api/backup') return json(200, { payload: { format: 'vacaciones-backup-v1' }, sha256: 'x' });
     if (route === 'GET /api/backup-v2') return json(200, fake.backup ?? validBackup());
     if (route === 'GET /api/cleanup?mode=compress-audit-payloads') {
       const rows = fake.cleanup!.shift() ?? 0;
@@ -352,6 +354,27 @@ test('saved CLI access stops before writing when all administrator rights are re
       assert.ok(!calls.includes('POST /api/campaign/x'));
     });
   }
+});
+
+test('backup saves the v1 JSON by default and the v2 archive only with --v2', async () => {
+  await withServer({ browser: true, joins: ['approved'], backup: undefined }, async (origin, calls) => {
+    const dir = scratch();
+    const v1 = path.join(dir, 'copia.json');
+    const r = await cli(origin, ['backup', '--out', v1, '--browser', '--no-open']);
+    assert.equal(r.code, 0, r.stderr);
+    assert.ok(calls.includes('GET /api/backup'));
+    assert.ok(!calls.includes('GET /api/backup-v2'));
+    assert.deepEqual(JSON.parse(readFileSync(v1, 'utf8')), {
+      payload: { format: 'vacaciones-backup-v1' },
+      sha256: 'x',
+    });
+    const v2 = path.join(dir, 'copia.ndjson');
+    const s = await cli(origin, ['backup', '--v2', '--out', v2, '--browser', '--no-open']);
+    assert.equal(s.code, 0, s.stderr);
+    assert.ok(calls.includes('GET /api/backup-v2'));
+    assert.deepEqual(readArchive(v2), validArchive());
+    assert.equal((await cli(origin, ['backup', '--browser', '--no-open'])).code, 1);
+  });
 });
 
 test('scoped administrators must explicitly opt out of the superadmin-only full backup', async () => {

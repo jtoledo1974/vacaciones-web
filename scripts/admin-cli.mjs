@@ -15,8 +15,8 @@
 // Órdenes:
 //   login | logout                     empareja la terminal (30 días) o revoca el acceso guardado
 //   session | index | admin | campaign <id>
-//   get backup --out copia.json        copia v1 (método habitual): un JSON en una sola transacción
-//   backup --out copia.ndjson          copia v2 fragmentada, alternativa para bases que no caben en una lectura
+//   backup --out copia.json           copia v1 (método habitual): un JSON en una sola transacción
+//   backup --v2 --out copia.ndjson    copia v2 fragmentada, alternativa para bases que no caben en una lectura
 //   cleanup preview [--out plan.json]   solo superadmin; no escribe
 //   cleanup apply plan.json            aplica exactamente el token del plan (máximo 500 por categoría)
 //   cleanup run --mode modo            repite preview y apply hasta vaciar el lote, con una sola copia previa
@@ -133,7 +133,7 @@ function parseArgs(argv) {
   const flags = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations', '--help'].includes(a))
+    if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations', '--help', '--v2'].includes(a))
       flags[a.slice(2)] = true;
     else if (a === '-h') flags.help = true;
     else if (['--out', '--backup-dir', '--review-token', '--year', '--title', '--received', '--mode'].includes(a)) {
@@ -492,8 +492,8 @@ async function main() {
         throw e;
       }
     };
-    if (command === 'backup') {
-      if (!flags.out) fail('Usa backup --out copia.ndjson para guardar sin acumular la copia en memoria');
+    if (command === 'backup' && !flags.out) fail('Usa backup --out copia.json (o --v2 --out copia.ndjson)');
+    if (command === 'backup' && flags.v2) {
       await saveBackup(flags.out);
       return;
     }

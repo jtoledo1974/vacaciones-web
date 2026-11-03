@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect, type APIRequestContext, type Page, type Request } from '@playwright/test';
 // No configurable remote URL: destructive QA is restricted to the dedicated local DB.
 const origin = 'http://127.0.0.1:5199';
@@ -1163,6 +1164,20 @@ test('bloqueo, descarga y restauración de backup completo', async ({ page, requ
     await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
   await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByText('Herramientas avanzadas', { exact: true }).click();
+  // The usual copy: a v1 JSON downloaded from the panel restores through the panel's own form.
+  const download = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Descargar copia (v1, recomendada)', exact: true }).click();
+  const v1 = JSON.parse(readFileSync((await (await download).path())!, 'utf8'));
+  expect(v1.payload.format).toBe('vacaciones-backup-v1');
+  const campaigns = v1.payload.tables.campaigns.length;
+  await page.getByLabel('Restaurar copia').setInputFiles({
+    name: 'copia.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from(JSON.stringify(v1)),
+  });
+  await page.getByRole('dialog').getByRole('button', { name: 'Confirmar', exact: true }).click();
+  await expect(page.getByText('Copia restaurada')).toBeVisible();
+  expect((await (await request.get('/api/backup')).json()).payload.tables.campaigns).toHaveLength(campaigns);
   // Test-only disk writer shim: production never falls back to an in-memory Blob.
   await page.evaluate(() => {
     const w = window as BackupTestWindow;

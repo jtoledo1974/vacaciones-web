@@ -5,7 +5,7 @@
 **Método habitual: copia v1.** `GET /api/backup` (o `?download=1`) devuelve un único JSON `vacaciones-backup-v1` con su SHA-256, leído en una sola transacción. Desde que el historial se guarda comprimido (ADR 0001) tarda unos segundos, y se restaura desde la propia aplicación (Administración › Herramientas avanzadas › Restaurar copia, límites de la sección siguiente). Con el CLI:
 
 ```sh
-VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs get backup --out copia.json
+VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --out copia.json
 ```
 
 **Alternativa: copia v2** (el resto de este documento). Nació como apaño necesario mientras el historial no estaba comprimido: la lectura única fallaba y, sin ella, no había copia. Ya no es el camino prioritario. Úsala solo si la copia v1 vuelve a fallar o no cabe en una lectura/restauración, o si necesitas verificarla por páginas (inventario y cadena SHA-256) y restaurarla fuera de línea en un SQLite nuevo.
@@ -27,7 +27,7 @@ La restauración v2 implementada es **fuera de línea, en un SQLite nuevo**. Se 
 ## Descargar y verificar (copia v2, alternativa)
 
 ```sh
-VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --out copia.ndjson
+VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --v2 --out copia.ndjson
 node scripts/restore-backup-v2.mjs copia.ndjson restauracion-nueva.sqlite
 ```
 
@@ -123,6 +123,7 @@ Request IDs de lectura: `567c6d55-128b-4ec9-82b4-7668cf1337b6`, `fb892b3b-849a-4
 
 - `node --experimental-transform-types --test tests/backup-v2.test.ts`: >72 MB de texto sintético, celda de 2 MB, Unicode, páginas acotadas, round-trip, interrupción, corrupción, cambios entre páginas/finales y de esquema, roles, confirmación, lotes y carrera entre preview y commit.
 - `tests/reconstruction.test.ts`: reconstrucción activa tras compactar, backup/restauración, back/forward/cancel y undo/redo.
+- `tests/backup-v1-restore.test.ts`: copia v1 con historial comprimido (`gz1:`), ida y vuelta por JSON, restauración sobre otra base y sobre la misma, y deshacer vigente tras restaurar.
 - `tests/admin-cli.test.ts`: copia previa streaming, permisos, integridad, cancelación, escritura única y privacidad de archivos.
 - Playwright local con D1/Miniflare: descarga v2 a escritor, compatibilidad de restauración v1. Solo base sintética local separada.
 

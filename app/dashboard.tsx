@@ -1519,17 +1519,47 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         <section className="panel">
                           <h2>Copias de seguridad</h2>
                           <p className="muted">
-                            El método habitual es la copia v1 (un único JSON, que se restaura con el formulario
-                            inferior; con el CLI: node scripts/admin-cli.mjs get backup --out copia.json). La copia
-                            completa v2 es la alternativa para bases que no caben en una sola lectura: se escribe por
-                            fragmentos en disco y conserva todo el historial. Si hay cambios durante la descarga se
-                            cancela, sin presentar el parcial como una copia válida. Requiere un navegador con guardado
-                            directo a disco (o el CLI). La restauración v2 se verifica fuera de línea con
-                            scripts/restore-backup-v2.mjs.
+                            Descarga una copia completa antes de cambios importantes. La copia v1 es la habitual; la v2
+                            es la alternativa si la v1 falla o no cabe.
                           </p>
+                          <details className="backup-help">
+                            <summary>¿Qué diferencia hay entre v1 y v2?</summary>
+                            <p className="muted">
+                              <b>v1 (recomendada).</b> Un único archivo JSON leído en una sola transacción: con el
+                              historial comprimido tarda unos segundos. Se restaura aquí mismo con «Restaurar copia» y,
+                              si cambia algo durante la lectura, no hay riesgo de copia a medias. Con el CLI: node
+                              scripts/admin-cli.mjs backup --out copia.json.
+                            </p>
+                            <p className="muted">
+                              <b>v2 (alternativa).</b> Archivo NDJSON fragmentado en páginas, con inventario y cadena
+                              SHA-256, escrito directamente a disco (requiere Chrome o Edge de escritorio, o el CLI con
+                              --v2). Úsala solo si la base ya no cabe en una lectura o si necesitas verificarla por
+                              páginas. Se cancela si hay cambios durante la descarga y se restaura fuera de línea con
+                              scripts/restore-backup-v2.mjs; el formulario de aquí no la admite.
+                            </p>
+                          </details>
                           <div className="button-row">
                             <button
                               className="primary"
+                              disabled={busy}
+                              onClick={() =>
+                                perform(async () => {
+                                  const copy = await api('backup');
+                                  const url = URL.createObjectURL(
+                                    new Blob([JSON.stringify(copy, null, 2)], { type: 'application/json' }),
+                                  );
+                                  const link = document.createElement('a');
+                                  link.href = url;
+                                  link.download = 'vacaciones-copia-' + new Date().toISOString().slice(0, 10) + '.json';
+                                  link.click();
+                                  URL.revokeObjectURL(url);
+                                }, 'Copia v1 descargada')
+                              }
+                            >
+                              <Download size={16} /> Descargar copia (v1, recomendada)
+                            </button>
+                            <button
+                              className="secondary"
                               disabled={busy}
                               onClick={async () => {
                                 let writable: FileSystemWritableFileStream | undefined;
@@ -1543,7 +1573,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                                   ).showSaveFilePicker;
                                   if (!picker)
                                     throw new Error(
-                                      'Usa el CLI: node scripts/admin-cli.mjs backup --out copia.ndjson. Este navegador no permite escritura acotada a disco.',
+                                      'Usa el CLI: node scripts/admin-cli.mjs backup --v2 --out copia.ndjson. Este navegador no permite escritura acotada a disco.',
                                     );
                                   const handle = await picker({
                                     suggestedName:
