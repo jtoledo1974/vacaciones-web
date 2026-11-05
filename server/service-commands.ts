@@ -29,8 +29,8 @@ export function checkedRestoredConfig(config: Config, scope: PolicyScope) {
   try {
     validateCampaignConfig(scope, config);
     return config;
-  } catch (e: any) {
-    throw new ApiError(e.message ?? 'Parámetros no válidos');
+  } catch (e) {
+    throw new ApiError(e instanceof Error ? e.message : 'Parámetros no válidos');
   }
 }
 
