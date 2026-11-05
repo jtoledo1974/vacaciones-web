@@ -100,7 +100,7 @@ test('compactar duplicados y restaurar v2 conserva reconstrucción activa, ida/v
   try {
     await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
     const session = JSON.parse(
-      (await repo.all('SELECT json FROM reconstruction_sessions WHERE campaign_id=?', [cid]))[0].json,
+      decodePayload((await repo.all('SELECT json FROM reconstruction_sessions WHERE campaign_id=?', [cid]))[0].json),
     );
     for (const event of session.originalEvents) {
       const [source] = await repo.all('SELECT before_json,after_json FROM audit WHERE id=?', [event.id]);
@@ -752,7 +752,7 @@ test('la sesión de reconstrucción guarda solo lo necesario de cada decisión o
   );
   v = await act(s, cid, { action: 'reconstruction_start', historyId: target.id });
   const session = JSON.parse(
-    (await repo.all('SELECT json FROM reconstruction_sessions WHERE campaign_id=?', [cid]))[0].json,
+    decodePayload((await repo.all('SELECT json FROM reconstruction_sessions WHERE campaign_id=?', [cid]))[0].json),
   );
   assert.equal(session.originalEvents.length, 3);
   for (const event of session.originalEvents) {

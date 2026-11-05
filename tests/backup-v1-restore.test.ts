@@ -5,7 +5,9 @@ import { SQLiteRepo } from './sqlite-repo.ts';
 import { Service } from '../server/service.ts';
 import { backupColumns } from '../server/backup-v2.ts';
 import { tableColumns } from '../server/repository.ts';
+import { compactableSessionSQL } from '../server/reconstruction-compaction.ts';
 import { checkedConfig } from '../server/service-commands.ts';
+import { previewCleanup } from '../server/cleanup.ts';
 import { assertAnnualScoringConfig } from '../domain/scoring.ts';
 import { defaultConfig } from '../domain/defaults.ts';
 import { compressPayload, decodePayload } from '../server/payload-codec.ts';
@@ -140,4 +142,37 @@ test('restaurar sigue rechazando parámetros que no son válidos', async () => {
   parameter.json = JSON.stringify({ ...JSON.parse(parameter.json), cycleLength: -1 });
   file.sha256 = createHash('sha256').update(JSON.stringify(file.payload)).digest('hex');
   await assert.rejects(s.restore(file, (await s.admin()).revision));
+});
+
+// A session of several MB is over D1's row limit as plain JSON, and existing copies hold it that way.
+test('la sesión de reconstrucción se restaura comprimida y se sigue leyendo; la limpieza la ignora', async () => {
+  const { repo, s, cid } = await setup();
+  const session = { status: 'completed', originalEvents: [], applied: 'x'.repeat(3_000_000) };
+  const plain = JSON.stringify(session);
+  const stored = () =>
+    (repo.db.prepare('SELECT json FROM reconstruction_sessions WHERE campaign_id=?').get(cid) as { json: string }).json;
+  repo.db.prepare('INSERT INTO reconstruction_sessions(campaign_id,json) VALUES(?,?)').run(cid, plain);
+
+  const file = JSON.parse(JSON.stringify(await s.backup()));
+  await s.restore(file, (await s.admin()).revision);
+  assert.ok(stored().startsWith('gz1:'));
+  assert.ok(stored().length < 2_000_000);
+  assert.equal(decodePayload(stored()), plain);
+
+  // A copy that already holds it compressed is not compressed twice.
+  const again = JSON.parse(JSON.stringify(await s.backup()));
+  await s.restore(again, (await s.admin()).revision);
+  assert.equal(decodePayload(stored()), plain);
+
+  // Compaction reads this column with SQL JSON functions: a compressed row must simply not qualify.
+  const { rows } = (
+    await repo.all(
+      `SELECT count(*) AS rows FROM reconstruction_sessions WHERE ${compactableSessionSQL('reconstruction_sessions.json')}`,
+    )
+  )[0];
+  assert.equal(rows, 0);
+  assert.equal(
+    (await previewCleanup(repo, superuser, Date.now(), 'compact-reconstruction-events')).plan.categories[0].rows,
+    0,
+  );
 });

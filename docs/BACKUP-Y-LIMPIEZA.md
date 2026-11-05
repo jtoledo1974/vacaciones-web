@@ -21,7 +21,9 @@ VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --
 
 Restaurar una v1 **no recupera ni revierte** las tablas que no contiene: en una base nueva quedan vacías y en una base existente conservan su estado actual.
 
-**Restauración con datos reales (05/11/2026).** La copia v1 de producción de ese día ocupa 24,3 millones de caracteres en 5.228 filas. Sobre D1 local (Miniflare) **no se restaura**: una sesión de reconstrucción de 5 millones de caracteres supera el límite de fila (`d1_row_limit`) y la operación se revierte sin cambiar la base. Sin esa fila, en una copia temporal, el resto se restauró en unos 3 segundos y volvió idéntico. No se ha probado en Sites. Mientras exista una fila así, no cuentes con restaurar producción desde v1.
+**Restauración con datos reales (05/11/2026).** La copia v1 de producción de ese día, sin retocar (24,3 millones de caracteres, 5.228 filas), se restauró en unos 2 segundos sobre D1 local (Miniflare) y abrió sus 17 campañas. No se ha probado en Sites, cuyos límites pueden ser distintos, así que no cuentes todavía con restaurar producción desde v1.
+
+**Sesiones de reconstrucción comprimidas.** Se guardan con el códec `gz1:` del historial (ADR 0001) cuando eso reduce su tamaño; las que siguen en JSON se leen igual. Restaurar comprime también las de copias anteriores, necesario porque una de 5 millones de caracteres supera el límite de fila de D1 local. Las sesiones ya almacenadas en producción no se convierten hasta que se reescriben o se restauran. La limpieza `compact-reconstruction-events` ignora las comprimidas.
 
 **Baremo.** Los parámetros de 2027 guardados antes de que el baremo oficial fuera de solo lectura se restauran tal cual. La aplicación sigue calculando con el baremo oficial y no permite volver a guardarlos.
 
