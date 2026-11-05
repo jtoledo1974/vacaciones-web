@@ -1,9 +1,13 @@
+import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import { Service } from '../server/service.ts';
 import { backupColumns } from '../server/backup-v2.ts';
 import { tableColumns } from '../server/repository.ts';
+import { checkedConfig } from '../server/service-commands.ts';
+import { assertAnnualScoringConfig } from '../domain/scoring.ts';
+import { defaultConfig } from '../domain/defaults.ts';
 import { compressPayload, decodePayload } from '../server/payload-codec.ts';
 import type { Principal } from '../server/permissions.ts';
 
@@ -109,4 +113,31 @@ test('la copia v1 no cubre las tablas exclusivas de la v2 y restaurarla no las r
   draft('later');
   await s.restore(file, (await s.admin()).revision);
   assert.equal(count(repo), 2);
+});
+
+// Production holds 2027 parameters saved before the annual scoring became read-only.
+test('la copia v1 con un baremo 2027 anterior se restaura tal cual, pero no se puede volver a guardar', async () => {
+  const { repo, s, cid } = await setup();
+  const year = 2027;
+  repo.db.prepare('UPDATE campaigns SET year=? WHERE id=?').run(year, cid);
+
+  const stale = { ...defaultConfig(year), holidays: [] };
+  const staleJson = JSON.stringify(stale);
+  repo.db.prepare('UPDATE parameters SET json=? WHERE campaign_id=?').run(staleJson, cid);
+  assert.throws(() => assertAnnualScoringConfig(year, stale), /solo lectura/);
+
+  const file = JSON.parse(JSON.stringify(await s.backup()));
+  await s.restore(file, (await s.admin()).revision);
+  const restored = repo.db.prepare('SELECT json FROM parameters WHERE campaign_id=?').get(cid) as { json: string };
+  assert.equal(restored.json, staleJson);
+  assert.throws(() => checkedConfig(stale, { year, team: 'C' }), /solo lectura/);
+});
+
+test('restaurar sigue rechazando parámetros que no son válidos', async () => {
+  const { s, cid } = await setup();
+  const file = JSON.parse(JSON.stringify(await s.backup()));
+  const parameter = file.payload.tables.parameters.find((p: { campaign_id: string }) => p.campaign_id === cid);
+  parameter.json = JSON.stringify({ ...JSON.parse(parameter.json), cycleLength: -1 });
+  file.sha256 = createHash('sha256').update(JSON.stringify(file.payload)).digest('hex');
+  await assert.rejects(s.restore(file, (await s.admin()).revision));
 });

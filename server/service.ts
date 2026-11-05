@@ -25,7 +25,7 @@ import { PersonalSimulationService } from './personal-simulation.ts';
 import { cloneSimulation } from './simulations.ts';
 import { projectAdminCampaignView, projectPublicCampaignView, projectPublishedCampaignView } from './projections.ts';
 import { validateElectionState, upgradeElectionState } from '../domain/election.ts';
-import { checkedConfig, runCommand } from './service-commands.ts';
+import { checkedConfig, checkedRestoredConfig, runCommand } from './service-commands.ts';
 import { HrExportError, hrTeamCells, suggestHrNames, type HrCell } from '../domain/hr-export.ts';
 import { orderAwardsBySelection } from '../domain/award-display-order.ts';
 import { readHrWorkbook, writeHrWorkbook, type HrWorkbook } from './hr-xlsx.ts';
@@ -1025,7 +1025,7 @@ export class Service {
     for (const c of tables.campaigns) {
       const p = tables.parameters.find((p: any) => p.campaign_id === c.id);
       if (!p) throw new ApiError('Faltan parámetros');
-      checkedConfig(JSON.parse(p.json), scopeOf(c));
+      checkedRestoredConfig(JSON.parse(p.json), scopeOf(c));
     }
     try {
       for (const row of tables.election_states)

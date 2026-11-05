@@ -24,6 +24,16 @@ import { reviewImport } from './import-review.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
 
+/** For a restore: stored scoring may predate the annual authority, which ignores it when computing. */
+export function checkedRestoredConfig(config: Config, scope: PolicyScope) {
+  try {
+    validateCampaignConfig(scope, config);
+    return config;
+  } catch (e: any) {
+    throw new ApiError(e.message ?? 'Parámetros no válidos');
+  }
+}
+
 export function checkedConfig(config: Config, scope: PolicyScope) {
   try {
     validateCampaignConfig(scope, config);

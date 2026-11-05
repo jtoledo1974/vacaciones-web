@@ -21,9 +21,9 @@ VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --
 
 Restaurar una v1 **no recupera ni revierte** las tablas que no contiene: en una base nueva quedan vacías y en una base existente conservan su estado actual.
 
-**Volumen comprobado (05/11/2026).** La copia v1 de producción del 27/10/2026 (28,6 millones de caracteres, 3.497 filas) se restauró en unos 4 segundos sobre D1 local (Miniflare) y su contenido volvió íntegro. No se ha probado en Sites, cuyos límites pueden ser distintos: D1 corta las consultas a los 30 segundos y las filas a 2 MB.
+**Restauración con datos reales (05/11/2026).** La copia v1 de producción de ese día ocupa 24,3 millones de caracteres en 5.228 filas. Sobre D1 local (Miniflare) **no se restaura**: una sesión de reconstrucción de 5 millones de caracteres supera el límite de fila (`d1_row_limit`) y la operación se revierte sin cambiar la base. Sin esa fila, en una copia temporal, el resto se restauró en unos 3 segundos y volvió idéntico. No se ha probado en Sites. Mientras exista una fila así, no cuentes con restaurar producción desde v1.
 
-**Copias anteriores a un cambio de validación.** Esa misma copia sin retocar se rechaza: guarda parámetros de 2027 distintos del baremo oficial, que desde el 29/10/2026 es de solo lectura. La prueba de volumen se hizo con esos parámetros normalizados en una copia temporal. Comprueba una copia reciente antes de confiar en ella.
+**Baremo.** Los parámetros de 2027 guardados antes de que el baremo oficial fuera de solo lectura se restauran tal cual. La aplicación sigue calculando con el baremo oficial y no permite volver a guardarlos.
 
 Para reproducir incidencias sin tocar producción, consultar la [receta manual de clon local desde un backup](CLON-LOCAL-DESDE-BACKUP.md). Incluye aislamiento de notificaciones, montaje de D1/Miniflare, arranque y comprobaciones; no añade una prueba automática.
 
