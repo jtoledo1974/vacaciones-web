@@ -2,15 +2,28 @@
 
 ## Qué copia usar
 
-**Método habitual: copia v1.** `GET /api/backup` (o `?download=1`) devuelve un único JSON `vacaciones-backup-v1` con su SHA-256, leído en una sola transacción. Desde que el historial se guarda comprimido (ADR 0001) tarda unos segundos, y se restaura desde la propia aplicación (Administración › Herramientas avanzadas › Restaurar copia, límites de la sección siguiente). Con el CLI:
+**Método principal: copia v2.** Cubre todos los datos respaldados y se restaura fuera de línea en un SQLite nuevo. Procedimiento en [Descargar y verificar](#descargar-y-verificar).
+
+**Alternativa: copia v1.** `GET /api/backup` (o `?download=1`) devuelve un único JSON `vacaciones-backup-v1` con su SHA-256, leído en una sola transacción. Contiene los datos de la elección y sirve para reproducir incidencias y para restaurar desde la aplicación:
 
 ```sh
-VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --out copia.json
+VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --v1 --out copia.json
 ```
 
-**Alternativa: copia v2** (el resto de este documento). Nació como apaño necesario mientras el historial no estaba comprimido: la lectura única fallaba y, sin ella, no había copia. Ya no es el camino prioritario. Úsala solo si la copia v1 vuelve a fallar o no cabe en una lectura/restauración, o si necesitas verificarla por páginas (inventario y cadena SHA-256) y restaurarla fuera de línea en un SQLite nuevo.
+| | v2 (principal) | v1 (alternativa) |
+| --- | --- | --- |
+| Formato | NDJSON por páginas, con inventario y cadena SHA-256 | Un JSON con SHA-256 |
+| Coherencia | Aborta si cambian los datos durante la copia | Lectura en una sola transacción |
+| Plantillas RRHH, simulaciones personales, suscripciones y colas push | Incluidas | **No incluidas** |
+| Restauración | Fuera de línea, en un SQLite nuevo | En la aplicación, sustituyendo los datos en caliente |
+| Límites de restauración | Sin límite HTTP | 64 millones de caracteres (solo superadministrador) y 25.000 filas |
+| Descarga | CLI, o Chrome/Edge de escritorio | CLI o cualquier navegador |
 
-Las escrituras del CLI (`post`, `cleanup apply`, `va-*`) siguen guardando antes una copia v2 en `admin-backups/`; ese comportamiento es independiente de cuál elijas para tus copias periódicas.
+Restaurar una v1 **no recupera ni revierte** las tablas que no contiene: en una base nueva quedan vacías y en una base existente conservan su estado actual.
+
+**Volumen comprobado (05/11/2026).** La copia v1 de producción del 27/10/2026 (28,6 millones de caracteres, 3.497 filas) se restauró en unos 4 segundos sobre D1 local (Miniflare) y su contenido volvió íntegro. No se ha probado en Sites, cuyos límites pueden ser distintos: D1 corta las consultas a los 30 segundos y las filas a 2 MB.
+
+**Copias anteriores a un cambio de validación.** Esa misma copia sin retocar se rechaza: guarda parámetros de 2027 distintos del baremo oficial, que desde el 29/10/2026 es de solo lectura. La prueba de volumen se hizo con esos parámetros normalizados en una copia temporal. Comprueba una copia reciente antes de confiar en ella.
 
 Para reproducir incidencias sin tocar producción, consultar la [receta manual de clon local desde un backup](CLON-LOCAL-DESDE-BACKUP.md). Incluye aislamiento de notificaciones, montaje de D1/Miniflare, arranque y comprobaciones; no añade una prueba automática.
 
@@ -22,12 +35,12 @@ Como superadmin, descargar `GET /api/campaign/{campaignId}/diagnostic` en una se
 
 No se ha fusionado, desplegado ni ejecutado la nueva limpieza en producción. Las rutas v2 requieren la migración `0020_backup_clock.sql`; **el código de este PR no está disponible en el sitio hasta un despliegue aprobado por separado**. No se ha obtenido una copia completa de producción con este código todavía.
 
-La restauración v2 implementada es **fuera de línea, en un SQLite nuevo**. Se comprueba su uso por el repositorio y el servicio, incluida una reconstrucción activa, volver/avanzar, cancelar y undo/redo. No hay importador v2 masivo a D1 en caliente ni sustitución automática de la base de Sites. El endpoint y formulario v1 son el método habitual de copia y restauración; su límite HTTP de restauración sigue siendo 5 millones de caracteres (y 25.000 filas), así que si la base los supera hay que recurrir a v2 o comprobar antes que una copia v1 reciente cabe. No convertir v2 a un único JSON v1 para intentar sortear este límite.
+La restauración v2 implementada es **fuera de línea, en un SQLite nuevo**. Se comprueba su uso por el repositorio y el servicio, incluida una reconstrucción activa, volver/avanzar, cancelar y undo/redo. No hay importador v2 masivo a D1 en caliente ni sustitución automática de la base de Sites. El endpoint y formulario v1 siguen disponibles; su límite HTTP de restauración es de 64 millones de caracteres (y 25.000 filas), con las salvedades de la sección anterior. No convertir v2 a un único JSON v1 para intentar sortear este límite.
 
-## Descargar y verificar (copia v2, alternativa)
+## Descargar y verificar
 
 ```sh
-VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --v2 --out copia.ndjson
+VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --out copia.ndjson
 node scripts/restore-backup-v2.mjs copia.ndjson restauracion-nueva.sqlite
 ```
 
@@ -123,7 +136,7 @@ Request IDs de lectura: `567c6d55-128b-4ec9-82b4-7668cf1337b6`, `fb892b3b-849a-4
 
 - `node --experimental-transform-types --test tests/backup-v2.test.ts`: >72 MB de texto sintético, celda de 2 MB, Unicode, páginas acotadas, round-trip, interrupción, corrupción, cambios entre páginas/finales y de esquema, roles, confirmación, lotes y carrera entre preview y commit.
 - `tests/reconstruction.test.ts`: reconstrucción activa tras compactar, backup/restauración, back/forward/cancel y undo/redo.
-- `tests/backup-v1-restore.test.ts`: copia v1 con historial comprimido (`gz1:`), ida y vuelta por JSON, restauración sobre otra base y sobre la misma, y deshacer vigente tras restaurar.
+- `tests/backup-v1-restore.test.ts`: copia v1 con historial comprimido (`gz1:`), ida y vuelta por JSON, restauración sobre otra base y sobre la misma, deshacer vigente tras restaurar y tablas que la v1 no cubre.
 - `tests/admin-cli.test.ts`: copia previa streaming, permisos, integridad, cancelación, escritura única y privacidad de archivos.
 - Playwright local con D1/Miniflare: descarga v2 a escritor, compatibilidad de restauración v1. Solo base sintética local separada.
 

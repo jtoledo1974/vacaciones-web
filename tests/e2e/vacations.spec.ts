@@ -1164,9 +1164,9 @@ test('bloqueo, descarga y restauración de backup completo', async ({ page, requ
     await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
   await page.getByRole('button', { name: 'Administración', exact: true }).click();
   await page.getByText('Herramientas avanzadas', { exact: true }).click();
-  // The usual copy: a v1 JSON downloaded from the panel restores through the panel's own form.
+  // A v1 JSON downloaded from the panel restores through the panel's own form.
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Descargar copia (v1, recomendada)', exact: true }).click();
+  await page.getByRole('button', { name: 'Descargar copia v1', exact: true }).click();
   const v1 = JSON.parse(readFileSync((await (await download).path())!, 'utf8'));
   expect(v1.payload.format).toBe('vacaciones-backup-v1');
   const campaigns = v1.payload.tables.campaigns.length;

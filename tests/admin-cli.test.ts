@@ -356,24 +356,34 @@ test('saved CLI access stops before writing when all administrator rights are re
   }
 });
 
-test('backup saves the v1 JSON by default and the v2 archive only with --v2', async () => {
+test('backup saves the v2 archive by default, the v1 JSON only with --v1, and never replaces a file', async () => {
   await withServer({ browser: true, joins: ['approved'], backup: undefined }, async (origin, calls) => {
     const dir = scratch();
-    const v1 = path.join(dir, 'copia.json');
-    const r = await cli(origin, ['backup', '--out', v1, '--browser', '--no-open']);
+    const v2 = path.join(dir, 'copia.ndjson');
+    const r = await cli(origin, ['backup', '--out', v2, '--browser', '--no-open']);
     assert.equal(r.code, 0, r.stderr);
+    assert.ok(calls.includes('GET /api/backup-v2'));
+    assert.ok(!calls.includes('GET /api/backup'));
+    assert.deepEqual(readArchive(v2), validArchive());
+    const v1 = path.join(dir, 'copia.json');
+    const s = await cli(origin, ['backup', '--v1', '--out', v1, '--browser', '--no-open']);
+    assert.equal(s.code, 0, s.stderr);
     assert.ok(calls.includes('GET /api/backup'));
-    assert.ok(!calls.includes('GET /api/backup-v2'));
     assert.deepEqual(JSON.parse(readFileSync(v1, 'utf8')), {
       payload: { format: 'vacaciones-backup-v1' },
       sha256: 'x',
     });
-    const v2 = path.join(dir, 'copia.ndjson');
-    const s = await cli(origin, ['backup', '--v2', '--out', v2, '--browser', '--no-open']);
-    assert.equal(s.code, 0, s.stderr);
-    assert.ok(calls.includes('GET /api/backup-v2'));
-    assert.deepEqual(readArchive(v2), validArchive());
     assert.equal((await cli(origin, ['backup', '--browser', '--no-open'])).code, 1);
+
+    writeFileSync(v1, 'anterior');
+    const again = await cli(origin, ['backup', '--v1', '--out', v1, '--browser', '--no-open']);
+    assert.equal(again.code, 1);
+    assert.match(again.stderr, /ya existe/);
+    assert.equal(readFileSync(v1, 'utf8'), 'anterior');
+    const before = readFileSync(v2, 'utf8');
+    assert.equal((await cli(origin, ['backup', '--out', v2, '--browser', '--no-open'])).code, 1);
+    assert.equal(readFileSync(v2, 'utf8'), before);
+    assert.deepEqual(readdirSync(dir).sort(), ['copia.json', 'copia.ndjson']);
   });
 });
 

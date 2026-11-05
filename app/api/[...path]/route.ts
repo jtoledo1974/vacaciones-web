@@ -300,7 +300,9 @@ async function serve(request: Request) {
     if (!request.headers.get('content-type')?.startsWith('application/json'))
       throw new ApiError('Usa contenido JSON', 415);
     const text = await request.text();
-    if (text.length > 5000000) throw new ApiError('Solicitud demasiado grande', 413);
+    // Only a superadmin's restore may carry a whole copy; everything else stays small.
+    const limit = path[0] === 'restore' && path.length === 1 && actor.role === 'superadmin' ? 64000000 : 5000000;
+    if (text.length > limit) throw new ApiError('Solicitud demasiado grande', 413);
     let b;
     try {
       b = JSON.parse(text);

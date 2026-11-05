@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteRepo } from './sqlite-repo.ts';
 import { Service } from '../server/service.ts';
+import { backupColumns } from '../server/backup-v2.ts';
+import { tableColumns } from '../server/repository.ts';
 import { compressPayload, decodePayload } from '../server/payload-codec.ts';
 import type { Principal } from '../server/permissions.ts';
 
@@ -18,7 +20,7 @@ async function setup() {
   return { repo, s, cid };
 }
 
-// The v1 copy is the usual one: it must survive the JSON round trip the web form and the CLI
+// The v1 copy must survive the JSON round trip the web form and the CLI
 // give it, with the history compressed (ADR 0001), and leave undo working afterwards.
 test('la copia v1 con historial comprimido se restaura tal cual, también en otra base, y el deshacer sigue funcionando', async () => {
   const { repo, s, cid } = await setup();
@@ -71,4 +73,40 @@ test('la copia v1 con historial comprimido se restaura tal cual, también en otr
   // And over the same database that produced the copy.
   await s.restore(file, (await s.admin()).revision);
   assert.deepEqual(plain(await s.backup(), 'audit'), plain(file, 'audit'));
+});
+
+// v2 stays the main copy because of this gap: v1 neither saves these tables nor rolls them back.
+test('la copia v1 no cubre las tablas exclusivas de la v2 y restaurarla no las recupera ni las revierte', async () => {
+  const { repo, s, cid } = await setup();
+  const omitted = Object.keys(backupColumns).filter((name) => !Object.hasOwn(tableColumns, name));
+  assert.deepEqual(omitted.sort(), [
+    'app_state',
+    'hr_templates',
+    'personal_simulations',
+    'push_deliveries',
+    'push_subscriptions',
+    'turn_notifications',
+  ]);
+  const count = (db: SQLiteRepo) =>
+    (db.db.prepare('SELECT count(*) AS n FROM personal_simulations').get() as { n: number }).n;
+  const draft = (owner: string) =>
+    repo.db
+      .prepare('INSERT INTO personal_simulations(owner_key,campaign_id,member_id,json,updated_at) VALUES(?,?,?,?,?)')
+      .run(owner, cid, 'member', '{}', '2026-11-05');
+  draft('owner');
+
+  const file = JSON.parse(JSON.stringify(await s.backup()));
+  for (const name of omitted) assert.equal(file.payload.tables[name], undefined, name);
+
+  // Not recovered on a new database.
+  const other = new SQLiteRepo(),
+    restored = new Service(other, superuser);
+  await restored.init();
+  await restored.restore(file, (await restored.admin()).revision);
+  assert.equal(count(other), 0);
+
+  // Not rolled back on the original one: a row added after the copy stays.
+  draft('later');
+  await s.restore(file, (await s.admin()).revision);
+  assert.equal(count(repo), 2);
 });
