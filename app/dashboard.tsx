@@ -51,7 +51,10 @@ import { sectionFromPath, sectionPaths, type DashboardSection } from './section-
 const labels: any = { open: 'Abierta', closed: 'Cerrada', published: 'Publicada' };
 const api = (path: string, body?: any) => apiJson(path, body === undefined ? {} : { body });
 /** Whether the index still lists the campaign, the VA one included. */
-const known = (i: any, id: string) => i.campaigns.some((x: any) => x.id === id) || i.vaCampaign?.id === id;
+const known = (i: any, id: string) =>
+  i.campaigns.some((x: any) => x.id === id) ||
+  i.vaCampaign?.id === id ||
+  !!i.vaSimulations?.some((x: { id: string }) => x.id === id);
 function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   const confirm = useConfirmation();
   const [index, setIndex] = useState<any>(null),
@@ -72,16 +75,19 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     !!index?.va?.admin &&
     index.principal.role !== 'superadmin' &&
     !index.principal.teams.some((t: string) => t !== 'va');
-  const vaCampaignId =
-    (nav === 'antiguedad' || nav === 'antiguedad-admin' || (nav === 'administracion' && onlyVaAdmin)) &&
-    index?.vaCampaign
-      ? index.vaCampaign.id
-      : '';
+  // The scenario chosen in the VA sections; one the index does not list falls back to the real campaign.
+  const [vaScenario, setVaScenario] = useState('');
+  const vaScenarioId: string = index?.vaSimulations?.find((s: { id: string }) => s.id === vaScenario)?.id ?? '';
+  const isVaSection = (section: DashboardSection) =>
+    section === 'antiguedad' || section === 'antiguedad-admin' || (section === 'administracion' && onlyVaAdmin);
+  const vaCampaignId = isVaSection(nav) && index?.vaCampaign ? vaScenarioId || index.vaCampaign.id : '';
   const cid = vaCampaignId || selectedCid;
   const view: DashboardSection = vaCampaignId ? (nav === 'antiguedad' ? 'eleccion' : 'administracion') : nav;
   const [yearChoice, setYearChoice] = useState<number | null>(null);
   const [individualPdfCode, setIndividualPdfCode] = useState('');
   const [previewCode, setPreviewCode] = useState('');
+  // Scenario selector for VA administrators, on both the election and the administration.
+  const vaScenarioBar = !!vaCampaignId && !!index?.vaSimulations && !previewCode;
   const [jumpToActivation, setJumpToActivation] = useState(false);
   const [firebaseEnabled, setFirebaseEnabled] = useState(false);
   const [localAdminEnabled, setLocalAdminEnabled] = useState(false);
@@ -175,6 +181,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   }
   useEffect(() => {
     let active = true;
+    setVaScenario(new URLSearchParams(location.search).get('escenario') ?? '');
     const readSession = () =>
       api('session')
         .then((s) => {
@@ -252,9 +259,15 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
       .then((d) => {
         if (cancelled) return;
         setData(d);
-        // The VA campaign is reached by its section, not by team and year.
-        if (d.campaign.team_id === 'va') return;
         const u = new URL(location.href);
+        // The VA campaign is reached by its section, not by team and year.
+        if (d.campaign.team_id === 'va') {
+          if (d.campaign.scope_key === 'live') u.searchParams.delete('escenario');
+          else u.searchParams.set('escenario', d.campaign.id);
+          history.replaceState(history.state, '', u);
+          lastSectionUrl.current = u.toString();
+          return;
+        }
         u.searchParams.set('equipo', d.campaign.team_id);
         u.searchParams.set('year', d.campaign.year);
         if (d.campaign.scope_key === 'live') u.searchParams.delete('escenario');
@@ -521,6 +534,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
       // Same query as the section links: the selected campaign and «verComo».
       // Before any campaign is selected, keep whatever the address already says.
       const url = new URL(sectionPaths[n] + (sectionQuery || location.search), location.href);
+      // A VA scenario only means something in the VA sections.
+      if (vaScenarioId && isVaSection(n)) url.searchParams.set('escenario', vaScenarioId);
+      else if (vaScenarioId && url.searchParams.get('escenario') === vaScenarioId) url.searchParams.delete('escenario');
       const nextIndex = navigationIndex.current + 1;
       history.pushState({ ...history.state, vacationNavigationIndex: nextIndex }, '', url);
       navigationIndex.current = nextIndex;
@@ -580,6 +596,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
           setNav(next);
           setMenu(false);
           if (typeof nextIndex === 'number') navigationIndex.current = nextIndex;
+          setVaScenario(new URLSearchParams(location.search).get('escenario') ?? '');
           // The entry also names a team, year and scenario: show what loading that URL would.
           if (currentIndex.current) {
             const selection = resolveLandingCampaign(currentIndex.current, location.search);
@@ -802,8 +819,11 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         : 'Cada cambio se guarda en la campaña seleccionada.'}
               </p>
             </div>
-            <div className="selectors" style={nav === 'antiguedad' || vaAdminView ? { display: 'none' } : undefined}>
-              <label>
+            <div
+              className="selectors"
+              style={(nav === 'antiguedad' || vaAdminView) && !vaScenarioBar ? { display: 'none' } : undefined}
+            >
+              <label style={vaScenarioBar ? { display: 'none' } : undefined}>
                 Ejercicio
                 <select
                   aria-label="Ejercicio"
@@ -840,7 +860,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                   )}
                 </select>
               </label>
-              <label>
+              <label style={vaScenarioBar ? { display: 'none' } : undefined}>
                 Equipo
                 <select
                   aria-label="Equipo"
@@ -879,16 +899,19 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                     value={cid}
                     onChange={async (e) => {
                       const next = e.target.value;
-                      if (await canNavigate()) setCid(next);
+                      if (!(await canNavigate())) return;
+                      if (vaScenarioBar) setVaScenario(next === index.vaCampaign.id ? '' : next);
+                      else setCid(next);
                     }}
                   >
-                    {index?.campaigns
-                      .filter((c: any) => c.team_id === team && c.year === year)
-                      .map((c: any) => (
-                        <option key={c.id} value={c.id}>
-                          {c.scope_key === 'live' ? 'Campaña real' : `Simulación: ${c.simulation_name}`}
-                        </option>
-                      ))}
+                    {(vaScenarioBar
+                      ? [{ ...index.vaCampaign, scope_key: 'live' }, ...index.vaSimulations]
+                      : index?.campaigns.filter((c: any) => c.team_id === team && c.year === year)
+                    )?.map((c: any) => (
+                      <option key={c.id} value={c.id}>
+                        {c.scope_key === 'live' ? 'Campaña real' : `Simulación: ${c.simulation_name}`}
+                      </option>
+                    ))}
                   </select>
                 </label>
               )}
@@ -897,7 +920,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                   type="button"
                   className="secondary scenario-create"
                   onClick={async () => {
-                    await go('administracion');
+                    await go(vaCampaignId ? 'antiguedad-admin' : 'administracion');
                     setTimeout(
                       () =>
                         document
@@ -935,7 +958,8 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                             (c: any) => c.team_id === team && c.year === year && c.scope_key === 'live',
                           );
                           setData(null);
-                          setCid(live?.id ?? '');
+                          if (vaCampaignId) setVaScenario('');
+                          else setCid(live?.id ?? '');
                           return { ok: true };
                         }, 'Simulación eliminada');
                       }}
@@ -972,6 +996,8 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                       const url = new URL(location.href);
                       if (e.target.value) url.searchParams.set('verComo', e.target.value);
                       else url.searchParams.delete('verComo');
+                      // A controller tries the election; VA administration is not theirs.
+                      if (vaCampaignId && e.target.value) url.pathname = sectionPaths.antiguedad;
                       location.assign(url.toString());
                     }}
                   >
@@ -1272,7 +1298,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 ))}
 
               {/* The census, its accounts and HR's quotas stay with the VA campaign's administration. */}
-              {vaCampaignId && view === 'administracion' && canManage && <VaCensusPanel />}
+              {vaCampaignId && data?.campaign.scope_key === 'live' && view === 'administracion' && canManage && (
+                <VaCensusPanel />
+              )}
               {view === 'administracion' &&
                 (canManage ? (
                   <>
@@ -1462,16 +1490,22 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                       busy={busy}
                       create={(body: any) =>
                         perform(async () => {
-                          const source = index.campaigns.find(
-                            (c: any) => c.team_id === team && c.year === year && c.scope_key === 'live',
-                          );
+                          const source = vaCampaignId
+                            ? index.vaCampaign
+                            : index.campaigns.find(
+                                (c: any) => c.team_id === team && c.year === year && c.scope_key === 'live',
+                              );
                           if (!source) throw new Error('Campaña real no encontrada');
                           const live = await api('campaign/' + source.id);
                           const created = await api('simulations/' + source.id, {
                             ...body,
                             version: live.campaign.version,
                           });
-                          setCid(created.id);
+                          if (vaCampaignId) {
+                            // The selector only accepts a scenario the index lists.
+                            await loadIndex();
+                            setVaScenario(created.id);
+                          } else setCid(created.id);
                           return api('campaign/' + created.id);
                         }, 'Simulación privada creada')
                       }

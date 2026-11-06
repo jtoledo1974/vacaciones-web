@@ -393,3 +393,35 @@ test('VA: la vista no ofrece aplazar en la última ronda', async () => {
   assert.equal(v.election.turn.round, 2);
   assert.equal(v.election.turn.canDefer, false);
 });
+
+test('VA: el índice lista las simulaciones solo a quien administra VA, sin mezclarlas con las ordinarias', async () => {
+  const { repo, s } = await setup(many(5, 1));
+  await s.createSimulation(VA, { version: (await s.load(VA)).campaign.version, name: 'Ensayo VA' });
+  const index = await s.list();
+  assert.deepEqual(
+    index.vaSimulations?.map((c: { simulation_name: string }) => c.simulation_name),
+    ['Ensayo VA'],
+  );
+  assert.ok(!index.campaigns.some((c: { team_id: string }) => c.team_id === VA_TEAM));
+  const vaAdmin = await new Service(repo, { id: 'chatgpt:va', role: 'team_admin', teams: [VA_TEAM] }).list();
+  assert.equal(vaAdmin.vaSimulations?.length, 1);
+  const other = await new Service(repo, { id: 'chatgpt:c', role: 'team_admin', teams: ['C'] }).list();
+  assert.equal(other.vaSimulations, undefined);
+  const viewer = await new Service(repo, { id: 'chatgpt:v', role: 'viewer', teams: [] }).list();
+  assert.equal(viewer.vaSimulations, undefined);
+});
+
+test('VA: una elección ficticia en la simulación no toca la campaña real', async () => {
+  const { repo, s } = await setup(many(12));
+  await s.createSimulation(VA, { version: (await s.load(VA)).campaign.version, name: 'Ensayo VA' });
+  const sim = (await repo.all('SELECT id FROM campaigns WHERE simulation_name=?', ['Ensayo VA']))[0].id;
+  const members = (await s.load(sim)).members;
+  await act(s, sim, { ...start(), order: members.map((m: { id: string }) => m.id) });
+  const v = await act(s, sim, {
+    action: 'choose',
+    memberId: members.find((m: { code: string }) => m.code === 'AA').id,
+    dates: [day(1)],
+  });
+  assert.equal(v.awards.length, 1);
+  assert.equal((await s.load(VA)).awards.length, 0);
+});

@@ -116,14 +116,24 @@ export class Service {
           accountKeys,
         )
       : [];
+    const vaCampaign = await this.vaCampaign();
     return {
       teams: r[0].results.filter((t) => /^[A-H]$/.test(t.id)).map((t) => ({ ...t, name: 'Equipo ' + t.id })),
       campaigns,
       principal: this.actor,
       myCampaignIds: mine.map((m) => m.campaign_id).filter((id) => campaigns.some((c) => c.id === id)),
       va: await vaVisibility(this.repo, this.actor),
-      vaCampaign: await this.vaCampaign(),
+      vaCampaign,
+      vaSimulations: await this.vaSimulations(vaCampaign),
     };
+  }
+  /** The VA campaign's scenarios, only for whoever administers VA. */
+  private async vaSimulations(live: { year: number } | null) {
+    if (!live || !canWrite(this.actor, VA_TEAM)) return undefined;
+    return this.repo.all(
+      "SELECT id,year,status,version,simulation_name FROM campaigns WHERE team_id=? AND year=? AND scope_key<>'live' ORDER BY created_at",
+      [VA_TEAM, live.year],
+    );
   }
   /** The latest live VA campaign, for whoever may open it (see view). */
   private async vaCampaign() {

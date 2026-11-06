@@ -4,7 +4,7 @@ export default function SimulationTools({ data, busy, create }: any) {
     <section id="simulations-panel" className="panel">
       <h2>Escenarios de simulación</h2>
       <p>
-        Los escenarios son compartidos por todos los administradores de este equipo. Copian la plantilla, las reglas y
+        Los escenarios son compartidos por todos los administradores de esta campaña. Copian la plantilla, las reglas y
         el orden si está preparado, pero empiezan sin vacaciones ni preferencias privadas reales. En el escenario podrás
         crear preferencias ficticias para todos los controladores.
       </p>
