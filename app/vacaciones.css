@@ -1182,3 +1182,26 @@ nav.va-tabs{display:flex;flex-direction:row;gap:4px;margin:0 0 12px;border-botto
    Only the daily grid and VA-specific administrative controls are specialised here. */
 .vac2-day.vac2-no-places{cursor:not-allowed}
 @media(max-width:600px){.va-year-map{grid-template-columns:repeat(2,minmax(0,1fr))}.va-month{padding:8px}.va-calendar .va-day-grid{gap:4px}.va-calendar .vac2-day{min-height:36px;font-size:13px}.va-month-nav button{padding:8px;font-size:12px;min-height:44px}.va-month-nav b{font-size:12px}.va-selection{bottom:0}.va-preferences{padding:12px}.va-calendar .vac2-toolbar{align-items:flex-start}.va-calendar .vac2-toolbar h3{font-size:14px}}
+
+/* Resumen anual (superadministradores): más verde cuantos más disponibles. */
+.year-band-0{--year-bg:#eef7f1;--year-fg:#0d2b23}
+.year-band-1{--year-bg:#d3ebdc;--year-fg:#0d2b23}
+.year-band-2{--year-bg:#aedcc2;--year-fg:#0d2b23}
+.year-band-3{--year-bg:#7fc6a2;--year-fg:#0d2b23}
+.year-band-4{--year-bg:#4ea883;--year-fg:#0d2b23}
+.year-band-5{--year-bg:#1f7a60;--year-fg:#fff}
+.year-band-6{--year-bg:#0b4f40;--year-fg:#fff}
+.vac2-key[class*=year-band-]{background:var(--year-bg)}
+.vac2-key.year-incomplete,.year-day.year-incomplete,.year-chip.year-incomplete{background:repeating-linear-gradient(135deg,#eceeed 0 3px,#c9cfcc 3px 6px);color:#3d4744}
+.year-day[class*=year-band-],.year-chip[class*=year-band-]{background:var(--year-bg);color:var(--year-fg)}
+.year-day[aria-pressed=true]{outline:2px solid #17324d;outline-offset:-1px}
+.year-chip{display:inline-block;min-width:36px;padding:2px 6px;border-radius:4px;text-align:center;font-weight:650}
+.year-summary-bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin-bottom:12px}
+.year-summary-bar label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:650}
+.year-summary-bar select{min-height:44px}
+.year-summary-bar .vac2-view-switch{margin-left:auto}
+.year-summary .alert{margin-bottom:8px}
+.year-detail{min-height:1.5em;margin:6px 0 10px;font-size:13px;font-weight:600}
+.year-table{max-height:70vh;overflow:auto}
+.year-table thead th{position:sticky;top:0;background:#fff}
+@media(max-width:680px){.year-summary-bar .vac2-view-switch{margin-left:0}.year-summary .vac2-day{min-height:44px;font-size:13px}}

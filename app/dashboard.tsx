@@ -45,6 +45,7 @@ import {
   Award,
 } from 'lucide-react';
 import VaCensusPanel from './va-census-panel';
+import YearSummaryPanel from './year-summary-panel';
 import VaSection from './va-section';
 import CampaignStats from './campaign-stats';
 import { sectionFromPath, sectionPaths, type DashboardSection } from './section-routes';
@@ -542,7 +543,8 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     ['ayuda', 'Ayuda', BookOpen],
   ] as const;
   // VA administration is a tab of «Administración», not a menu entry of its own.
-  const isCurrent = (key: DashboardSection) => nav === key || (key === 'administracion' && nav === 'antiguedad-admin');
+  const isCurrent = (key: DashboardSection) =>
+    nav === key || (key === 'administracion' && (nav === 'antiguedad-admin' || nav === 'resumen-anual'));
   async function go(n: DashboardSection, updateHistory = true) {
     if (n !== currentSection.current && !(await canNavigate())) return false;
     currentSection.current = n;
@@ -741,7 +743,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 ? 'Vacaciones'
                 : nav === 'antiguedad'
                   ? 'Antigüedad'
-                  : nav === 'administracion' || nav === 'antiguedad-admin'
+                  : nav === 'administracion' || nav === 'antiguedad-admin' || nav === 'resumen-anual'
                     ? 'Administración'
                     : nav === 'estadisticas'
                       ? 'Estadísticas'
@@ -806,7 +808,9 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
           )}
           <div className="heading">
             <div>
-              <div className="eyebrow">PLANIFICACIÓN · {index ? year : '…'}</div>
+              <div className="eyebrow">
+                {nav === 'resumen-anual' ? 'PLANIFICACIÓN' : <>PLANIFICACIÓN · {index ? year : '…'}</>}
+              </div>
               <h1>
                 {nav === 'eleccion'
                   ? 'Vacaciones del equipo'
@@ -818,9 +822,11 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         ? 'Ayuda y documentación'
                         : nav === 'estadisticas'
                           ? 'Estadísticas'
-                          : superuser
-                            ? 'Administración general'
-                            : 'Administración del equipo'}
+                          : nav === 'resumen-anual'
+                            ? 'Resumen anual'
+                            : superuser
+                              ? 'Administración general'
+                              : 'Administración del equipo'}
               </h1>
               <p>
                 {nav === 'eleccion'
@@ -831,12 +837,18 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                       ? 'Censo de toda LECS, accesos, cupos de RRHH y turnos de elección.'
                       : nav === 'estadisticas'
                         ? 'Cómo avanza la elección en cada equipo y cuánto tarda cada turno.'
-                        : 'Cada cambio se guarda en la campaña seleccionada.'}
+                        : nav === 'resumen-anual'
+                          ? 'Cuántos controladores hay de vacaciones, de VA y disponibles cada día del año.'
+                          : 'Cada cambio se guarda en la campaña seleccionada.'}
               </p>
             </div>
             <div
               className="selectors"
-              style={(nav === 'antiguedad' || vaAdminView) && !vaScenarioBar ? { display: 'none' } : undefined}
+              style={
+                nav === 'resumen-anual' || ((nav === 'antiguedad' || vaAdminView) && !vaScenarioBar)
+                  ? { display: 'none' }
+                  : undefined
+              }
             >
               <label style={vaScenarioBar ? { display: 'none' } : undefined}>
                 Ejercicio
@@ -1048,29 +1060,33 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               {notice}
             </div>
           )}
-          {adminRole && vaAdmin && (nav === 'administracion' || nav === 'antiguedad-admin') && (
-            <nav className="va-tabs" aria-label="Tipo de administración">
-              {(
-                [
-                  ['administracion', 'Ordinarias'],
-                  ['antiguedad-admin', 'Antigüedad'],
-                ] as const
-              ).map(([key, label]) => (
-                <a
-                  key={key}
-                  href={sectionUrl(key, sectionQuery)}
-                  aria-current={nav === key ? 'page' : undefined}
-                  onClick={(event) => {
-                    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-                    event.preventDefault();
-                    void go(key);
-                  }}
-                >
-                  {label}
-                </a>
-              ))}
-            </nav>
-          )}
+          {adminRole &&
+            (vaAdmin || superuser) &&
+            (nav === 'administracion' || nav === 'antiguedad-admin' || nav === 'resumen-anual') && (
+              <nav className="va-tabs" aria-label="Tipo de administración">
+                {(
+                  [
+                    ['administracion', 'Ordinarias'],
+                    ...(vaAdmin ? ([['antiguedad-admin', 'Antigüedad']] as const) : []),
+                    ...(superuser ? ([['resumen-anual', 'Resumen anual']] as const) : []),
+                  ] as const
+                ).map(([key, label]) => (
+                  <a
+                    key={key}
+                    href={sectionUrl(key, sectionQuery)}
+                    aria-current={nav === key ? 'page' : undefined}
+                    onClick={(event) => {
+                      if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+                        return;
+                      event.preventDefault();
+                      void go(key);
+                    }}
+                  >
+                    {label}
+                  </a>
+                ))}
+              </nav>
+            )}
           {nav === 'ayuda' ? (
             <Help />
           ) : !index ? (
@@ -1083,6 +1099,16 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                 <BarChart3 size={32} />
                 <h2>Estadísticas reservadas</h2>
                 <p>Inicia sesión para consultar las estadísticas de las campañas.</p>
+              </section>
+            )
+          ) : nav === 'resumen-anual' ? (
+            superuser ? (
+              <YearSummaryPanel />
+            ) : (
+              <section className="panel empty">
+                <ShieldCheck size={32} />
+                <h2>Resumen reservado</h2>
+                <p>Solo los superadministradores pueden consultar el resumen anual.</p>
               </section>
             )
           ) : vaAdminView && !vaCampaignId ? (

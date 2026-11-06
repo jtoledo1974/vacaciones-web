@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import CycleTable from './cycle-table';
-import { AvailabilityScale, MonthNavigation } from './calendar-controls';
+import { AvailabilityScale, MonthDays, MonthNavigation } from './calendar-controls';
 import { orderMemberAwards, orderMemberIds, type CycleOrder, type MemberOrder } from '../domain/member-display-order';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
 import { splitPreferences } from './own-cycles';
@@ -229,21 +229,6 @@ export default function CycleCalendar({
       .map((a) => byDate.get(a.cycle_date))
       .filter((c): c is Cycle => !!c);
   const byMonth = useMemo(() => months.map((_, m) => cycles.filter((c) => monthIndex(c.date) === m)), [cycles]);
-  const monthDates = useMemo(
-    () =>
-      months.map((_, m) => {
-        const result: (Cycle | null)[] = [];
-        const offset = (new Date(Date.UTC(year, m, 1)).getUTCDay() + 6) % 7;
-        for (let i = 0; i < offset; i++) result.push(null);
-        const days = new Date(Date.UTC(year, m + 1, 0)).getUTCDate();
-        for (let day = 1; day <= days; day++) {
-          const date = new Date(Date.UTC(year, m, day)).toISOString().slice(0, 10);
-          result.push(cycles.find((c) => c.date <= date && date <= c.end) ?? null);
-        }
-        return result;
-      }),
-    [year, cycles],
-  );
   const codesFor = (date: string) => holders.get(date) ?? [];
   function renderCycle(c: Cycle) {
     const free = slots(c),
@@ -314,33 +299,30 @@ export default function CycleCalendar({
         <h3>{months[m]}</h3>
         {detail ? (
           <>
-            <div className="vac2-weekdays">
-              {'LMXJVSD'.split('').map((d, i) => (
-                <span key={i}>{d}</span>
-              ))}
-            </div>
-            <div className="vac2-days">
-              {monthDates[m].map((c, i) => {
-                const day = i - ((new Date(Date.UTC(year, m, 1)).getUTCDay() + 6) % 7) + 1;
+            <MonthDays
+              year={year}
+              month={m}
+              renderDay={(day, date) => {
+                const c = cycles.find((x) => x.date <= date && date <= x.end);
                 // Single days: a day without places looks like a full one.
                 if (!c)
-                  return daily && day > 0 ? (
+                  return daily ? (
                     <span
-                      key={i}
+                      key={date}
                       className="vac2-day vac2-free-0 vac2-cycle-start vac2-no-places"
                       aria-label={day + ' ' + months[m] + ': sin plazas'}
                     >
                       {day}
                     </span>
                   ) : (
-                    <span key={'pad-' + i} />
+                    <span key={date} />
                   );
-                const first = c.date === new Date(Date.UTC(year, m, day)).toISOString().slice(0, 10);
+                const first = c.date === date;
                 const status = cycleAvailability(c, availability, ruled);
                 return (
                   <button
                     type="button"
-                    key={i}
+                    key={date}
                     data-cycle-date={c.date}
                     disabled={busy}
                     onClick={() => onSelect(c)}
@@ -365,8 +347,8 @@ export default function CycleCalendar({
                     )}
                   </button>
                 );
-              })}
-            </div>
+              }}
+            />
             <div className="vac2-month-people">
               {cycles
                 .filter(
