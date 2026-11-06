@@ -194,6 +194,28 @@ test('la campaña de VA se abre solo para su administración y sus participantes
   await participant.election().availability(campaignId);
 });
 
+test('el participante de VA sin permisos recibe solo su propio derecho, no el de los demás', async () => {
+  const { repo, people, load } = await setup();
+  const { campaignId } = await load([people.AA, people.BB]);
+  await repo.batch([
+    {
+      sql: 'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1)',
+      args: [people.BB, 'chatgpt-email:bb@x.test'],
+    },
+  ]);
+  const participant = new Service(repo, {
+    id: 'chatgpt:bb',
+    role: 'viewer',
+    teams: [],
+    emailKey: 'chatgpt-email:bb@x.test',
+  });
+  const view = await participant.view(campaignId);
+  assert.equal(view.editable, false, 'recibe la proyección pública');
+  assert.equal(view.config, null);
+  assert.equal(view.election.myEntitlement, 2, 'sus días de VA, no los seis ciclos de ordinarias');
+  for (const member of view.members) assert.deepEqual(Object.keys(member).sort(), ['code', 'id']);
+});
+
 test('recargar el censo en preparación descarta las solicitudes de los miembros anteriores', async () => {
   const { repo, s, people, load } = await setup();
   const { campaignId } = await load([people.AA, people.BB]);

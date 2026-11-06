@@ -205,6 +205,8 @@ export type ElectionProjectionData = {
   pendingAutomatic: boolean;
   turnsAhead: number | null;
   automaticAhead: number | null;
+  /** The viewer's own right in this campaign (policy-aware: VA days, individual cycles). */
+  myEntitlement: number | null;
   /** The viewer's own early election: cycles proved safe now and early choices made. */
   early: EarlyView | null;
   listPlan: {
@@ -334,6 +336,7 @@ function sharedElectionFields(data: ElectionProjectionData) {
     pendingAutomatic: data.pendingAutomatic,
     turnsAhead: data.turnsAhead,
     automaticAhead: data.automaticAhead,
+    myEntitlement: data.myEntitlement,
     early: data.early
       ? {
           guaranteed: [...data.early.guaranteed],
