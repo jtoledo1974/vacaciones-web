@@ -86,6 +86,9 @@ export default function YearSummaryPanel() {
           ))}
         </div>
       </div>
+      <p className="muted">
+        Los números solo serán válidos cuando estén cerradas las campañas de ordinarias y de antigüedad.
+      </p>
       {summary.vaOpen && (
         <div className="alert warning" role="status">
           VA en curso: solo se cuentan los días ya adjudicados.
