@@ -711,6 +711,7 @@ export class ElectionService {
       pendingAutomatic,
       turnsAhead,
       automaticAhead,
+      myEntitlement: mine ? entitlementFor(ctx, mine) : null,
       early,
       listPlan,
       queue,

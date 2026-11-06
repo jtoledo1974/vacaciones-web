@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { myElection, type MyElectionInput } from '../app/my-election-state.ts';
+import { myElection, progressText, type MyElectionInput } from '../app/my-election-state.ts';
+
+test('el progreso cuenta el derecho propio y lo que falta por elegir', () => {
+  const days = { one: 'día', many: 'días' };
+  const c = { date: '2027-07-04', end: '2027-07-04', score: 0 };
+  assert.equal(progressText({ cycles: [], entitlement: 3 }, days), 'te quedan 3 de 3 días por elegir');
+  assert.equal(progressText({ cycles: [c, c], entitlement: 3 }, days), 'te queda 1 de 3 días por elegir');
+  assert.equal(progressText({ cycles: [c, c, c], entitlement: 3 }, days), '3 de 3 días elegidos');
+});
 import type { CycleAvailability } from '../domain/occupancy.ts';
 
 const cycles = [

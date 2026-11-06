@@ -479,7 +479,8 @@ export default function ElectionWorkspace({
   const me = mine
     ? myElection({
         myMemberId: mine,
-        cyclesPerPerson: data.config?.cyclesPerPerson ?? 6,
+        // From the server's policy: participants receive neither members' rights nor the config.
+        cyclesPerPerson: election.myEntitlement ?? data.config?.cyclesPerPerson ?? 6,
         cycles: data.result.cycles,
         awards: data.awards,
         preferences: election.preferences,
