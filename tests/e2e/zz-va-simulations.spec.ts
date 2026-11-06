@@ -51,13 +51,19 @@ test(
       await expect(page).toHaveURL(/escenario=/);
       // The census belongs to the real campaign.
       await expect(page.getByRole('region', { name: 'Censo y accesos de VA' })).toHaveCount(0);
+      // So do the global permissions and backups.
+      await expect(page.getByRole('heading', { name: 'Responsables y permisos' })).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: 'Copias de seguridad' })).toHaveCount(0);
 
       // A reload, and the election section, stay in the simulation.
       await page.reload();
       await expect(tag()).toBeVisible();
       const simulation = await scenario.inputValue();
       expect(simulation).not.toBe(real.id);
-      await page.goto('/antiguedad?escenario=' + simulation);
+      // Links, opened in another tab, keep the scenario.
+      const link = page.getByRole('link', { name: 'Antigüedad', exact: true }).first();
+      expect(await link.getAttribute('href')).toContain('escenario=' + simulation);
+      await page.goto((await link.getAttribute('href'))!);
       await expect(tag()).toBeVisible();
 
       // «Probar como» opens the simulation's election as that controller, and comes back to it.
@@ -82,6 +88,12 @@ test(
       await expect(page.getByRole('status').filter({ hasText: 'Simulación eliminada' })).toBeVisible();
       await expect(scenario).toHaveValue(real.id);
       expect((await request.get('/api/campaign/' + simulation)).status()).toBe(404);
+
+      // A link to the deleted simulation says so instead of silently showing the real campaign.
+      await page.goto('/antiguedad?escenario=' + simulation);
+      await expect(page.getByRole('alert')).toContainText('Esa simulación no existe');
+      await expect(scenario).toHaveValue(real.id);
+      await expect(page).not.toHaveURL(/escenario=/);
     } finally {
       const current = await (await request.get('/api/backup')).json();
       const restored = await post('restore', { backup, revision: current.payload.revision });

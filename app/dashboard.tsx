@@ -88,6 +88,13 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   const [previewCode, setPreviewCode] = useState('');
   // Scenario selector for VA administrators, on both the election and the administration.
   const vaScenarioBar = !!vaCampaignId && !!index?.vaSimulations && !previewCode;
+  // A VA scenario asked for by a link, or deleted meanwhile: say so while showing the real campaign.
+  const vaScenarioMissing =
+    !!vaScenario &&
+    !vaScenarioId &&
+    !!index?.vaSimulations &&
+    isVaSection(nav) &&
+    !index.campaigns.some((c: { id: string }) => c.id === vaScenario);
   const [jumpToActivation, setJumpToActivation] = useState(false);
   const [firebaseEnabled, setFirebaseEnabled] = useState(false);
   const [localAdminEnabled, setLocalAdminEnabled] = useState(false);
@@ -512,6 +519,17 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   }
   if (previewCode) sectionParams.set('verComo', previewCode);
   const sectionQuery = sectionParams.size ? '?' + sectionParams.toString() : '';
+  /** A section's query: a VA scenario travels only between the VA sections, an ordinary one never enters them. */
+  const sectionUrl = (n: DashboardSection, query: string) => {
+    const url = new URL(sectionPaths[n] + query, 'http://section');
+    if (isVaSection(n)) {
+      if (vaScenarioId) url.searchParams.set('escenario', vaScenarioId);
+      else url.searchParams.delete('escenario');
+    } else if (vaScenarioId && url.searchParams.get('escenario') === vaScenarioId) {
+      url.searchParams.delete('escenario');
+    }
+    return url.pathname + url.search;
+  };
   const links = [
     ['eleccion', 'Vacaciones', CalendarDays],
     // Only for VA participants and administrators (server/va-census.ts).
@@ -533,10 +551,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
     if (updateHistory && location.pathname !== sectionPaths[n]) {
       // Same query as the section links: the selected campaign and «verComo».
       // Before any campaign is selected, keep whatever the address already says.
-      const url = new URL(sectionPaths[n] + (sectionQuery || location.search), location.href);
-      // A VA scenario only means something in the VA sections.
-      if (vaScenarioId && isVaSection(n)) url.searchParams.set('escenario', vaScenarioId);
-      else if (vaScenarioId && url.searchParams.get('escenario') === vaScenarioId) url.searchParams.delete('escenario');
+      const url = new URL(sectionUrl(n, sectionQuery || location.search), location.href);
       const nextIndex = navigationIndex.current + 1;
       history.pushState({ ...history.state, vacationNavigationIndex: nextIndex }, '', url);
       navigationIndex.current = nextIndex;
@@ -745,7 +760,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
           {links.map(([key, label]) => (
             <a
               key={key}
-              href={sectionPaths[key] + sectionQuery}
+              href={sectionUrl(key, sectionQuery)}
               aria-current={isCurrent(key) ? 'page' : undefined}
               onClick={(event) => {
                 if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
@@ -1012,6 +1027,14 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               )}
             </div>
           </div>
+          {vaScenarioMissing && (
+            <div className="alert error" role="alert">
+              Esa simulación no existe o se ha eliminado. Se muestra la campaña real.
+              <button onClick={() => setVaScenario('')} aria-label="Cerrar aviso de simulación">
+                ×
+              </button>
+            </div>
+          )}
           {error && (
             <div className="alert error" role="alert">
               {error}
@@ -1035,7 +1058,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
               ).map(([key, label]) => (
                 <a
                   key={key}
-                  href={sectionPaths[key] + sectionQuery}
+                  href={sectionUrl(key, sectionQuery)}
                   aria-current={nav === key ? 'page' : undefined}
                   onClick={(event) => {
                     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
@@ -1425,25 +1448,29 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         }
                       />
                     )}
-                    <section className="panel">
-                      <h2>Responsables y permisos</h2>
-                      <p className="muted">
-                        Da o retira permisos de gestión del equipo con el correo con el que cada persona inicia sesión.
-                      </p>
-                      <UserForm
-                        admin={admin}
-                        team={team}
-                        superuser={superuser}
-                        busy={busy}
-                        save={(b: any) =>
-                          perform(async () => {
-                            await api('users', b);
-                            setAdmin(await api('admin'));
-                            return { ok: true };
-                          }, 'Permisos guardados')
-                        }
-                      />
-                    </section>
+                    {/* Permissions are global: a simulation must not offer to change them. */}
+                    {data.campaign.scope_key === 'live' && (
+                      <section className="panel">
+                        <h2>Responsables y permisos</h2>
+                        <p className="muted">
+                          Da o retira permisos de gestión del equipo con el correo con el que cada persona inicia
+                          sesión.
+                        </p>
+                        <UserForm
+                          admin={admin}
+                          team={team}
+                          superuser={superuser}
+                          busy={busy}
+                          save={(b: any) =>
+                            perform(async () => {
+                              await api('users', b);
+                              setAdmin(await api('admin'));
+                              return { ok: true };
+                            }, 'Permisos guardados')
+                          }
+                        />
+                      </section>
+                    )}
                     {
                       <section className="panel campaign-close">
                         <h2>{vaCampaignId ? 'Cerrar o reabrir la campaña' : 'Cerrar o reabrir el equipo'}</h2>
@@ -1549,7 +1576,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                           </button>
                         </div>
                       </section>
-                      {superuser && (
+                      {superuser && !(vaCampaignId && data.campaign.scope_key !== 'live') && (
                         <section className="panel">
                           <h2>Copias de seguridad</h2>
                           <p className="muted">
