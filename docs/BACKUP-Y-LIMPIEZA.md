@@ -1,4 +1,31 @@
-# Backup v2 y mantenimiento conservador
+# Copias de seguridad (v1 y v2) y mantenimiento conservador
+
+## Qué copia usar
+
+**Método principal: copia v2.** Cubre todos los datos respaldados y se restaura fuera de línea en un SQLite nuevo. Procedimiento en [Descargar y verificar](#descargar-y-verificar).
+
+**Alternativa: copia v1.** `GET /api/backup` (o `?download=1`) devuelve un único JSON `vacaciones-backup-v1` con su SHA-256, leído en una sola transacción. Contiene los datos de la elección y sirve para reproducir incidencias y para restaurar desde la aplicación:
+
+```sh
+VACACIONES_URL=https://vacaciones.lazaro.es node scripts/admin-cli.mjs backup --v1 --out copia.json
+```
+
+| | v2 (principal) | v1 (alternativa) |
+| --- | --- | --- |
+| Formato | NDJSON por páginas, con inventario y cadena SHA-256 | Un JSON con SHA-256 |
+| Coherencia | Aborta si cambian los datos durante la copia | Lectura en una sola transacción |
+| Plantillas RRHH, simulaciones personales, suscripciones y colas push | Incluidas | **No incluidas** |
+| Restauración | Fuera de línea, en un SQLite nuevo | En la aplicación, sustituyendo los datos en caliente |
+| Límites de restauración | Sin límite HTTP | 64 millones de caracteres (solo superadministrador) y 25.000 filas |
+| Descarga | CLI, o Chrome/Edge de escritorio | CLI o cualquier navegador |
+
+Restaurar una v1 **no recupera ni revierte** las tablas que no contiene: en una base nueva quedan vacías y en una base existente conservan su estado actual.
+
+**Restauración con datos reales (05/11/2026).** La copia v1 de producción de ese día, sin retocar (24,3 millones de caracteres, 5.228 filas), se restauró en unos 2 segundos sobre D1 local (Miniflare) y abrió sus 17 campañas. No se ha probado en Sites, cuyos límites pueden ser distintos, así que no cuentes todavía con restaurar producción desde v1.
+
+**Sesiones de reconstrucción comprimidas.** Se guardan con el códec `gz1:` del historial (ADR 0001) cuando eso reduce su tamaño; las que siguen en JSON se leen igual. Restaurar comprime también las de copias anteriores, necesario porque una de 5 millones de caracteres supera el límite de fila de D1 local. Las sesiones ya almacenadas en producción no se convierten hasta que se reescriben o se restauran. La limpieza `compact-reconstruction-events` ignora las comprimidas.
+
+**Baremo.** Los parámetros de 2027 guardados antes de que el baremo oficial fuera de solo lectura se restauran tal cual. La aplicación sigue calculando con el baremo oficial y no permite volver a guardarlos.
 
 Para reproducir incidencias sin tocar producción, consultar la [receta manual de clon local desde un backup](CLON-LOCAL-DESDE-BACKUP.md). Incluye aislamiento de notificaciones, montaje de D1/Miniflare, arranque y comprobaciones; no añade una prueba automática.
 
@@ -10,7 +37,7 @@ Como superadmin, descargar `GET /api/campaign/{campaignId}/diagnostic` en una se
 
 No se ha fusionado, desplegado ni ejecutado la nueva limpieza en producción. Las rutas v2 requieren la migración `0020_backup_clock.sql`; **el código de este PR no está disponible en el sitio hasta un despliegue aprobado por separado**. No se ha obtenido una copia completa de producción con este código todavía.
 
-La restauración v2 implementada es **fuera de línea, en un SQLite nuevo**. Se comprueba su uso por el repositorio y el servicio, incluida una reconstrucción activa, volver/avanzar, cancelar y undo/redo. No hay importador v2 masivo a D1 en caliente ni sustitución automática de la base de Sites. El endpoint y formulario v1 siguen disponibles para copias pequeñas compatibles; su límite HTTP sigue siendo 5 millones de caracteres y no deben usarse para esta base de producción. No convertir v2 a un único JSON v1 para intentar sortear este límite.
+La restauración v2 implementada es **fuera de línea, en un SQLite nuevo**. Se comprueba su uso por el repositorio y el servicio, incluida una reconstrucción activa, volver/avanzar, cancelar y undo/redo. No hay importador v2 masivo a D1 en caliente ni sustitución automática de la base de Sites. El endpoint y formulario v1 siguen disponibles; su límite HTTP de restauración es de 64 millones de caracteres (y 25.000 filas), con las salvedades de la sección anterior. No convertir v2 a un único JSON v1 para intentar sortear este límite.
 
 ## Descargar y verificar
 
@@ -111,6 +138,7 @@ Request IDs de lectura: `567c6d55-128b-4ec9-82b4-7668cf1337b6`, `fb892b3b-849a-4
 
 - `node --experimental-transform-types --test tests/backup-v2.test.ts`: >72 MB de texto sintético, celda de 2 MB, Unicode, páginas acotadas, round-trip, interrupción, corrupción, cambios entre páginas/finales y de esquema, roles, confirmación, lotes y carrera entre preview y commit.
 - `tests/reconstruction.test.ts`: reconstrucción activa tras compactar, backup/restauración, back/forward/cancel y undo/redo.
+- `tests/backup-v1-restore.test.ts`: copia v1 con historial comprimido (`gz1:`), ida y vuelta por JSON, restauración sobre otra base y sobre la misma, deshacer vigente tras restaurar y tablas que la v1 no cubre.
 - `tests/admin-cli.test.ts`: copia previa streaming, permisos, integridad, cancelación, escritura única y privacidad de archivos.
 - Playwright local con D1/Miniflare: descarga v2 a escritor, compatibilidad de restauración v1. Solo base sintética local separada.
 

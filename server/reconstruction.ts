@@ -22,6 +22,7 @@ import { canWrite, type Principal } from './permissions.ts';
 import { cas, insertRows, type Repository, type Statement } from './repository.ts';
 import { capture, electionStateStatement, restoreStatements } from './campaign-snapshot.ts';
 import { ApiError } from './errors.ts';
+import { decodePayload, encodePayload } from './payload-codec.ts';
 import { requestsForAwards, syncElectionRequests } from './election-requests.ts';
 import { AuditContext, appliedAudit, auditAfter, auditBefore, eventsFor, type AuditRow } from './audit-context.ts';
 import {
@@ -148,12 +149,12 @@ export class ReconstructionService {
   ) {}
   async read(cid: string): Promise<Session | null> {
     const rows = await this.repo.all('SELECT json FROM reconstruction_sessions WHERE campaign_id=?', [cid]);
-    return rows[0] ? JSON.parse(rows[0].json) : null;
+    return rows[0] ? JSON.parse(decodePayload(rows[0].json)) : null;
   }
   private write(cid: string, s: Session): Statement {
     return {
       sql: 'INSERT INTO reconstruction_sessions(campaign_id,json) VALUES(?,?) ON CONFLICT(campaign_id) DO UPDATE SET json=excluded.json',
-      args: [cid, JSON.stringify(s)],
+      args: [cid, encodePayload(JSON.stringify(s))],
     };
   }
   private async auditRows(cid: string) {

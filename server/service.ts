@@ -18,6 +18,7 @@ import { discretion, redactDiscreet, snapshotRequests } from './early-discretion
 import { type AuditAction } from '../domain/events.ts';
 import { canWrite, requireSuper, requireWrite, type Identity, type Principal } from './permissions.ts';
 import { cas, tableColumns, type Repository, type Statement } from './repository.ts';
+import { decodePayload, encodePayload } from './payload-codec.ts';
 import { ApiError } from './errors.ts';
 import { ElectionService } from './election-service.ts';
 import { requestsForAwards } from './election-requests.ts';
@@ -25,7 +26,7 @@ import { PersonalSimulationService } from './personal-simulation.ts';
 import { cloneSimulation } from './simulations.ts';
 import { projectAdminCampaignView, projectPublicCampaignView, projectPublishedCampaignView } from './projections.ts';
 import { validateElectionState, upgradeElectionState } from '../domain/election.ts';
-import { checkedConfig, runCommand } from './service-commands.ts';
+import { checkedConfig, checkedRestoredConfig, runCommand } from './service-commands.ts';
 import { HrExportError, hrTeamCells, suggestHrNames, type HrCell } from '../domain/hr-export.ts';
 import { orderAwardsBySelection } from '../domain/award-display-order.ts';
 import { readHrWorkbook, writeHrWorkbook, type HrWorkbook } from './hr-xlsx.ts';
@@ -1032,10 +1033,14 @@ export class Service {
     if (names.some((n) => !Array.isArray(tables[n])) || Object.keys(tables).some((n) => !names.includes(n)))
       throw new ApiError('Tablas no válidas');
     if (names.reduce((n, t) => n + tables[t].length, 0) > 25000) throw new ApiError('Copia demasiado grande');
+    // Older copies hold sessions in plain JSON, some larger than a D1 row allows.
+    tables.reconstruction_sessions = tables.reconstruction_sessions.map((row: { json?: unknown }) =>
+      typeof row?.json === 'string' ? { ...row, json: encodePayload(decodePayload(row.json)) } : row,
+    );
     for (const c of tables.campaigns) {
       const p = tables.parameters.find((p: any) => p.campaign_id === c.id);
       if (!p) throw new ApiError('Faltan parámetros');
-      checkedConfig(JSON.parse(p.json), scopeOf(c));
+      checkedRestoredConfig(JSON.parse(p.json), scopeOf(c));
     }
     try {
       for (const row of tables.election_states)

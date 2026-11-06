@@ -16,6 +16,7 @@
 //   login | logout                     empareja la terminal (30 días) o revoca el acceso guardado
 //   session | index | admin | campaign <id>
 //   backup --out copia.ndjson          copia v2 acotada, con cierre e integridad verificables
+//   backup --v1 --out copia.json       copia v1: un JSON en una sola transacción, sin las tablas exclusivas de v2
 //   cleanup preview [--out plan.json]   solo superadmin; no escribe
 //   cleanup apply plan.json            aplica exactamente el token del plan (máximo 500 por categoría)
 //   cleanup run --mode modo            repite preview y apply hasta vaciar el lote, con una sola copia previa
@@ -103,6 +104,20 @@ function writePrivate(file, data) {
   }
 }
 
+// Same, for a backup: linking fails if the target exists, so a previous copy is never replaced.
+function writeNewPrivate(file, data) {
+  const temp = path.join(path.dirname(file), '.' + path.basename(file) + '.' + randomUUID() + '.tmp');
+  try {
+    writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
+    linkSync(temp, file);
+  } catch (e) {
+    if (e?.code === 'EEXIST') fail('El destino ya existe: ' + file);
+    throw e;
+  } finally {
+    rmSync(temp, { force: true });
+  }
+}
+
 // On Windows the mode bits above do not restrict reading: Node maps them to the
 // read-only flag only. The access folder gets an ACL with just the current user,
 // without inheritance, before any token is written, so new files inherit only it.
@@ -132,7 +147,7 @@ function parseArgs(argv) {
   const flags = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations', '--help'].includes(a))
+    if (['--dry-run', '--no-backup', '--browser', '--no-open', '--accept-violations', '--help', '--v1'].includes(a))
       flags[a.slice(2)] = true;
     else if (a === '-h') flags.help = true;
     else if (['--out', '--backup-dir', '--review-token', '--year', '--title', '--received', '--mode'].includes(a)) {
@@ -492,8 +507,16 @@ async function main() {
       }
     };
     if (command === 'backup') {
-      if (!flags.out) fail('Usa backup --out copia.ndjson para guardar sin acumular la copia en memoria');
-      await saveBackup(flags.out);
+      if (!flags.out) fail('Usa backup --out copia.ndjson (o --v1 --out copia.json)');
+      if (existsSync(flags.out)) fail('El destino ya existe: ' + flags.out);
+      if (!flags.v1) {
+        await saveBackup(flags.out);
+        return;
+      }
+      const copy = await client.request('GET', 'backup', undefined, 'read');
+      if (!copy.ok) fail('Backup HTTP ' + copy.status + ': ' + (copy.data?.error ?? ''));
+      writeNewPrivate(flags.out, JSON.stringify(copy.data, null, 2) + '\n');
+      console.error('Copia v1 guardada en ' + flags.out);
       return;
     }
     if (writes) {

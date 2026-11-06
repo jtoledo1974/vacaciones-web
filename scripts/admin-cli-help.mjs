@@ -51,13 +51,16 @@ export const HELP = {
     example: 'node scripts/admin-cli.mjs campaign 385fe18a-391f-4ac9-8056-365136dcf47a --out campana.json',
   },
   backup: {
-    summary: 'Copia completa v2 fragmentada con inventario y cadena SHA-256.',
-    usage: 'admin-cli.mjs backup --out copia.ndjson',
+    summary:
+      'Copia completa v2 fragmentada, con inventario y cadena SHA-256. Con --v1, un JSON con los datos de la elección.',
+    usage: 'admin-cli.mjs backup --out copia.ndjson\n  admin-cli.mjs backup --v1 --out copia.json',
     permissions: 'Superadministrador.',
     writes: 'No. Contiene datos personales: guárdala en un lugar privado.',
     details: [
-      'Escribe en disco sin acumular la base en memoria. Si cambia la base, aborta y elimina el parcial.',
-      'Restauración fuera de línea: node scripts/restore-backup-v2.mjs copia.ndjson destino-nuevo.sqlite. No sobrescribe producción ni un fichero existente.',
+      'v2 (sin opción): escribe en disco sin acumular la base en memoria. Si cambia la base, aborta y elimina el parcial.',
+      'Restauración v2 fuera de línea: node scripts/restore-backup-v2.mjs copia.ndjson destino-nuevo.sqlite. No sobrescribe producción ni un fichero existente.',
+      '--v1: un único JSON leído en una sola transacción. No incluye plantillas RRHH, simulaciones personales ni suscripciones y colas push. Se restaura desde Administración › Herramientas avanzadas › Restaurar copia, hasta 64 millones de caracteres y 25.000 filas.',
+      'Ninguna de las dos sobrescribe un archivo existente.',
     ],
     example: 'node scripts/admin-cli.mjs backup --out copia.ndjson',
   },

@@ -72,7 +72,7 @@ La tabla permite editar también las vinculaciones de acceso. Para dar de baja o
 
 La copia completa y la restauración están en **Administración → Herramientas avanzadas**. En **Vacaciones → Situación actual en PDF** se abre un PDF (ciclos y plazas libres, adjudicaciones por controlador y turno) para guardar o compartir. Para móviles antiguos hay una versión sencilla de solo lectura en `/lite`; los navegadores sin soporte se redirigen a ella automáticamente.
 
-Descarga una copia completa antes de cambios importantes. Incluye todos los equipos, escenarios, cuentas vinculadas, preferencias, estados de elección, revisiones y auditoría. No incluye secretos del entorno. Guarda el JSON fuera del Site.
+Descarga una copia completa v2 antes de cambios importantes. Incluye todos los equipos, escenarios, cuentas vinculadas, preferencias, estados de elección, revisiones y auditoría, además de plantillas RRHH, simulaciones personales y colas de notificaciones. No incluye secretos del entorno. Guarda el archivo fuera del Site. La copia v1 en JSON contiene los datos de la elección, pero no esos tres últimos grupos: consulta [backup y limpieza](BACKUP-Y-LIMPIEZA.md).
 
 Restaurar sustituye los datos de toda la aplicación, no solo del escenario elegido. Comprueba SHA-256, referencias y estados, y se aplica en una transacción. Las copias anteriores a esta ampliación se admiten con las nuevas tablas vacías. No hay una copia externa programada: la descarga es manual.
 

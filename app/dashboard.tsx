@@ -1580,12 +1580,24 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                         <section className="panel">
                           <h2>Copias de seguridad</h2>
                           <p className="muted">
-                            La copia completa v2 se escribe por fragmentos en disco y conserva todo el historial. Si hay
-                            cambios durante la descarga se cancela, sin presentar el parcial como una copia válida.
-                            Requiere un navegador con guardado directo a disco (o el CLI). La restauración v2 se
-                            verifica fuera de línea con scripts/restore-backup-v2.mjs; el formulario inferior solo
-                            admite copias v1 pequeñas.
+                            Descarga una copia completa v2 antes de cambios importantes: conserva todos los datos y todo
+                            el historial, y se cancela si hay cambios durante la descarga. La copia v1 es la
+                            alternativa.
                           </p>
+                          <details className="backup-help">
+                            <summary>¿Qué diferencia hay entre v1 y v2?</summary>
+                            <p className="muted">
+                              <b>v2 (recomendada).</b> Archivo NDJSON por páginas, con inventario y cadena SHA-256,
+                              escrito directamente a disco (requiere Chrome o Edge de escritorio, o el CLI). Se restaura
+                              fuera de línea con scripts/restore-backup-v2.mjs; el formulario de aquí no la admite.
+                            </p>
+                            <p className="muted">
+                              <b>v1.</b> Un único JSON con los datos de la elección, que se descarga en cualquier
+                              navegador y se restaura aquí con «Restaurar copia». No incluye plantillas RRHH,
+                              simulaciones personales ni suscripciones y avisos push, y restaurarla no los recupera. Con
+                              el CLI: node scripts/admin-cli.mjs backup --v1 --out copia.json.
+                            </p>
+                          </details>
                           <div className="button-row">
                             <button
                               className="primary"
@@ -1625,6 +1637,25 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                               }}
                             >
                               <Download size={16} /> Descargar copia completa v2
+                            </button>
+                            <button
+                              className="secondary"
+                              disabled={busy}
+                              onClick={() =>
+                                perform(async () => {
+                                  const copy = await api('backup');
+                                  const url = URL.createObjectURL(
+                                    new Blob([JSON.stringify(copy, null, 2)], { type: 'application/json' }),
+                                  );
+                                  const link = document.createElement('a');
+                                  link.href = url;
+                                  link.download = 'vacaciones-copia-' + new Date().toISOString().slice(0, 10) + '.json';
+                                  link.click();
+                                  URL.revokeObjectURL(url);
+                                }, 'Copia v1 descargada')
+                              }
+                            >
+                              <Download size={16} /> Descargar copia v1
                             </button>
                             <label className="secondary file-label">
                               Restaurar copia
