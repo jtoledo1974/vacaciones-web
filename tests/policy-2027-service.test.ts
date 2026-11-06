@@ -639,3 +639,51 @@ test('renombrar un nick con la elección 2027 activa traslada su excepción de R
   assert.equal(d.config.previousScores.X01, 200);
   assert.equal(d.config.previousScores.P01, undefined);
 });
+
+test('en 2027 el participante recibe su derecho autorizado por RRHH, inferior a seis ciclos', async () => {
+  const repo = new SQLiteRepo(),
+    service = new Service(repo, owner);
+  await service.init();
+  await service.createCampaigns(2027, null, null);
+  const cid = (await service.list()).campaigns.find(
+    (c: { year: number; team_id: string }) => c.year === 2027 && c.team_id === 'A',
+  ).id;
+  let d = await service.view(cid);
+  d = await importRoster(service, cid, {
+    action: 'import_roster',
+    version: d.campaign.version,
+    source: {
+      format: 'vacaciones-roster-v1',
+      team: 'A',
+      year: 2027,
+      copySelections: false,
+      rows: [
+        { code: 'P01', label: 'CTA P01', seniority: '2010-01-01' },
+        { code: 'P02', label: 'CTA P02', seniority: '2010-01-02' },
+      ],
+    },
+  });
+  await service.mutate(cid, {
+    action: 'config',
+    version: d.campaign.version,
+    config: { ...d.config, individualEntitlements: { P01: { cycles: 4, authorization: 'Autorización de RRHH' } } },
+  });
+  const members = (await service.load(cid)).members;
+  await repo.batch(
+    members.map((m: { code: string; person_id: string }) => ({
+      sql: 'INSERT INTO controller_accounts(person_id,principal_key,version) VALUES(?,?,1)',
+      args: [m.person_id, 'chatgpt-email:' + m.code + '@x.test'],
+    })),
+  );
+  const rightOf = async (code: string) => {
+    const participant = new Service(repo, {
+      id: 'chatgpt:' + code,
+      role: 'viewer',
+      teams: [],
+      emailKey: 'chatgpt-email:' + code + '@x.test',
+    });
+    return (await participant.view(cid)).election.myEntitlement;
+  };
+  assert.equal(await rightOf('P01'), 4);
+  assert.equal(await rightOf('P02'), 6);
+});
