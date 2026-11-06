@@ -479,7 +479,8 @@ export default function ElectionWorkspace({
   const me = mine
     ? myElection({
         myMemberId: mine,
-        cyclesPerPerson: data.config?.cyclesPerPerson ?? 6,
+        // The member's own right: VA days are frozen per person, unrelated to the ordinary six cycles.
+        cyclesPerPerson: data.members.find((m: any) => m.id === mine)?.entitlement ?? data.config?.cyclesPerPerson ?? 6,
         cycles: data.result.cycles,
         awards: data.awards,
         preferences: election.preferences,

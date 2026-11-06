@@ -149,6 +149,18 @@ export function myElection(input: MyElectionInput): MyElection | null {
   return { ...base, phase: 'waiting', turnsAhead: input.turnsAhead !== undefined ? input.turnsAhead : estimate() };
 }
 
+/** «te quedan 3 de 3 días por elegir», or «3 de 3 días elegidos» once nothing is left. */
+export function progressText(
+  me: Pick<MyElection, 'cycles' | 'entitlement'>,
+  units: { one: string; many: string },
+): string {
+  const total = me.entitlement,
+    left = Math.max(0, total - me.cycles.length),
+    word = total === 1 ? units.one : units.many;
+  if (!left) return `${me.cycles.length} de ${total} ${word} ${total === 1 ? 'elegido' : 'elegidos'}`;
+  return `${left === 1 ? 'te queda' : 'te quedan'} ${left} de ${total} ${word} por elegir`;
+}
+
 /** When lists ahead resolve instantly, the wait depends only on those who
  * choose by hand. At least one does (usually whoever is choosing now): if all
  * of them had active lists, their turns would already be resolved. */

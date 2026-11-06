@@ -3,7 +3,14 @@ import { unitCount } from './unit-words';
 import { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { formatDate } from './cycle-calendar';
-import { aheadNote, formatDeadline, formatWait, remainingText, type MyElection } from './my-election-state';
+import {
+  aheadNote,
+  formatDeadline,
+  formatWait,
+  progressText,
+  remainingText,
+  type MyElection,
+} from './my-election-state';
 import { seatsLeft } from './own-cycles';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
 
@@ -338,9 +345,7 @@ export default function MyElectionCard({
         </div>
       )}
       <div className="my-election-row">
-        <strong>
-          Mis vacaciones · {me.cycles.length}/{me.entitlement}
-        </strong>
+        <strong>Mis vacaciones · {progressText(me, units)}</strong>
         {me.cycles.length ? (
           <div className="my-election-chips">
             {me.cycles.map((c) => (
@@ -393,7 +398,7 @@ export default function MyElectionCard({
         <summary>
           <span className="my-election-kicker">Tu elección</span>
           <span>
-            {headline} · {me.cycles.length}/{me.entitlement} · {listShort[me.list.state]}
+            {headline} · {progressText(me, units)} · {listShort[me.list.state]}
           </span>
         </summary>
         {body}
