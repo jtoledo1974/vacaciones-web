@@ -54,6 +54,33 @@ test('los días antes del primer ciclo sin campaña anterior quedan incompletos'
   for (const d of summary.days) assert.equal(d.incomplete, d.date < cycles[0].date, d.date);
 });
 
+test('una campaña anterior abierta y parcial no completa enero; cerrada, sí', async () => {
+  const { repo, campaign, members, cycles } = await setup();
+  const [params] = await repo.all('SELECT json FROM parameters WHERE campaign_id=?', [campaign.id]);
+  const previous = crypto.randomUUID();
+  await exec(
+    repo,
+    "INSERT INTO campaigns(id,team_id,year,status,version,data_kind,scope_key,simulation_name,created_at) VALUES(?,'A',2025,'open',1,'configured','live','',?)",
+    [previous, new Date().toISOString()],
+  );
+  await exec(repo, 'INSERT INTO parameters(campaign_id,json) VALUES(?,?)', [
+    previous,
+    params.json.replaceAll('2026-', '2025-'),
+  ]);
+  await exec(
+    repo,
+    "INSERT INTO campaign_members(id,campaign_id,person_id,code,label,position,seniority,version) VALUES('prev',?,?,'P','',0,'2000-01-01',1)",
+    [previous, members[0].person_id],
+  );
+  await award(repo, previous, 'prev', '2025-07-01');
+  const incompleteDays = async () =>
+    (await yearSummary(repo, superadmin, 2026)).days.filter((d) => d.incomplete).map((d) => d.date);
+  assert.ok(cycles[0].date > '2026-01-01', 'hay días antes del primer ciclo');
+  assert.ok((await incompleteDays()).includes('2026-01-01'));
+  await exec(repo, "UPDATE campaigns SET status='closed' WHERE id=?", [previous]);
+  assert.deepEqual(await incompleteDays(), []);
+});
+
 test('una persona solo del censo de VA cuenta como VA pero no resta disponibles', async () => {
   const { repo, campaign, members, cycles } = await setup();
   const [params] = await repo.all('SELECT json FROM parameters WHERE campaign_id=?', [campaign.id]);

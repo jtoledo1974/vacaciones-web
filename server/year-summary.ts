@@ -80,8 +80,12 @@ export async function yearSummary(repo: Repository, actor: Principal, requested:
         if (campaign.year !== year && !staff.has(person)) incomplete.add(d);
       }
     }
-    // Before a team's first cycle only last year's campaign says who is away.
-    if (campaign.year === year && !previous.some((p) => p.team_id === campaign.team_id && withAwards.has(p.id))) {
+    // Before a team's first cycle only last year's campaign says who is away, and only
+    // once closed: an open one can still award December cycles that reach January.
+    if (
+      campaign.year === year &&
+      !previous.some((p) => p.team_id === campaign.team_id && p.status === 'closed' && withAwards.has(p.id))
+    ) {
       const first = cycles[0]?.date ?? dates[0];
       for (const d of dates) if (d < first) incomplete.add(d);
     }

@@ -26,8 +26,8 @@ const describe = (d: Day) =>
   (d.incomplete ? ' (datos incompletos)' : '');
 const bandClass = (d: Day) => (d.incomplete ? 'year-incomplete' : 'year-band-' + availabilityBand(d.available));
 
-/** Superadministrators: the whole workforce, day by day, for a year. */
-export default function YearSummaryPanel() {
+/** Superadministrators: the whole workforce, day by day, for a year. Reloads when `revision` changes. */
+export default function YearSummaryPanel({ revision }: { revision: number | null }) {
   const [requested, setRequested] = useState<number | null>(null),
     [summary, setSummary] = useState<Summary | null>(null),
     [error, setError] = useState(''),
@@ -41,13 +41,12 @@ export default function YearSummaryPanel() {
         if (!current) return;
         setError('');
         setSummary(next);
-        setPicked(null);
       })
       .catch((e: Error) => current && setError(e.message));
     return () => {
       current = false;
     };
-  }, [requested]);
+  }, [requested, revision]);
   if (error) return <div className="alert error">{error}</div>;
   if (!summary) return <div className="panel empty">Cargando el resumen anual…</div>;
   if (summary.year === null) return <div className="panel empty">Todavía no hay campañas reales.</div>;

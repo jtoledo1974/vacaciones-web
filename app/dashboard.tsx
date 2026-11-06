@@ -148,6 +148,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
   const canNavigate = async () => !preferenceGuard.current || (await preferenceGuard.current());
   const isBusy = useRef(false);
   const lastRevision = useRef<number | null>(null);
+  const [dataRevision, setDataRevision] = useState<number | null>(null);
   useEffect(() => {
     currentCid.current = cid;
   }, [cid]);
@@ -303,6 +304,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
         if (!active) return;
         if (lastRevision.current === null || lastRevision.current !== state.revision) {
           lastRevision.current = state.revision;
+          setDataRevision(state.revision);
           const current = currentCid.current;
           const [newIndex, next] = await Promise.all([
             api('index'),
@@ -1103,7 +1105,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
             )
           ) : nav === 'resumen-anual' ? (
             superuser ? (
-              <YearSummaryPanel />
+              <YearSummaryPanel revision={dataRevision} />
             ) : (
               <section className="panel empty">
                 <ShieldCheck size={32} />
