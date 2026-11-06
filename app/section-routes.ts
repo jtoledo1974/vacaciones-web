@@ -5,7 +5,8 @@ export type DashboardSection =
   | 'antiguedad-admin'
   | 'ayuda'
   | 'estadisticas'
-  | 'administracion';
+  | 'administracion'
+  | 'resumen-anual';
 
 export const sectionPaths: Record<DashboardSection, string> = {
   eleccion: '/',
@@ -14,11 +15,13 @@ export const sectionPaths: Record<DashboardSection, string> = {
   ayuda: '/ayuda',
   estadisticas: '/estadisticas',
   administracion: '/administracion',
+  'resumen-anual': '/administracion/resumen',
 };
 
 export function sectionFromPath(pathname: string): DashboardSection {
   if (pathname === '/administracion/antiguedad' || pathname === '/administracion/antiguedad/')
     return 'antiguedad-admin';
+  if (pathname === '/administracion/resumen' || pathname === '/administracion/resumen/') return 'resumen-anual';
   if (pathname === '/antiguedad' || pathname === '/antiguedad/') return 'antiguedad';
   if (pathname === '/ayuda' || pathname === '/ayuda/') return 'ayuda';
   if (pathname === '/estadisticas' || pathname === '/estadisticas/') return 'estadisticas';

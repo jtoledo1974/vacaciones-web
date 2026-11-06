@@ -10,6 +10,7 @@ test('las secciones tienen URL directa y la pantalla principal conserva /', () =
     ayuda: '/ayuda',
     estadisticas: '/estadisticas',
     administracion: '/administracion',
+    'resumen-anual': '/administracion/resumen',
   });
   for (const [section, path] of Object.entries(sectionPaths)) {
     assert.equal(sectionFromPath(path), section);

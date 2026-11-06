@@ -26,6 +26,7 @@ import { approveCli, revokeCli, pairCli, joinCli, cliPairingStatus } from '../..
 import { backupManifest, backupPage } from '../../../server/backup-v2';
 import { previewCleanup, applyCleanup } from '../../../server/cleanup';
 import { exportCampaignDiagnostic } from '../../../server/campaign-diagnostic';
+import { yearSummary } from '../../../server/year-summary';
 export const dynamic = 'force-dynamic';
 const reply = (value: any, status = 200) =>
   Response.json(value, { status, headers: { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
@@ -52,6 +53,7 @@ async function serve(request: Request) {
     'backup',
     'backup-v2',
     'cleanup',
+    'year-summary',
   ];
   const route = '/api/' + (knownFamilies.includes(family) ? family : 'other');
   const context = { requestId, route, method: request.method };
@@ -147,6 +149,10 @@ async function serve(request: Request) {
       }
       if (path[0] === 'va' && path[1] === 'quotas' && path.length === 2)
         return reply(await vaQuotas(repo, actor, Number(url.searchParams.get('year'))));
+      if (path[0] === 'year-summary' && path.length === 1) {
+        const requested = url.searchParams.get('year');
+        return reply(await yearSummary(repo, actor, requested ? Number(requested) : null));
+      }
       if (path[0] === 'revision') {
         const rows = await repo.all("SELECT revision FROM app_state WHERE id='main'");
         return reply({ revision: rows[0]?.revision ?? 0 });
