@@ -1205,3 +1205,16 @@ nav.va-tabs{display:flex;flex-direction:row;gap:4px;margin:0 0 12px;border-botto
 .year-table{max-height:70vh;overflow:auto}
 .year-table thead th{position:sticky;top:0;background:#fff}
 @media(max-width:680px){.year-summary-bar .vac2-view-switch{margin-left:0}.year-summary .vac2-day{min-height:44px;font-size:13px}}
+
+/* VA: days the person cannot take, in the colours of the individual calendar. */
+.vac2-key.vac2-locked-va,.vac2-panel .vac2-days .vac2-day.vac2-locked-va{background:#2f8f6b;color:#fff}
+.vac2-key.vac2-locked-ordinary,.vac2-panel .vac2-days .vac2-day.vac2-locked-ordinary{background:#68b9e8;color:#0d2b3a}
+.vac2-key.vac2-locked-rest,.vac2-panel .vac2-days .vac2-day.vac2-locked-rest{background:#aeb5b9;color:#1f2a2e}
+.vac2-panel .vac2-days .vac2-day.vac2-locked{display:flex;align-items:center;justify-content:center;font-weight:700;cursor:not-allowed;box-shadow:none;opacity:1;filter:none}
+.vac3-table tr.vac3-locked .vac3-date button{cursor:not-allowed;opacity:1}
+.vac3-locked-label{margin-left:4px;font-size:10px;font-weight:700}
+.vac3-table tr.vac3-locked-va td,.vac3-ruled .vac3-table tr.vac3-locked-va td.vac3-slot,.vac3-table tr.vac3-locked-va td *{background:#2f8f6b;color:#fff}
+.vac3-table tr.vac3-locked-ordinary td,.vac3-ruled .vac3-table tr.vac3-locked-ordinary td.vac3-slot,.vac3-table tr.vac3-locked-ordinary td *{background:#68b9e8;color:#0d2b3a}
+.vac3-table tr.vac3-locked-rest td,.vac3-ruled .vac3-table tr.vac3-locked-rest td.vac3-slot,.vac3-table tr.vac3-locked-rest td *{background:#aeb5b9;color:#1f2a2e}
+/* Daily tables have no points column to leave room for. */
+.vac3-table th.vac3-date:first-child,.vac3-table td.vac3-date:first-child{left:0}

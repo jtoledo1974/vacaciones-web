@@ -18,6 +18,41 @@ export function ownCycles(
   };
 }
 
+/**
+ * Whose marks and locked days the calendar shows: whoever a VA turn being chosen belongs to
+ * (an administrator may be acting for someone else), else the list edited, else the viewer.
+ */
+export function calendarOwner(c: {
+  daily: boolean;
+  choosing: boolean;
+  participants?: string[];
+  jointTarget?: string;
+  editedList?: string | null;
+  mine?: string | null;
+}) {
+  if (c.daily && c.choosing && c.participants?.length) {
+    return c.jointTarget && c.participants.includes(c.jointTarget) ? c.jointTarget : c.participants[0];
+  }
+  return c.editedList ?? c.mine;
+}
+
+export type DaysOff = { ordinary: string[]; rest: string[] };
+export type LockedDay = 'va' | 'ordinary' | 'rest';
+export const lockedDayLabel: Record<LockedDay, string> = {
+  va: 'VA ya adjudicada',
+  ordinary: 'Vacaciones ordinarias',
+  rest: 'Libre por turnero',
+};
+
+/** VA days the person cannot choose, and why; a day that is both reads as the vacation it is. */
+export function lockedDays(mine: Iterable<string>, daysOff: DaysOff | undefined) {
+  const locked = new Map<string, LockedDay>();
+  for (const date of daysOff?.rest ?? []) locked.set(date, 'rest');
+  for (const date of daysOff?.ordinary ?? []) locked.set(date, 'ordinary');
+  if (daysOff) for (const date of mine) locked.set(date, 'va');
+  return locked;
+}
+
 /** Seats left in words, from the same availability the calendar shows. */
 export function seatsLeft(
   cycle: { date: string; occupied: number; max: number; available?: boolean },

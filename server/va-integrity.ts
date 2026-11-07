@@ -1,4 +1,4 @@
-import { calendar, iso, serial, type Config } from '../domain/calendar.ts';
+import { calendar, iso, rotationCode, serial, type Config } from '../domain/calendar.ts';
 import type { PolicyExternal } from '../domain/occupancy.ts';
 import type { Repository, Statement } from './repository.ts';
 import { ApiError } from './errors.ts';
@@ -33,7 +33,7 @@ export async function policyExternal(repo: Repository, campaign: CampaignRow): P
   if (campaign.team_id !== VA_TEAM) return undefined;
   const year = campaign.year,
     years = [year - 1, year];
-  const [quotaRows, ordinaryRows, awardRows] = await repo.batch([
+  const [quotaRows, ordinaryRows, awardRows, memberRows] = await repo.batch([
     { sql: 'SELECT date,places FROM va_quotas WHERE year=?', args: [year] },
     liveOrdinaryQuery(years),
     {
@@ -41,6 +41,11 @@ export async function policyExternal(repo: Repository, campaign: CampaignRow): P
        JOIN awards a ON a.campaign_id=c.id JOIN campaign_members m ON m.id=a.member_id
        WHERE c.scope_key='live' AND ${ordinaryCampaign('c')} AND c.year IN (?,?)`,
       args: years,
+    },
+    {
+      sql: `SELECT c.id AS campaign_id,m.person_id FROM campaigns c JOIN campaign_members m ON m.campaign_id=c.id
+       WHERE c.scope_key='live' AND ${ordinaryCampaign('c')} AND c.year=? AND m.person_id IS NOT NULL`,
+      args: [year],
     },
   ]);
   const ordinary = ordinaryRows.results as Ordinary[];
@@ -71,7 +76,40 @@ export async function policyExternal(repo: Repository, campaign: CampaignRow): P
   const quotas = Object.fromEntries(
     (quotaRows.results as { date: string; places: number }[]).map((r) => [r.date, r.places]),
   );
-  return { quotas, blocked };
+  // A person's rotation is their ordinary team's of the VA year; without one (external
+  // participants) no day is known to be free. Everyone in a team shares the same list.
+  const restByCampaign = new Map(
+    ordinary
+      .filter((c) => c.year === year)
+      .map((c) => {
+        const config = JSON.parse(c.json) as Config,
+          free: string[] = [];
+        for (let d = serial(`${year}-01-01`); d <= serial(`${year}-12-31`); d++)
+          if (rotationCode(d, year, c.team_id, config) === ' ') free.push(iso(d));
+        return [c.id, free] as const;
+      }),
+  );
+  const rest: Record<string, string[]> = {};
+  for (const m of memberRows.results as { campaign_id: string; person_id: string }[]) {
+    const free = restByCampaign.get(m.campaign_id);
+    if (free) rest[m.person_id] = free;
+  }
+  return { quotas, blocked, rest };
+}
+
+/** The days a VA member cannot take, by member id, for the calendars. */
+export function vaDaysOff(
+  external: PolicyExternal | undefined,
+  members: { id: string; person_id?: string | null }[],
+): Record<string, { ordinary: string[]; rest: string[] }> {
+  if (!external) return {};
+  return Object.fromEntries(
+    members.flatMap((m) =>
+      m.person_id
+        ? [[m.id, { ordinary: external.blocked?.[m.person_id] ?? [], rest: external.rest?.[m.person_id] ?? [] }]]
+        : [],
+    ),
+  );
 }
 
 function overlapAssertion(sql: string, args: unknown[]): Statement[] {

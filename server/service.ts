@@ -30,7 +30,7 @@ import { HrExportError, hrTeamCells, suggestHrNames, type HrCell } from '../doma
 import { orderAwardsBySelection } from '../domain/award-display-order.ts';
 import { readHrWorkbook, writeHrWorkbook, type HrWorkbook } from './hr-xlsx.ts';
 import { vaVisibility } from './va-census.ts';
-import { crossCampaignGuards, policyExternal } from './va-integrity.ts';
+import { crossCampaignGuards, policyExternal, vaDaysOff } from './va-integrity.ts';
 import type { PolicyExternal } from '../domain/occupancy.ts';
 export { ApiError } from './errors.ts';
 const id = () => crypto.randomUUID(),
@@ -315,9 +315,23 @@ export class Service {
         [cid],
       );
       const masterSeniority = Object.fromEntries(people.filter((p) => p.seniority).map((p) => [p.id, p.seniority]));
-      return { ...projectAdminCampaignView(d, election, result, entry), masterSeniority };
+      return {
+        ...projectAdminCampaignView(d, election, result, entry),
+        masterSeniority,
+        ...(d.external && { daysOff: vaDaysOff(d.external, d.members) }),
+      };
     }
-    return projectPublicCampaignView(d, cid, election, result, this.actor.preview);
+    // Someone's ordinary vacations and team are theirs: a participant receives only their own.
+    const view = projectPublicCampaignView(d, cid, election, result, this.actor.preview);
+    if (!d.external) return view;
+    const self = await this.election().memberForAccount(d);
+    return {
+      ...view,
+      daysOff: vaDaysOff(
+        d.external,
+        d.members.filter((m: { id: string }) => m.id === self),
+      ),
+    };
   }
   /** VA is not a public consultation: its administrators and its participants only, on every read. */
   async assertVaReader(loaded: Awaited<ReturnType<Service['load']>>) {

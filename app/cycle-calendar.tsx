@@ -4,7 +4,7 @@ import CycleTable from './cycle-table';
 import { AvailabilityScale, MonthDays, MonthNavigation } from './calendar-controls';
 import { orderMemberAwards, orderMemberIds, type CycleOrder, type MemberOrder } from '../domain/member-display-order';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
-import { splitPreferences } from './own-cycles';
+import { lockedDayLabel, lockedDays, splitPreferences, type DaysOff, type LockedDay } from './own-cycles';
 import { cycleAvailability, cycleOccupancyLabel } from './cycle-availability-ui';
 
 export const formatDate = (date: string) =>
@@ -66,6 +66,8 @@ type Props = {
   mine?: string[];
   /** The owner's saved preference list, in order; outside preference mode it is shown, not edited. */
   preferences?: string[];
+  /** VA: the days that person cannot take; shown locked, with their own VA days. */
+  daysOff?: DaysOff;
 };
 
 /** The viewer's own marks, identical in every view so «mine» and «my order» read the same everywhere. */
@@ -117,7 +119,7 @@ export default function CycleCalendar({
   ruled,
   cycles,
   selected,
-  onSelect,
+  onSelect: select,
   preferenceMode = false,
   busy = false,
   highlighted = [],
@@ -134,7 +136,12 @@ export default function CycleCalendar({
   mine: mineDates = [],
   preferences = [],
   daily = false,
+  daysOff,
 }: Props) {
+  const locked = useMemo(() => lockedDays(mineDates, daysOff), [mineDates, daysOff]);
+  const onSelect = (c: Cycle) => {
+    if (!locked.has(c.date)) select(c);
+  };
   // On one's own turn, cycles one cannot take are marked up front rather than discovered by tapping.
   const blocked = new Set(notForMe ?? []),
     safe = new Set(secured ?? []),
@@ -304,6 +311,19 @@ export default function CycleCalendar({
               month={m}
               renderDay={(day, date) => {
                 const c = cycles.find((x) => x.date <= date && date <= x.end);
+                const lock = locked.get(date);
+                if (lock)
+                  return (
+                    <span
+                      key={date}
+                      data-cycle-date={date}
+                      className={'vac2-day vac2-locked vac2-locked-' + lock}
+                      title={lockedDayLabel[lock]}
+                      aria-label={day + ' ' + months[m] + ': ' + lockedDayLabel[lock] + ', no se puede elegir'}
+                    >
+                      {day}
+                    </span>
+                  );
                 // Single days: a day without places looks like a full one.
                 if (!c)
                   return daily ? (
@@ -364,7 +384,7 @@ export default function CycleCalendar({
                     className="vac2-occupants"
                     key={c.date}
                     onClick={() => onSelect(c)}
-                    disabled={busy}
+                    disabled={busy || locked.has(c.date)}
                   >
                     <b>{formatDate(c.date)}</b>
                     <span>{codesFor(c.date).join(' · ') || 'Sin adjudicar'}</span>
@@ -592,6 +612,14 @@ export default function CycleCalendar({
             ⓘ Qué significa
           </a>
         )}
+        {(['va', 'ordinary', 'rest'] as LockedDay[])
+          .filter((kind) => [...locked.values()].includes(kind))
+          .map((kind) => (
+            <span key={kind}>
+              <i className={'vac2-key vac2-locked-' + kind} aria-hidden="true" />
+              {lockedDayLabel[kind]}
+            </span>
+          ))}
         {!preferenceMode && (
           <span>
             <i className="vac2-selection-key" />
@@ -630,6 +658,7 @@ export default function CycleCalendar({
           mine={mineDates}
           preferences={ranked}
           ownerCode={ownerCode}
+          locked={locked}
         />
       )}
       {view === 'map' && (
