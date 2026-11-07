@@ -569,9 +569,7 @@ export class ElectionService {
     // to public viewers. Managers retain the complete existing timeline.
     let timeline: ReturnType<typeof buildElectionTimeline> | PublicElectionTimelineItem[] = [];
     let timing: ElectionTiming | null = null;
-    // The client replaces this view at once with the next automatic step's.
-    const intermediate = !!options.skipAvailabilityForPendingAutomatic && pendingAutomatic;
-    if (!intermediate && (manage || raw.state || ctx.awards.length)) {
+    if (manage || raw.state || ctx.awards.length) {
       const rows = await (options.auditContext?.rows() ?? eventsFor(this.repo, cid));
       const events = buildElectionTimeline(rows as any, ctx, raw.state, history ?? undefined);
       timeline = manage ? events : publicElectionTimeline(events, rows as any);
