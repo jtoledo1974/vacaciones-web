@@ -342,6 +342,7 @@ async function serve(request: Request) {
         !String(b.action).startsWith('reconstruction_');
       const view = await effectiveService.view(path[1], {
         skipAvailabilityForPendingAutomatic: autoDrainEnabled,
+        external: changed && 'external' in changed ? changed.external : undefined,
       });
       // The election is committed and its response prepared before any push work.
       if (changed?.changed && view.campaign.scope_key === 'live') {

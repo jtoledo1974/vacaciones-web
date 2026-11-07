@@ -31,6 +31,7 @@ import { orderAwardsBySelection } from '../domain/award-display-order.ts';
 import { readHrWorkbook, writeHrWorkbook, type HrWorkbook } from './hr-xlsx.ts';
 import { vaVisibility } from './va-census.ts';
 import { crossCampaignGuards, policyExternal } from './va-integrity.ts';
+import type { PolicyExternal } from '../domain/occupancy.ts';
 export { ApiError } from './errors.ts';
 const id = () => crypto.randomUUID(),
   now = () => new Date().toISOString();
@@ -235,7 +236,8 @@ export class Service {
         409,
       );
   }
-  async load(cid: string) {
+  /** `known`: the external data a load earlier in this request found; a VA election never changes it. */
+  async load(cid: string, known?: PolicyExternal) {
     const rows = await this.repo.batch([
       { sql: 'SELECT * FROM campaigns WHERE id=?', args: [cid] },
       { sql: 'SELECT * FROM parameters WHERE campaign_id=?', args: [cid] },
@@ -262,7 +264,7 @@ export class Service {
     const campaign = rows[0].results[0];
     if (!campaign) throw new ApiError('Campaña no encontrada', 404);
     const config = JSON.parse(rows[1].results[0].json),
-      external = await policyExternal(this.repo, campaign);
+      external = known ?? (await policyExternal(this.repo, campaign));
     return {
       campaign,
       config,
@@ -274,8 +276,8 @@ export class Service {
       runs: rows[5].results,
     };
   }
-  async view(cid: string, options: { skipAvailabilityForPendingAutomatic?: boolean } = {}) {
-    const loaded = await this.load(cid);
+  async view(cid: string, options: { skipAvailabilityForPendingAutomatic?: boolean; external?: PolicyExternal } = {}) {
+    const loaded = await this.load(cid, options.external);
     if (
       loaded.campaign.scope_key !== 'live' &&
       !canWrite(this.actor, loaded.campaign.team_id) &&

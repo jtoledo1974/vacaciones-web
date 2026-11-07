@@ -14,44 +14,64 @@ import { VA_TEAM, ordinaryCampaign } from './teams.ts';
 type CampaignRow = { id: string; year: number; team_id: string };
 type Ordinary = CampaignRow & { json: string };
 
-const liveOrdinary = (repo: Repository, years: number[]) =>
-  repo.all<Ordinary>(
-    `SELECT c.id,c.year,c.team_id,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id
+const liveOrdinaryQuery = (years: number[]): Statement => ({
+  sql: `SELECT c.id,c.year,c.team_id,p.json FROM campaigns c JOIN parameters p ON p.campaign_id=c.id
      WHERE c.scope_key='live' AND ${ordinaryCampaign('c')} AND c.year IN (${years.map(() => '?').join(',')})`,
-    years,
-  );
+  args: years,
+});
+const liveOrdinary = (repo: Repository, years: number[]) => {
+  const query = liveOrdinaryQuery(years);
+  return repo.all<Ordinary>(query.sql, query.args);
+};
 
-/** Days held by each person in the ordinary live campaigns of the VA year and the year before. */
-async function ordinaryDays(repo: Repository, year: number) {
-  const blocked: Record<string, string[]> = {};
-  // The last ordinary cycle of December can continue into the VA year.
-  for (const c of await liveOrdinary(repo, [year - 1, year])) {
-    const ends = new Map(calendar(c.year, c.team_id, JSON.parse(c.json) as Config).map((u) => [u.date, u.end]));
-    const awards = await repo.all<{ person_id: string; cycle_date: string }>(
-      'SELECT m.person_id,a.cycle_date FROM awards a JOIN campaign_members m ON m.id=a.member_id WHERE a.campaign_id=?',
-      [c.id],
-    );
-    for (const a of awards) {
-      const end = ends.get(a.cycle_date);
-      if (!end) throw new ApiError('Una adjudicación ordinaria no pertenece al calendario; revisa ' + c.team_id);
-      const days = (blocked[a.person_id] ??= []);
-      for (let d = serial(a.cycle_date); d <= serial(end); d++) if (iso(d).startsWith(year + '-')) days.push(iso(d));
-    }
-  }
-  return blocked;
-}
-
-/** What the campaign's policy needs from outside it. */
+/**
+ * What the campaign's policy needs from outside it, in one round trip: the quotas, and the
+ * days each person holds in the ordinary live campaigns of the VA year and the year before
+ * (the last ordinary cycle of December can continue into the VA year).
+ */
 export async function policyExternal(repo: Repository, campaign: CampaignRow): Promise<PolicyExternal | undefined> {
   if (campaign.team_id !== VA_TEAM) return undefined;
+  const year = campaign.year,
+    years = [year - 1, year];
+  const [quotaRows, ordinaryRows, awardRows] = await repo.batch([
+    { sql: 'SELECT date,places FROM va_quotas WHERE year=?', args: [year] },
+    liveOrdinaryQuery(years),
+    {
+      sql: `SELECT c.id AS campaign_id,m.person_id,a.cycle_date FROM campaigns c
+       JOIN awards a ON a.campaign_id=c.id JOIN campaign_members m ON m.id=a.member_id
+       WHERE c.scope_key='live' AND ${ordinaryCampaign('c')} AND c.year IN (?,?)`,
+      args: years,
+    },
+  ]);
+  const ordinary = ordinaryRows.results as Ordinary[];
+  // Hundreds of awards share a few cycles: work out each cycle's days only once.
+  const cycleDays = new Map<string, Map<string, string[]>>();
+  for (const c of ordinary) {
+    const days = new Map<string, string[]>();
+    for (const u of calendar(c.year, c.team_id, JSON.parse(c.json) as Config)) {
+      const inYear: string[] = [];
+      for (let d = serial(u.date); d <= serial(u.end); d++) {
+        const day = iso(d);
+        if (day.startsWith(year + '-')) inYear.push(day);
+      }
+      days.set(u.date, inYear);
+    }
+    cycleDays.set(c.id, days);
+  }
+  const blocked: Record<string, string[]> = {};
+  for (const a of awardRows.results as { campaign_id: string; person_id: string; cycle_date: string }[]) {
+    const days = cycleDays.get(a.campaign_id)?.get(a.cycle_date);
+    if (!days)
+      throw new ApiError(
+        'Una adjudicación ordinaria no pertenece al calendario; revisa ' +
+          ordinary.find((c) => c.id === a.campaign_id)?.team_id,
+      );
+    (blocked[a.person_id] ??= []).push(...days);
+  }
   const quotas = Object.fromEntries(
-    (
-      await repo.all<{ date: string; places: number }>('SELECT date,places FROM va_quotas WHERE year=?', [
-        campaign.year,
-      ])
-    ).map((r) => [r.date, r.places]),
+    (quotaRows.results as { date: string; places: number }[]).map((r) => [r.date, r.places]),
   );
-  return { quotas, blocked: await ordinaryDays(repo, campaign.year) };
+  return { quotas, blocked };
 }
 
 function overlapAssertion(sql: string, args: unknown[]): Statement[] {

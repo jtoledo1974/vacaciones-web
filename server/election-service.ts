@@ -941,7 +941,7 @@ export class ElectionService {
       }),
     );
     await this.host.commit(ops);
-    return { changed: true };
+    return { changed: true, external: d.external };
   }
 }
 /**
