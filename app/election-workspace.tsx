@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { unitCount, unitWords, singleDays } from './unit-words';
 import CycleCalendar, { formatDate, formatSpan } from './cycle-calendar';
-import { ownCycles } from './own-cycles';
+import { calendarOwner, ownCycles } from './own-cycles';
 import { undoQuestion } from './undo-summary';
 import { useConfirmation } from './confirmation';
 import { apiFetch } from './api-client';
@@ -522,8 +522,14 @@ export default function ElectionWorkspace({
   }
   // Outside one's turn the cycle card offers to edit one's own list instead of a dead end.
   // While someone's list is edited, the marks are theirs: «Tuyo» must not mix two people.
-  const marksOwner =
-    mode === 'preferences' && canPreferences && preferenceMemberIds.includes(memberId) ? memberId : mine;
+  const marksOwner = calendarOwner({
+    daily,
+    choosing: mode === 'choose' && canChoose,
+    participants: turn?.participants,
+    jointTarget,
+    editedList: mode === 'preferences' && canPreferences && preferenceMemberIds.includes(memberId) ? memberId : null,
+    mine,
+  });
   const ownPreferences = !!mine && canPreferences && preferenceMemberIds.includes(mine) && memberId === mine;
   const plainAvailability = (cycle: any) => {
     const label = cycleAvailability(cycle, election.cycleAvailability, ruled).label;
@@ -1204,9 +1210,7 @@ export default function ElectionWorkspace({
             glossary={!manage || !!mine}
             secured={earlySecured}
             {...ownCycles(marksOwner, data.awards, election.preferences)}
-            daysOff={
-              daily ? data.daysOff?.[marksOwner ?? (turn?.participants?.length === 1 ? turn.memberId : '')] : undefined
-            }
+            daysOff={daily && marksOwner ? data.daysOff?.[marksOwner] : undefined}
             ownerCode={
               marksOwner && marksOwner !== mine
                 ? data.members.find((m: { id: string }) => m.id === marksOwner)?.code

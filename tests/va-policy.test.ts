@@ -7,7 +7,7 @@ import { VA_TEAM, ensureVaTeam } from '../server/teams.ts';
 import { loadVaQuotas } from '../server/va-quotas.ts';
 import { calendar, iso, rotationCode, serial } from '../domain/calendar.ts';
 import { vaDaysOff } from '../server/va-integrity.ts';
-import { lockedDays } from '../app/own-cycles.ts';
+import { calendarOwner, lockedDays } from '../app/own-cycles.ts';
 import { choiceIssues } from '../domain/election.ts';
 import { earlyProof } from '../domain/early-election.ts';
 import { occupancyOf } from '../domain/policy.ts';
@@ -471,4 +471,16 @@ test('own VA days, ordinary vacations and free days lock in that order', () => {
     '2026-01-03': 'rest',
   });
   assert.equal(lockedDays(['2026-01-01'], undefined).size, 0);
+});
+
+test('the VA calendar locks the days of whoever the turn being chosen belongs to', () => {
+  const turn = { daily: true, choosing: true, mine: 'admin' };
+  assert.equal(calendarOwner({ ...turn, participants: ['target'] }), 'target');
+  assert.equal(calendarOwner({ ...turn, mine: null, participants: ['target'] }), 'target');
+  assert.equal(calendarOwner({ ...turn, participants: ['a', 'b'], jointTarget: 'b' }), 'b');
+  assert.equal(calendarOwner({ ...turn, participants: ['a', 'b'] }), 'a');
+  // Outside a turn being chosen, and in ordinary campaigns, nothing changes.
+  assert.equal(calendarOwner({ ...turn, choosing: false, participants: ['target'], editedList: 'list' }), 'list');
+  assert.equal(calendarOwner({ ...turn, choosing: false, participants: ['target'] }), 'admin');
+  assert.equal(calendarOwner({ ...turn, daily: false, participants: ['target'] }), 'admin');
 });
