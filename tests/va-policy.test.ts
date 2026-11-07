@@ -5,7 +5,9 @@ import { SQLiteRepo } from './sqlite-repo.ts';
 import { Service } from '../server/service.ts';
 import { VA_TEAM, ensureVaTeam } from '../server/teams.ts';
 import { loadVaQuotas } from '../server/va-quotas.ts';
-import { calendar } from '../domain/calendar.ts';
+import { calendar, iso, rotationCode, serial } from '../domain/calendar.ts';
+import { vaDaysOff } from '../server/va-integrity.ts';
+import { lockedDays } from '../app/own-cycles.ts';
 import { choiceIssues } from '../domain/election.ts';
 import { earlyProof } from '../domain/early-election.ts';
 import { occupancyOf } from '../domain/policy.ts';
@@ -19,7 +21,7 @@ const VA = 'va-2026';
  * Team C with three controllers in the 2026 ordinary campaign, and the 2026 VA campaign
  * with the same people, `days` VA days each and the given HR places per day.
  */
-async function setup(places: Record<string, number>, days = [3, 3, 3]) {
+async function setup(places: Record<string, number>, days = [3, 3, 3], realRotation = false) {
   const repo = new SQLiteRepo(),
     s = new Service(repo, owner);
   await s.init();
@@ -36,7 +38,15 @@ async function setup(places: Record<string, number>, days = [3, 3, 3]) {
       rows: ['AA', 'BB', 'CC'].map((code) => ({ code, label: 'CTA ' + code, seniority: '' })),
     },
   });
+  // Same night shifts, hence the same cycles, but no free days to dodge in the dates below.
+  const alwaysWorking = {
+    ...d.config,
+    rotation: d.config.rotation.map((row: string[]) => row.map((s) => (s === ' ' ? 'M' : s))),
+  };
   await repo.batch([
+    ...(realRotation
+      ? []
+      : [{ sql: 'UPDATE parameters SET json=? WHERE campaign_id=?', args: [JSON.stringify(alwaysWorking), ordinary] }]),
     ensureVaTeam,
     {
       sql: "INSERT INTO campaigns(id,team_id,year,status,version,data_kind,created_at) VALUES(?,?,2026,'open',1,'real','2026-01-01')",
@@ -424,4 +434,41 @@ test('VA: una elección ficticia en la simulación no toca la campaña real', as
   });
   assert.equal(v.awards.length, 1);
   assert.equal((await s.load(VA)).awards.length, 0);
+});
+
+test('a day the rotation leaves free cannot be a VA day, and the calendars learn why', async () => {
+  const probe = await setup({}, undefined, true);
+  const { config } = await probe.s.load(probe.ordinary);
+  const free: string[] = [],
+    working: string[] = [];
+  for (let d = serial('2026-03-01'); d < serial('2026-03-20'); d++)
+    (rotationCode(d, 2026, 'C', config) === ' ' ? free : working).push(iso(d));
+  const { s } = await setup({ [free[0]]: 2, [working[0]]: 2 }, undefined, true);
+  const d = await s.load(VA);
+  assert.match(issuesIn(d, 'va-AA', free[0]).join(), /libre de su turnero/);
+  assert.deepEqual(issuesIn(d, 'va-AA', working[0]), []);
+  const { daysOff } = (await s.view(VA)) as unknown as { daysOff: Record<string, { rest: string[] }> };
+  assert.ok(daysOff['va-AA'].rest.includes(free[0]));
+  assert.ok(!daysOff['va-AA'].rest.includes(working[0]));
+});
+
+test('the days off cover only the members passed in', () => {
+  const external = { blocked: { p1: ['2026-03-01'], p2: ['2026-03-02'] }, rest: { p1: ['2026-03-03'] } };
+  assert.deepEqual(vaDaysOff(external, [{ id: 'm1', person_id: 'p1' }]), {
+    m1: { ordinary: ['2026-03-01'], rest: ['2026-03-03'] },
+  });
+  assert.deepEqual(vaDaysOff(undefined, [{ id: 'm1', person_id: 'p1' }]), {});
+});
+
+test('own VA days, ordinary vacations and free days lock in that order', () => {
+  const locked = lockedDays(['2026-01-01'], {
+    ordinary: ['2026-01-01', '2026-01-02'],
+    rest: ['2026-01-01', '2026-01-02', '2026-01-03'],
+  });
+  assert.deepEqual(Object.fromEntries(locked), {
+    '2026-01-01': 'va',
+    '2026-01-02': 'ordinary',
+    '2026-01-03': 'rest',
+  });
+  assert.equal(lockedDays(['2026-01-01'], undefined).size, 0);
 });

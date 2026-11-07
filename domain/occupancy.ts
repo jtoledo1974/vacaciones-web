@@ -21,6 +21,8 @@ export type PolicyState = {
   summerTotal?: number;
   /** Days each member may not take, by member id: their vacations in the other kind of campaign. */
   blocked?: Record<string, string[]>;
+  /** Days each member's shift rotation leaves free, by member id: not VA days. */
+  rest?: Record<string, string[]>;
 };
 export type RuleProblem = {
   code: string;
@@ -244,9 +246,14 @@ export type PolicyCampaign = { year: number; team: string; config: Config; exter
 /**
  * Data from outside the campaign. `quotas`: VA places per day. `blocked`: by person id, the
  * days taken in the other kind of live campaign (ordinary for VA, VA for ordinary), which
- * that person may not take here.
+ * that person may not take here. `rest`: by person id, the days their ordinary team's
+ * rotation leaves free in the VA year.
  */
-export type PolicyExternal = { quotas?: Record<string, number>; blocked?: Record<string, string[]> };
+export type PolicyExternal = {
+  quotas?: Record<string, number>;
+  blocked?: Record<string, string[]>;
+  rest?: Record<string, string[]>;
+};
 
 /**
  * A proof-based occupancy engine: it certifies that the team can still

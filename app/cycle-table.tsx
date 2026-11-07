@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { AvailabilitySnapshot } from '../domain/occupancy';
 import { cycleAvailability, slotExplanation } from './cycle-availability-ui';
+import { lockedDayLabel, type LockedDay } from './own-cycles';
 
 type Cycle = {
   date: string;
@@ -39,6 +40,8 @@ type Props = {
   ownerCode?: string;
   /** Single-day units (VA): one row per day, no points. */
   daily?: boolean;
+  /** VA days the person cannot take, and why. */
+  locked?: Map<string, LockedDay>;
 };
 
 function shortDate(iso: string): string {
@@ -66,6 +69,7 @@ export default function CycleTable({
   preferences = [],
   ownerCode,
   daily = false,
+  locked,
 }: Props) {
   const blocked = new Set(notForMe ?? []),
     safe = new Set(secured ?? []);
@@ -168,7 +172,9 @@ export default function CycleTable({
               const free = Math.max(0, c.max - c.occupied),
                 extra = free === 0 && c.available === true;
               const status = cycleAvailability(c, availability, ruled);
+              const lock = locked?.get(c.date);
               const label =
+                (lock ? lockedDayLabel[lock] + ', no se puede elegir: ' : '') +
                 shortDate(c.date) +
                 (daily ? ', ' : ' a ' + shortDate(c.end) + ', ' + c.score + ' puntos, ') +
                 c.occupied +
@@ -188,10 +194,11 @@ export default function CycleTable({
                     (safe.has(c.date) ? 'vac3-secured ' : '') +
                     (chosen.has(c.date) ? 'vac3-selected ' : '') +
                     (marked.has(c.date) ? 'vac3-highlight ' : '') +
-                    (owned.has(c.date) ? 'vac3-mine ' : '')
+                    (owned.has(c.date) ? 'vac3-mine ' : '') +
+                    (lock ? 'vac3-locked vac3-locked-' + lock + ' ' : '')
                   }
                   onClick={() => {
-                    if (!busy) onSelect(c);
+                    if (!busy && !lock) onSelect(c);
                   }}
                   data-cycle-date={c.date}
                 >
@@ -202,7 +209,7 @@ export default function CycleTable({
                       data-cycle-date={c.date}
                       aria-label={label}
                       aria-pressed={chosen.has(c.date)}
-                      disabled={busy}
+                      disabled={busy || !!lock}
                       title={label}
                       onClick={(event) => {
                         event.stopPropagation();
@@ -210,6 +217,11 @@ export default function CycleTable({
                       }}
                     >
                       <time dateTime={c.date}>{shortDate(c.date)}</time>
+                      {lock && (
+                        <small className="vac3-locked-label" aria-hidden="true">
+                          {{ va: 'VA', ordinary: 'Ordinarias', rest: 'Libre' }[lock]}
+                        </small>
+                      )}
                       {safe.has(c.date) && (
                         <span className="vac3-secured-badge" aria-label="Asegurado para ti" title="Asegurado para ti">
                           ★

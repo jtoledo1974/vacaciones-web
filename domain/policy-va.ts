@@ -15,7 +15,8 @@ import type { Member } from './vacations.ts';
 /**
  * Vacaciones de antigüedad (ADR 0002): one campaign a year on the reserved team `va`.
  * Units are single days with an HR daily quota; each person takes the days frozen in
- * their campaign membership, never the same day as their ordinary vacations. Two rounds:
+ * their campaign membership, never the same day as their ordinary vacations nor a day
+ * their ordinary team's rotation leaves free. Two rounds:
  * one day first, then the rest. Days are independent of each other, so every proof is
  * direct: there is no completion search.
  */
@@ -67,6 +68,12 @@ function issues(state: PolicyState, choices: PolicyAward[]): RuleProblem[] {
         message: choice.cycle_date + ': coincide con sus vacaciones ordinarias',
         cycle: choice.cycle_date,
       });
+    else if (state.rest?.[choice.member_id]?.includes(choice.cycle_date))
+      found.push({
+        code: 'VA_REST_DAY',
+        message: choice.cycle_date + ': es un día libre de su turnero',
+        cycle: choice.cycle_date,
+      });
     else if ((byDay.get(choice.cycle_date) ?? 0) >= maximum.get(choice.cycle_date)!)
       found.push({
         code: 'VA_DAY_FULL',
@@ -104,6 +111,12 @@ function final(state: PolicyState) {
       found.push({
         code: 'VA_ORDINARY_OVERLAP',
         message: a.cycle_date + ': coincide con vacaciones ordinarias',
+        cycle: a.cycle_date,
+      });
+    else if (state.rest?.[a.member_id]?.includes(a.cycle_date))
+      found.push({
+        code: 'VA_REST_DAY',
+        message: a.cycle_date + ': es un día libre del turnero',
         cycle: a.cycle_date,
       });
   return { valid: !found.length, issues: found, warnings: [] };
@@ -180,21 +193,25 @@ export const VA_OCCUPANCY: Omit<OccupancyRules, 'compact'> = {
     periodNames: ['año', 'año', 'año'],
     permits: {},
     impactEvents: {},
-    staticReasons: ['VA_NO_QUOTA', 'VA_ORDINARY_OVERLAP'],
+    staticReasons: ['VA_NO_QUOTA', 'VA_ORDINARY_OVERLAP', 'VA_REST_DAY'],
     units: { one: 'día', many: 'días' },
     explanationId: null,
   },
   state: (campaign, members, awards) => {
-    const blocked: Record<string, string[]> = {};
+    const blocked: Record<string, string[]> = {},
+      rest: Record<string, string[]> = {};
     for (const m of members as Member[]) {
-      const dates = m.person_id ? campaign.external?.blocked?.[m.person_id] : undefined;
+      const dates = m.person_id ? campaign.external?.blocked?.[m.person_id] : undefined,
+        free = m.person_id ? campaign.external?.rest?.[m.person_id] : undefined;
       if (dates?.length) blocked[m.id] = dates;
+      if (free?.length) rest[m.id] = free;
     }
     return {
       cycles: days(campaign).map((d) => ({ date: d.date, period: 0, maximum: quotasOf(campaign)[d.date] })),
       members: members.map((m) => ({ id: m.id, entitlement: (m as Member).entitlement ?? 0 })),
       awards: awards.map((a) => ({ member_id: a.member_id, cycle_date: a.cycle_date })),
       blocked,
+      rest,
     };
   },
   cycleMaximum: (campaign, date) => quotasOf(campaign)[date] ?? 0,

@@ -1204,6 +1204,9 @@ export default function ElectionWorkspace({
             glossary={!manage || !!mine}
             secured={earlySecured}
             {...ownCycles(marksOwner, data.awards, election.preferences)}
+            daysOff={
+              daily ? data.daysOff?.[marksOwner ?? (turn?.participants?.length === 1 ? turn.memberId : '')] : undefined
+            }
             ownerCode={
               marksOwner && marksOwner !== mine
                 ? data.members.find((m: { id: string }) => m.id === marksOwner)?.code

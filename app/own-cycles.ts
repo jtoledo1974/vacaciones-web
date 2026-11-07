@@ -18,6 +18,23 @@ export function ownCycles(
   };
 }
 
+export type DaysOff = { ordinary: string[]; rest: string[] };
+export type LockedDay = 'va' | 'ordinary' | 'rest';
+export const lockedDayLabel: Record<LockedDay, string> = {
+  va: 'VA ya adjudicada',
+  ordinary: 'Vacaciones ordinarias',
+  rest: 'Libre por turnero',
+};
+
+/** VA days the person cannot choose, and why; a day that is both reads as the vacation it is. */
+export function lockedDays(mine: Iterable<string>, daysOff: DaysOff | undefined) {
+  const locked = new Map<string, LockedDay>();
+  for (const date of daysOff?.rest ?? []) locked.set(date, 'rest');
+  for (const date of daysOff?.ordinary ?? []) locked.set(date, 'ordinary');
+  if (daysOff) for (const date of mine) locked.set(date, 'va');
+  return locked;
+}
+
 /** Seats left in words, from the same availability the calendar shows. */
 export function seatsLeft(
   cycle: { date: string; occupied: number; max: number; available?: boolean },
