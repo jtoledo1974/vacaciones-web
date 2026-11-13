@@ -1255,16 +1255,21 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                             : 'Se abre en el navegador con los datos de esta simulación, para probar cómo quedaría.'}
                       </p>
                       <div className="button-row">
-                        {/* VA is not public: like simulations, it goes through the session. */}
-                        {data.campaign.scope_key === 'live' && !vaCampaignId ? (
+                        {data.campaign.scope_key === 'live' ? (
                           <a
                             className="secondary"
-                            href={`/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}`}
+                            href={
+                              vaCampaignId
+                                ? `/lite/va-pdf?year=${encodeURIComponent(year)}`
+                                : `/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}`
+                            }
                             target="_blank"
                             rel="noopener"
                             // Fresh URL per click: phone PDF viewers key their copy on the URL.
                             onClick={(e) => {
-                              e.currentTarget.href = `/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}&t=${Date.now()}`;
+                              e.currentTarget.href = vaCampaignId
+                                ? `/lite/va-pdf?year=${encodeURIComponent(year)}&t=${Date.now()}`
+                                : `/lite/pdf?equipo=${encodeURIComponent(team)}&year=${encodeURIComponent(year)}&t=${Date.now()}`;
                             }}
                           >
                             Ver PDF de la situación
@@ -1273,7 +1278,7 @@ function Dashboard({ initialSection }: { initialSection: DashboardSection }) {
                           <button
                             className="secondary"
                             onClick={async () => {
-                              // Simulations and VA are private: fetch with the session, then show the PDF in a new tab.
+                              // Simulations remain private and are fetched with the session.
                               // The tab opens synchronously so the browser does not block it as a pop-up.
                               const tab = window.open('', '_blank');
                               try {

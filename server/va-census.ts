@@ -1,6 +1,7 @@
 import { VA_TEAM, ordinaryCampaign } from './teams.ts';
 import { canAdminVa, canWrite, requireVaAdmin, type Principal } from './permissions.ts';
-import { type Repository } from './repository.ts';
+import { cas, type Repository, type Statement } from './repository.ts';
+import { renameConfigCodes } from './service-commands.ts';
 import { ApiError } from './errors.ts';
 import { append } from './audit-context.ts';
 import { vaDays, vaFirstYear, vaYears } from '../domain/va-entitlement.ts';
@@ -250,4 +251,70 @@ export async function vaVisibility(repo: Repository, actor: Principal) {
   if (!actor.id) return { year: null, entry: false, admin: false };
   const { year, admin, me } = await myVa(repo, actor);
   return { year, entry: !!year && (admin || me?.status === 'entitled'), admin };
+}
+
+/** Edit the existing person and their entries in the current real campaigns. */
+export async function vaEditIdentity(
+  repo: Repository,
+  actor: Principal,
+  body: { personId?: string; code?: string; label?: string },
+) {
+  requireVaAdmin(actor);
+  const year = await vaYear(repo);
+  const person = year && (await vaCensusRows(repo, year)).find((row) => row.personId === body.personId);
+  if (!person || person.status === 'not_entitled') throw new ApiError('Esa persona no está en el censo de VA', 404);
+  const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
+  const label = typeof body.label === 'string' ? body.label.trim() : '';
+  if (!/^[\p{L}\p{N} _.-]{1,24}$/u.test(code)) throw new ApiError('Nick no válido');
+  if (!label || label.length > 120 || /[\r\n\t]/.test(label)) throw new ApiError('Nombre no válido');
+  const entries = await repo.all(
+    `SELECT c.id, c.version, m.code, p.json FROM campaigns c
+      JOIN campaign_members m ON m.campaign_id=c.id
+      JOIN parameters p ON p.campaign_id=c.id
+      WHERE c.year=? AND c.scope_key='live' AND m.person_id=?`,
+    [year, person.personId],
+  );
+  const ops: Statement[] = [];
+  for (const entry of entries) {
+    const duplicates = await repo.all(
+      'SELECT 1 FROM campaign_members WHERE campaign_id=? AND person_id IS NOT ? AND code=?',
+      [entry.id, person.personId, code],
+    );
+    if (duplicates.length) throw new ApiError('Ese nick ya existe en una de las campañas', 409);
+    ops.push(...cas(entry.id, entry.version));
+    const config = entry.code === code ? null : renameConfigCodes(JSON.parse(entry.json), [[entry.code, code]]);
+    if (config)
+      ops.push({
+        sql: 'UPDATE parameters SET json=?,version=version+1 WHERE campaign_id=?',
+        args: [JSON.stringify(config), entry.id],
+      });
+    ops.push({
+      sql: 'UPDATE campaign_members SET code=?,label=?,version=version+1 WHERE campaign_id=? AND person_id=?',
+      args: [code, label, entry.id, person.personId],
+    });
+  }
+  ops.push(
+    {
+      sql: 'UPDATE people SET label=?,code=CASE WHEN team_id=? THEN ? ELSE code END,version=version+1 WHERE id=?',
+      args: [label, VA_TEAM, code, person.personId],
+    },
+    append({
+      id: crypto.randomUUID(),
+      actor: actor.id,
+      action: 'va_identity',
+      teamId: person.team || VA_TEAM,
+      before: { personId: person.personId, code: person.code, label: person.label },
+      after: { personId: person.personId, code, label },
+      createdAt: new Date().toISOString(),
+    }),
+    { sql: "UPDATE app_state SET revision=revision+1 WHERE id='main'" },
+  );
+  try {
+    await repo.batch(ops);
+  } catch (error) {
+    if (/transaction_assertions|UNIQUE/.test(String(error)))
+      throw new ApiError('Los datos cambiaron o el nick ya está en uso. Recarga antes de guardar.', 409);
+    throw error;
+  }
+  return { ok: true };
 }

@@ -277,14 +277,27 @@ export class Service {
     };
   }
   async view(cid: string, options: { skipAvailabilityForPendingAutomatic?: boolean; external?: PolicyExternal } = {}) {
+    return this.campaignView(cid, options, false);
+  }
+  /** Only the live VA campaign may be rendered as a public PDF. */
+  async publicVaPdfView(cid: string) {
+    return this.campaignView(cid, {}, true);
+  }
+  private async campaignView(
+    cid: string,
+    options: { skipAvailabilityForPendingAutomatic?: boolean; external?: PolicyExternal },
+    publicVaPdf: boolean,
+  ) {
     const loaded = await this.load(cid, options.external);
+    if (publicVaPdf && (loaded.campaign.team_id !== VA_TEAM || loaded.campaign.scope_key !== 'live'))
+      throw new ApiError('Campaña no disponible', 404);
     if (
       loaded.campaign.scope_key !== 'live' &&
       !canWrite(this.actor, loaded.campaign.team_id) &&
       this.actor.preview?.campaignId !== cid
     )
       throw new ApiError('Simulación reservada a administradores', 403);
-    await this.assertVaReader(loaded);
+    if (!publicVaPdf) await this.assertVaReader(loaded);
     const auditContext = new AuditContext(this.repo, cid, loaded.campaign.version);
     const { d, state, hidden, consumed } = await this.election().concealedFor(loaded, undefined, auditContext);
     const concealing = d !== loaded;

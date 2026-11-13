@@ -279,8 +279,12 @@ function meses(p: Page, s: LiteSummary, top: number) {
   monthBoxes(top, (m, x, y, w, h) => {
     p.rect(x, y, w, h, null, LINE);
     p.text(x + 6, y + 12, MONTHS[m].toUpperCase(), { size: 7.5, bold: true });
+    const awardedInMonth = s.cycles.filter((c) => Number(c.date.slice(5, 7)) === m + 1 && c.codes.length).length;
+    // Expand empty VA calendars, while leaving room for awarded-day labels.
     const cellW = (w - 12) / 7,
-      cellH = 11.5;
+      cellH = va ? Math.max(11.5, Math.min(20, (h - 37 - awardedInMonth * 6.4) / 6)) : 11.5,
+      daySize = va ? Math.min(8, cellH * 0.48) : 5.8,
+      dayBaseline = cellH / 2 + daySize * 0.35;
     'LMXJVSD'
       .split('')
       .forEach((d, i) =>
@@ -297,15 +301,20 @@ function meses(p: Page, s: LiteSummary, top: number) {
       if (!c) {
         // A VA day without places reads as a full one.
         const fg = va ? p.swatch(cx + 0.6, cy + 0.6, cellW - 1.2, cellH - 1.2, 'vac2-free-0', false) : MUTED;
-        p.text(cx + cellW / 2, cy + 8, String(d), { size: 5.5, color: fg, align: 'center' });
+        p.text(cx + cellW / 2, cy + dayBaseline, String(d), { size: daySize, color: fg, align: 'center' });
         continue;
       }
       const col = { fg: p.swatch(cx + 0.6, cy + 0.6, cellW - 1.2, cellH - 1.2, c.status, false) };
       if (c.summer) p.rect(cx + 0.6, cy + cellH - 2.6, cellW - 1.2, 2, SUMMER);
       const first = c.date === date;
-      p.text(cx + cellW / 2, cy + 8, String(d), { size: 5.8, bold: first, color: col.fg, align: 'center' });
+      p.text(cx + cellW / 2, cy + dayBaseline, String(d), {
+        size: daySize,
+        bold: first,
+        color: col.fg,
+        align: 'center',
+      });
       if (first) {
-        p.line(cx + cellW / 2 - 3, cy + 9.2, cx + cellW / 2 + 3, cy + 9.2, col.fg, 0.5);
+        p.line(cx + cellW / 2 - 3, cy + dayBaseline + 1.2, cx + cellW / 2 + 3, cy + dayBaseline + 1.2, col.fg, 0.5);
         if (s.ruled && !va) p.text(cx + cellW - 1.5, cy + 4.3, c.label, { size: 3.8, color: col.fg, align: 'right' });
       }
     }

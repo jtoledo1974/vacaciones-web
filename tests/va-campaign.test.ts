@@ -364,3 +364,14 @@ test('la migración 0026 no se aplica mientras quede una elección de VA antigua
   db.exec(migration);
   assert.equal(db.prepare("SELECT 1 FROM sqlite_schema WHERE name='va_campaigns'").all().length, 0);
 });
+
+test('solo el PDF de la campaña real de VA admite lectura anónima', async () => {
+  const { repo, s, people, load } = await setup();
+  const { campaignId } = await load([people.AA]);
+  const anonymous = new Service(repo, { id: null, role: 'reader', teams: [] });
+  await assert.rejects(() => anonymous.view(campaignId), /cuenta participante/);
+  const view = await anonymous.publicVaPdfView(campaignId);
+  assert.equal(view.campaign.team_id, VA_TEAM);
+  const ordinary = (await s.list()).campaigns.find((c: { team_id: string }) => c.team_id === 'C');
+  await assert.rejects(() => anonymous.publicVaPdfView(ordinary.id), /no disponible/);
+});

@@ -92,6 +92,51 @@ function AccessEditor({ row, onSaved }: { row: Row; onSaved: () => Promise<void>
   );
 }
 
+function IdentityEditor({ row, onSaved }: { row: Row; onSaved: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  return (
+    <form
+      onSubmit={async (event) => {
+        event.preventDefault();
+        const fields = new FormData(event.currentTarget);
+        setBusy(true);
+        setError('');
+        try {
+          await api('va/identity', {
+            method: 'POST',
+            body: { personId: row.personId, code: fields.get('code'), label: fields.get('label') },
+          });
+          await onSaved();
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <div className="va-access-fields">
+        <label>
+          Nick
+          <input name="code" required maxLength={24} defaultValue={row.code} />
+        </label>
+        <label>
+          Nombre
+          <input name="label" required maxLength={120} defaultValue={row.label || row.hrName || ''} />
+        </label>
+      </div>
+      <button type="submit" disabled={busy}>
+        {busy ? 'Guardando…' : 'Guardar nombre y nick'}
+      </button>
+      {error && (
+        <div className="alert error" role="alert">
+          {error}
+        </div>
+      )}
+    </form>
+  );
+}
+
 function PersonRow({ row, onSaved }: { row: Row; onSaved: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const tag =
@@ -104,7 +149,7 @@ function PersonRow({ row, onSaved }: { row: Row; onSaved: () => Promise<void> })
     <li className="va-person">
       <button type="button" className="va-person-line" aria-expanded={open} onClick={() => setOpen(!open)}>
         <b>{row.code}</b>
-        <span className="va-person-name">{row.hrName ?? row.label}</span>
+        <span className="va-person-name">{row.label || row.hrName}</span>
         <span className={'va-tag ' + tag[0]}>{tag[1]}</span>
       </button>
       {open && (
@@ -118,6 +163,7 @@ function PersonRow({ row, onSaved }: { row: Row; onSaved: () => Promise<void> })
           {row.status === 'missing_date' && (
             <p className="muted">La fecha se completa por CLI con la carga de antigüedad maestra.</p>
           )}
+          <IdentityEditor key={JSON.stringify([row.code, row.label])} row={row} onSaved={onSaved} />
           <AccessEditor row={row} onSaved={onSaved} />
         </div>
       )}

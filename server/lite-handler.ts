@@ -84,3 +84,25 @@ export const serveLiteIndividualPdf = guarded(async (request: Request, bindings:
     },
   });
 });
+
+/** Anonymous access is limited to the PDF of a live VA campaign. */
+export const serveVaPdf = guarded(async (request: Request, bindings: LiteBindings) => {
+  if (!bindings.DB) return new Response('El almacenamiento todavía no está disponible', { status: 503, headers });
+  const repo = new D1Repository(bindings.DB);
+  const year = new URL(request.url).searchParams.get('year');
+  if (year && !/^\d{4}$/.test(year)) return new Response('Ejercicio no válido', { status: 400, headers });
+  const [campaign] = await repo.all(
+    "SELECT id FROM campaigns WHERE team_id='va' AND scope_key='live' AND (? IS NULL OR year=?) ORDER BY year DESC LIMIT 1",
+    [year, year],
+  );
+  if (!campaign) return new Response('No hay campaña de antigüedad disponible.', { status: 404, headers });
+  const service = new Service(repo, await principal(repo, null, ''));
+  const summary = liteSummary(await service.publicVaPdfView(campaign.id));
+  return new Response(renderLitePdf(summary), {
+    headers: {
+      ...headers,
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': 'inline; filename="' + pdfFilename(summary) + '"',
+    },
+  });
+});

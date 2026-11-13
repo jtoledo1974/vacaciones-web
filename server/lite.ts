@@ -249,6 +249,7 @@ export function renderLiteHtml(index: LiteIndex, summary: LiteSummary | null, me
     '</style></head><body><h1>Vacaciones · versión sencilla</h1>' +
     '<p class="m">Solo lectura, para móviles antiguos. Para elegir o editar usa la <a href="/">web completa</a>.</p>' +
     (message ? '<p><b>' + esc(message) + '</b></p>' : '') +
+    '<p><a href="/lite/va-pdf">PDF de vacaciones de antigüedad</a></p>' +
     picker +
     body +
     '</body></html>'

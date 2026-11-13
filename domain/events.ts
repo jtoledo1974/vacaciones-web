@@ -71,6 +71,7 @@ export const ADMIN_ACTIONS = [
   'va_election',
   'va_quotas',
   'va_account',
+  'va_identity',
   'master_seniority',
   'cli_authorized',
   'cli_authorization_rejected',
