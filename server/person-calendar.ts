@@ -52,9 +52,11 @@ export async function personCalendar(
 }
 
 async function campaign(service: Service, cid: string, code: string) {
+  const loaded = await service.load(cid);
+  await service.assertVaReader(loaded);
   const summary = liteSummary(await service.view(cid));
   if (!summary.members.some((m) => m.code === code)) return null;
-  const { config, members } = await service.load(cid);
+  const { config, members } = loaded;
   return {
     team: summary.team,
     year: summary.year,

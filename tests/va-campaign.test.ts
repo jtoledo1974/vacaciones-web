@@ -167,7 +167,7 @@ test('el censo exige número de empleado, avisa del orden descendente y no conge
   assert.ok((await load([people.AA])).applied);
 });
 
-test('la campaña de VA se abre solo para su administración y sus participantes', async () => {
+test('la campaña real de VA también se muestra a observadores', async () => {
   const { repo, s, people, load } = await setup();
   const { campaignId } = await load([people.AA]);
   const as = (id: string, emailKey?: string) =>
@@ -182,11 +182,15 @@ test('la campaña de VA se abre solo para su administración y sus participantes
     other = as('chatgpt:zz', 'chatgpt-email:zz@x.test');
   assert.equal((await participant.list()).vaCampaign?.id, campaignId);
   assert.equal((await participant.view(campaignId)).campaign.id, campaignId);
-  assert.equal((await other.list()).vaCampaign, null);
-  await assert.rejects(other.view(campaignId), /cuenta participante/);
+  assert.equal((await other.list()).vaCampaign?.id, campaignId);
+  assert.equal((await other.view(campaignId)).editable, false);
   assert.equal((await s.list()).vaCampaign?.id, campaignId, 'la administración la ve siempre');
-  // Every read path, not only the view.
+  // The public view only exposes the observer projection.
   const anonymous = as('');
+  assert.equal((await anonymous.list()).va.entry, true);
+  const view = await anonymous.view(campaignId);
+  assert.equal(view.editable, false);
+  assert.deepEqual(view.members.map(Object.keys), [['id', 'code']]);
   for (const reader of [other, anonymous]) {
     await assert.rejects(reader.election().availability(campaignId), /cuenta participante/);
     await assert.rejects(reader.publishedView(campaignId), /cuenta participante/);
@@ -365,11 +369,11 @@ test('la migración 0026 no se aplica mientras quede una elección de VA antigua
   assert.equal(db.prepare("SELECT 1 FROM sqlite_schema WHERE name='va_campaigns'").all().length, 0);
 });
 
-test('solo el PDF de la campaña real de VA admite lectura anónima', async () => {
+test('el PDF público solo admite la campaña real de VA', async () => {
   const { repo, s, people, load } = await setup();
   const { campaignId } = await load([people.AA]);
   const anonymous = new Service(repo, { id: null, role: 'reader', teams: [] });
-  await assert.rejects(() => anonymous.view(campaignId), /cuenta participante/);
+  assert.equal((await anonymous.view(campaignId)).editable, false);
   const view = await anonymous.publicVaPdfView(campaignId);
   assert.equal(view.campaign.team_id, VA_TEAM);
   const ordinary = (await s.list()).campaigns.find((c: { team_id: string }) => c.team_id === 'C');

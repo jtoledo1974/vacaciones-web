@@ -123,7 +123,7 @@ export class Service {
       campaigns,
       principal: this.actor,
       myCampaignIds: mine.map((m) => m.campaign_id).filter((id) => campaigns.some((c) => c.id === id)),
-      va: await vaVisibility(this.repo, this.actor),
+      va: { ...(await vaVisibility(this.repo, this.actor)), ...(vaCampaign && { entry: true, year: vaCampaign.year }) },
       vaCampaign,
       vaSimulations: await this.vaSimulations(vaCampaign),
     };
@@ -136,16 +136,13 @@ export class Service {
       [VA_TEAM, live.year],
     );
   }
-  /** The latest live VA campaign, for whoever may open it (see view). */
+  /** The latest live VA campaign, available to observers. */
   private async vaCampaign() {
-    if (!this.actor.id) return null;
     const [c] = await this.repo.all(
       "SELECT id,year,status,version FROM campaigns WHERE team_id=? AND scope_key='live' ORDER BY year DESC LIMIT 1",
       [VA_TEAM],
     );
-    if (!c) return null;
-    if (canWrite(this.actor, VA_TEAM)) return c;
-    return (await this.election().memberForAccount({ campaign: c, members: [] })) ? c : null;
+    return c ?? null;
   }
   /** Every team's live campaign of the latest year, as anyone may follow it. */
   async stats() {
@@ -297,7 +294,7 @@ export class Service {
       this.actor.preview?.campaignId !== cid
     )
       throw new ApiError('Simulación reservada a administradores', 403);
-    if (!publicVaPdf) await this.assertVaReader(loaded);
+    if (loaded.campaign.scope_key !== 'live') await this.assertVaReader(loaded);
     const auditContext = new AuditContext(this.repo, cid, loaded.campaign.version);
     const { d, state, hidden, consumed } = await this.election().concealedFor(loaded, undefined, auditContext);
     const concealing = d !== loaded;
@@ -346,7 +343,7 @@ export class Service {
       ),
     };
   }
-  /** VA is not a public consultation: its administrators and its participants only, on every read. */
+  /** Restrict VA reads outside the public campaign view. */
   async assertVaReader(loaded: Awaited<ReturnType<Service['load']>>) {
     if (
       loaded.campaign.team_id === VA_TEAM &&
